@@ -452,6 +452,10 @@ app.post("/v1/gate/heartbeat", async (request, reply) => {
   const agentVersion = readString(body, "agentVersion");
   const observedEndpoint = readString(body, "observedEndpoint");
   const capabilities = readStringArray(body, "capabilities");
+  const hostReady =
+    capabilities.includes("wireguard-tools:present") &&
+    capabilities.includes("iproute2:present") &&
+    capabilities.includes("nft:present");
 
   await db.transaction(async (client) => {
     await client.query(
@@ -491,8 +495,24 @@ app.post("/v1/gate/heartbeat", async (request, reply) => {
       [gate.id, gate.name]
     );
     await upsertGateCondition(client, gate.id, "AgentConnected", "True", "HeartbeatFresh", "Gate agent heartbeat is fresh", gate.generation);
-    await upsertGateCondition(client, gate.id, "Ready", "True", "HeartbeatFresh", "Gate is reporting to the control plane", gate.generation);
-    await upsertGateCondition(client, gate.id, "Schedulable", "True", "Enabled", "Gate is eligible for new sessions", gate.generation);
+    await upsertGateCondition(
+      client,
+      gate.id,
+      "Ready",
+      hostReady ? "True" : "False",
+      hostReady ? "HostToolsPresent" : "HostToolsMissing",
+      hostReady ? "Gate host has required WireGuard, iproute2, and nft tools" : "Gate host is missing required network tools",
+      gate.generation
+    );
+    await upsertGateCondition(
+      client,
+      gate.id,
+      "Schedulable",
+      hostReady ? "True" : "False",
+      hostReady ? "Enabled" : "HostToolsMissing",
+      hostReady ? "Gate is eligible for new sessions" : "Gate is not eligible for sessions until required tools are present",
+      gate.generation
+    );
   });
 
   return reply.send({ ok: true });
