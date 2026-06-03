@@ -29,9 +29,47 @@ export interface SessionSpec {
   desiredState: DesiredSessionState;
   mode: SessionMode;
   destinationCidrs: string[];
+  sourceCidr?: string;
+  ingressGateId?: string;
+  egressGateId?: string;
+  ingressGateName?: string;
+  egressGateName?: string;
+  clientPublicKey?: string;
   ttlSeconds?: number;
   pathPolicy?: Record<string, unknown>;
   artifactPolicy?: Record<string, unknown>;
+}
+
+export interface PublicUser {
+  id: string;
+  accountId: string;
+  email: string;
+  displayName: string;
+}
+
+export interface SessionSummary {
+  id: string;
+  mode: SessionMode;
+  desiredState: DesiredSessionState;
+  phase: SessionPhase;
+  label?: string;
+  destinationCidrs: string[];
+  sourceCidr?: string;
+  selectedPath?: Record<string, unknown>;
+  effectiveExpiryAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface GateSummary {
+  id: string;
+  name: string;
+  desiredState: GateDesiredState;
+  region: string;
+  publicEndpoint: string;
+  lastSeenAt?: string;
+  ready: boolean;
+  schedulable: boolean;
 }
 
 export interface GateAgentHeartbeat {

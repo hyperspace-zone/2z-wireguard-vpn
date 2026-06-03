@@ -30,9 +30,24 @@ This runbook describes the intended bare-metal deployment shape.
 1. Install `wireguard-tools`, `iproute2`, `nftables`, and diagnostics tools.
 2. Install the `hyperspace-gate-agent` binary.
 3. Install `hyperspace-gate-agent.service`.
-4. Register each gate in PostgreSQL.
-5. Enable gates only after heartbeat, actual-state reporting, and DoubleZero
+4. Register each gate in PostgreSQL with `npm run db:seed:testnet-gates`.
+5. Write `/etc/hyperspace/gate-agent.env` on each gate:
+
+```bash
+CONTROL_PLANE_URL=https://control-plane.testnet.hyperspace.zone
+GATE_NAME=gate-eu-fra-01
+GATE_TOKEN=<issued by seed-testnet-gates>
+POLL_INTERVAL=2s
+HEARTBEAT_INTERVAL=10s
+GATE_AGENT_EXECUTION_MODE=observe
+```
+
+6. Enable gates only after heartbeat, actual-state reporting, and DoubleZero
    reachability checks pass.
+
+`GATE_AGENT_EXECUTION_MODE=ack` is reserved for control-plane integration
+tests. It acknowledges jobs without mutating host WireGuard state and must not
+be used for traffic validation.
 
 ## Observability
 

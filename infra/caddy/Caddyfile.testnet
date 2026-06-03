@@ -3,6 +3,7 @@ app.testnet.hyperspace.zone {
   file_server
 
   handle /api/* {
+    uri strip_prefix /api
     reverse_proxy https://control-plane.testnet.hyperspace.zone
   }
 }

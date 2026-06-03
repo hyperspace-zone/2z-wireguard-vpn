@@ -4,15 +4,17 @@
   "private": true,
   "type": "module",
   "workspaces": [
-    "apps/control-plane-api",
-    "apps/control-plane-worker",
-    "apps/web",
     "packages/contracts",
     "packages/db",
-    "packages/shared"
+    "packages/shared",
+    "apps/control-plane-api",
+    "apps/control-plane-worker",
+    "apps/web"
   ],
   "scripts": {
     "build": "npm run build --workspaces --if-present",
+    "db:migrate": "npm run build -w @hyperspace-zone/db && node packages/db/dist/migrate.js",
+    "db:seed:testnet-gates": "npm run build -w @hyperspace-zone/db && node packages/db/dist/seed-testnet-gates.js infra/testnet/gates.json",
     "test": "npm run test --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present"
   },

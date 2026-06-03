@@ -8,6 +8,11 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "node --test"
   },
+  "dependencies": {
+    "@hyperspace-zone/contracts": "0.1.0",
+    "@hyperspace-zone/db": "0.1.0",
+    "@hyperspace-zone/shared": "0.1.0"
+  },
   "devDependencies": {
     "typescript": "^5.9.0"
   }

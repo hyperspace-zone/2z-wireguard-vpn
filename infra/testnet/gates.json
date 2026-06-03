@@ -1,0 +1,42 @@
+[
+  {
+    "name": "gate-eu-fra-01",
+    "identity": "gate-eu-fra-01.testnet.hyperspace.zone",
+    "region": "eu-fra",
+    "publicEndpoint": "212.147.230.200",
+    "schedulingWeight": 100,
+    "capacityLimit": 128
+  },
+  {
+    "name": "gate-eu-ams-01",
+    "identity": "gate-eu-ams-01.testnet.hyperspace.zone",
+    "region": "eu-ams",
+    "publicEndpoint": "85.9.219.252",
+    "schedulingWeight": 100,
+    "capacityLimit": 128
+  },
+  {
+    "name": "gate-eu-lon-01",
+    "identity": "gate-eu-lon-01.testnet.hyperspace.zone",
+    "region": "eu-lon",
+    "publicEndpoint": "94.237.62.140",
+    "schedulingWeight": 100,
+    "capacityLimit": 128
+  },
+  {
+    "name": "gate-na-nyc-01",
+    "identity": "gate-na-nyc-01.testnet.hyperspace.zone",
+    "region": "na-nyc",
+    "publicEndpoint": "85.9.199.104",
+    "schedulingWeight": 100,
+    "capacityLimit": 128
+  },
+  {
+    "name": "gate-ap-sin-01",
+    "identity": "gate-ap-sin-01.testnet.hyperspace.zone",
+    "region": "ap-sin",
+    "publicEndpoint": "213.163.192.30",
+    "schedulingWeight": 100,
+    "capacityLimit": 128
+  }
+]
