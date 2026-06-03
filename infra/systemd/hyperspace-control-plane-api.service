@@ -1,0 +1,18 @@
+[Unit]
+Description=Hyperspace Control-Plane API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=hyperspace
+Group=hyperspace
+WorkingDirectory=/opt/2z-wireguard-vpn/apps/control-plane-api
+EnvironmentFile=/etc/hyperspace/control-plane-api.env
+ExecStart=/usr/bin/node /opt/2z-wireguard-vpn/apps/control-plane-api/dist/main.js
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

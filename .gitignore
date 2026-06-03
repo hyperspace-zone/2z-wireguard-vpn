@@ -1,0 +1,28 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+coverage/
+*.tsbuildinfo
+
+# Go
+bin/
+*.test
+
+# Local environment
+.env
+.env.*
+!.env.example
+
+# Logs and runtime state
+*.log
+*.pid
+tmp/
+var/
+
+# OS/editor
+.DS_Store
+.idea/
+.vscode/

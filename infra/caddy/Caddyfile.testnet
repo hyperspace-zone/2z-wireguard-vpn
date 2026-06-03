@@ -1,0 +1,12 @@
+app.testnet.hyperspace.zone {
+  root * /var/www/hyperspace-web
+  file_server
+
+  handle /api/* {
+    reverse_proxy https://control-plane.testnet.hyperspace.zone
+  }
+}
+
+control-plane.testnet.hyperspace.zone {
+  reverse_proxy 127.0.0.1:8080
+}
