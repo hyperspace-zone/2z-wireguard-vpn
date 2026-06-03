@@ -280,7 +280,16 @@ async function revokeSession(id: string): Promise<void> {
 async function downloadArtifact(id: string): Promise<void> {
   const tokenResponse = await api(`/v1/public/sessions/${id}/artifacts/client-config/download-token`, { method: "POST" });
   const artifact = await api(tokenResponse.downloadUrl, { method: "GET" });
-  log(JSON.stringify(artifact, null, 2));
+  const payload = artifact.payload ?? {};
+  if (typeof payload.configText !== "string") {
+    log(JSON.stringify(artifact, null, 2));
+    return;
+  }
+  downloadTextFile(
+    typeof payload.fileName === "string" ? payload.fileName : `hyperspace-${id.slice(0, 8)}.conf`,
+    payload.configText
+  );
+  log("Client configuration downloaded.");
 }
 
 async function getMe(): Promise<{ email: string }> {
@@ -355,6 +364,17 @@ function log(message: string): void {
   if (target) {
     target.textContent = `${message}\n${target.textContent ?? ""}`;
   }
+}
+
+function downloadTextFile(fileName: string, content: string): void {
+  const url = URL.createObjectURL(new Blob([content], { type: "text/plain;charset=utf-8" }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
 }
 
 function escapeHtml(value: string): string {

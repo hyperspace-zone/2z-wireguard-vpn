@@ -17,7 +17,8 @@ This runbook describes the intended bare-metal deployment shape.
 3. Install `hyperspace-control-plane-api.service`.
 4. Install `hyperspace-control-plane-worker.service`.
 5. Configure Caddy for `control-plane.testnet.hyperspace.zone`.
-6. Verify `/health` and all API surface health endpoints.
+6. Set the same `ARTIFACT_ENCRYPTION_KEY` in both API and worker env files.
+7. Verify `/health` and all API surface health endpoints.
 
 ## Web
 
@@ -39,11 +40,15 @@ GATE_NAME=gate-eu-fra-01
 GATE_TOKEN=<issued by seed-testnet-gates>
 POLL_INTERVAL=2s
 HEARTBEAT_INTERVAL=10s
-GATE_AGENT_EXECUTION_MODE=observe
+GATE_AGENT_EXECUTION_MODE=apply
+GATE_AGENT_STATE_DIR=/var/lib/hyperspace-gate
 ```
 
 6. Enable gates only after heartbeat, actual-state reporting, and DoubleZero
    reachability checks pass.
+
+`GATE_AGENT_EXECUTION_MODE=observe` is reserved for dry-run deployment checks.
+It reports health and actual state but refuses host mutation jobs.
 
 `GATE_AGENT_EXECUTION_MODE=ack` is reserved for control-plane integration
 tests. It acknowledges jobs without mutating host WireGuard state and must not

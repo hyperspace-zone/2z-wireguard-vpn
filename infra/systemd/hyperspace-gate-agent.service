@@ -6,9 +6,10 @@ Wants=network-online.target
 [Service]
 Type=simple
 User=root
-WorkingDirectory=/opt/2z-wireguard-vpn/apps/gate-agent
+WorkingDirectory=/
 EnvironmentFile=/etc/hyperspace/gate-agent.env
 ExecStart=/usr/local/bin/hyperspace-gate-agent
+StateDirectory=hyperspace-gate
 Restart=always
 RestartSec=3
 

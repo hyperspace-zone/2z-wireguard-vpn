@@ -17,6 +17,18 @@ export type SessionPhase =
 export type GateRole = "Ingress" | "Egress";
 export type GateDesiredState = "Enabled" | "Draining" | "Disabled" | "Maintenance";
 export type GateAssignmentDesiredState = "Applied" | "Revoked";
+export type GateAssignmentPhase =
+  | "planned"
+  | "queued"
+  | "leased"
+  | "applying"
+  | "prepared"
+  | "applied"
+  | "drifted"
+  | "revoking"
+  | "revoked"
+  | "retryable_failed"
+  | "dead";
 export type JobType =
   | "probe"
   | "apply_assignment"

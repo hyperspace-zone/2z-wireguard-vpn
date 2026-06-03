@@ -2,6 +2,11 @@ import { scryptSync, timingSafeEqual } from "node:crypto";
 import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
 import { createDatabase, newSecretToken, sha256Hex } from "@hyperspace-zone/db";
 import type { GateSummary, SessionMode, SessionSummary } from "@hyperspace-zone/contracts";
+import {
+  decryptJsonPayload,
+  parseAes256GcmKey,
+  type EncryptedJsonPayload
+} from "@hyperspace-zone/shared";
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) {
@@ -13,6 +18,8 @@ const port = Number(process.env.PORT ?? "8080");
 const authSessionTtlSeconds = Number(process.env.AUTH_SESSION_TTL_SECONDS ?? 60 * 60 * 24 * 30);
 const downloadTokenTtlSeconds = Number(process.env.ARTIFACT_DOWNLOAD_TTL_SECONDS ?? 300);
 const adminToken = process.env.ADMIN_TOKEN;
+const artifactEncryptionKeyRaw = process.env.ARTIFACT_ENCRYPTION_KEY;
+const artifactEncryptionKey = artifactEncryptionKeyRaw ? parseAes256GcmKey(artifactEncryptionKeyRaw) : null;
 
 const db = createDatabase({
   connectionString: databaseUrl,
@@ -390,15 +397,30 @@ app.get("/v1/public/artifacts/download/:token", async (request, reply) => {
       artifactId: string;
       publicPayload: unknown;
       encryptedPayloadRef: string | null;
+      payloadType: string | null;
+      encryptionMethod: string | null;
+      nonce: string | null;
+      ciphertext: string | null;
+      authTag: string | null;
+      aad: string | null;
+      keyFingerprint: string | null;
     }>(
       `
         SELECT
           artifact_download_tokens.id,
           artifacts.id AS "artifactId",
           artifacts.public_payload AS "publicPayload",
-          artifacts.encrypted_payload_ref AS "encryptedPayloadRef"
+          artifacts.encrypted_payload_ref AS "encryptedPayloadRef",
+          artifact_payloads.payload_type AS "payloadType",
+          artifact_payloads.encryption_method AS "encryptionMethod",
+          artifact_payloads.nonce,
+          artifact_payloads.ciphertext,
+          artifact_payloads.auth_tag AS "authTag",
+          artifact_payloads.aad,
+          artifact_payloads.key_fingerprint AS "keyFingerprint"
         FROM artifact_download_tokens
         JOIN artifacts ON artifacts.id = artifact_download_tokens.artifact_id
+        LEFT JOIN artifact_payloads ON artifact_payloads.artifact_id = artifacts.id
         WHERE artifact_download_tokens.token_hash = $1
           AND artifact_download_tokens.expires_at > now()
           AND artifact_download_tokens.revoked_at IS NULL
@@ -427,9 +449,18 @@ app.get("/v1/public/artifacts/download/:token", async (request, reply) => {
     return reply.code(404).send({ error: "download_token_not_found" });
   }
 
+  const encryptedPayload = encryptedPayloadFromRow(result);
+  if (encryptedPayload && !artifactEncryptionKey) {
+    return reply.code(503).send({ error: "artifact_encryption_not_configured" });
+  }
+
   return reply.send({
     artifactId: result.artifactId,
-    payload: result.publicPayload,
+    metadata: result.publicPayload,
+    payload: encryptedPayload && artifactEncryptionKey
+      ? decryptJsonPayload(encryptedPayload, artifactEncryptionKey)
+      : result.publicPayload,
+    ...(result.payloadType ? { payloadType: result.payloadType } : {}),
     encryptedPayloadRef: result.encryptedPayloadRef
   });
 });
@@ -607,6 +638,21 @@ app.post("/v1/gate/jobs/claim", async (request, reply) => {
       `,
       [row.id, attemptNumber, gate.name]
     );
+    if (row.assignmentId) {
+      await client.query(
+        `
+          UPDATE gate_assignment_status
+          SET phase = CASE
+                WHEN $2::text = 'revoke_assignment' THEN 'revoking'::gate_assignment_phase
+                ELSE 'applying'::gate_assignment_phase
+              END,
+              updated_at = now()
+          WHERE assignment_id = $1
+            AND phase NOT IN ('applied', 'revoked')
+        `,
+        [row.assignmentId, row.type]
+      );
+    }
 
     return {
       id: row.id,
@@ -695,34 +741,61 @@ app.post("/v1/gate/jobs/:jobId/report", async (request, reply) => {
 
     if (row.assignmentId) {
       if (status === "succeeded" && row.type === "apply_assignment") {
-        await client.query(
-          `
-            UPDATE gate_assignment_status
-            SET phase = 'applied',
-                observed_generation = gate_assignments.generation,
-                applied_plan_id = gate_assignments.plan_id,
-                actual_state_hash = $2,
-                applied_at = now(),
-                last_observed_at = now(),
-                updated_at = now()
-            FROM gate_assignments
-            WHERE gate_assignment_status.assignment_id = gate_assignments.id
-              AND gate_assignment_status.assignment_id = $1
-          `,
-          [row.assignmentId, actualStateHash || null]
-        );
+        const operation = readString(resultSummary, "operation") || "commit";
+        if (operation === "prepare") {
+          await client.query(
+            `
+              UPDATE gate_assignment_status
+              SET phase = 'prepared',
+                  observed_generation = gate_assignments.generation,
+                  actual_state_hash = $2,
+                  local_material = $3::jsonb,
+                  reported_state = $4::jsonb,
+                  last_observed_at = now(),
+                  updated_at = now()
+              FROM gate_assignments
+              WHERE gate_assignment_status.assignment_id = gate_assignments.id
+                AND gate_assignment_status.assignment_id = $1
+            `,
+            [
+              row.assignmentId,
+              actualStateHash || null,
+              JSON.stringify(asRecord(resultSummary.material ?? {})),
+              JSON.stringify(resultSummary)
+            ]
+          );
+        } else {
+          await client.query(
+            `
+              UPDATE gate_assignment_status
+              SET phase = 'applied',
+                  observed_generation = gate_assignments.generation,
+                  applied_plan_id = gate_assignments.plan_id,
+                  actual_state_hash = $2,
+                  reported_state = $3::jsonb,
+                  applied_at = now(),
+                  last_observed_at = now(),
+                  updated_at = now()
+              FROM gate_assignments
+              WHERE gate_assignment_status.assignment_id = gate_assignments.id
+                AND gate_assignment_status.assignment_id = $1
+            `,
+            [row.assignmentId, actualStateHash || null, JSON.stringify(resultSummary)]
+          );
+        }
       } else if (status === "succeeded" && row.type === "revoke_assignment") {
         await client.query(
           `
             UPDATE gate_assignment_status
             SET phase = 'revoked',
                 actual_state_hash = $2,
+                reported_state = $3::jsonb,
                 revoked_at = now(),
                 last_observed_at = now(),
                 updated_at = now()
             WHERE assignment_id = $1
           `,
-          [row.assignmentId, actualStateHash || null]
+          [row.assignmentId, actualStateHash || null, JSON.stringify(resultSummary)]
         );
       } else {
         await client.query(
@@ -1139,6 +1212,30 @@ function readPositiveInteger(record: Record<string, unknown>, key: string): numb
     return undefined;
   }
   return parsed;
+}
+
+function encryptedPayloadFromRow(row: {
+  encryptionMethod: string | null;
+  nonce: string | null;
+  ciphertext: string | null;
+  authTag: string | null;
+  aad: string | null;
+  keyFingerprint: string | null;
+}): EncryptedJsonPayload | null {
+  if (!row.encryptionMethod || !row.nonce || !row.ciphertext || !row.authTag || !row.aad || !row.keyFingerprint) {
+    return null;
+  }
+  if (row.encryptionMethod !== "aes-256-gcm") {
+    throw new Error(`unsupported artifact encryption method ${row.encryptionMethod}`);
+  }
+  return {
+    encryptionMethod: row.encryptionMethod,
+    nonce: row.nonce,
+    ciphertext: row.ciphertext,
+    authTag: row.authTag,
+    aad: row.aad,
+    keyFingerprint: row.keyFingerprint
+  };
 }
 
 function normalizeEmail(value: string): string {
