@@ -1,0 +1,20 @@
+{
+  email ops@example.net
+}
+
+app.example.net {
+  root * /var/www/hyperspace-web
+
+  handle /api/* {
+    uri strip_prefix /api
+    reverse_proxy https://control-plane.example.net {
+      header_up Host control-plane.example.net
+    }
+  }
+
+  handle {
+    header Cache-Control "no-store, max-age=0"
+    try_files {path} /index.html
+    file_server
+  }
+}

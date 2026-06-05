@@ -1,0 +1,35 @@
+# Gate HTTPS probe endpoint.
+# Required environment:
+# - GATE_HOST: public DNS name or public IP address.
+# - WEB_ORIGIN: web UI origin, for example https://app.example.net.
+# - TLS_FULLCHAIN: path to fullchain.pem copied from Let's Encrypt.
+# - TLS_PRIVKEY: path to privkey.pem copied from Let's Encrypt.
+# - GATE_NAME: gate name returned on non-probe requests.
+{
+	auto_https disable_redirects
+}
+
+:80 {
+	@acme path /.well-known/acme-challenge/*
+	handle @acme {
+		root * /var/www/acme-challenges
+		file_server
+	}
+
+	handle {
+		redir https://{host}{uri} permanent
+	}
+}
+
+https://{$GATE_HOST} {
+	tls {$TLS_FULLCHAIN} {$TLS_PRIVKEY}
+
+	@probe path /.well-known/hyperspace-probe
+	header @probe Access-Control-Allow-Origin "{$WEB_ORIGIN}"
+	header @probe Access-Control-Allow-Methods "GET, HEAD, OPTIONS"
+	header @probe Access-Control-Max-Age "86400"
+	header @probe Timing-Allow-Origin "{$WEB_ORIGIN}"
+	respond @probe "" 204
+
+	respond "{$GATE_NAME}" 200
+}

@@ -5,7 +5,12 @@ interface GateSeed {
   name: string;
   identity: string;
   region: string;
+  city: string;
+  country: string;
+  countryCode: string;
   publicEndpoint: string;
+  probeUrl?: string;
+  doubleZeroEnv?: "testnet" | "mainnet-beta";
   schedulingWeight?: number;
   capacityLimit?: number;
 }
@@ -24,7 +29,7 @@ if (!seedPath) {
 const seeds = JSON.parse(await readFile(seedPath, "utf8")) as GateSeed[];
 const db = createDatabase({
   connectionString,
-  applicationName: "hyperspace-testnet-gate-seed"
+  applicationName: "hyperspace-gate-seed"
 });
 
 try {
@@ -39,16 +44,22 @@ try {
             desired_state,
             identity,
             region,
+            city,
+            country,
+            country_code,
             public_endpoint,
             scheduling_weight,
             capacity_limit,
             spec
           )
-          VALUES ($1, 'Enabled', $2, $3, $4, $5, $6, $7::jsonb)
+          VALUES ($1, 'Enabled', $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb)
           ON CONFLICT (name) DO UPDATE
           SET
             identity = EXCLUDED.identity,
             region = EXCLUDED.region,
+            city = EXCLUDED.city,
+            country = EXCLUDED.country,
+            country_code = EXCLUDED.country_code,
             public_endpoint = EXCLUDED.public_endpoint,
             scheduling_weight = EXCLUDED.scheduling_weight,
             capacity_limit = EXCLUDED.capacity_limit,
@@ -61,10 +72,21 @@ try {
           seed.name,
           seed.identity,
           seed.region,
+          seed.city,
+          seed.country,
+          seed.countryCode,
           seed.publicEndpoint,
           seed.schedulingWeight ?? 100,
           seed.capacityLimit ?? 128,
-          JSON.stringify({ testnet: true })
+          JSON.stringify({
+            doubleZeroEnv: seed.doubleZeroEnv ?? "testnet",
+            ...(seed.probeUrl ? { probeUrl: seed.probeUrl } : {}),
+            location: {
+              city: seed.city,
+              country: seed.country,
+              countryCode: seed.countryCode
+            }
+          })
         ]
       );
 

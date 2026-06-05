@@ -1,8 +1,8 @@
 # Observability
 
-Testnet target:
+Recommended target:
 
-- host: `observability.testnet.hyperspace.zone`
+- host: dedicated observability host or private monitoring stack
 - metrics: Prometheus
 - dashboards: Grafana
 - node metrics: node_exporter on every host

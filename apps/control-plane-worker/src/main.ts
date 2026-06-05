@@ -19,6 +19,8 @@ if (!artifactEncryptionKeyRaw) {
 
 const pollMs = Number(process.env.WORKER_POLL_MS ?? 2000);
 const workerId = process.env.WORKER_ID ?? `worker-${process.pid}`;
+const gateHeartbeatStaleSeconds = Number(process.env.GATE_HEARTBEAT_STALE_SECONDS ?? 45);
+const provisioningTimeoutSeconds = Number(process.env.PROVISIONING_TIMEOUT_SECONDS ?? 90);
 const artifactEncryptionKey = parseAes256GcmKey(artifactEncryptionKeyRaw);
 
 const db = createDatabase({
@@ -48,11 +50,11 @@ while (true) {
 
 async function reconcileOnce(): Promise<void> {
   await markStaleGates();
-  await expireSessions();
   await beginRevocation();
   await scheduleRequestedSessions();
   await enqueueCommitJobsForPreparedAssignments();
   await completeProvisionedSessions();
+  await failTimedOutProvisioningSessions();
   await completeRevokedSessions();
   await requeueExpiredJobs();
 }
@@ -80,7 +82,7 @@ async function markStaleGates(): Promise<void> {
       FROM gates
       LEFT JOIN gate_status ON gate_status.gate_id = gates.id
       WHERE gate_status.last_seen_at IS NULL
-         OR gate_status.last_seen_at < now() - interval '45 seconds'
+         OR gate_status.last_seen_at < now() - ($1::int * interval '1 second')
       ON CONFLICT (gate_id, type) DO UPDATE
       SET status = EXCLUDED.status,
           reason = EXCLUDED.reason,
@@ -90,35 +92,50 @@ async function markStaleGates(): Promise<void> {
             WHEN gate_conditions.status <> EXCLUDED.status THEN now()
             ELSE gate_conditions.last_transition_at
           END
-    `
+    `,
+    [gateHeartbeatStaleSeconds]
   );
-}
 
-async function expireSessions(): Promise<void> {
   await db.query(
     `
-      UPDATE sessions
-      SET desired_state = 'Revoked',
-          generation = generation + 1,
-          updated_at = now()
-      FROM session_status
-      WHERE session_status.session_id = sessions.id
-        AND sessions.desired_state = 'Active'
-        AND session_status.phase IN ('active', 'degraded', 'provisioning')
-        AND session_status.effective_expiry_at IS NOT NULL
-        AND session_status.effective_expiry_at <= now()
-    `
-  );
-  await db.query(
-    `
-      UPDATE session_status
-      SET phase = 'revoking',
-          updated_at = now()
-      FROM sessions
-      WHERE session_status.session_id = sessions.id
-        AND sessions.desired_state = 'Revoked'
-        AND session_status.phase IN ('active', 'degraded', 'provisioning')
-    `
+      INSERT INTO gate_conditions (
+        gate_id,
+        type,
+        status,
+        reason,
+        message,
+        observed_generation,
+        last_transition_at
+      )
+      SELECT
+        gates.id,
+        condition.type,
+        'False',
+        'HeartbeatStale',
+        condition.message,
+        gates.generation,
+        now()
+      FROM gates
+      LEFT JOIN gate_status ON gate_status.gate_id = gates.id
+      CROSS JOIN (
+        VALUES
+          ('Ready', 'Gate agent heartbeat is stale'),
+          ('Schedulable', 'Gate is not eligible for new sessions while agent heartbeat is stale')
+      ) AS condition(type, message)
+      WHERE gate_status.last_seen_at IS NULL
+         OR gate_status.last_seen_at < now() - ($1::int * interval '1 second')
+      ON CONFLICT (gate_id, type) DO UPDATE
+      SET status = EXCLUDED.status,
+          reason = EXCLUDED.reason,
+          message = EXCLUDED.message,
+          observed_generation = EXCLUDED.observed_generation,
+          last_transition_at = CASE
+            WHEN gate_conditions.status <> EXCLUDED.status
+              OR gate_conditions.reason <> EXCLUDED.reason THEN now()
+            ELSE gate_conditions.last_transition_at
+          END
+    `,
+    [gateHeartbeatStaleSeconds]
   );
 }
 
@@ -236,23 +253,51 @@ async function scheduleRequestedSessions(): Promise<void> {
     for (const session of sessions.rows) {
       const path = await choosePath(client, session.spec);
       if (!path) {
+        const error = {
+          code: "no_schedulable_path",
+          message: "No ready ingress/egress gate pair is currently schedulable"
+        };
         await setSessionCondition(
           client,
           session.id,
           "Ready",
           "False",
           "NoSchedulablePath",
-          "No ready ingress/egress gate pair is currently schedulable",
+          error.message,
           session.generation
         );
         await client.query(
-          "UPDATE session_status SET phase = 'scheduling', updated_at = now() WHERE session_id = $1",
-          [session.id]
+          "UPDATE session_status SET phase = 'failed', last_error = $2::jsonb, updated_at = now() WHERE session_id = $1",
+          [session.id, JSON.stringify(error)]
         );
         continue;
       }
 
-      const plan = renderPlan(session, path);
+      const clientAddress = await ensureClientAddressLease(client, session.id);
+      if (!clientAddress) {
+        await setSessionCondition(
+          client,
+          session.id,
+          "Ready",
+          "False",
+          "AddressPoolExhausted",
+          "No WireGuard client address is currently available",
+          session.generation
+        );
+        await client.query(
+          "UPDATE session_status SET phase = 'failed', last_error = $2::jsonb, updated_at = now() WHERE session_id = $1",
+          [
+            session.id,
+            JSON.stringify({
+              code: "address_pool_exhausted",
+              message: "No WireGuard client address is currently available"
+            })
+          ]
+        );
+        continue;
+      }
+
+      const plan = renderPlan(session, path, clientAddress);
       const planRow = await client.query<{ id: string }>(
         `
           INSERT INTO rendered_plans (
@@ -266,7 +311,11 @@ async function scheduleRequestedSessions(): Promise<void> {
           )
           VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6::jsonb, $7::jsonb)
           ON CONFLICT (session_id, generation) DO UPDATE
-          SET plan_hash = EXCLUDED.plan_hash
+          SET plan_hash = EXCLUDED.plan_hash,
+              public_material = EXCLUDED.public_material,
+              routing_model = EXCLUDED.routing_model,
+              firewall_model = EXCLUDED.firewall_model,
+              secret_refs = EXCLUDED.secret_refs
           RETURNING id
         `,
         [
@@ -463,6 +512,10 @@ async function enqueueCommitJobsForPreparedAssignments(): Promise<void> {
         `,
         [ingress.id, egress.id]
       );
+      await client.query(
+        "UPDATE session_status SET updated_at = now() WHERE session_id = $1",
+        [session.id]
+      );
       await setSessionCondition(
         client,
         session.id,
@@ -545,6 +598,126 @@ async function completeProvisionedSessions(): Promise<void> {
   });
 }
 
+async function failTimedOutProvisioningSessions(): Promise<void> {
+  await db.transaction(async (client) => {
+    const sessions = await client.query<{ id: string; generation: number }>(
+      `
+        SELECT sessions.id, sessions.generation::int
+        FROM sessions
+        JOIN session_status ON session_status.session_id = sessions.id
+        WHERE sessions.desired_state = 'Active'
+          AND session_status.phase = 'provisioning'
+          AND session_status.updated_at < now() - ($1::int * interval '1 second')
+        FOR UPDATE SKIP LOCKED
+        LIMIT 50
+      `,
+      [provisioningTimeoutSeconds]
+    );
+
+    for (const session of sessions.rows) {
+      const assignments = await client.query<{
+        gateName: string;
+        role: "Ingress" | "Egress";
+        phase: string;
+      }>(
+        `
+          SELECT
+            gates.name AS "gateName",
+            gate_assignments.role::text AS role,
+            gate_assignment_status.phase::text AS phase
+          FROM gate_assignments
+          JOIN gates ON gates.id = gate_assignments.gate_id
+          JOIN gate_assignment_status ON gate_assignment_status.assignment_id = gate_assignments.id
+          WHERE gate_assignments.session_id = $1
+          ORDER BY gate_assignments.role ASC
+        `,
+        [session.id]
+      );
+      const pendingAssignments = assignments.rows.filter((assignment) => assignment.phase !== "applied");
+      const pendingText = pendingAssignments
+        .map((assignment) => `${assignment.role.toLowerCase()} ${assignment.gateName}: ${assignment.phase}`)
+        .join("; ");
+      const message = pendingText
+        ? `Provisioning timed out waiting for gate confirmation (${pendingText})`
+        : "Provisioning timed out waiting for gate confirmation";
+
+      await client.query(
+        `
+          UPDATE jobs
+          SET phase = CASE WHEN phase IN ('queued', 'leased', 'running', 'retryable_failed') THEN 'dead' ELSE phase END,
+              lease_owner = NULL,
+              lease_expires_at = NULL,
+              updated_at = now()
+          WHERE session_id = $1
+            AND type = 'apply_assignment'
+            AND phase IN ('queued', 'leased', 'running', 'retryable_failed')
+        `,
+        [session.id]
+      );
+      await client.query(
+        `
+          UPDATE gate_assignment_status
+          SET phase = CASE WHEN phase IN ('planned', 'queued', 'leased', 'applying', 'prepared', 'retryable_failed') THEN 'dead' ELSE phase END,
+              last_error = $2::jsonb,
+              updated_at = now()
+          FROM gate_assignments
+          WHERE gate_assignment_status.assignment_id = gate_assignments.id
+            AND gate_assignments.session_id = $1
+            AND gate_assignment_status.phase <> 'applied'
+        `,
+        [
+          session.id,
+          JSON.stringify({
+            code: "gate_confirmation_timeout",
+            message
+          })
+        ]
+      );
+      await client.query(
+        `
+          UPDATE artifacts
+          SET invalidated_at = now(),
+              phase = 'invalidated'
+          WHERE session_id = $1
+            AND invalidated_at IS NULL
+        `,
+        [session.id]
+      );
+      await client.query(
+        `
+          UPDATE session_status
+          SET phase = 'failed',
+              last_error = $2::jsonb,
+              updated_at = now()
+          WHERE session_id = $1
+        `,
+        [
+          session.id,
+          JSON.stringify({
+            code: "gate_confirmation_timeout",
+            message
+          })
+        ]
+      );
+      await releaseClientAddressLease(client, session.id, "provisioning_failed");
+      await setSessionCondition(client, session.id, "Ready", "False", "ProvisioningFailed", message, session.generation);
+      await client.query(
+        `
+          INSERT INTO audit_events (event_type, actor_type, session_id, details)
+          VALUES ('session_failed', 'system', $1, $2::jsonb)
+        `,
+        [
+          session.id,
+          JSON.stringify({
+            code: "gate_confirmation_timeout",
+            message
+          })
+        ]
+      );
+    }
+  });
+}
+
 async function createClientConfigArtifact(
   client: { query: (sql: string, params?: readonly unknown[]) => Promise<{ rows: Array<Record<string, unknown>>; rowCount: number | null }> },
   sessionId: string,
@@ -593,6 +766,7 @@ async function createClientConfigArtifact(
   const clientAddress = readRequiredString(publicMaterial, "clientAddress");
   const mode = readRequiredString(publicMaterial, "mode");
   const clientKeyMode = readRequiredString(publicMaterial, "clientKeyMode");
+  const clientPublicKey = readRequiredString(publicMaterial, "clientPublicKey");
   const ingressMaterial = asRecord(ingress.localMaterial);
   const ingressWireGuard = asRecord(ingressMaterial.wireGuard);
   const serverPublicKey = readRequiredString(ingressWireGuard, "clientPublicKey");
@@ -622,6 +796,8 @@ async function createClientConfigArtifact(
   const fileName = `hyperspace-${sessionId.slice(0, 8)}.conf`;
   const configText = renderClientConfig({
     privateKey: clientPrivateKey,
+    clientPublicKey,
+    clientKeyMode,
     address: clientAddress,
     serverPublicKey,
     endpoint: `${String(ingress.publicEndpoint)}:${listenPort}`,
@@ -706,15 +882,29 @@ async function createClientConfigArtifact(
 
 function renderClientConfig(input: {
   privateKey: string;
+  clientPublicKey: string;
+  clientKeyMode: string;
   address: string;
   serverPublicKey: string;
   endpoint: string;
   allowedIps: string[];
   persistentKeepaliveSeconds: number;
 }): string {
+  const interfaceLines = input.clientKeyMode === "BringYourOwnPublicKey"
+    ? [
+        "[Interface]",
+        "# Bring-your-own-key mode.",
+        "# Replace the placeholder below with the private key that matches this client public key:",
+        `# ${input.clientPublicKey}`,
+        "PrivateKey = <replace-with-matching-client-private-key>"
+      ]
+    : [
+        "[Interface]",
+        `PrivateKey = ${input.privateKey}`
+      ];
+
   return [
-    "[Interface]",
-    `PrivateKey = ${input.privateKey}`,
+    ...interfaceLines,
     `Address = ${input.address}`,
     "DNS = 1.1.1.1",
     "",
@@ -756,6 +946,7 @@ async function completeRevokedSessions(): Promise<void> {
         "UPDATE session_status SET phase = 'revoked', observed_generation = $2, updated_at = now() WHERE session_id = $1",
         [session.id, session.generation]
       );
+      await releaseClientAddressLease(client, session.id, "session_revoked");
       await setSessionCondition(client, session.id, "Ready", "False", "Revoked", "Session has been revoked", session.generation);
       await client.query(
         `
@@ -800,6 +991,91 @@ interface WireGuardRenderedPlan {
   secretPayload: EncryptedJsonPayload | null;
 }
 
+interface AddressPoolRow {
+  id: string;
+  cidr: string;
+  nextOffset: string;
+}
+
+interface Queryable {
+  query: (sql: string, params?: readonly unknown[]) => Promise<{ rows: Array<Record<string, unknown>>; rowCount?: number | null }>;
+}
+
+async function ensureClientAddressLease(client: Queryable, sessionId: string): Promise<string | null> {
+  const existing = await client.query(
+    `
+      SELECT client_address::text AS "clientAddress"
+      FROM client_address_leases
+      WHERE session_id = $1
+        AND released_at IS NULL
+      LIMIT 1
+    `,
+    [sessionId]
+  );
+  const existingAddress = existing.rows[0]?.clientAddress;
+  if (typeof existingAddress === "string" && existingAddress) {
+    return toClientAddressCidr(existingAddress);
+  }
+
+  const pools = await client.query(
+    `
+      SELECT id, cidr::text AS cidr, next_offset::text AS "nextOffset"
+      FROM address_pools
+      WHERE enabled = true
+        AND family = 4
+        AND purpose = 'wireguard_client'
+      ORDER BY priority ASC, name ASC
+      FOR UPDATE
+    `
+  );
+
+  for (const pool of pools.rows as unknown as AddressPoolRow[]) {
+    const parsed = parseIpv4Cidr(pool.cidr);
+    if (!parsed) {
+      log({ event: "address_pool_invalid", poolId: pool.id, cidr: pool.cidr });
+      continue;
+    }
+
+    const startOffset = Number(BigInt(pool.nextOffset) % BigInt(parsed.size));
+    for (let attempt = 0; attempt < parsed.size; attempt += 1) {
+      const offset = (startOffset + attempt) % parsed.size;
+      const clientAddress = intToIpv4(parsed.base + offset);
+      const inserted = await client.query(
+        `
+          INSERT INTO client_address_leases (pool_id, session_id, client_address)
+          VALUES ($1, $2, $3::inet)
+          ON CONFLICT DO NOTHING
+          RETURNING client_address::text AS "clientAddress"
+        `,
+        [pool.id, sessionId, clientAddress]
+      );
+      const row = inserted.rows[0];
+      if (row && typeof row.clientAddress === "string") {
+        await client.query(
+          "UPDATE address_pools SET next_offset = $2, updated_at = now() WHERE id = $1",
+          [pool.id, String((offset + 1) % parsed.size)]
+        );
+        return toClientAddressCidr(row.clientAddress);
+      }
+    }
+  }
+
+  return null;
+}
+
+async function releaseClientAddressLease(client: Queryable, sessionId: string, reason: string): Promise<void> {
+  await client.query(
+    `
+      UPDATE client_address_leases
+      SET released_at = now(),
+          release_reason = $2
+      WHERE session_id = $1
+        AND released_at IS NULL
+    `,
+    [sessionId, reason]
+  );
+}
+
 async function choosePath(
   client: { query: (sql: string, params?: readonly unknown[]) => Promise<{ rows: Array<Record<string, unknown>> }> },
   spec: Record<string, unknown>
@@ -812,9 +1088,11 @@ async function choosePath(
     `
       SELECT gates.id, gates.name, gates.public_endpoint AS "publicEndpoint"
       FROM gates
+      LEFT JOIN gate_conditions agent ON agent.gate_id = gates.id AND agent.type = 'AgentConnected'
       LEFT JOIN gate_conditions ready ON ready.gate_id = gates.id AND ready.type = 'Ready'
       LEFT JOIN gate_conditions schedulable ON schedulable.gate_id = gates.id AND schedulable.type = 'Schedulable'
       WHERE gates.desired_state = 'Enabled'
+        AND COALESCE(agent.status = 'True', false)
         AND COALESCE(ready.status = 'True', false)
         AND COALESCE(schedulable.status = 'True', false)
         AND ($1::uuid IS NULL OR gates.id = $1::uuid)
@@ -833,10 +1111,12 @@ async function choosePath(
     `
       SELECT gates.id, gates.name, gates.public_endpoint AS "publicEndpoint"
       FROM gates
+      LEFT JOIN gate_conditions agent ON agent.gate_id = gates.id AND agent.type = 'AgentConnected'
       LEFT JOIN gate_conditions ready ON ready.gate_id = gates.id AND ready.type = 'Ready'
       LEFT JOIN gate_conditions schedulable ON schedulable.gate_id = gates.id AND schedulable.type = 'Schedulable'
       WHERE gates.desired_state = 'Enabled'
         AND gates.id <> $1
+        AND COALESCE(agent.status = 'True', false)
         AND COALESCE(ready.status = 'True', false)
         AND COALESCE(schedulable.status = 'True', false)
         AND ($2::uuid IS NULL OR gates.id = $2::uuid)
@@ -870,14 +1150,14 @@ function renderPlan(
     sourceCidr: string | null;
     clientPublicKey: string | null;
   },
-  path: PathChoice
+  path: PathChoice,
+  clientAddress: string
 ): WireGuardRenderedPlan {
   const generatedClientKey = session.clientPublicKey ? null : generateWireGuardKeyPair();
   const clientPublicKey = session.clientPublicKey ?? generatedClientKey?.publicKey;
   if (!clientPublicKey) {
     throw new Error(`missing client public key for session ${session.id}`);
   }
-  const clientAddress = allocateClientAddress(session.id);
   const model = {
     sessionId: session.id,
     generation: session.generation,
@@ -932,11 +1212,51 @@ function renderPlan(
   };
 }
 
-function allocateClientAddress(sessionId: string): string {
-  const digest = createHash("sha256").update(sessionId).digest();
-  const third = digest[0] ?? 0;
-  const fourth = ((digest[1] ?? 0) % 253) + 2;
-  return `10.77.${third}.${fourth}/32`;
+function parseIpv4Cidr(cidr: string): { base: number; prefix: number; size: number } | null {
+  const [address, prefixRaw] = cidr.split("/");
+  const prefix = Number(prefixRaw);
+  const base = ipv4ToInt(address ?? "");
+  if (!Number.isInteger(prefix) || prefix < 0 || prefix > 32 || base === null) {
+    return null;
+  }
+  const size = 2 ** (32 - prefix);
+  return {
+    base: Math.floor(base / size) * size,
+    prefix,
+    size
+  };
+}
+
+function ipv4ToInt(value: string): number | null {
+  const parts = value.trim().split(".");
+  if (parts.length !== 4) {
+    return null;
+  }
+  let result = 0;
+  for (const part of parts) {
+    if (!/^\d{1,3}$/.test(part)) {
+      return null;
+    }
+    const octet = Number(part);
+    if (octet < 0 || octet > 255) {
+      return null;
+    }
+    result = result * 256 + octet;
+  }
+  return result;
+}
+
+function intToIpv4(value: number): string {
+  return [
+    Math.floor(value / 16_777_216) % 256,
+    Math.floor(value / 65_536) % 256,
+    Math.floor(value / 256) % 256,
+    value % 256
+  ].join(".");
+}
+
+function toClientAddressCidr(value: string): string {
+  return value.includes("/") ? value : `${value}/32`;
 }
 
 function toGatePreparePlan(planId: string, plan: WireGuardRenderedPlan): Record<string, unknown> {

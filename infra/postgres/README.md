@@ -2,11 +2,11 @@
 
 PostgreSQL is the transaction source of truth for the control plane.
 
-Testnet target:
+Recommended target:
 
-- host: `db.testnet.hyperspace.zone`
-- database: `hyperspace`
-- runtime: native Ubuntu packages and systemd
+- host: private DNS or private IP reachable only from the control plane
+- database: dedicated application database
+- runtime: native OS packages and systemd
 - access: restricted to control-plane hosts
 
 Minimum bootstrap sequence:

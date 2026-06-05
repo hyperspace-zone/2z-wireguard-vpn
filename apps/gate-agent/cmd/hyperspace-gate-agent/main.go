@@ -234,6 +234,7 @@ type assignmentState struct {
 	Role              string        `json:"role"`
 	Handle            string        `json:"handle"`
 	SessionID         string        `json:"sessionId"`
+	SourceCidr        string        `json:"sourceCidr,omitempty"`
 	ClientAddress     string        `json:"clientAddress"`
 	DestinationCidrs  []string      `json:"destinationCidrs"`
 	RoutingTable      int           `json:"routingTable"`
@@ -381,6 +382,7 @@ func prepareAssignment(cfg config, payload assignmentPayload) (localMaterial, er
 		Role:              payload.Role,
 		Handle:            handle,
 		SessionID:         payload.Plan.PublicMaterial.SessionID,
+		SourceCidr:        readMapString(payload.Plan.FirewallModel, "sourceCidr"),
 		ClientAddress:     payload.Plan.PublicMaterial.ClientAddress,
 		DestinationCidrs:  payload.Plan.PublicMaterial.DestinationCidrs,
 		RoutingTable:      routingTable(payload.AssignmentID),
@@ -407,6 +409,7 @@ func commitAssignment(cfg config, payload assignmentPayload) (assignmentState, e
 	if err := ensureNftBase(); err != nil {
 		return state, err
 	}
+	deleteNftRules("inet", "hyperspace", "input", state.Handle)
 	deleteNftRules("inet", "hyperspace", "forward", state.Handle)
 	deleteNftRules("ip", "hyperspace_nat", "postrouting", state.Handle)
 
@@ -425,7 +428,7 @@ func commitIngress(state assignmentState, plan networkPlan) error {
 		return errors.New("client public key is required for ingress commit")
 	}
 	egress := plan.Egress.LocalMaterial
-	if egress.WireGuard.TransitPublicKey == "" || egress.DoubleZeroAddress == "" || egress.WireGuard.TransitListenPort == 0 {
+	if egress.WireGuard.TransitPublicKey == "" || plan.Egress.PublicEndpoint == "" || egress.WireGuard.TransitListenPort == 0 {
 		return errors.New("egress transit material is incomplete")
 	}
 	mtu := pm.MTU
@@ -449,6 +452,11 @@ func commitIngress(state assignmentState, plan networkPlan) error {
 	}); err != nil {
 		return err
 	}
+	if state.SourceCidr != "" {
+		if err := runCommand("nft", "add", "rule", "inet", "hyperspace", "input", "udp", "dport", strconv.Itoa(state.Material.WireGuard.ClientListenPort), "ip", "saddr", "!=", state.SourceCidr, "counter", "drop", "comment", state.Handle); err != nil {
+			return err
+		}
+	}
 	if err := configureWireGuardInterface(wgInterfaceConfig{
 		Name:       state.Material.Interfaces.Transit,
 		PrivateKey: state.TransitPrivateKey,
@@ -457,7 +465,7 @@ func commitIngress(state assignmentState, plan networkPlan) error {
 		Peers: []wgPeer{{
 			PublicKey:           egress.WireGuard.TransitPublicKey,
 			AllowedIPs:          pm.DestinationCidrs,
-			Endpoint:            net.JoinHostPort(egress.DoubleZeroAddress, strconv.Itoa(egress.WireGuard.TransitListenPort)),
+			Endpoint:            net.JoinHostPort(plan.Egress.PublicEndpoint, strconv.Itoa(egress.WireGuard.TransitListenPort)),
 			PersistentKeepalive: keepalive,
 		}},
 	}); err != nil {
@@ -484,7 +492,7 @@ func commitIngress(state assignmentState, plan networkPlan) error {
 func commitEgress(state assignmentState, plan networkPlan) error {
 	pm := plan.PublicMaterial
 	ingress := plan.Ingress.LocalMaterial
-	if ingress.WireGuard.TransitPublicKey == "" || ingress.DoubleZeroAddress == "" || ingress.WireGuard.TransitListenPort == 0 {
+	if ingress.WireGuard.TransitPublicKey == "" || plan.Ingress.PublicEndpoint == "" || ingress.WireGuard.TransitListenPort == 0 {
 		return errors.New("ingress transit material is incomplete")
 	}
 	defaultIface, err := defaultRouteInterface()
@@ -507,7 +515,7 @@ func commitEgress(state assignmentState, plan networkPlan) error {
 		Peers: []wgPeer{{
 			PublicKey:           ingress.WireGuard.TransitPublicKey,
 			AllowedIPs:          []string{pm.ClientAddress},
-			Endpoint:            net.JoinHostPort(ingress.DoubleZeroAddress, strconv.Itoa(ingress.WireGuard.TransitListenPort)),
+			Endpoint:            net.JoinHostPort(plan.Ingress.PublicEndpoint, strconv.Itoa(ingress.WireGuard.TransitListenPort)),
 			PersistentKeepalive: keepalive,
 		}},
 	}); err != nil {
@@ -780,6 +788,7 @@ func revokeAssignment(cfg config, payload assignmentPayload) error {
 	if err != nil {
 		state = derivedAssignmentState(payload.AssignmentID, payload.Role)
 	}
+	deleteNftRules("inet", "hyperspace", "input", state.Handle)
 	deleteNftRules("inet", "hyperspace", "forward", state.Handle)
 	deleteNftRules("ip", "hyperspace_nat", "postrouting", state.Handle)
 	if state.ClientAddress != "" {
@@ -822,6 +831,7 @@ func derivedAssignmentState(assignmentID string, role string) assignmentState {
 
 func ensureNftBase() error {
 	runIgnore("nft", "add", "table", "inet", "hyperspace")
+	runIgnore("nft", "add", "chain", "inet", "hyperspace", "input", "{", "type", "filter", "hook", "input", "priority", "0", ";", "policy", "accept", ";", "}")
 	runIgnore("nft", "add", "chain", "inet", "hyperspace", "forward", "{", "type", "filter", "hook", "forward", "priority", "0", ";", "policy", "accept", ";", "}")
 	runIgnore("nft", "add", "table", "ip", "hyperspace_nat")
 	runIgnore("nft", "add", "chain", "ip", "hyperspace_nat", "postrouting", "{", "type", "nat", "hook", "postrouting", "priority", "srcnat", ";", "policy", "accept", ";", "}")
@@ -912,6 +922,18 @@ func defaultRouteInterface() (string, error) {
 		}
 	}
 	return "", errors.New("default route interface not found")
+}
+
+func readMapString(values map[string]any, key string) string {
+	value, ok := values[key]
+	if !ok || value == nil {
+		return ""
+	}
+	text, ok := value.(string)
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(text)
 }
 
 func readAssignmentState(cfg config, assignmentID string) (assignmentState, error) {

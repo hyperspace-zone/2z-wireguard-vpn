@@ -1,7 +1,7 @@
 # Control-Plane Architecture
 
-The 2z WireGuard VPN control plane manages VPN sessions over DoubleZero-backed
-gate paths.
+The DoubleZero WireGuard VPN control plane manages VPN sessions over
+DoubleZero-backed gate paths.
 
 ```text
 client
@@ -15,8 +15,8 @@ client
 
 - The API process exposes `/v1/public/*`, `/v1/agent/*`, `/v1/admin/*`, and
   `/v1/gate/*`.
-- The worker process runs scheduling, reconciliation, expiry, retry, repair,
-  and cleanup loops.
+- The worker process runs scheduling, reconciliation, retry, repair, and
+  cleanup loops.
 - PostgreSQL stores product and operational state.
 - Gate agents run as Go binaries under systemd and use outbound poll/report.
 - Caddy terminates TLS and routes traffic to the API or static web app.
@@ -26,11 +26,10 @@ client
 ### Session
 
 `Session.spec` describes user intent: mode, destinations, desired lifecycle,
-TTL, path policy, and artifact policy.
+path policy, and artifact policy.
 
 `Session.status` describes observed product readiness: phase, selected path,
-assignment references, artifact reference, effective expiry, errors, and
-conditions.
+assignment references, artifact reference, errors, and conditions.
 
 ### GateAssignment
 
@@ -47,12 +46,33 @@ The handle lets an agent recover, retry, and report already-applied host state.
 
 ### Gate
 
-`Gate.spec` declares desired scheduling state, region, endpoint, capabilities,
-capacity, and required agent version.
+`Gate.spec` declares desired scheduling state, region, city/country location,
+endpoint, capabilities, capacity, and required agent version.
 
 `Gate.status` reports heartbeat freshness, observed capabilities, capacity,
 headroom, and conditions such as `AgentConnected`, `Schedulable`, `Ready`, and
 `Degraded`.
+
+### Client Address Lease
+
+WireGuard client tunnel addresses are allocated centrally by the control-plane
+worker and stored in PostgreSQL. The default IPv4 pool is:
+
+```text
+10.64.0.0/10
+```
+
+This pool provides 4,194,304 `/32` client addresses. The worker never derives a
+client address locally from a session id. Instead, it creates one active
+`client_address_leases` row per active session before rendering a plan.
+
+PostgreSQL enforces the two critical allocator invariants:
+
+- only one active lease can exist for a session;
+- only one active lease can exist for a client address.
+
+The lease is released only after the session is revoked and every gate
+assignment for that session has reported `revoked`.
 
 ## Reconciliation
 

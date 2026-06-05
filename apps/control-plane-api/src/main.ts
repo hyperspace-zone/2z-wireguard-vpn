@@ -1,4 +1,5 @@
 import { scryptSync, timingSafeEqual } from "node:crypto";
+import { isIP } from "node:net";
 import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
 import { createDatabase, newSecretToken, sha256Hex } from "@hyperspace-zone/db";
 import type { GateSummary, SessionMode, SessionSummary } from "@hyperspace-zone/contracts";
@@ -20,6 +21,7 @@ const downloadTokenTtlSeconds = Number(process.env.ARTIFACT_DOWNLOAD_TTL_SECONDS
 const adminToken = process.env.ADMIN_TOKEN;
 const artifactEncryptionKeyRaw = process.env.ARTIFACT_ENCRYPTION_KEY;
 const artifactEncryptionKey = artifactEncryptionKeyRaw ? parseAes256GcmKey(artifactEncryptionKeyRaw) : null;
+const wireGuardCanonicalBase64Pattern = /^[A-Za-z0-9+/]{42}[AEIMQUYcgkosw048]=$/;
 
 const db = createDatabase({
   connectionString: databaseUrl,
@@ -175,6 +177,14 @@ app.get("/v1/public/auth/me", async (request, reply) => {
   return reply.send({ user });
 });
 
+app.get("/v1/public/network/me", async (request, reply) => {
+  const user = await requireUser(request, reply);
+  if (!user) {
+    return;
+  }
+  return reply.send({ ip: detectClientIpv4(request) });
+});
+
 app.get("/v1/public/gates", async () => ({
   gates: await listGates()
 }));
@@ -186,7 +196,7 @@ app.get("/v1/public/sessions", async (request, reply) => {
   }
 
   const result = await db.query<SessionRow>(
-    sessionSelectSql("WHERE sessions.account_id = $1 ORDER BY sessions.created_at DESC LIMIT 200"),
+    sessionSelectSql("WHERE sessions.account_id = $1 AND sessions.hidden_at IS NULL ORDER BY sessions.created_at DESC LIMIT 200"),
     [user.accountId]
   );
 
@@ -212,14 +222,13 @@ app.post("/v1/public/sessions", async (request, reply) => {
           mode,
           destination_cidrs,
           source_cidr,
-          ttl_seconds,
           client_public_key,
           label,
           spec,
           path_policy,
           artifact_policy
         )
-        VALUES ($1, $2, $3::cidr[], $4::cidr, $5, $6, $7, $8::jsonb, $9::jsonb, $10::jsonb)
+        VALUES ($1, $2, $3::cidr[], $4::cidr, $5, $6, $7::jsonb, $8::jsonb, $9::jsonb)
         RETURNING id
       `,
       [
@@ -227,7 +236,6 @@ app.post("/v1/public/sessions", async (request, reply) => {
         parsed.mode,
         parsed.destinationCidrs,
         parsed.sourceCidr ?? null,
-        parsed.ttlSeconds ?? null,
         parsed.clientPublicKey ?? null,
         parsed.label ?? null,
         JSON.stringify(parsed.spec),
@@ -236,14 +244,13 @@ app.post("/v1/public/sessions", async (request, reply) => {
       ]
     );
     const sessionId = mustRow(session).id;
-    const expiry = parsed.ttlSeconds ? new Date(Date.now() + parsed.ttlSeconds * 1000).toISOString() : null;
 
     await client.query(
       `
-        INSERT INTO session_status (session_id, phase, effective_expiry_at)
-        VALUES ($1, 'requested', $2::timestamptz)
+        INSERT INTO session_status (session_id, phase)
+        VALUES ($1, 'requested')
       `,
-      [sessionId, expiry]
+      [sessionId]
     );
     await client.query(
       `
@@ -300,7 +307,7 @@ app.post("/v1/public/sessions/:sessionId/revoke", async (request, reply) => {
       `
         UPDATE sessions
         SET desired_state = 'Revoked', generation = generation + 1, updated_at = now()
-        WHERE id = $1 AND account_id = $2
+        WHERE id = $1 AND account_id = $2 AND hidden_at IS NULL
         RETURNING id
       `,
       [sessionId, user.accountId]
@@ -335,6 +342,61 @@ app.post("/v1/public/sessions/:sessionId/revoke", async (request, reply) => {
   return reply.send({ session: await readOwnSession(user.accountId, sessionId) });
 });
 
+app.delete("/v1/public/sessions/:sessionId", async (request, reply) => {
+  const user = await requireUser(request, reply);
+  if (!user) {
+    return;
+  }
+
+  const sessionId = readParam(request, "sessionId");
+  const deleted = await db.transaction(async (client) => {
+    const existing = await client.query<{ id: string; phase: SessionSummary["phase"]; hiddenAt: string | null }>(
+      `
+        SELECT sessions.id, session_status.phase::text AS phase, sessions.hidden_at AS "hiddenAt"
+        FROM sessions
+        JOIN session_status ON session_status.session_id = sessions.id
+        WHERE sessions.id = $1 AND sessions.account_id = $2
+      `,
+      [sessionId, user.accountId]
+    );
+    const row = existing.rows[0];
+    if (!row) {
+      return "not_found" as const;
+    }
+    if (row.hiddenAt) {
+      return "deleted" as const;
+    }
+    if (row.phase !== "revoked" && row.phase !== "failed") {
+      return "not_revoked" as const;
+    }
+
+    await client.query(
+      `
+        UPDATE sessions
+        SET hidden_at = now(), updated_at = now()
+        WHERE id = $1 AND account_id = $2
+      `,
+      [sessionId, user.accountId]
+    );
+    await client.query(
+      `
+        INSERT INTO audit_events (event_type, actor_type, actor_id, account_id, session_id)
+        VALUES ('session_hidden', 'user', $1, $2, $3)
+      `,
+      [user.id, user.accountId, sessionId]
+    );
+    return "deleted" as const;
+  });
+
+  if (deleted === "not_found") {
+    return reply.code(404).send({ error: "session_not_found" });
+  }
+  if (deleted === "not_revoked") {
+    return reply.code(409).send({ error: "session_not_revoked" });
+  }
+  return reply.code(204).send();
+});
+
 app.post("/v1/public/sessions/:sessionId/artifacts/client-config/download-token", async (request, reply) => {
   const user = await requireUser(request, reply);
   if (!user) {
@@ -349,6 +411,7 @@ app.post("/v1/public/sessions/:sessionId/artifacts/client-config/download-token"
       JOIN sessions ON sessions.id = artifacts.session_id
       WHERE sessions.id = $1
         AND sessions.account_id = $2
+        AND sessions.hidden_at IS NULL
         AND artifacts.artifact_type = 'client_config'
         AND artifacts.invalidated_at IS NULL
         AND artifacts.phase IN ('prepared', 'available', 'downloaded')
@@ -835,7 +898,6 @@ interface SessionCreateParsed {
   mode: SessionMode;
   destinationCidrs: string[];
   sourceCidr?: string;
-  ttlSeconds?: number;
   clientPublicKey?: string;
   label?: string;
   spec: Record<string, unknown>;
@@ -850,7 +912,7 @@ interface SessionRow {
   destinationCidrs: string[];
   sourceCidr: string | null;
   selectedPath: Record<string, unknown> | null;
-  effectiveExpiryAt: string | null;
+  lastError: { code?: string; message?: string } | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -867,7 +929,6 @@ function parseSessionCreateBody(body: Record<string, unknown>): SessionCreatePar
   }
 
   const sourceCidr = normalizeOptionalCidr(readString(body, "sourceCidr") || ipToCidr(readString(body, "sourceIp")));
-  const ttlSeconds = readPositiveInteger(body, "ttlSeconds");
   const clientPublicKey = readString(body, "clientPublicKey") || undefined;
   const label = readString(body, "label") || undefined;
   const ingressGateName = readString(body, "ingressGateName") || undefined;
@@ -875,8 +936,17 @@ function parseSessionCreateBody(body: Record<string, unknown>): SessionCreatePar
   const ingressGateId = readString(body, "ingressGateId") || undefined;
   const egressGateId = readString(body, "egressGateId") || undefined;
 
-  if (ttlSeconds !== undefined && (ttlSeconds < 60 || ttlSeconds > 60 * 60 * 24 * 30)) {
-    return { error: "invalid_ttl_seconds" };
+  if (!ingressGateName && !ingressGateId) {
+    return { error: "ingress_gate_required" };
+  }
+  if (!egressGateName && !egressGateId) {
+    return { error: "egress_gate_required" };
+  }
+  if ((ingressGateName && ingressGateName === egressGateName) || (ingressGateId && ingressGateId === egressGateId)) {
+    return { error: "distinct_gates_required", message: "Ingress and egress must be different gates." };
+  }
+  if (clientPublicKey && !isWireGuardPublicKey(clientPublicKey)) {
+    return { error: "invalid_client_public_key", message: "Client public key must be a canonical 44-character WireGuard public key." };
   }
 
   const spec = {
@@ -884,7 +954,6 @@ function parseSessionCreateBody(body: Record<string, unknown>): SessionCreatePar
     mode,
     destinationCidrs,
     ...(sourceCidr ? { sourceCidr } : {}),
-    ...(ttlSeconds ? { ttlSeconds } : {}),
     ...(clientPublicKey ? { clientPublicKey } : {}),
     ...(ingressGateName ? { ingressGateName } : {}),
     ...(egressGateName ? { egressGateName } : {}),
@@ -898,7 +967,6 @@ function parseSessionCreateBody(body: Record<string, unknown>): SessionCreatePar
     mode,
     destinationCidrs,
     ...(sourceCidr ? { sourceCidr } : {}),
-    ...(ttlSeconds ? { ttlSeconds } : {}),
     ...(clientPublicKey ? { clientPublicKey } : {}),
     ...(label ? { label } : {}),
     spec
@@ -938,6 +1006,19 @@ function ipToCidr(value: string): string {
   return value.includes("/") ? value : `${value}/32`;
 }
 
+function isWireGuardPublicKey(value: string): boolean {
+  const trimmed = value.trim();
+  if (!wireGuardCanonicalBase64Pattern.test(trimmed)) {
+    return false;
+  }
+  try {
+    const decoded = Buffer.from(trimmed, "base64");
+    return decoded.length === 32 && !decoded.every((byte) => byte === 0);
+  } catch {
+    return false;
+  }
+}
+
 function sessionSelectSql(tail: string): string {
   return `
     SELECT
@@ -949,7 +1030,7 @@ function sessionSelectSql(tail: string): string {
       ARRAY(SELECT unnest(sessions.destination_cidrs)::text) AS "destinationCidrs",
       sessions.source_cidr::text AS "sourceCidr",
       session_status.selected_path AS "selectedPath",
-      session_status.effective_expiry_at AS "effectiveExpiryAt",
+      session_status.last_error AS "lastError",
       sessions.created_at AS "createdAt",
       sessions.updated_at AS "updatedAt"
     FROM sessions
@@ -960,7 +1041,7 @@ function sessionSelectSql(tail: string): string {
 
 async function readOwnSession(accountId: string, sessionId: string): Promise<SessionSummary | null> {
   const result = await db.query<SessionRow>(
-    sessionSelectSql("WHERE sessions.account_id = $1 AND sessions.id = $2"),
+    sessionSelectSql("WHERE sessions.account_id = $1 AND sessions.id = $2 AND sessions.hidden_at IS NULL"),
     [accountId, sessionId]
   );
   const row = result.rows[0];
@@ -977,7 +1058,7 @@ function mapSessionRow(row: SessionRow): SessionSummary {
     destinationCidrs: row.destinationCidrs,
     ...(row.sourceCidr ? { sourceCidr: row.sourceCidr } : {}),
     ...(row.selectedPath ? { selectedPath: row.selectedPath } : {}),
-    ...(row.effectiveExpiryAt ? { effectiveExpiryAt: row.effectiveExpiryAt } : {}),
+    ...(row.lastError ? { lastError: row.lastError } : {}),
     createdAt: row.createdAt,
     updatedAt: row.updatedAt
   };
@@ -989,8 +1070,13 @@ async function listGates(): Promise<GateSummary[]> {
     name: string;
     desiredState: GateSummary["desiredState"];
     region: string;
+    city: string;
+    country: string;
+    countryCode: string;
     publicEndpoint: string;
+    probeUrl: string | null;
     lastSeenAt: string | null;
+    agentConnected: boolean;
     ready: boolean;
     schedulable: boolean;
   }>(
@@ -1000,12 +1086,18 @@ async function listGates(): Promise<GateSummary[]> {
         gates.name,
         gates.desired_state::text AS "desiredState",
         gates.region,
+        gates.city,
+        gates.country,
+        gates.country_code AS "countryCode",
         gates.public_endpoint AS "publicEndpoint",
+        NULLIF(gates.spec->>'probeUrl', '') AS "probeUrl",
         gate_status.last_seen_at AS "lastSeenAt",
-        COALESCE(ready.status = 'True', false) AS ready,
-        COALESCE(schedulable.status = 'True', false) AS schedulable
+        COALESCE(agent.status = 'True', false) AS "agentConnected",
+        COALESCE(agent.status = 'True', false) AND COALESCE(ready.status = 'True', false) AS ready,
+        COALESCE(agent.status = 'True', false) AND COALESCE(schedulable.status = 'True', false) AS schedulable
       FROM gates
       LEFT JOIN gate_status ON gate_status.gate_id = gates.id
+      LEFT JOIN gate_conditions agent ON agent.gate_id = gates.id AND agent.type = 'AgentConnected'
       LEFT JOIN gate_conditions ready ON ready.gate_id = gates.id AND ready.type = 'Ready'
       LEFT JOIN gate_conditions schedulable ON schedulable.gate_id = gates.id AND schedulable.type = 'Schedulable'
       ORDER BY gates.region, gates.name
@@ -1016,7 +1108,11 @@ async function listGates(): Promise<GateSummary[]> {
     name: row.name,
     desiredState: row.desiredState,
     region: row.region,
+    ...(row.city ? { city: row.city } : {}),
+    ...(row.country ? { country: row.country } : {}),
+    ...(row.countryCode ? { countryCode: row.countryCode } : {}),
     publicEndpoint: row.publicEndpoint,
+    ...(row.probeUrl ? { probeUrl: row.probeUrl } : {}),
     ...(row.lastSeenAt ? { lastSeenAt: row.lastSeenAt } : {}),
     ready: row.ready,
     schedulable: row.schedulable
@@ -1183,6 +1279,26 @@ function headerValue(request: FastifyRequest, name: string): string {
   return typeof value === "string" ? value : "";
 }
 
+function detectClientIpv4(request: FastifyRequest): string {
+  const candidates = [
+    ...headerValue(request, "x-forwarded-for").split(","),
+    headerValue(request, "x-real-ip"),
+    request.ip
+  ];
+  for (const candidate of candidates) {
+    const ip = normalizeIpv4(candidate);
+    if (ip) {
+      return ip;
+    }
+  }
+  return "";
+}
+
+function normalizeIpv4(value: string): string {
+  const candidate = value.trim().replace(/^::ffff:/, "");
+  return isIP(candidate) === 4 ? candidate : "";
+}
+
 function readParam(request: FastifyRequest, name: string): string {
   const params = asRecord(request.params);
   return readString(params, name);
@@ -1203,15 +1319,6 @@ function readStringArray(record: Record<string, unknown>, key: string): string[]
     return [];
   }
   return value.filter((item): item is string => typeof item === "string").map((item) => item.trim()).filter(Boolean);
-}
-
-function readPositiveInteger(record: Record<string, unknown>, key: string): number | undefined {
-  const value = record[key];
-  const parsed = typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN;
-  if (!Number.isInteger(parsed) || parsed <= 0) {
-    return undefined;
-  }
-  return parsed;
 }
 
 function encryptedPayloadFromRow(row: {

@@ -9,7 +9,6 @@ export type SessionPhase =
   | "provisioning"
   | "active"
   | "degraded"
-  | "expired"
   | "revoking"
   | "revoked"
   | "failed";
@@ -34,8 +33,7 @@ export type JobType =
   | "apply_assignment"
   | "revoke_assignment"
   | "cleanup_orphan"
-  | "reconcile"
-  | "expire_session";
+  | "reconcile";
 
 export interface SessionSpec {
   desiredState: DesiredSessionState;
@@ -47,7 +45,6 @@ export interface SessionSpec {
   ingressGateName?: string;
   egressGateName?: string;
   clientPublicKey?: string;
-  ttlSeconds?: number;
   pathPolicy?: Record<string, unknown>;
   artifactPolicy?: Record<string, unknown>;
 }
@@ -68,7 +65,10 @@ export interface SessionSummary {
   destinationCidrs: string[];
   sourceCidr?: string;
   selectedPath?: Record<string, unknown>;
-  effectiveExpiryAt?: string;
+  lastError?: {
+    code?: string;
+    message?: string;
+  };
   createdAt: string;
   updatedAt: string;
 }
@@ -78,7 +78,11 @@ export interface GateSummary {
   name: string;
   desiredState: GateDesiredState;
   region: string;
+  city?: string;
+  country?: string;
+  countryCode?: string;
   publicEndpoint: string;
+  probeUrl?: string;
   lastSeenAt?: string;
   ready: boolean;
   schedulable: boolean;

@@ -1,0 +1,46 @@
+# Combined web UI + control-plane API host.
+# Use this for small deployments where static web assets and the API process run
+# on the same server.
+# Required environment:
+# - APP_HOST: public DNS name or public IP address.
+# - TLS_FULLCHAIN: path to fullchain.pem copied from Let's Encrypt.
+# - TLS_PRIVKEY: path to privkey.pem copied from Let's Encrypt.
+{
+	auto_https disable_redirects
+}
+
+:80 {
+	@acme path /.well-known/acme-challenge/*
+	handle @acme {
+		root * /var/www/acme-challenges
+		file_server
+	}
+
+	handle {
+		redir https://{host}{uri} permanent
+	}
+}
+
+https://{$APP_HOST} {
+	tls {$TLS_FULLCHAIN} {$TLS_PRIVKEY}
+
+	handle /api/* {
+		uri strip_prefix /api
+		reverse_proxy 127.0.0.1:8080
+	}
+
+	handle /v1/* {
+		reverse_proxy 127.0.0.1:8080
+	}
+
+	handle /health {
+		reverse_proxy 127.0.0.1:8080
+	}
+
+	handle {
+		root * /var/www/hyperspace-web
+		header Cache-Control "no-store, max-age=0"
+		try_files {path} /index.html
+		file_server
+	}
+}

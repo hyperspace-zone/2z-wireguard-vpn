@@ -24,7 +24,6 @@ CREATE TYPE session_phase AS ENUM (
   'provisioning',
   'active',
   'degraded',
-  'expired',
   'revoking',
   'revoked',
   'failed'
@@ -58,8 +57,7 @@ CREATE TYPE job_type AS ENUM (
   'apply_assignment',
   'revoke_assignment',
   'cleanup_orphan',
-  'reconcile',
-  'expire_session'
+  'reconcile'
 );
 
 CREATE TYPE job_phase AS ENUM (
@@ -103,6 +101,9 @@ CREATE TABLE gates (
   desired_state gate_desired_state NOT NULL DEFAULT 'Disabled',
   identity text NOT NULL UNIQUE,
   region text NOT NULL,
+  city text NOT NULL DEFAULT '',
+  country text NOT NULL DEFAULT '',
+  country_code text NOT NULL DEFAULT '',
   public_endpoint text NOT NULL,
   doublezero_interface text NOT NULL DEFAULT 'doublezero0',
   allowed_modes session_mode[] NOT NULL DEFAULT ARRAY['IpToIp', 'FullTunnel']::session_mode[],
@@ -154,7 +155,6 @@ CREATE TABLE sessions (
   mode session_mode NOT NULL,
   destination_cidrs cidr[] NOT NULL DEFAULT '{}',
   client_key_mode text NOT NULL DEFAULT 'BringYourOwnPublicKey',
-  ttl_seconds integer,
   path_policy jsonb NOT NULL DEFAULT '{}'::jsonb,
   artifact_policy jsonb NOT NULL DEFAULT '{}'::jsonb,
   spec jsonb NOT NULL DEFAULT '{}'::jsonb,
@@ -172,7 +172,6 @@ CREATE TABLE session_status (
   observed_generation bigint NOT NULL DEFAULT 0,
   phase session_phase NOT NULL DEFAULT 'requested',
   selected_path jsonb,
-  effective_expiry_at timestamptz,
   artifact_id uuid,
   last_error jsonb,
   updated_at timestamptz NOT NULL DEFAULT now()
