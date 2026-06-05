@@ -84,8 +84,28 @@ export interface GateSummary {
   publicEndpoint: string;
   probeUrl?: string;
   lastSeenAt?: string;
+  doubleZero?: GateDoubleZeroStatus;
   ready: boolean;
   schedulable: boolean;
+}
+
+export interface GateDoubleZeroStatus {
+  tunnelStatus?: string;
+  lastSessionUpdate?: string;
+  tunnelName?: string;
+  tunnelSrc?: string;
+  tunnelDst?: string;
+  doubleZeroIp?: string;
+  userType?: string;
+  reconciler?: string;
+  tenant?: string;
+  currentDevice?: string;
+  lowestLatencyDevice?: string;
+  metro?: string;
+  network?: string;
+  reportedAt?: string;
+  error?: string;
+  raw?: string;
 }
 
 export interface GateAgentHeartbeat {
@@ -93,6 +113,7 @@ export interface GateAgentHeartbeat {
   agentVersion: string;
   bootId: string;
   observedEndpoint: string;
+  doubleZero?: GateDoubleZeroStatus;
   capabilities: string[];
   reportedAt: string;
 }

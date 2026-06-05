@@ -14,10 +14,20 @@ interface Gate {
   countryCode?: string;
   publicEndpoint: string;
   probeUrl?: string;
+  doubleZero?: GateDoubleZeroStatus;
   ready: boolean;
   schedulable: boolean;
   browserLatencyMs?: number | null;
   browserLatencyStatus?: "measured" | "unavailable" | "measuring";
+}
+
+interface GateDoubleZeroStatus {
+  currentDevice?: string;
+  lowestLatencyDevice?: string;
+  metro?: string;
+  network?: string;
+  reportedAt?: string;
+  error?: string;
 }
 
 interface Session {
@@ -348,6 +358,7 @@ function gatesPanel(gates: Gate[]): string {
           <th>Name</th>
           <th>Region</th>
           <th>Endpoint</th>
+          <th>DoubleZero node</th>
           <th>Ready</th>
           <th>Schedulable</th>
           <th aria-sort="${gateBrowserRttSortDirection === "desc" ? "descending" : "ascending"}">
@@ -363,6 +374,7 @@ function gatesPanel(gates: Gate[]): string {
                 <td>${escapeHtml(gate.name)}</td>
                 <td>${escapeHtml(gate.region)}${gateLocationLabel(gate) !== gate.region ? `<small>${escapeHtml(gateLocationLabel(gate))}</small>` : ""}</td>
                 <td><small class="mono">${escapeHtml(gate.publicEndpoint)}</small></td>
+                <td>${doubleZeroNodeCell(gate)}</td>
                 <td>${statusDot(gate.ready)}</td>
                 <td>${statusDot(gate.schedulable)}</td>
                 <td class="latency-cell">${latencyCell(gate)}</td>
@@ -1741,6 +1753,31 @@ function latencyCell(gate: Gate): string {
     return '<div class="latency-result"><strong class="muted">n/a</strong><small>probe unavailable</small></div>';
   }
   return `<div class="latency-result"><strong>${formatLatency(stats.medianMs)} ms</strong><small>min ${formatLatency(stats.minMs)} / max ${formatLatency(stats.maxMs)} ms</small></div>`;
+}
+
+function doubleZeroNodeCell(gate: Gate): string {
+  const status = gate.doubleZero;
+  if (!status) {
+    return '<div class="latency-result"><strong class="muted">not reported</strong><small>waiting for heartbeat</small></div>';
+  }
+  if (status.error) {
+    return `<div class="latency-result"><strong class="muted">unavailable</strong><small title="${escapeHtml(status.error)}">${escapeHtml(trimCellText(status.error, 44))}</small></div>`;
+  }
+  const currentDevice = status.currentDevice?.trim();
+  if (!currentDevice) {
+    return '<div class="latency-result"><strong class="muted">not reported</strong><small>current device missing</small></div>';
+  }
+  const detailParts = [
+    status.metro?.trim(),
+    status.network?.trim(),
+    status.lowestLatencyDevice?.trim() ? `lowest ${status.lowestLatencyDevice.trim()}` : ""
+  ].filter(Boolean);
+  const title = status.reportedAt ? `Reported at ${status.reportedAt}` : "";
+  return `<div class="latency-result" title="${escapeHtml(title)}"><strong class="mono">${escapeHtml(currentDevice)}</strong><small>${escapeHtml(detailParts.join(" / ") || "DoubleZero current device")}</small></div>`;
+}
+
+function trimCellText(value: string, maxLength: number): string {
+  return value.length > maxLength ? `${value.slice(0, maxLength - 1)}...` : value;
 }
 
 function latencyText(gate: Gate): string {

@@ -546,6 +546,7 @@ app.post("/v1/gate/heartbeat", async (request, reply) => {
   const agentVersion = readString(body, "agentVersion");
   const observedEndpoint = readString(body, "observedEndpoint");
   const capabilities = readStringArray(body, "capabilities");
+  const doubleZero = asRecord(body.doubleZero);
   const hostReady =
     capabilities.includes("wireguard-tools:present") &&
     capabilities.includes("iproute2:present") &&
@@ -562,9 +563,10 @@ app.post("/v1/gate/heartbeat", async (request, reply) => {
           last_seen_at,
           observed_endpoint,
           observed_capabilities,
+          doublezero_status,
           updated_at
         )
-        VALUES ($1, $2, $3, $4, now(), $5, $6::text[], now())
+        VALUES ($1, $2, $3, $4, now(), $5, $6::text[], $7::jsonb, now())
         ON CONFLICT (gate_id) DO UPDATE
         SET
           observed_generation = EXCLUDED.observed_generation,
@@ -573,9 +575,10 @@ app.post("/v1/gate/heartbeat", async (request, reply) => {
           last_seen_at = EXCLUDED.last_seen_at,
           observed_endpoint = EXCLUDED.observed_endpoint,
           observed_capabilities = EXCLUDED.observed_capabilities,
+          doublezero_status = EXCLUDED.doublezero_status,
           updated_at = now()
       `,
-      [gate.id, gate.generation, agentVersion || null, bootId || null, observedEndpoint || null, capabilities]
+      [gate.id, gate.generation, agentVersion || null, bootId || null, observedEndpoint || null, capabilities, JSON.stringify(doubleZero)]
     );
     await client.query(
       `
@@ -1076,6 +1079,7 @@ async function listGates(): Promise<GateSummary[]> {
     publicEndpoint: string;
     probeUrl: string | null;
     lastSeenAt: string | null;
+    doubleZero: Record<string, unknown> | null;
     agentConnected: boolean;
     ready: boolean;
     schedulable: boolean;
@@ -1092,6 +1096,7 @@ async function listGates(): Promise<GateSummary[]> {
         gates.public_endpoint AS "publicEndpoint",
         NULLIF(gates.spec->>'probeUrl', '') AS "probeUrl",
         gate_status.last_seen_at AS "lastSeenAt",
+        gate_status.doublezero_status AS "doubleZero",
         COALESCE(agent.status = 'True', false) AS "agentConnected",
         COALESCE(agent.status = 'True', false) AND COALESCE(ready.status = 'True', false) AS ready,
         COALESCE(agent.status = 'True', false) AND COALESCE(schedulable.status = 'True', false) AS schedulable
@@ -1114,6 +1119,7 @@ async function listGates(): Promise<GateSummary[]> {
     publicEndpoint: row.publicEndpoint,
     ...(row.probeUrl ? { probeUrl: row.probeUrl } : {}),
     ...(row.lastSeenAt ? { lastSeenAt: row.lastSeenAt } : {}),
+    ...(row.doubleZero && Object.keys(row.doubleZero).length > 0 ? { doubleZero: row.doubleZero } : {}),
     ready: row.ready,
     schedulable: row.schedulable
   }));

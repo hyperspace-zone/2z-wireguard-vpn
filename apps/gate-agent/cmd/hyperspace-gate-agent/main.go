@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -534,11 +535,13 @@ func commitEgress(state assignmentState, plan networkPlan) error {
 }
 
 func sendHeartbeat(client *http.Client, cfg config) error {
+	doubleZero := doubleZeroStatus()
 	body := map[string]any{
 		"gateId":           cfg.GateName,
 		"agentVersion":     version,
 		"bootId":           bootID(),
 		"observedEndpoint": hostname(),
+		"doubleZero":       doubleZero,
 		"capabilities": []string{
 			"heartbeat",
 			"job-claim",
@@ -702,6 +705,97 @@ func commandOutput(name string, args ...string) string {
 		return ""
 	}
 	return strings.TrimSpace(string(output))
+}
+
+func commandOutputTimeout(timeout time.Duration, name string, args ...string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, name, args...)
+	output, err := cmd.CombinedOutput()
+	if ctx.Err() == context.DeadlineExceeded {
+		return strings.TrimSpace(string(output)), ctx.Err()
+	}
+	return strings.TrimSpace(string(output)), err
+}
+
+func doubleZeroStatus() map[string]any {
+	now := time.Now().UTC().Format(time.RFC3339)
+	output, err := commandOutputTimeout(4*time.Second, "doublezero", "status")
+	if err != nil {
+		status := map[string]any{
+			"reportedAt": now,
+			"error":      err.Error(),
+		}
+		if output != "" {
+			status["raw"] = output
+		}
+		return status
+	}
+	parsed := parseDoubleZeroStatus(output)
+	parsed["reportedAt"] = now
+	return parsed
+}
+
+func parseDoubleZeroStatus(output string) map[string]any {
+	lines := strings.Split(output, "\n")
+	for index := 0; index+1 < len(lines); index++ {
+		headers := splitStatusTableLine(lines[index])
+		values := splitStatusTableLine(lines[index+1])
+		if len(headers) == 0 || len(values) == 0 {
+			continue
+		}
+		row := map[string]string{}
+		for columnIndex, header := range headers {
+			if columnIndex >= len(values) {
+				break
+			}
+			row[header] = values[columnIndex]
+		}
+		if _, ok := row["Current Device"]; !ok {
+			continue
+		}
+		status := map[string]any{}
+		copyDoubleZeroField(status, row, "Tunnel Status", "tunnelStatus")
+		copyDoubleZeroField(status, row, "Last Session Update", "lastSessionUpdate")
+		copyDoubleZeroField(status, row, "Tunnel Name", "tunnelName")
+		copyDoubleZeroField(status, row, "Tunnel Src", "tunnelSrc")
+		copyDoubleZeroField(status, row, "Tunnel Dst", "tunnelDst")
+		copyDoubleZeroField(status, row, "Doublezero IP", "doubleZeroIp")
+		copyDoubleZeroField(status, row, "User Type", "userType")
+		copyDoubleZeroField(status, row, "Reconciler", "reconciler")
+		copyDoubleZeroField(status, row, "Tenant", "tenant")
+		copyDoubleZeroField(status, row, "Current Device", "currentDevice")
+		copyDoubleZeroField(status, row, "Lowest Latency Device", "lowestLatencyDevice")
+		copyDoubleZeroField(status, row, "Metro", "metro")
+		copyDoubleZeroField(status, row, "Network", "network")
+		return status
+	}
+	return map[string]any{
+		"error": "doublezero status output did not contain a Current Device table",
+		"raw":   output,
+	}
+}
+
+func splitStatusTableLine(line string) []string {
+	parts := strings.Split(line, "|")
+	cells := make([]string, 0, len(parts))
+	for _, part := range parts {
+		cell := strings.TrimSpace(strings.TrimPrefix(part, "✅"))
+		cell = strings.TrimSpace(cell)
+		if cell == "" && len(cells) == 0 {
+			continue
+		}
+		cells = append(cells, cell)
+	}
+	return cells
+}
+
+func copyDoubleZeroField(target map[string]any, source map[string]string, sourceKey string, targetKey string) {
+	value := strings.TrimSpace(strings.TrimPrefix(source[sourceKey], "✅"))
+	value = strings.TrimSpace(value)
+	if value != "" {
+		target[targetKey] = value
+	}
 }
 
 type wgInterfaceConfig struct {
