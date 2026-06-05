@@ -82,6 +82,23 @@ def load_inventory(path: Path) -> tuple[list[TestNode], list[Gate]]:
 
 
 def ssh_command(host: str, ssh_key: str, command: str, *, input_text: str | None = None, timeout: int = 120) -> str:
+    completed = ssh_command_completed(host, ssh_key, command, input_text=input_text, timeout=timeout)
+    if completed.returncode != 0:
+        raise RuntimeError(
+            f"ssh command failed on {host}: rc={completed.returncode}\n"
+            f"command={command}\nstdout={completed.stdout}\nstderr={completed.stderr}"
+        )
+    return completed.stdout
+
+
+def ssh_command_completed(
+    host: str,
+    ssh_key: str,
+    command: str,
+    *,
+    input_text: str | None = None,
+    timeout: int = 120,
+) -> subprocess.CompletedProcess[str]:
     args = [
         "ssh",
         "-i",
@@ -104,12 +121,7 @@ def ssh_command(host: str, ssh_key: str, command: str, *, input_text: str | None
         timeout=timeout,
         check=False,
     )
-    if completed.returncode != 0:
-        raise RuntimeError(
-            f"ssh command failed on {host}: rc={completed.returncode}\n"
-            f"command={command}\nstdout={completed.stdout}\nstderr={completed.stderr}"
-        )
-    return completed.stdout
+    return completed
 
 
 def api_request(api_base: str, path_or_url: str, *, method: str = "GET", token: str | None = None, body: Any = None) -> Any:
@@ -218,19 +230,22 @@ def measure_gate_rankings(args: argparse.Namespace, output_dir: Path) -> dict[st
         for gate in GATES:
             command = f"ping -n -q -c 5 -W 2 {gate.public_ip}"
             started = time.monotonic()
-            stdout = ssh_command(node.host, args.ssh_key, command, timeout=30)
+            completed = ssh_command_completed(node.host, args.ssh_key, command, timeout=30)
             elapsed = time.monotonic() - started
-            avg_ms = parse_ping_avg(stdout)
+            avg_ms = parse_ping_avg_or_none(completed.stdout)
+            reachable = completed.returncode == 0 and avg_ms is not None
             result = {
                 "node": node.key,
                 "gate": gate.name,
                 "gateIp": gate.public_ip,
                 "avg_ms": avg_ms,
+                "rank_ms": avg_ms if reachable else 1_000_000.0,
+                "reachable": reachable,
                 "elapsed_seconds": elapsed,
             }
             raw.append(result)
             node_results.append(result)
-        node_results.sort(key=lambda item: float(item["avg_ms"]))
+        node_results.sort(key=lambda item: float(item["rank_ms"]))
         rankings[node.key] = node_results
 
     write_json(output_dir / "gate-ping.json", raw)
@@ -238,11 +253,18 @@ def measure_gate_rankings(args: argparse.Namespace, output_dir: Path) -> dict[st
 
 
 def parse_ping_avg(stdout: str) -> float:
+    value = parse_ping_avg_or_none(stdout)
+    if value is None:
+        raise RuntimeError(f"could not parse ping output: {stdout}")
+    return value
+
+
+def parse_ping_avg_or_none(stdout: str) -> float | None:
     for line in stdout.splitlines():
         if "rtt min/avg/max" in line or "round-trip min/avg/max" in line:
             value = line.split("=", 1)[1].strip().split()[0].split("/")[1]
             return float(value)
-    raise RuntimeError(f"could not parse ping output: {stdout}")
+    return None
 
 
 def choose_path(rankings: dict[str, list[dict[str, Any]]], source: TestNode, destination: TestNode) -> tuple[str, str]:
