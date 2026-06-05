@@ -81,11 +81,19 @@ Replace every host and IP with real validation nodes and deployed gates. The
 Check API health and gate readiness:
 
 ```bash
-export HS_API_BASE=https://<web-or-api-host>
+export HS_WEB_BASE=https://<web-host>
+export HS_PUBLIC_API_BASE="$HS_WEB_BASE/api"
 
-curl -fsS "$HS_API_BASE/health" | jq .
-curl -fsS "$HS_API_BASE/api/v1/public/gates" | jq '.gates[] | {name, ready, schedulable, probeUrl, lastSeenAt}'
+# If the API has its own public host instead of the web `/api` reverse proxy:
+# export HS_PUBLIC_API_BASE=https://<api-host>
+
+curl -fsS "$HS_PUBLIC_API_BASE/health" | jq .
+curl -fsS "$HS_PUBLIC_API_BASE/v1/public/gates" | jq '.gates[] | {name, ready, schedulable, probeUrl, lastSeenAt}'
 ```
+
+Use `$HS_WEB_BASE/api` when the public entrypoint is the web host, such as
+`https://app.example.net/api`. Use the bare API origin when the API has its own
+public host, such as `https://control-plane.example.net`.
 
 Expected result:
 
@@ -121,7 +129,7 @@ Run the same directed matrix through issued WireGuard configs:
 python3 scripts/testnodes/run_measurement_matrix.py \
   --mode hyperspace \
   --inventory ./m1-testnodes.json \
-  --api-base "$HS_API_BASE" \
+  --api-base "$HS_PUBLIC_API_BASE" \
   --ssh-key ~/.ssh/<validation-key> \
   --count 80 \
   --interval 0.04 \
@@ -196,7 +204,8 @@ Run these in the web UI over HTTPS:
 
 Record screenshots or terminal output for:
 
-- Gate list with ready/schedulable status.
+- Gate list showing Ready status and DoubleZero node details.
+- API gate-readiness output showing `ready` and `schedulable`.
 - Create-config review screen showing ingress and egress.
 - Dashboard showing the config becoming active.
 - Downloaded client config starting successfully.
@@ -229,7 +238,7 @@ After validation, verify temporary configs were revoked and gate hosts do not
 retain test interfaces:
 
 ```bash
-curl -fsS "$HS_API_BASE/api/v1/public/gates" | jq '.gates[] | {name, ready, schedulable, lastSeenAt}'
+curl -fsS "$HS_PUBLIC_API_BASE/v1/public/gates" | jq '.gates[] | {name, ready, schedulable, lastSeenAt}'
 ssh root@<gate-host> 'wg show interfaces || true'
 ```
 
