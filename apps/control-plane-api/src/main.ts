@@ -564,6 +564,10 @@ app.post("/v1/gate/heartbeat", async (request, reply) => {
   const observedEndpoint = readString(body, "observedEndpoint");
   const capabilities = readStringArray(body, "capabilities");
   const doubleZero = asRecord(body.doubleZero);
+  const doubleZeroCurrentDevice = readString(doubleZero, "currentDevice") || null;
+  const doubleZeroLowestLatencyDevice = readString(doubleZero, "lowestLatencyDevice") || null;
+  const doubleZeroLowestLatencyDeviceWarning =
+    typeof doubleZero.lowestLatencyDeviceWarning === "boolean" ? doubleZero.lowestLatencyDeviceWarning : null;
   const hostReady =
     capabilities.includes("wireguard-tools:present") &&
     capabilities.includes("iproute2:present") &&
@@ -588,9 +592,12 @@ app.post("/v1/gate/heartbeat", async (request, reply) => {
           observed_endpoint,
           observed_capabilities,
           doublezero_status,
+          doublezero_current_device,
+          doublezero_lowest_latency_device,
+          doublezero_lowest_latency_device_warning,
           updated_at
         )
-        VALUES ($1, $2, $3, $4, now(), $5, $6::text[], $7::jsonb, now())
+        VALUES ($1, $2, $3, $4, now(), $5, $6::text[], $7::jsonb, $8, $9, $10, now())
         ON CONFLICT (gate_id) DO UPDATE
         SET
           observed_generation = EXCLUDED.observed_generation,
@@ -600,9 +607,23 @@ app.post("/v1/gate/heartbeat", async (request, reply) => {
           observed_endpoint = EXCLUDED.observed_endpoint,
           observed_capabilities = EXCLUDED.observed_capabilities,
           doublezero_status = EXCLUDED.doublezero_status,
+          doublezero_current_device = EXCLUDED.doublezero_current_device,
+          doublezero_lowest_latency_device = EXCLUDED.doublezero_lowest_latency_device,
+          doublezero_lowest_latency_device_warning = EXCLUDED.doublezero_lowest_latency_device_warning,
           updated_at = now()
       `,
-      [gate.id, gate.generation, agentVersion || null, bootId || null, observedEndpoint || null, capabilities, JSON.stringify(doubleZero)]
+      [
+        gate.id,
+        gate.generation,
+        agentVersion || null,
+        bootId || null,
+        observedEndpoint || null,
+        capabilities,
+        JSON.stringify(doubleZero),
+        doubleZeroCurrentDevice,
+        doubleZeroLowestLatencyDevice,
+        doubleZeroLowestLatencyDeviceWarning
+      ]
     );
     await client.query(
       `
@@ -1104,6 +1125,9 @@ async function listGates(): Promise<GateSummary[]> {
     probeUrl: string | null;
     lastSeenAt: string | null;
     doubleZero: Record<string, unknown> | null;
+    doubleZeroCurrentDevice: string | null;
+    doubleZeroLowestLatencyDevice: string | null;
+    doubleZeroLowestLatencyDeviceWarning: boolean | null;
     agentConnected: boolean;
     ready: boolean;
     schedulable: boolean;
@@ -1121,6 +1145,9 @@ async function listGates(): Promise<GateSummary[]> {
         NULLIF(gates.spec->>'probeUrl', '') AS "probeUrl",
         gate_status.last_seen_at AS "lastSeenAt",
         gate_status.doublezero_status AS "doubleZero",
+        gate_status.doublezero_current_device AS "doubleZeroCurrentDevice",
+        gate_status.doublezero_lowest_latency_device AS "doubleZeroLowestLatencyDevice",
+        gate_status.doublezero_lowest_latency_device_warning AS "doubleZeroLowestLatencyDeviceWarning",
         COALESCE(agent.status = 'True', false) AS "agentConnected",
         COALESCE(agent.status = 'True', false) AND COALESCE(ready.status = 'True', false) AS ready,
         COALESCE(agent.status = 'True', false) AND COALESCE(schedulable.status = 'True', false) AS schedulable
@@ -1132,21 +1159,48 @@ async function listGates(): Promise<GateSummary[]> {
       ORDER BY gates.region, gates.name
     `
   );
-  return result.rows.map((row) => ({
-    id: row.id,
-    name: row.name,
-    desiredState: row.desiredState,
-    region: row.region,
-    ...(row.city ? { city: row.city } : {}),
-    ...(row.country ? { country: row.country } : {}),
-    ...(row.countryCode ? { countryCode: row.countryCode } : {}),
-    publicEndpoint: row.publicEndpoint,
-    ...(row.probeUrl ? { probeUrl: row.probeUrl } : {}),
-    ...(row.lastSeenAt ? { lastSeenAt: row.lastSeenAt } : {}),
-    ...(row.doubleZero && Object.keys(row.doubleZero).length > 0 ? { doubleZero: row.doubleZero } : {}),
-    ready: row.ready,
-    schedulable: row.schedulable
-  }));
+  return result.rows.map((row) => {
+    const doubleZero = mergeGateDoubleZeroStatus({
+      status: row.doubleZero,
+      currentDevice: row.doubleZeroCurrentDevice,
+      lowestLatencyDevice: row.doubleZeroLowestLatencyDevice,
+      lowestLatencyDeviceWarning: row.doubleZeroLowestLatencyDeviceWarning
+    });
+    return {
+      id: row.id,
+      name: row.name,
+      desiredState: row.desiredState,
+      region: row.region,
+      ...(row.city ? { city: row.city } : {}),
+      ...(row.country ? { country: row.country } : {}),
+      ...(row.countryCode ? { countryCode: row.countryCode } : {}),
+      publicEndpoint: row.publicEndpoint,
+      ...(row.probeUrl ? { probeUrl: row.probeUrl } : {}),
+      ...(row.lastSeenAt ? { lastSeenAt: row.lastSeenAt } : {}),
+      ...(doubleZero ? { doubleZero } : {}),
+      ready: row.ready,
+      schedulable: row.schedulable
+    };
+  });
+}
+
+function mergeGateDoubleZeroStatus(input: {
+  status: Record<string, unknown> | null;
+  currentDevice: string | null;
+  lowestLatencyDevice: string | null;
+  lowestLatencyDeviceWarning: boolean | null;
+}): Record<string, unknown> | null {
+  const status = input.status && Object.keys(input.status).length > 0 ? { ...input.status } : {};
+  if (input.currentDevice) {
+    status.currentDevice = input.currentDevice;
+  }
+  if (input.lowestLatencyDevice) {
+    status.lowestLatencyDevice = input.lowestLatencyDevice;
+  }
+  if (input.lowestLatencyDeviceWarning !== null) {
+    status.lowestLatencyDeviceWarning = input.lowestLatencyDeviceWarning;
+  }
+  return Object.keys(status).length > 0 ? status : null;
 }
 
 async function requireUser(request: FastifyRequest, reply: FastifyReply): Promise<AuthUser | null> {

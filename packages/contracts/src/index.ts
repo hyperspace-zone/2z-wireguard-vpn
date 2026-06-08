@@ -101,6 +101,7 @@ export interface GateDoubleZeroStatus {
   tenant?: string;
   currentDevice?: string;
   lowestLatencyDevice?: string;
+  lowestLatencyDeviceWarning?: boolean;
   metro?: string;
   network?: string;
   reportedAt?: string;

@@ -765,7 +765,7 @@ func parseDoubleZeroStatus(output string) map[string]any {
 		copyDoubleZeroField(status, row, "Reconciler", "reconciler")
 		copyDoubleZeroField(status, row, "Tenant", "tenant")
 		copyDoubleZeroField(status, row, "Current Device", "currentDevice")
-		copyDoubleZeroField(status, row, "Lowest Latency Device", "lowestLatencyDevice")
+		copyDoubleZeroLatencyDevice(status, row, "Lowest Latency Device")
 		copyDoubleZeroField(status, row, "Metro", "metro")
 		copyDoubleZeroField(status, row, "Network", "network")
 		return status
@@ -780,7 +780,7 @@ func splitStatusTableLine(line string) []string {
 	parts := strings.Split(line, "|")
 	cells := make([]string, 0, len(parts))
 	for _, part := range parts {
-		cell := sanitizeDoubleZeroStatusCell(part)
+		cell := strings.TrimSpace(part)
 		if cell == "" && len(cells) == 0 {
 			continue
 		}
@@ -790,21 +790,41 @@ func splitStatusTableLine(line string) []string {
 }
 
 func copyDoubleZeroField(target map[string]any, source map[string]string, sourceKey string, targetKey string) {
-	value := sanitizeDoubleZeroStatusCell(source[sourceKey])
+	value := strings.TrimSpace(source[sourceKey])
 	if value != "" {
 		target[targetKey] = value
 	}
 }
 
-func sanitizeDoubleZeroStatusCell(value string) string {
-	cleaned := strings.TrimSpace(value)
-	for {
-		next := strings.TrimSpace(strings.TrimLeft(cleaned, "✅⚠️❌✓✗"))
-		if next == cleaned {
-			return cleaned
-		}
-		cleaned = next
+func copyDoubleZeroLatencyDevice(target map[string]any, source map[string]string, sourceKey string) {
+	value := strings.TrimSpace(source[sourceKey])
+	if value == "" {
+		return
 	}
+	device, warning := parseDoubleZeroLatencyDevice(value)
+	if device != "" {
+		target["lowestLatencyDevice"] = device
+	}
+	if warning != nil {
+		target["lowestLatencyDeviceWarning"] = *warning
+	}
+}
+
+func parseDoubleZeroLatencyDevice(value string) (string, *bool) {
+	cleaned := strings.TrimSpace(value)
+	if strings.HasPrefix(cleaned, "✅") {
+		warning := false
+		return strings.TrimSpace(strings.TrimPrefix(cleaned, "✅")), &warning
+	}
+	if strings.HasPrefix(cleaned, "⚠️") {
+		warning := true
+		return strings.TrimSpace(strings.TrimPrefix(cleaned, "⚠️")), &warning
+	}
+	if strings.HasPrefix(cleaned, "⚠") {
+		warning := true
+		return strings.TrimSpace(strings.TrimPrefix(cleaned, "⚠")), &warning
+	}
+	return cleaned, nil
 }
 
 type wgInterfaceConfig struct {

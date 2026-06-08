@@ -24,6 +24,7 @@ interface Gate {
 interface GateDoubleZeroStatus {
   currentDevice?: string;
   lowestLatencyDevice?: string;
+  lowestLatencyDeviceWarning?: boolean;
   metro?: string;
   network?: string;
   reportedAt?: string;
@@ -1763,11 +1764,11 @@ function doubleZeroNodeCell(gate: Gate): string {
   if (status.error) {
     return `<div class="latency-result"><strong class="muted">unavailable</strong><small title="${escapeHtml(status.error)}">${escapeHtml(trimCellText(status.error, 44))}</small></div>`;
   }
-  const currentDevice = sanitizeDoubleZeroDeviceLabel(status.currentDevice);
+  const currentDevice = status.currentDevice?.trim() ?? "";
   if (!currentDevice) {
     return '<div class="latency-result"><strong class="muted">not reported</strong><small>current device missing</small></div>';
   }
-  const lowestLatencyDevice = sanitizeDoubleZeroDeviceLabel(status.lowestLatencyDevice);
+  const lowestLatencyDevice = doubleZeroLatencyDeviceLabel(status);
   const detailParts = [
     status.metro?.trim(),
     status.network?.trim(),
@@ -1777,8 +1778,18 @@ function doubleZeroNodeCell(gate: Gate): string {
   return `<div class="latency-result" title="${escapeHtml(title)}"><strong class="mono">${escapeHtml(currentDevice)}</strong><small>${escapeHtml(detailParts.join(" / ") || "DoubleZero current device")}</small></div>`;
 }
 
-function sanitizeDoubleZeroDeviceLabel(value: string | undefined): string {
-  return (value ?? "").replace(/^[\s✅⚠❌✓✗\uFE0F]+/u, "").trim();
+function doubleZeroLatencyDeviceLabel(status: GateDoubleZeroStatus): string {
+  const device = status.lowestLatencyDevice?.trim();
+  if (!device) {
+    return "";
+  }
+  if (status.lowestLatencyDeviceWarning === true) {
+    return `⚠️ ${device}`;
+  }
+  if (status.lowestLatencyDeviceWarning === false) {
+    return `✅ ${device}`;
+  }
+  return device;
 }
 
 function trimCellText(value: string, maxLength: number): string {
