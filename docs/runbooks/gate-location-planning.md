@@ -72,7 +72,9 @@ For each planned gate:
 4. Install DoubleZero tooling and run `doublezero latency`.
 5. Keep the instance with the lowest stable latency to the intended DoubleZero
    device and acceptable public-internet performance.
-6. Record the final public IP and DoubleZero identity.
+6. Record the final public IP and DoubleZero identity. The identity is the
+   `user_payer` value printed by `doublezero address` and must match the
+   `access-pass` issued for the gate.
 
 Good signs:
 

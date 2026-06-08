@@ -3,6 +3,7 @@ import { isIP } from "node:net";
 import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
 import { createDatabase, newSecretToken, sha256Hex } from "@hyperspace-zone/db";
 import type { GateSummary, SessionMode, SessionSummary } from "@hyperspace-zone/contracts";
+import { evaluateGateReadiness, readGateDoubleZeroEnv } from "./gate-readiness.js";
 import {
   decryptJsonPayload,
   parseAes256GcmKey,
@@ -43,6 +44,8 @@ interface GateAuth {
   id: string;
   name: string;
   generation: number;
+  publicEndpoint: string;
+  spec: Record<string, unknown>;
 }
 
 app.get("/health", async () => ({
@@ -551,6 +554,13 @@ app.post("/v1/gate/heartbeat", async (request, reply) => {
     capabilities.includes("wireguard-tools:present") &&
     capabilities.includes("iproute2:present") &&
     capabilities.includes("nft:present");
+  const readiness = evaluateGateReadiness({
+    capabilities,
+    doubleZero,
+    publicEndpoint: gate.publicEndpoint,
+    doubleZeroEnv: readGateDoubleZeroEnv(gate.spec),
+    hostReady
+  });
 
   await db.transaction(async (client) => {
     await client.query(
@@ -596,18 +606,18 @@ app.post("/v1/gate/heartbeat", async (request, reply) => {
       client,
       gate.id,
       "Ready",
-      hostReady ? "True" : "False",
-      hostReady ? "HostToolsPresent" : "HostToolsMissing",
-      hostReady ? "Gate host has required WireGuard, iproute2, and nft tools" : "Gate host is missing required network tools",
+      readiness.ready ? "True" : "False",
+      readiness.reason,
+      readiness.message,
       gate.generation
     );
     await upsertGateCondition(
       client,
       gate.id,
       "Schedulable",
-      hostReady ? "True" : "False",
-      hostReady ? "Enabled" : "HostToolsMissing",
-      hostReady ? "Gate is eligible for new sessions" : "Gate is not eligible for sessions until required tools are present",
+      readiness.ready ? "True" : "False",
+      readiness.ready ? "Enabled" : readiness.reason,
+      readiness.ready ? "Gate is eligible for new sessions" : `Gate is not eligible for new sessions: ${readiness.message}`,
       gate.generation
     );
   });
@@ -1168,7 +1178,12 @@ async function requireGate(request: FastifyRequest, reply: FastifyReply): Promis
 
   const result = await db.query<GateAuth>(
     `
-      SELECT gates.id, gates.name, gates.generation::int AS generation
+      SELECT
+        gates.id,
+        gates.name,
+        gates.generation::int AS generation,
+        gates.public_endpoint AS "publicEndpoint",
+        gates.spec
       FROM gates
       JOIN gate_auth_tokens ON gate_auth_tokens.gate_id = gates.id
       WHERE gates.name = $1

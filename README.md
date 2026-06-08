@@ -40,7 +40,9 @@ Each gate host needs:
 - A stable public IPv4 address.
 - Root or sudo access.
 - `wireguard-tools`, `iproute2`, `nftables`, and the DoubleZero client/daemon.
-- A DoubleZero identity/keypair.
+- A DoubleZero identity/keypair. The gate catalog `identity` field is the
+  DoubleZero `user_payer` identity returned by `doublezero address` on that
+  gate host.
 - A DoubleZero `access-pass` for that identity and the gate public IP. This is
   mandatory; a gate without an `access-pass` cannot connect to DoubleZero and
   must not be marked schedulable.

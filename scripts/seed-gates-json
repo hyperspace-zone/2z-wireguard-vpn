@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ $# -ne 1 ]]; then
+  printf 'usage: %s /path/to/gates.json\n' "$0" >&2
+  exit 2
+fi
+
+npm --silent run build -w @hyperspace-zone/db >/dev/null
+node packages/db/dist/seed-gates.js --quiet-json "$1"

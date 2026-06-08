@@ -1,7 +1,7 @@
 [
   {
     "name": "gate-ingress-01",
-    "identity": "gate-ingress-01.example.net",
+    "identity": "replace-with-doublezero-address-ingress",
     "region": "example-ingress",
     "city": "Example City A",
     "country": "Example Country",
@@ -14,7 +14,7 @@
   },
   {
     "name": "gate-egress-01",
-    "identity": "gate-egress-01.example.net",
+    "identity": "replace-with-doublezero-address-egress",
     "region": "example-egress",
     "city": "Example City B",
     "country": "Example Country",

@@ -22,6 +22,12 @@ const workerId = process.env.WORKER_ID ?? `worker-${process.pid}`;
 const gateHeartbeatStaleSeconds = Number(process.env.GATE_HEARTBEAT_STALE_SECONDS ?? 45);
 const provisioningTimeoutSeconds = Number(process.env.PROVISIONING_TIMEOUT_SECONDS ?? 90);
 const artifactEncryptionKey = parseAes256GcmKey(artifactEncryptionKeyRaw);
+const doubleZeroGateSqlPredicate = `
+  AND 'doublezero0:up' = ANY(gate_status.observed_capabilities)
+  AND gate_status.doublezero_status->>'tunnelStatus' = 'BGP Session Up'
+  AND gate_status.doublezero_status->>'network' = COALESCE(NULLIF(gates.spec->>'doubleZeroEnv', ''), 'testnet')
+  AND gate_status.doublezero_status->>'tunnelSrc' = gates.public_endpoint
+`;
 
 const db = createDatabase({
   connectionString: databaseUrl,
@@ -1095,6 +1101,7 @@ async function choosePath(
         AND COALESCE(agent.status = 'True', false)
         AND COALESCE(ready.status = 'True', false)
         AND COALESCE(schedulable.status = 'True', false)
+        ${doubleZeroGateSqlPredicate}
         AND ($1::uuid IS NULL OR gates.id = $1::uuid)
         AND ($2::text IS NULL OR gates.name = $2)
       ORDER BY gates.scheduling_weight DESC, gates.name ASC
@@ -1119,6 +1126,7 @@ async function choosePath(
         AND COALESCE(agent.status = 'True', false)
         AND COALESCE(ready.status = 'True', false)
         AND COALESCE(schedulable.status = 'True', false)
+        ${doubleZeroGateSqlPredicate}
         AND ($2::uuid IS NULL OR gates.id = $2::uuid)
         AND ($3::text IS NULL OR gates.name = $3)
       ORDER BY gates.scheduling_weight DESC, gates.name ASC

@@ -327,7 +327,7 @@ Use real values:
 [
   {
     "name": "gate-ingress-01",
-    "identity": "gate-ingress-01.example.net",
+    "identity": "replace-with-doublezero-address-ingress",
     "region": "example-ingress",
     "city": "Example City",
     "country": "Example Country",
@@ -341,11 +341,15 @@ Use real values:
 ]
 ```
 
+`identity` is the DoubleZero `user_payer` identity for the gate. Use the exact
+output of `doublezero address` on that gate host. The same identity and public
+endpoint must be authorized by the gate's DoubleZero `access-pass`.
+
 Set `doubleZeroEnv` to the same value as `DZ_ENV` for every gate:
 `testnet` for DoubleZero testnet clusters, or `mainnet-beta` for DoubleZero
 mainnet-beta clusters.
 
-Seed gates into PostgreSQL:
+Seed gates into PostgreSQL for an interactive operator flow:
 
 ```bash
 npm run db:seed:gates -- /path/to/your-gates.json
@@ -353,6 +357,17 @@ npm run db:seed:gates -- /path/to/your-gates.json
 
 The seed command prints per-gate tokens. Store each token only on the
 corresponding gate host.
+
+For automation, use the quiet JSON entrypoint. It suppresses build output and
+writes machine-readable JSON only to stdout:
+
+```bash
+scripts/seed-gates-json /path/to/your-gates.json | jq .
+```
+
+The seed command validates the gate catalog before writing to PostgreSQL:
+`identity` must be non-empty and unique, `publicEndpoint` must be IPv4, and
+`doubleZeroEnv` must be `testnet` or `mainnet-beta`.
 
 ## Gate Agents
 
@@ -374,9 +389,13 @@ GATE_AGENT_STATE_DIR=/var/lib/hyperspace-gate
 Enable a gate only after:
 
 1. `doublezero0` is up.
-2. The gate heartbeat is visible in the control plane.
-3. Actual-state reporting works.
-4. The gate can reach at least one other gate through DoubleZero.
+2. `wg`, `ip`, and `nft` are present.
+3. `doublezero status` reports `BGP Session Up`.
+4. `doublezero status` network matches the gate catalog `doubleZeroEnv`.
+5. `doublezero status` tunnel source matches the gate catalog `publicEndpoint`.
+6. The gate heartbeat is visible in the control plane.
+7. Actual-state reporting works.
+8. The gate can reach at least one other gate through DoubleZero.
 
 Execution modes:
 

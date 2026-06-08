@@ -1,8 +1,14 @@
 import { readFile } from "node:fs/promises";
+import { isIP } from "node:net";
 import { createDatabase, newSecretToken, sha256Hex } from "./index.js";
 
 interface GateSeed {
   name: string;
+  /**
+   * DoubleZero user_payer identity for this gate. This should match
+   * `doublezero address` on the gate host and the identity authorized by the
+   * gate's access-pass.
+   */
   identity: string;
   region: string;
   city: string;
@@ -16,7 +22,9 @@ interface GateSeed {
 }
 
 const connectionString = process.env.DATABASE_URL;
-const seedPath = process.argv[2];
+const args = process.argv.slice(2);
+const quietJson = args.includes("--quiet-json");
+const seedPath = args.find((arg) => !arg.startsWith("--"));
 
 if (!connectionString) {
   throw new Error("DATABASE_URL is required");
@@ -27,6 +35,7 @@ if (!seedPath) {
 }
 
 const seeds = JSON.parse(await readFile(seedPath, "utf8")) as GateSeed[];
+validateGateSeeds(seeds);
 const db = createDatabase({
   connectionString,
   applicationName: "hyperspace-gate-seed"
@@ -131,9 +140,54 @@ try {
         note: "Store issued tokens in /etc/hyperspace/gate-agent.env on each gate. They are not recoverable from the database."
       },
       null,
-      2
+      quietJson ? 0 : 2
     ) + "\n"
   );
 } finally {
   await db.close();
+}
+
+function validateGateSeeds(seeds: GateSeed[]): void {
+  if (!Array.isArray(seeds) || seeds.length === 0) {
+    throw new Error("gate seed file must contain a non-empty JSON array");
+  }
+  const names = new Set<string>();
+  const identities = new Set<string>();
+  for (const [index, seed] of seeds.entries()) {
+    const label = seed?.name ? `gate ${seed.name}` : `gate seed at index ${index}`;
+    validateRequiredToken(seed.name, `${label}.name`);
+    validateRequiredToken(seed.identity, `${label}.identity`);
+    validateRequiredToken(seed.region, `${label}.region`);
+    validateRequiredText(seed.city, `${label}.city`);
+    validateRequiredText(seed.country, `${label}.country`);
+    validateRequiredToken(seed.countryCode, `${label}.countryCode`);
+    validateRequiredToken(seed.publicEndpoint, `${label}.publicEndpoint`);
+    if (isIP(seed.publicEndpoint) !== 4) {
+      throw new Error(`${label}.publicEndpoint must be an IPv4 address`);
+    }
+    if (seed.doubleZeroEnv && seed.doubleZeroEnv !== "testnet" && seed.doubleZeroEnv !== "mainnet-beta") {
+      throw new Error(`${label}.doubleZeroEnv must be testnet or mainnet-beta`);
+    }
+    if (names.has(seed.name)) {
+      throw new Error(`duplicate gate name ${seed.name}`);
+    }
+    if (identities.has(seed.identity)) {
+      throw new Error(`duplicate gate identity ${seed.identity}`);
+    }
+    names.add(seed.name);
+    identities.add(seed.identity);
+  }
+}
+
+function validateRequiredToken(value: unknown, field: string): void {
+  validateRequiredText(value, field);
+  if (typeof value === "string" && /\s/.test(value)) {
+    throw new Error(`${field} must not contain whitespace`);
+  }
+}
+
+function validateRequiredText(value: unknown, field: string): void {
+  if (typeof value !== "string" || value.trim().length === 0) {
+    throw new Error(`${field} is required`);
+  }
 }
