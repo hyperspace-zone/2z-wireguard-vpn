@@ -66,8 +66,10 @@ values across the control-plane and gate hosts where applicable:
 ```bash
 export HS_REPO_URL=https://github.com/hyperspace-zone/2z-wireguard-vpn.git
 export HS_REPO_DIR=/opt/2z-wireguard-vpn
-export HS_APP_HOST=<control-plane-public-ip-or-domain>
-export HS_WEB_ORIGIN=https://<control-plane-public-ip-or-domain>
+export HS_WEB_HOST=<web-public-ip-or-domain>
+export HS_API_HOST=<control-plane-public-ip-or-domain>
+export HS_WEB_ORIGIN=https://$HS_WEB_HOST
+export HS_API_ORIGIN=https://$HS_API_HOST
 export OPS_EMAIL=<ops-email-for-letsencrypt>
 
 export DZ_ENV=mainnet-beta
@@ -75,9 +77,11 @@ export DZ_ENV=mainnet-beta
 # export DZ_ENV=testnet
 ```
 
-For an IP-only bootstrap, set `HS_APP_HOST` to the public IP address of the
-combined web/API/control-plane host. For DNS deployments, set it to the public
-DNS name.
+For the minimum combined-host deployment, set `HS_WEB_HOST` and `HS_API_HOST`
+to the same public IP address or DNS name. For a split deployment, set
+`HS_WEB_HOST` to the web UI host and `HS_API_HOST` to the public control-plane
+API host. The web UI should call the API through `/api/*` on the web origin;
+gate agents and automation clients should call `HS_API_ORIGIN` directly.
 
 Use an operations email for real deployments. For short-lived disposable tests
 only, Certbot can be run with `--register-unsafely-without-email` instead of
@@ -316,10 +320,6 @@ If the packaged `doublezerod.service` starts in a different environment than
 the target deployment, add a systemd drop-in before connecting:
 
 ```bash
-export DZ_ENV=testnet
-# or:
-# export DZ_ENV=mainnet-beta
-
 install -d /etc/systemd/system/doublezerod.service.d
 cat >/etc/systemd/system/doublezerod.service.d/10-env.conf <<EOF
 [Service]
@@ -327,6 +327,10 @@ ExecStart=
 ExecStart=/usr/bin/doublezerod -sock-file /run/doublezerod/doublezerod.sock -env ${DZ_ENV}
 EOF
 ```
+
+This drop-in deliberately uses the `DZ_ENV` selected in Bootstrap Variables.
+Do not switch `DZ_ENV` between `testnet` and `mainnet-beta` after an
+`access-pass` has been issued for a gate.
 
 Then run:
 
@@ -516,8 +520,10 @@ systemctl status --no-pager hyperspace-control-plane-worker
 
 Install Caddy or another reverse proxy for the public control-plane API host.
 The API must be reachable by browsers, automation clients, and gate agents over
-HTTPS. Browsers and gate agents must use the same externally reachable HTTPS
-origin.
+HTTPS. In a combined deployment, the web UI and API share one origin. In a split
+deployment, browsers use the web origin and reach the API through the web
+host's `/api/*` reverse proxy, while gate agents and automation clients use the
+API origin directly.
 
 For a combined web/API/control-plane host, copy the current web build and render
 the provided Caddyfile:
@@ -526,9 +532,9 @@ the provided Caddyfile:
 install -d -o caddy -g caddy -m 0755 /var/www/hyperspace-web
 rsync -a --delete "$HS_REPO_DIR/apps/web/dist/" /var/www/hyperspace-web/
 
-export APP_HOST="$HS_APP_HOST"
-export TLS_FULLCHAIN=/etc/caddy/certs/${HS_APP_HOST}/fullchain.pem
-export TLS_PRIVKEY=/etc/caddy/certs/${HS_APP_HOST}/privkey.pem
+export APP_HOST="$HS_WEB_HOST"
+export TLS_FULLCHAIN=/etc/caddy/certs/${HS_WEB_HOST}/fullchain.pem
+export TLS_PRIVKEY=/etc/caddy/certs/${HS_WEB_HOST}/privkey.pem
 envsubst < "$HS_REPO_DIR/infra/caddy/Caddyfile.combined.example" > /etc/caddy/Caddyfile
 caddy fmt --overwrite /etc/caddy/Caddyfile
 systemctl enable --now caddy
@@ -640,7 +646,7 @@ Create `/etc/hyperspace/gate-agent.env` on each gate:
 ```bash
 install -d -o root -g root -m 0750 /etc/hyperspace
 cat >/etc/hyperspace/gate-agent.env <<EOF
-CONTROL_PLANE_URL=https://<control-plane-domain-or-ip>
+CONTROL_PLANE_URL=${HS_API_ORIGIN}
 GATE_NAME=<gate-name-from-catalog>
 GATE_TOKEN=<issued-gate-token>
 POLL_INTERVAL=2s
@@ -651,6 +657,10 @@ EOF
 chown root:root /etc/hyperspace/gate-agent.env
 chmod 0600 /etc/hyperspace/gate-agent.env
 ```
+
+`CONTROL_PLANE_URL` must point to the API origin that exposes `/v1/gate/*`.
+For a combined host it can equal `HS_WEB_ORIGIN`; for a split deployment it
+should be `HS_API_ORIGIN`.
 
 Start the agent:
 
@@ -671,11 +681,18 @@ Enable a gate only after:
 7. Actual-state reporting works.
 8. The gate can reach at least one other gate through DoubleZero.
 
-The control plane marks a gate ready/schedulable only when the heartbeat proves
-the host tools are present, `doublezero0` is up, `doublezero status` reports
-`BGP Session Up`, the DoubleZero network matches the gate catalog
-`doubleZeroEnv`, and the tunnel source matches the gate catalog
-`publicEndpoint`.
+The control plane marks a gate `ready` and `schedulable` only when the
+heartbeat proves the host tools are present, `doublezero0` is up,
+`doublezero status` reports `BGP Session Up`, the DoubleZero network matches
+the gate catalog `doubleZeroEnv`, and the tunnel source matches the gate
+catalog `publicEndpoint`.
+
+In the web UI, the Gates table labels API `ready` as `Online` and API
+`schedulable` as `Schedulable`. If DoubleZero is disconnected, misconfigured,
+or reporting a mismatched environment/source, `Schedulable` must show `no`.
+The `DoubleZero node` column is informational runtime state from the gate
+heartbeat; when DoubleZero is disconnected it may show `unavailable` or
+`not reported` and the gate must not be selected for new VPN configs.
 
 Execution modes:
 
@@ -752,14 +769,20 @@ do not prove that real WireGuard traffic is routed correctly.
 Before giving the UI to users, validate:
 
 1. Register and log in.
-2. Create an IP-to-target config with explicit ingress and egress gates.
-3. Download and start the WireGuard config on a client.
-4. Verify the target is reachable through the selected egress.
-5. Verify a non-target IP is not reachable through the restricted config.
-6. Revoke the config and verify traffic stops.
-7. Create a config with a user-provided WireGuard public key and verify that
+2. Open the Gates table and confirm the visible status columns are `Online`,
+   `Browser RTT`, `Schedulable`, and `DoubleZero node`.
+3. Confirm every gate selected for a VPN config has `Online=yes`,
+   `Schedulable=yes`, and a DoubleZero node reported.
+4. Disconnect DoubleZero on a disposable gate, if available, and verify that
+   the API reports `schedulable: false` and the UI shows `Schedulable=no`.
+5. Create an IP-to-target config with explicit ingress and egress gates.
+6. Download and start the WireGuard config on a client.
+7. Verify the target is reachable through the selected egress.
+8. Verify a non-target IP is not reachable through the restricted config.
+9. Revoke the config and verify traffic stops.
+10. Create a config with a user-provided WireGuard public key and verify that
    only the matching private key can connect.
-8. Create a full-tunnel config from a disposable client and verify egress IP.
+11. Create a full-tunnel config from a disposable client and verify egress IP.
 
 Keep validation clients separate from gate hosts so the results reflect the
 user path.

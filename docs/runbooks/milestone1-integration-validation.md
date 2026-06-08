@@ -204,7 +204,8 @@ Run these in the web UI over HTTPS:
 
 Record screenshots or terminal output for:
 
-- Gate list showing Ready status and DoubleZero node details.
+- Gate list showing `Online`, `Browser RTT`, `Schedulable`, and
+  `DoubleZero node` details.
 - API gate-readiness output showing `ready` and `schedulable`.
 - Create-config review screen showing ingress and egress.
 - Dashboard showing the config becoming active.
