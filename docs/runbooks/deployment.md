@@ -58,10 +58,55 @@ Do not mix environments. A gate with a `testnet` `access-pass` must run
 `DZ_ENV=testnet`. A gate with a `mainnet-beta` `access-pass` must use
 `DZ_ENV=mainnet-beta` consistently.
 
+## Bootstrap Variables
+
+Set these variables before following the copy/paste examples. Keep the same
+values across the control-plane and gate hosts where applicable:
+
+```bash
+export HS_REPO_URL=https://github.com/hyperspace-zone/2z-wireguard-vpn.git
+export HS_REPO_DIR=/opt/2z-wireguard-vpn
+export HS_APP_HOST=<control-plane-public-ip-or-domain>
+export HS_WEB_ORIGIN=https://<control-plane-public-ip-or-domain>
+export OPS_EMAIL=<ops-email-for-letsencrypt>
+
+export DZ_ENV=mainnet-beta
+# or:
+# export DZ_ENV=testnet
+```
+
+For an IP-only bootstrap, set `HS_APP_HOST` to the public IP address of the
+combined web/API/control-plane host. For DNS deployments, set it to the public
+DNS name.
+
+Use an operations email for real deployments. For short-lived disposable tests
+only, Certbot can be run with `--register-unsafely-without-email` instead of
+`--email "$OPS_EMAIL"`, but do not use that for production-like clusters.
+
+## Reused Hosts
+
+If a host was used for an older Hyperspace deployment, stop conflicting services
+before installing the current platform. Do this only after confirming the host
+is not serving other traffic:
+
+```bash
+systemctl disable --now nginx 2>/dev/null || true
+systemctl disable --now hyperspace-gate-probe 2>/dev/null || true
+systemctl disable --now hyperspace-gate-agent 2>/dev/null || true
+
+ss -ltnup | grep -E ':(80|443|9443)\b' || true
+```
+
+Current gate-agent env names are `CONTROL_PLANE_URL`, `GATE_NAME`,
+`POLL_INTERVAL`, and `HEARTBEAT_INTERVAL`. Legacy names such as `API_URL`,
+`GATE_ID`, and `POLL_INTERVAL_SEC` are not used by the current agent.
+
 ## TLS Requirements
 
 Do not run browser, automation, or gate-agent traffic over plain HTTP. The web
 UI, public API, gate-agent API, and browser gate probes must all use HTTPS.
+Run the role-specific package installation sections before applying Caddy
+configuration; the control-plane and gate package lists both install Caddy.
 
 Use normal Let's Encrypt domain certificates when stable DNS names are
 available. If a bootstrap or disposable cluster only has public IP addresses,
@@ -117,7 +162,7 @@ Request an IP address certificate:
   --ip-address <public-ip> \
   --preferred-profile shortlived \
   --agree-tos \
-  --email <ops-email> \
+  --email "$OPS_EMAIL" \
   --non-interactive
 ```
 
@@ -180,6 +225,14 @@ Persistent=true
 WantedBy=timers.target
 ```
 
+After writing both unit files, enable the renewal timer:
+
+```bash
+systemctl daemon-reload
+systemctl enable --now hyperspace-certbot-renew.timer
+systemctl list-timers --all | grep hyperspace-certbot-renew
+```
+
 The deploy hook should copy renewed certificates into `/etc/caddy/certs` and
 reload Caddy. Validate renewal before accepting users:
 
@@ -210,13 +263,47 @@ Every gate host must have:
 - DoubleZero `access-pass` issued for the gate public IP and identity.
 - A working `doublezero0` interface after `doublezero connect`.
 
-Verify on each gate:
+Install base packages on each gate:
 
 ```bash
-export DZ_ENV=testnet
-# or:
-# export DZ_ENV=mainnet-beta
+apt-get update
+apt-get install -y \
+  ca-certificates \
+  curl \
+  git \
+  gnupg \
+  build-essential \
+  gettext-base \
+  jq \
+  wireguard-tools \
+  iproute2 \
+  nftables \
+  caddy
+```
 
+Install the DoubleZero CLI and daemon by following the official DoubleZero
+connect documentation for the stable package/version:
+
+https://docs.malbeclabs.com/connect/
+
+The DoubleZero repository documents the Cloudsmith APT setup flow for Ubuntu:
+
+```bash
+curl -1sLf \
+  'https://dl.cloudsmith.io/public/malbeclabs/doublezero/setup.deb.sh' \
+  | bash
+
+apt-get update
+apt-cache policy doublezero
+apt-get install -y doublezero
+```
+
+If DoubleZero documentation specifies a pinned package version for your target
+network, install that exact version instead of the unpinned package.
+
+Configure the DoubleZero keypair and verify the `access-pass` on each gate:
+
+```bash
 doublezero config set --env "$DZ_ENV" --keypair ~/.config/doublezero/id.json
 doublezero address
 doublezero access-pass list | grep "$(doublezero address)"
@@ -245,6 +332,7 @@ Then run:
 
 ```bash
 systemctl daemon-reload
+systemctl enable --now doublezerod
 systemctl restart doublezerod
 doublezero --env "$DZ_ENV" --keypair ~/.config/doublezero/id.json connect ibrl
 ```
@@ -260,63 +348,202 @@ contact the DoubleZero team through the official New Tenant contact form:
 
 https://docs.malbeclabs.com/New%20Tenant/
 
+Enable IPv4 forwarding on each gate:
+
+```bash
+cat >/etc/sysctl.d/99-hyperspace-gate.conf <<'EOF'
+net.ipv4.ip_forward=1
+EOF
+sysctl --system
+```
+
+Open the required firewall/security-group paths:
+
+| Direction | Protocol/port | Purpose |
+| --- | --- | --- |
+| Internet to web/control-plane | TCP 80, 443 | ACME challenge, web UI, public API, gate-agent API. |
+| Internet to each gate | TCP 80, 443 | ACME challenge and browser RTT probe. |
+| Each gate to control-plane | TCP 443 | Gate heartbeat and reconciliation jobs. |
+| Between DoubleZero clients | UDP 44880 | DoubleZero route-liveness traffic. |
+| WireGuard clients to ingress gates | UDP listen ports assigned by Hyperspace | Client tunnel traffic. Keep the assigned/dynamic UDP range open, or open the intended WireGuard UDP ports until the range is constrained in deployment config. |
+| Egress gates to targets | As required by policy | User traffic exiting through the selected egress gate. |
+
+Provisioning can succeed while client traffic still fails if the cloud firewall
+blocks the assigned WireGuard UDP port on the ingress gate.
+
+## Control-Plane Host Bootstrap
+
+Run these steps on the host that will run the web UI, API, worker, and
+PostgreSQL for the minimum three-server deployment.
+
+Install base packages:
+
+```bash
+apt-get update
+apt-get install -y \
+  ca-certificates \
+  curl \
+  git \
+  gnupg \
+  build-essential \
+  gettext-base \
+  jq \
+  rsync \
+  caddy
+```
+
+Install Node.js 24 or another Node.js release satisfying `node >=22`. The
+Ubuntu 24.04 `nodejs` package can resolve to Node 18, which is too old for this
+workspace. One bare-metal option is NodeSource:
+
+```bash
+curl -fsSL https://deb.nodesource.com/setup_24.x | bash -
+apt-get install -y nodejs
+node --version
+npm --version
+```
+
+Create the system user and file layout expected by the systemd units:
+
+```bash
+adduser --system --group --home "$HS_REPO_DIR" --no-create-home hyperspace
+install -d -o hyperspace -g hyperspace -m 0755 "$HS_REPO_DIR"
+install -d -o root -g hyperspace -m 0750 /etc/hyperspace
+```
+
+Check out and build the repository:
+
+```bash
+git clone "$HS_REPO_URL" "$HS_REPO_DIR"
+chown -R hyperspace:hyperspace "$HS_REPO_DIR"
+
+cd "$HS_REPO_DIR"
+sudo -u hyperspace npm ci
+sudo -u hyperspace npm run build
+sudo -u hyperspace npm test
+```
+
 ## Database
 
-Install PostgreSQL as a native package:
+Install PostgreSQL as a native package. Keep PostgreSQL private to the
+control-plane host or a private network; do not expose it on the public
+Internet.
 
 ```bash
 apt-get update
 apt-get install -y postgresql postgresql-contrib
 ```
 
-Create the application database and least-privilege user. Keep PostgreSQL
-private to the control-plane host or private network.
-
-Run migrations from the control-plane checkout:
+Create the application database and least-privilege user:
 
 ```bash
-npm install
-npm run build
-DATABASE_URL=postgres://<user>:<password>@<db-host>:5432/<db-name> npm run db:migrate
+sudo -u postgres psql <<'SQL'
+CREATE ROLE hyperspace LOGIN PASSWORD '<replace-with-strong-db-password>';
+CREATE DATABASE hyperspace OWNER hyperspace;
+SQL
+```
+
+Use this connection string in the API, worker, seed, and migration commands:
+
+```bash
+export DATABASE_URL='postgres://hyperspace:<replace-with-strong-db-password>@127.0.0.1:5432/hyperspace'
+```
+
+Run migrations from the control-plane checkout after `npm ci` and build:
+
+```bash
+cd "$HS_REPO_DIR"
+sudo -u hyperspace env DATABASE_URL="$DATABASE_URL" npm run db:migrate
 ```
 
 Configure backups and test restore before accepting users.
 
 ## Control Plane
 
-Install Node.js active LTS, build the workspace, and install:
+Generate secrets on the control-plane host:
 
-- `hyperspace-control-plane-api.service`
-- `hyperspace-control-plane-worker.service`
+```bash
+export ADMIN_TOKEN="$(openssl rand -hex 32)"
+export ARTIFACT_ENCRYPTION_KEY="$(node -e 'console.log(require("node:crypto").randomBytes(32).toString("base64url"))')"
+```
 
 Create `/etc/hyperspace/control-plane-api.env`:
 
 ```bash
+cat >/etc/hyperspace/control-plane-api.env <<EOF
 HOST=127.0.0.1
 PORT=8080
-DATABASE_URL=postgres://<user>:<password>@<db-host>:5432/<db-name>
+DATABASE_URL=${DATABASE_URL}
 AUTH_SESSION_TTL_SECONDS=2592000
 ARTIFACT_DOWNLOAD_TTL_SECONDS=300
-ADMIN_TOKEN=<random-admin-token>
-ARTIFACT_ENCRYPTION_KEY=<32-byte-base64url-key>
+ADMIN_TOKEN=${ADMIN_TOKEN}
+ARTIFACT_ENCRYPTION_KEY=${ARTIFACT_ENCRYPTION_KEY}
+EOF
+chown root:hyperspace /etc/hyperspace/control-plane-api.env
+chmod 0640 /etc/hyperspace/control-plane-api.env
 ```
 
-Create `/etc/hyperspace/control-plane-worker.env`:
+Create `/etc/hyperspace/control-plane-worker.env` with the same
+`ARTIFACT_ENCRYPTION_KEY`:
 
 ```bash
-DATABASE_URL=postgres://<user>:<password>@<db-host>:5432/<db-name>
+cat >/etc/hyperspace/control-plane-worker.env <<EOF
+DATABASE_URL=${DATABASE_URL}
 WORKER_POLL_MS=2000
 WORKER_ID=control-plane-worker-01
-ARTIFACT_ENCRYPTION_KEY=<same-32-byte-base64url-key>
+ARTIFACT_ENCRYPTION_KEY=${ARTIFACT_ENCRYPTION_KEY}
+EOF
+chown root:hyperspace /etc/hyperspace/control-plane-worker.env
+chmod 0640 /etc/hyperspace/control-plane-worker.env
 ```
 
 `ARTIFACT_ENCRYPTION_KEY` must be identical for API and worker. Do not rotate it
 without a migration plan for existing artifacts.
 
+Install and start the API and worker units:
+
+```bash
+cd "$HS_REPO_DIR"
+install -o root -g root -m 0644 infra/systemd/hyperspace-control-plane-api.service /etc/systemd/system/
+install -o root -g root -m 0644 infra/systemd/hyperspace-control-plane-worker.service /etc/systemd/system/
+
+systemctl daemon-reload
+systemctl enable --now hyperspace-control-plane-api
+systemctl enable --now hyperspace-control-plane-worker
+systemctl status --no-pager hyperspace-control-plane-api
+systemctl status --no-pager hyperspace-control-plane-worker
+```
+
 Install Caddy or another reverse proxy for the public control-plane API host.
 The API must be reachable by browsers, automation clients, and gate agents over
 HTTPS. Browsers and gate agents must use the same externally reachable HTTPS
 origin.
+
+For a combined web/API/control-plane host, copy the current web build and render
+the provided Caddyfile:
+
+```bash
+install -d -o caddy -g caddy -m 0755 /var/www/hyperspace-web
+rsync -a --delete "$HS_REPO_DIR/apps/web/dist/" /var/www/hyperspace-web/
+
+export APP_HOST="$HS_APP_HOST"
+export TLS_FULLCHAIN=/etc/caddy/certs/${HS_APP_HOST}/fullchain.pem
+export TLS_PRIVKEY=/etc/caddy/certs/${HS_APP_HOST}/privkey.pem
+envsubst < "$HS_REPO_DIR/infra/caddy/Caddyfile.combined.example" > /etc/caddy/Caddyfile
+caddy fmt --overwrite /etc/caddy/Caddyfile
+systemctl enable --now caddy
+systemctl reload caddy
+```
+
+Health check paths depend on which host you call:
+
+```bash
+# API origin directly:
+curl -fsS https://<api-host>/health
+
+# Combined web/API host where /api/* is proxied to the API:
+curl -fsS https://<web-host>/api/health
+```
 
 ## Gate Catalog
 
@@ -334,7 +561,7 @@ Use real values:
     "countryCode": "EX",
     "publicEndpoint": "203.0.113.10",
     "probeUrl": "https://gate-ingress-01.example.net/.well-known/hyperspace-probe",
-    "doubleZeroEnv": "testnet",
+    "doubleZeroEnv": "mainnet-beta",
     "schedulingWeight": 100,
     "capacityLimit": 128
   }
@@ -352,7 +579,8 @@ mainnet-beta clusters.
 Seed gates into PostgreSQL for an interactive operator flow:
 
 ```bash
-npm run db:seed:gates -- /path/to/your-gates.json
+cd "$HS_REPO_DIR"
+sudo -u hyperspace env DATABASE_URL="$DATABASE_URL" npm --silent run db:seed:gates -- /path/to/your-gates.json
 ```
 
 The seed command prints per-gate tokens. Store each token only on the
@@ -362,7 +590,8 @@ For automation, use the quiet JSON entrypoint. It suppresses build output and
 writes machine-readable JSON only to stdout:
 
 ```bash
-scripts/seed-gates-json /path/to/your-gates.json | jq .
+cd "$HS_REPO_DIR"
+sudo -u hyperspace env DATABASE_URL="$DATABASE_URL" scripts/seed-gates-json /path/to/your-gates.json | jq .
 ```
 
 The seed command validates the gate catalog before writing to PostgreSQL:
@@ -371,12 +600,46 @@ The seed command validates the gate catalog before writing to PostgreSQL:
 
 ## Gate Agents
 
-Install the `hyperspace-gate-agent` binary and
-`hyperspace-gate-agent.service` on each gate.
+Build the `hyperspace-gate-agent` binary once on the control-plane host or on
+another Linux builder with the same CPU architecture as the gates. The agent
+requires Go 1.23 or newer. Ubuntu 24.04 `apt` can provide Go 1.22, which is too
+old for `apps/gate-agent/go.mod`.
+
+Install Go outside Docker. This example uses a Go tarball; replace
+`GO_VERSION` with the current supported Go release from https://go.dev/dl/ if
+needed:
+
+```bash
+export GO_VERSION=1.23.12
+curl -fsSLO "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz"
+rm -rf /usr/local/go
+tar -C /usr/local -xzf "go${GO_VERSION}.linux-amd64.tar.gz"
+export PATH=/usr/local/go/bin:$PATH
+go version
+```
+
+Build and test the gate-agent binary:
+
+```bash
+cd "$HS_REPO_DIR/apps/gate-agent"
+/usr/local/go/bin/go test ./...
+/usr/local/go/bin/go build -o /tmp/hyperspace-gate-agent ./cmd/hyperspace-gate-agent
+chmod 0755 /tmp/hyperspace-gate-agent
+```
+
+Copy the binary and systemd unit to each gate:
+
+```bash
+scp /tmp/hyperspace-gate-agent root@<gate-public-ip>:/usr/local/bin/hyperspace-gate-agent
+scp "$HS_REPO_DIR/infra/systemd/hyperspace-gate-agent.service" root@<gate-public-ip>:/etc/systemd/system/hyperspace-gate-agent.service
+ssh root@<gate-public-ip> 'chown root:root /usr/local/bin/hyperspace-gate-agent /etc/systemd/system/hyperspace-gate-agent.service && chmod 0755 /usr/local/bin/hyperspace-gate-agent && chmod 0644 /etc/systemd/system/hyperspace-gate-agent.service'
+```
 
 Create `/etc/hyperspace/gate-agent.env` on each gate:
 
 ```bash
+install -d -o root -g root -m 0750 /etc/hyperspace
+cat >/etc/hyperspace/gate-agent.env <<EOF
 CONTROL_PLANE_URL=https://<control-plane-domain-or-ip>
 GATE_NAME=<gate-name-from-catalog>
 GATE_TOKEN=<issued-gate-token>
@@ -384,6 +647,17 @@ POLL_INTERVAL=2s
 HEARTBEAT_INTERVAL=10s
 GATE_AGENT_EXECUTION_MODE=apply
 GATE_AGENT_STATE_DIR=/var/lib/hyperspace-gate
+EOF
+chown root:root /etc/hyperspace/gate-agent.env
+chmod 0600 /etc/hyperspace/gate-agent.env
+```
+
+Start the agent:
+
+```bash
+systemctl daemon-reload
+systemctl enable --now hyperspace-gate-agent
+systemctl status --no-pager hyperspace-gate-agent
 ```
 
 Enable a gate only after:
@@ -397,6 +671,12 @@ Enable a gate only after:
 7. Actual-state reporting works.
 8. The gate can reach at least one other gate through DoubleZero.
 
+The control plane marks a gate ready/schedulable only when the heartbeat proves
+the host tools are present, `doublezero0` is up, `doublezero status` reports
+`BGP Session Up`, the DoubleZero network matches the gate catalog
+`doubleZeroEnv`, and the tunnel source matches the gate catalog
+`publicEndpoint`.
+
 Execution modes:
 
 - `apply`: mutate host WireGuard, route, and nftables state.
@@ -405,10 +685,15 @@ Execution modes:
 
 ## Web
 
-Build the UI and sync static assets to your web host:
+The minimum combined-host flow already builds the full workspace and syncs web
+assets in the Control Plane section. When redeploying only the UI, rebuild and
+sync static assets to your web host:
 
 ```bash
-npm run build -w @hyperspace-zone/web
+cd "$HS_REPO_DIR"
+sudo -u hyperspace npm run build -w @hyperspace-zone/web
+rsync -a --delete "$HS_REPO_DIR/apps/web/dist/" /var/www/hyperspace-web/
+systemctl reload caddy
 ```
 
 Serve the static directory through HTTPS. Reverse proxy `/api/*` to the
@@ -425,10 +710,44 @@ Browser RTT measurement requires each gate to expose an HTTPS probe endpoint:
 GET /.well-known/hyperspace-probe -> 204 No Content
 ```
 
-Enable CORS and Timing-Allow-Origin for your web UI origin. See
-`infra/caddy/Caddyfile.gate-probe.example` and replace all placeholders.
+Enable CORS and `Timing-Allow-Origin` for your web UI origin. Use the provided
+Caddyfile example on each gate:
+
+```bash
+export GATE_HOST=<gate-public-ip-or-domain>
+export WEB_ORIGIN="$HS_WEB_ORIGIN"
+export GATE_NAME=<gate-name-from-catalog>
+export TLS_FULLCHAIN=/etc/caddy/certs/${GATE_HOST}/fullchain.pem
+export TLS_PRIVKEY=/etc/caddy/certs/${GATE_HOST}/privkey.pem
+export GATE_CADDYFILE_TEMPLATE=/opt/2z-wireguard-vpn/infra/caddy/Caddyfile.gate-probe.example
+
+envsubst < "$GATE_CADDYFILE_TEMPLATE" > /etc/caddy/Caddyfile
+caddy fmt --overwrite /etc/caddy/Caddyfile
+systemctl enable --now caddy
+systemctl reload caddy
+```
+
+If the gate does not have a repository checkout, copy
+`infra/caddy/Caddyfile.gate-probe.example` from the control-plane host first
+and set `GATE_CADDYFILE_TEMPLATE` to that copied path, for example
+`/tmp/Caddyfile.gate-probe.example`.
+
+Validate the probe:
+
+```bash
+curl -i "https://${GATE_HOST}/.well-known/hyperspace-probe"
+```
+
+Expected result is `204 No Content` with `Access-Control-Allow-Origin` and
+`Timing-Allow-Origin` matching the web UI origin.
 
 ## Validation
+
+Provision at least one validation client that is not a gate and not the
+control-plane host. For restricted IP-to-target validation, also choose a target
+IP that is reachable from the egress gate and a different non-target IP that
+must remain blocked. Provisioning, artifact download, and revoke checks alone
+do not prove that real WireGuard traffic is routed correctly.
 
 Before giving the UI to users, validate:
 
@@ -449,6 +768,10 @@ For API automation, first request a client-config download token, then fetch the
 raw WireGuard config with either `downloadConfigUrl` or `?format=conf`:
 
 ```bash
+export HS_PUBLIC_API_BASE=https://<web-host>/api
+# If calling the API host directly, use:
+# export HS_PUBLIC_API_BASE=https://<api-host>
+
 token_response="$(
   curl -fsS -X POST \
     -H "authorization: Bearer $HS_ACCESS_TOKEN" \
@@ -470,6 +793,15 @@ envelope used by the web UI:
     "configText": "[Interface]\n..."
   }
 }
+```
+
+If you intentionally use the JSON endpoint in shell automation, extract the
+config text before starting WireGuard:
+
+```bash
+curl -fsSL "$HS_PUBLIC_API_BASE$(jq -r '.downloadUrl' <<<"$token_response")" \
+  | jq -r '.payload.configText' \
+  > hyperspace.conf
 ```
 
 ## Observability
