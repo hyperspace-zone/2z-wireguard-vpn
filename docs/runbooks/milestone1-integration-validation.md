@@ -211,6 +211,27 @@ Record screenshots or terminal output for:
 - Downloaded client config starting successfully.
 - Revoke flow ending in revoked/deleted state.
 
+For API-driven validation, the download-token response includes two download
+URLs:
+
+- `downloadUrl` returns the JSON artifact envelope with `payload.configText`.
+- `downloadConfigUrl` returns a raw WireGuard `.conf` file with
+  `Content-Type: text/plain; charset=utf-8`.
+
+Use the raw URL for `curl ... > hyperspace.conf` automation:
+
+```bash
+token_response="$(
+  curl -fsS -X POST \
+    -H "authorization: Bearer $HS_ACCESS_TOKEN" \
+    "$HS_PUBLIC_API_BASE/v1/public/sessions/$SESSION_ID/artifacts/client-config/download-token"
+)"
+
+curl -fsSL \
+  "$HS_PUBLIC_API_BASE$(jq -r '.downloadConfigUrl' <<<"$token_response")" \
+  > hyperspace.conf
+```
+
 ## Route Restriction Checks
 
 For target-restricted configs:

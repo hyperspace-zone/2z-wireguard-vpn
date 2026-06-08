@@ -445,6 +445,33 @@ Before giving the UI to users, validate:
 Keep validation clients separate from gate hosts so the results reflect the
 user path.
 
+For API automation, first request a client-config download token, then fetch the
+raw WireGuard config with either `downloadConfigUrl` or `?format=conf`:
+
+```bash
+token_response="$(
+  curl -fsS -X POST \
+    -H "authorization: Bearer $HS_ACCESS_TOKEN" \
+    "$HS_PUBLIC_API_BASE/v1/public/sessions/$SESSION_ID/artifacts/client-config/download-token"
+)"
+
+curl -fsSL \
+  "$HS_PUBLIC_API_BASE$(jq -r '.downloadConfigUrl' <<<"$token_response")" \
+  > hyperspace.conf
+```
+
+`downloadUrl` without `?format=conf` intentionally returns the JSON artifact
+envelope used by the web UI:
+
+```json
+{
+  "payload": {
+    "fileName": "hyperspace-xxxxxxxx.conf",
+    "configText": "[Interface]\n..."
+  }
+}
+```
+
 ## Observability
 
 Recommended components:

@@ -12,6 +12,14 @@ Human and web flows:
 - revoke session
 - request artifact download token
 
+Client-config artifacts support two download forms:
+
+- `GET /v1/public/artifacts/download/:token` returns the JSON artifact
+  envelope, including metadata and `payload.configText`.
+- `GET /v1/public/artifacts/download/:token?format=conf` or
+  `Accept: text/plain` returns the raw WireGuard `.conf` body with
+  `Content-Type: text/plain; charset=utf-8` and an attachment filename.
+
 ## `/v1/agent/*`
 
 Agent and pay.sh flows:

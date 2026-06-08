@@ -449,7 +449,8 @@ app.post("/v1/public/sessions/:sessionId/artifacts/client-config/download-token"
   return reply.send({
     token,
     expiresAt,
-    downloadUrl: `/v1/public/artifacts/download/${token}`
+    downloadUrl: `/v1/public/artifacts/download/${token}`,
+    downloadConfigUrl: `/v1/public/artifacts/download/${token}?format=conf`
   });
 });
 
@@ -519,13 +520,26 @@ app.get("/v1/public/artifacts/download/:token", async (request, reply) => {
   if (encryptedPayload && !artifactEncryptionKey) {
     return reply.code(503).send({ error: "artifact_encryption_not_configured" });
   }
+  const payload = encryptedPayload && artifactEncryptionKey
+    ? decryptJsonPayload<Record<string, unknown>>(encryptedPayload, artifactEncryptionKey)
+    : asRecord(result.publicPayload);
+
+  if (shouldReturnRawWireGuardConfig(request)) {
+    const configText = readString(payload, "configText");
+    if (!configText) {
+      return reply.code(406).send({ error: "raw_config_not_available" });
+    }
+    const fileName = attachmentFileName(readString(payload, "fileName"), result.artifactId);
+    return reply
+      .type("text/plain; charset=utf-8")
+      .header("content-disposition", `attachment; filename="${fileName}"`)
+      .send(configText);
+  }
 
   return reply.send({
     artifactId: result.artifactId,
     metadata: result.publicPayload,
-    payload: encryptedPayload && artifactEncryptionKey
-      ? decryptJsonPayload(encryptedPayload, artifactEncryptionKey)
-      : result.publicPayload,
+    payload,
     ...(result.payloadType ? { payloadType: result.payloadType } : {}),
     encryptedPayloadRef: result.encryptedPayloadRef
   });
@@ -1325,6 +1339,11 @@ function readParam(request: FastifyRequest, name: string): string {
   return readString(params, name);
 }
 
+function readQuery(request: FastifyRequest, name: string): string {
+  const query = asRecord(request.query);
+  return readString(query, name);
+}
+
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 }
@@ -1340,6 +1359,25 @@ function readStringArray(record: Record<string, unknown>, key: string): string[]
     return [];
   }
   return value.filter((item): item is string => typeof item === "string").map((item) => item.trim()).filter(Boolean);
+}
+
+function shouldReturnRawWireGuardConfig(request: FastifyRequest): boolean {
+  if (readQuery(request, "format") === "conf") {
+    return true;
+  }
+  return headerValue(request, "accept")
+    .split(",")
+    .some((entry) => entry.split(";", 1)[0]?.trim().toLowerCase() === "text/plain");
+}
+
+function attachmentFileName(value: string, artifactId: string): string {
+  const fallback = `hyperspace-${artifactId.slice(0, 8)}.conf`;
+  const baseName = value.split(/[\\/]/).pop()?.trim() || fallback;
+  const sanitized = baseName.replace(/[^A-Za-z0-9._-]/g, "-");
+  if (!sanitized || sanitized === "." || sanitized === "..") {
+    return fallback;
+  }
+  return sanitized.endsWith(".conf") ? sanitized : `${sanitized}.conf`;
 }
 
 function encryptedPayloadFromRow(row: {
