@@ -358,12 +358,12 @@ function gatesPanel(gates: Gate[]): string {
           <th>Name</th>
           <th>Region</th>
           <th>Endpoint</th>
-          <th>DoubleZero node</th>
           <th>Online</th>
-          <th>Schedulable</th>
           <th aria-sort="${gateBrowserRttSortDirection === "desc" ? "descending" : "ascending"}">
             <button class="table-sort" type="button" data-sort-gates="browser-rtt">Browser RTT ${sortArrow}</button>
           </th>
+          <th>Schedulable</th>
+          <th>DoubleZero node</th>
         </tr>
       </thead>
       <tbody>
@@ -374,10 +374,10 @@ function gatesPanel(gates: Gate[]): string {
                 <td>${escapeHtml(gate.name)}</td>
                 <td>${escapeHtml(gate.region)}${gateLocationLabel(gate) !== gate.region ? `<small>${escapeHtml(gateLocationLabel(gate))}</small>` : ""}</td>
                 <td><small class="mono">${escapeHtml(gate.publicEndpoint)}</small></td>
-                <td>${doubleZeroNodeCell(gate)}</td>
                 <td>${statusDot(gate.ready)}</td>
-                <td>${statusDot(gate.schedulable)}</td>
                 <td class="latency-cell">${latencyCell(gate)}</td>
+                <td>${statusDot(gate.schedulable)}</td>
+                <td>${doubleZeroNodeCell(gate)}</td>
               </tr>
             `
           )
