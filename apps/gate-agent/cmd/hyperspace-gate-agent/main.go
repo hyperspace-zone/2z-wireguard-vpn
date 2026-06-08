@@ -780,8 +780,7 @@ func splitStatusTableLine(line string) []string {
 	parts := strings.Split(line, "|")
 	cells := make([]string, 0, len(parts))
 	for _, part := range parts {
-		cell := strings.TrimSpace(strings.TrimPrefix(part, "✅"))
-		cell = strings.TrimSpace(cell)
+		cell := sanitizeDoubleZeroStatusCell(part)
 		if cell == "" && len(cells) == 0 {
 			continue
 		}
@@ -791,10 +790,20 @@ func splitStatusTableLine(line string) []string {
 }
 
 func copyDoubleZeroField(target map[string]any, source map[string]string, sourceKey string, targetKey string) {
-	value := strings.TrimSpace(strings.TrimPrefix(source[sourceKey], "✅"))
-	value = strings.TrimSpace(value)
+	value := sanitizeDoubleZeroStatusCell(source[sourceKey])
 	if value != "" {
 		target[targetKey] = value
+	}
+}
+
+func sanitizeDoubleZeroStatusCell(value string) string {
+	cleaned := strings.TrimSpace(value)
+	for {
+		next := strings.TrimSpace(strings.TrimLeft(cleaned, "✅⚠️❌✓✗"))
+		if next == cleaned {
+			return cleaned
+		}
+		cleaned = next
 	}
 }
 

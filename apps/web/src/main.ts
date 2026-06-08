@@ -1763,17 +1763,22 @@ function doubleZeroNodeCell(gate: Gate): string {
   if (status.error) {
     return `<div class="latency-result"><strong class="muted">unavailable</strong><small title="${escapeHtml(status.error)}">${escapeHtml(trimCellText(status.error, 44))}</small></div>`;
   }
-  const currentDevice = status.currentDevice?.trim();
+  const currentDevice = sanitizeDoubleZeroDeviceLabel(status.currentDevice);
   if (!currentDevice) {
     return '<div class="latency-result"><strong class="muted">not reported</strong><small>current device missing</small></div>';
   }
+  const lowestLatencyDevice = sanitizeDoubleZeroDeviceLabel(status.lowestLatencyDevice);
   const detailParts = [
     status.metro?.trim(),
     status.network?.trim(),
-    status.lowestLatencyDevice?.trim() ? `Lowest latency device: ${status.lowestLatencyDevice.trim()}` : ""
+    lowestLatencyDevice ? `Lowest latency device: ${lowestLatencyDevice}` : ""
   ].filter(Boolean);
   const title = status.reportedAt ? `Reported at ${status.reportedAt}` : "";
   return `<div class="latency-result" title="${escapeHtml(title)}"><strong class="mono">${escapeHtml(currentDevice)}</strong><small>${escapeHtml(detailParts.join(" / ") || "DoubleZero current device")}</small></div>`;
+}
+
+function sanitizeDoubleZeroDeviceLabel(value: string | undefined): string {
+  return (value ?? "").replace(/^[\s✅⚠❌✓✗\uFE0F]+/u, "").trim();
 }
 
 function trimCellText(value: string, maxLength: number): string {
