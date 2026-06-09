@@ -41,8 +41,8 @@ Do not include them in routine `npm test` or live smoke runs.
 | --- | --- | --- | --- | --- |
 | CP-001 | API health | `GET /api/health` from the public web host, or `GET /health` from a bare API host. | Returns `ok: true` and current server time. | `scripts/testnet/live-ui-smoke.mjs` |
 | CP-002 | Public gate catalog | `GET /api/v1/public/gates`. | At least two gates are `ready=true`, `schedulable=true`; every gate has HTTPS `probeUrl`; every schedulable gate reports DoubleZero status. | `scripts/testnet/live-ui-smoke.mjs` |
-| CP-003 | DoubleZero required for schedulability | Stop or disconnect DoubleZero on one gate, wait for heartbeat. | Gate remains online only if agent reports, but `schedulable=false`; DoubleZero node is absent/stale; scheduler does not select it. | Unit tests plus manual outage test |
-| CP-004 | DoubleZero environment/source match | Run a gate with mismatched `doubleZeroEnv` or mismatched tunnel source. | Gate readiness is false and scheduler refuses it. | `packages/control-plane/src/resources/gates/readiness.test.ts` |
+| CP-003 | DoubleZero required for schedulability | Stop or disconnect DoubleZero on one gate, wait for heartbeat. | Gate remains `ready=true` while the agent reports fresh host state, but `schedulable=false`; DoubleZero node is absent/stale; scheduler does not select it. | Unit tests plus manual outage test |
+| CP-004 | DoubleZero environment/source match | Run a gate with mismatched `doubleZeroEnv` or mismatched tunnel source. | Gate readiness remains tied to agent/host health, but schedulability is false and scheduler refuses it. | `packages/control-plane/src/resources/gates/readiness.test.ts` |
 | CP-005 | Gate outage behavior | Stop gate software on one selected gate and request a config using it. | Provisioning does not hang forever; session moves to failed with a short error; Download/Revoke are disabled until appropriate. | Manual outage test |
 
 ## Public API And Artifact Contract
@@ -63,7 +63,7 @@ Do not include them in routine `npm test` or live smoke runs.
 | --- | --- | --- | --- | --- |
 | UI-001 | Separate auth pages | Open `/register` and `/login`. | Register and login are separate pages; event console is not shown on auth pages. | `scripts/testnet/live-ui-smoke.mjs` |
 | UI-002 | Dashboard layout | Log in with no configs. | Dashboard shows VPN configs area, Create config action, and Gates table as secondary information. | `scripts/testnet/live-ui-smoke.mjs` |
-| UI-003 | Gates table columns | Open dashboard. | Columns include Name, Region, Endpoint, Online, Browser RTT, Schedulable, DoubleZero node. | `scripts/testnet/live-ui-smoke.mjs` |
+| UI-003 | Gates table columns | Open dashboard. | Columns include Name, Region, Endpoint, Ready, Browser RTT, Schedulable, DoubleZero node. | `scripts/testnet/live-ui-smoke.mjs` |
 | UI-004 | Browser RTT measurement | Click Measure browser RTT. | Rows update per gate as measurements finish; sort is low-to-high by default; measured rows keep stable row height. | UI smoke plus visual/manual |
 | UI-005 | Create config Step 1 | Open `/create-config`. | Header says Step 1; ingress and egress selectors are aligned; no Ingress Auto/Egress Auto option exists. | `scripts/testnet/live-ui-smoke.mjs` |
 | UI-006 | Explicit egress required | Choose ingress but leave egress empty and submit. | Inline validation says egress is required; config is not created. | `scripts/testnet/live-ui-smoke.mjs` |
@@ -104,7 +104,7 @@ Do not include them in routine `npm test` or live smoke runs.
 | ID | Case | Expected | Coverage |
 | --- | --- | --- | --- |
 | UNIT-001 | `choosePath` SQL joins gate status. | Scheduler never emits SQL referencing `gate_status` without joining it. | `packages/control-plane/src/planning/choose-path.test.ts` |
-| UNIT-002 | Gate readiness requires DoubleZero. | Missing `doublezero0`, down BGP session, env mismatch, or tunnel source mismatch all make gate not ready. | `packages/control-plane/src/resources/gates/readiness.test.ts` |
+| UNIT-002 | Gate schedulability requires DoubleZero. | Missing `doublezero0`, down BGP session, env mismatch, or tunnel source mismatch keep gate ready when the agent/host is healthy, but make it unschedulable. | `packages/control-plane/src/resources/gates/readiness.test.ts` |
 | UNIT-003 | Build/typecheck across workspaces. | Contracts, DB, control-plane, API, worker, web build and typecheck cleanly. | `npm run build && npm run typecheck` |
 
 ## Live Testnet Smoke

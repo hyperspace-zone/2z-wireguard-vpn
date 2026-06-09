@@ -51,6 +51,9 @@ export async function recordGateHeartbeat(
     ready: readiness.ready,
     reason: readiness.reason,
     message: readiness.message,
+    doubleZeroReady: readiness.doubleZeroReady,
+    doubleZeroReason: readiness.doubleZeroReason,
+    doubleZeroMessage: readiness.doubleZeroMessage,
     desiredState: gate.desiredState
   });
 

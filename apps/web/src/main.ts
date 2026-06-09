@@ -359,7 +359,7 @@ function gatesPanel(gates: Gate[]): string {
           <th>Name</th>
           <th>Region</th>
           <th>Endpoint</th>
-          <th>Online</th>
+          <th>Ready</th>
           <th aria-sort="${gateBrowserRttSortDirection === "desc" ? "descending" : "ascending"}">
             <button class="table-sort" type="button" data-sort-gates="browser-rtt">Browser RTT ${sortArrow}</button>
           </th>

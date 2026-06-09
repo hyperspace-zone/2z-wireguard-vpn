@@ -16,17 +16,20 @@ export function resolveGateAgentConnectedCondition(connected: boolean): GateLife
   };
 }
 
-export function isGateSchedulable(ready: boolean, desiredState: string): boolean {
-  return ready && desiredState === "Enabled";
+export function isGateSchedulable(ready: boolean, doubleZeroReady: boolean, desiredState: string): boolean {
+  return ready && doubleZeroReady && desiredState === "Enabled";
 }
 
 export function resolveGateHeartbeatConditions(input: {
   ready: boolean;
   reason: string;
   message: string;
+  doubleZeroReady: boolean;
+  doubleZeroReason: string;
+  doubleZeroMessage: string;
   desiredState: GateDesiredState;
 }): GateLifecycleCondition[] {
-  const schedulable = isGateSchedulable(input.ready, input.desiredState);
+  const schedulable = isGateSchedulable(input.ready, input.doubleZeroReady, input.desiredState);
   return [
     {
       type: "Ready",
@@ -52,6 +55,9 @@ export function resolveGateStaleConditions(): GateLifecycleCondition[] {
       ready: false,
       reason: "HeartbeatStale",
       message: "Gate agent heartbeat is stale",
+      doubleZeroReady: false,
+      doubleZeroReason: "HeartbeatStale",
+      doubleZeroMessage: "Gate agent heartbeat is stale",
       desiredState: "Enabled"
     })
   ];
@@ -60,10 +66,15 @@ export function resolveGateStaleConditions(): GateLifecycleCondition[] {
 function schedulableBlockedReason(input: {
   ready: boolean;
   reason: string;
+  doubleZeroReady: boolean;
+  doubleZeroReason: string;
   desiredState: GateDesiredState;
 }): string {
   if (!input.ready) {
     return input.reason;
+  }
+  if (!input.doubleZeroReady) {
+    return input.doubleZeroReason;
   }
   return `DesiredState${input.desiredState}`;
 }
@@ -71,10 +82,15 @@ function schedulableBlockedReason(input: {
 function schedulableBlockedMessage(input: {
   ready: boolean;
   message: string;
+  doubleZeroReady: boolean;
+  doubleZeroMessage: string;
   desiredState: GateDesiredState;
 }): string {
   if (!input.ready) {
     return `Gate is not eligible for new sessions: ${input.message}`;
+  }
+  if (!input.doubleZeroReady) {
+    return `Gate is not eligible for new sessions: ${input.doubleZeroMessage}`;
   }
   return `Gate desired state is ${input.desiredState}, so it is not eligible for new sessions`;
 }

@@ -86,7 +86,7 @@ try {
   await expectText(page, "VPN configs");
   result.steps.push("logged_in");
 
-  await expectText(page, "Online");
+  await expectText(page, "Ready");
   await expectText(page, "Schedulable");
   await expectText(page, "DoubleZero node");
   await expectText(page, "Browser RTT");

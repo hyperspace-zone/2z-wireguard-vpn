@@ -16,17 +16,20 @@ const readyDoubleZero = {
   network: "testnet"
 };
 
-test("gate is ready only when host tools and DoubleZero tunnel match catalog", () => {
-  assert.equal(evaluateGateReadiness({
+test("gate is ready when host tools are present", () => {
+  const readiness = evaluateGateReadiness({
     capabilities: readyCapabilities,
     doubleZero: readyDoubleZero,
     publicEndpoint: "203.0.113.10",
     doubleZeroEnv: "testnet",
     hostReady: true
-  }).ready, true);
+  });
+  assert.equal(readiness.ready, true);
+  assert.equal(readiness.reason, "HostReady");
+  assert.equal(readiness.doubleZeroReady, true);
 });
 
-test("gate is not ready when doublezero0 is not up", () => {
+test("gate is ready but not DoubleZero-ready when doublezero0 is not up", () => {
   const readiness = evaluateGateReadiness({
     capabilities: readyCapabilities.filter((capability) => capability !== "doublezero0:up"),
     doubleZero: readyDoubleZero,
@@ -34,11 +37,12 @@ test("gate is not ready when doublezero0 is not up", () => {
     doubleZeroEnv: "testnet",
     hostReady: true
   });
-  assert.equal(readiness.ready, false);
-  assert.equal(readiness.reason, "DoubleZeroInterfaceDown");
+  assert.equal(readiness.ready, true);
+  assert.equal(readiness.doubleZeroReady, false);
+  assert.equal(readiness.doubleZeroReason, "DoubleZeroInterfaceDown");
 });
 
-test("gate is not ready when DoubleZero BGP session is down", () => {
+test("gate is ready but not DoubleZero-ready when DoubleZero BGP session is down", () => {
   const readiness = evaluateGateReadiness({
     capabilities: readyCapabilities,
     doubleZero: { ...readyDoubleZero, tunnelStatus: "Connecting" },
@@ -46,11 +50,12 @@ test("gate is not ready when DoubleZero BGP session is down", () => {
     doubleZeroEnv: "testnet",
     hostReady: true
   });
-  assert.equal(readiness.ready, false);
-  assert.equal(readiness.reason, "DoubleZeroTunnelDown");
+  assert.equal(readiness.ready, true);
+  assert.equal(readiness.doubleZeroReady, false);
+  assert.equal(readiness.doubleZeroReason, "DoubleZeroTunnelDown");
 });
 
-test("gate is not ready when DoubleZero environment mismatches catalog", () => {
+test("gate is ready but not DoubleZero-ready when DoubleZero environment mismatches catalog", () => {
   const readiness = evaluateGateReadiness({
     capabilities: readyCapabilities,
     doubleZero: { ...readyDoubleZero, network: "mainnet-beta" },
@@ -58,11 +63,12 @@ test("gate is not ready when DoubleZero environment mismatches catalog", () => {
     doubleZeroEnv: "testnet",
     hostReady: true
   });
-  assert.equal(readiness.ready, false);
-  assert.equal(readiness.reason, "DoubleZeroEnvMismatch");
+  assert.equal(readiness.ready, true);
+  assert.equal(readiness.doubleZeroReady, false);
+  assert.equal(readiness.doubleZeroReason, "DoubleZeroEnvMismatch");
 });
 
-test("gate is not ready when tunnel source mismatches public endpoint", () => {
+test("gate is ready but not DoubleZero-ready when tunnel source mismatches public endpoint", () => {
   const readiness = evaluateGateReadiness({
     capabilities: readyCapabilities,
     doubleZero: { ...readyDoubleZero, tunnelSrc: "203.0.113.11" },
@@ -70,8 +76,9 @@ test("gate is not ready when tunnel source mismatches public endpoint", () => {
     doubleZeroEnv: "testnet",
     hostReady: true
   });
-  assert.equal(readiness.ready, false);
-  assert.equal(readiness.reason, "DoubleZeroTunnelSourceMismatch");
+  assert.equal(readiness.ready, true);
+  assert.equal(readiness.doubleZeroReady, false);
+  assert.equal(readiness.doubleZeroReason, "DoubleZeroTunnelSourceMismatch");
 });
 
 test("gate catalog defaults DoubleZero environment to testnet", () => {
@@ -83,8 +90,11 @@ test("gate schedulability requires enabled desired state", () => {
   for (const desiredState of ["Draining", "Disabled", "Maintenance"] as const) {
     const conditions = resolveGateHeartbeatConditions({
       ready: true,
-      reason: "DoubleZeroReady",
-      message: "Gate host tools and DoubleZero tunnel are ready",
+      reason: "HostReady",
+      message: "Gate agent heartbeat is fresh and required host tools are present",
+      doubleZeroReady: true,
+      doubleZeroReason: "DoubleZeroReady",
+      doubleZeroMessage: "DoubleZero tunnel is connected and matches the gate catalog",
       desiredState
     });
     const schedulable = conditions.find((condition) => condition.type === "Schedulable");
@@ -94,11 +104,31 @@ test("gate schedulability requires enabled desired state", () => {
 
   const enabled = resolveGateHeartbeatConditions({
     ready: true,
-    reason: "DoubleZeroReady",
-    message: "Gate host tools and DoubleZero tunnel are ready",
+    reason: "HostReady",
+    message: "Gate agent heartbeat is fresh and required host tools are present",
+    doubleZeroReady: true,
+    doubleZeroReason: "DoubleZeroReady",
+    doubleZeroMessage: "DoubleZero tunnel is connected and matches the gate catalog",
     desiredState: "Enabled"
   }).find((condition) => condition.type === "Schedulable");
   assert.equal(enabled?.status, "True");
+});
+
+test("gate schedulability requires DoubleZero readiness", () => {
+  const conditions = resolveGateHeartbeatConditions({
+    ready: true,
+    reason: "HostReady",
+    message: "Gate agent heartbeat is fresh and required host tools are present",
+    doubleZeroReady: false,
+    doubleZeroReason: "DoubleZeroTunnelDown",
+    doubleZeroMessage: "DoubleZero tunnel is disconnected",
+    desiredState: "Enabled"
+  });
+  const ready = conditions.find((condition) => condition.type === "Ready");
+  const schedulable = conditions.find((condition) => condition.type === "Schedulable");
+  assert.equal(ready?.status, "True");
+  assert.equal(schedulable?.status, "False");
+  assert.equal(schedulable?.reason, "DoubleZeroTunnelDown");
 });
 
 test("stale gate conditions are resolved by gate lifecycle policy", () => {

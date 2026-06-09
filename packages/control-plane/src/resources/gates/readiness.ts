@@ -2,6 +2,9 @@ export interface GateReadiness {
   ready: boolean;
   reason: string;
   message: string;
+  doubleZeroReady: boolean;
+  doubleZeroReason: string;
+  doubleZeroMessage: string;
 }
 
 export function evaluateGateReadiness(input: {
@@ -15,44 +18,62 @@ export function evaluateGateReadiness(input: {
     return {
       ready: false,
       reason: "HostToolsMissing",
-      message: "Gate host is missing required WireGuard, iproute2, or nft tools"
+      message: "Gate host is missing required WireGuard, iproute2, or nft tools",
+      doubleZeroReady: false,
+      doubleZeroReason: "HostToolsMissing",
+      doubleZeroMessage: "Gate host must be ready before DoubleZero can be used for scheduling"
     };
   }
   if (!input.capabilities.includes("doublezero0:up")) {
     return {
-      ready: false,
-      reason: "DoubleZeroInterfaceDown",
-      message: "doublezero0 is not up"
+      ready: true,
+      reason: "HostReady",
+      message: "Gate agent heartbeat is fresh and required host tools are present",
+      doubleZeroReady: false,
+      doubleZeroReason: "DoubleZeroInterfaceDown",
+      doubleZeroMessage: "doublezero0 is not up"
     };
   }
   const tunnelStatus = readString(input.doubleZero, "tunnelStatus");
   if (tunnelStatus !== "BGP Session Up") {
     return {
-      ready: false,
-      reason: "DoubleZeroTunnelDown",
-      message: `DoubleZero tunnel is not BGP Session Up${tunnelStatus ? `: ${tunnelStatus}` : ""}`
+      ready: true,
+      reason: "HostReady",
+      message: "Gate agent heartbeat is fresh and required host tools are present",
+      doubleZeroReady: false,
+      doubleZeroReason: "DoubleZeroTunnelDown",
+      doubleZeroMessage: `DoubleZero tunnel is not BGP Session Up${tunnelStatus ? `: ${tunnelStatus}` : ""}`
     };
   }
   const network = readString(input.doubleZero, "network");
   if (network !== input.doubleZeroEnv) {
     return {
-      ready: false,
-      reason: "DoubleZeroEnvMismatch",
-      message: `DoubleZero network ${network || "unknown"} does not match catalog environment ${input.doubleZeroEnv}`
+      ready: true,
+      reason: "HostReady",
+      message: "Gate agent heartbeat is fresh and required host tools are present",
+      doubleZeroReady: false,
+      doubleZeroReason: "DoubleZeroEnvMismatch",
+      doubleZeroMessage: `DoubleZero network ${network || "unknown"} does not match catalog environment ${input.doubleZeroEnv}`
     };
   }
   const tunnelSrc = readString(input.doubleZero, "tunnelSrc");
   if (tunnelSrc !== input.publicEndpoint) {
     return {
-      ready: false,
-      reason: "DoubleZeroTunnelSourceMismatch",
-      message: `DoubleZero tunnel source ${tunnelSrc || "unknown"} does not match gate public endpoint ${input.publicEndpoint}`
+      ready: true,
+      reason: "HostReady",
+      message: "Gate agent heartbeat is fresh and required host tools are present",
+      doubleZeroReady: false,
+      doubleZeroReason: "DoubleZeroTunnelSourceMismatch",
+      doubleZeroMessage: `DoubleZero tunnel source ${tunnelSrc || "unknown"} does not match gate public endpoint ${input.publicEndpoint}`
     };
   }
   return {
     ready: true,
-    reason: "DoubleZeroReady",
-    message: "Gate host tools and DoubleZero tunnel are ready"
+    reason: "HostReady",
+    message: "Gate agent heartbeat is fresh and required host tools are present",
+    doubleZeroReady: true,
+    doubleZeroReason: "DoubleZeroReady",
+    doubleZeroMessage: "DoubleZero tunnel is connected and matches the gate catalog"
   };
 }
 

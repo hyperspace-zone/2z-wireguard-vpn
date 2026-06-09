@@ -837,7 +837,7 @@ systemctl enable --now hyperspace-gate-agent
 systemctl status --no-pager hyperspace-gate-agent
 ```
 
-Enable a gate only after:
+Enable a gate for scheduling only after:
 
 1. `doublezero0` is up.
 2. `wg`, `ip`, and `nft` are present.
@@ -848,15 +848,17 @@ Enable a gate only after:
 7. Actual-state reporting works.
 8. The gate can reach at least one other gate through DoubleZero.
 
-The control plane marks a gate `ready` and `schedulable` only when the
-heartbeat proves the host tools are present, `doublezero0` is up,
+The control plane marks a gate `ready` when the gate agent heartbeat is fresh
+and the required host tools are present. It marks a gate `schedulable` only
+when the gate is ready, desired state is `Enabled`, `doublezero0` is up,
 `doublezero status` reports `BGP Session Up`, the DoubleZero network matches
 the gate catalog `doubleZeroEnv`, and the tunnel source matches the gate
 catalog `publicEndpoint`.
 
-In the web UI, the Gates table labels API `ready` as `Online` and API
+In the web UI, the Gates table labels API `ready` as `Ready` and API
 `schedulable` as `Schedulable`. If DoubleZero is disconnected, misconfigured,
-or reporting a mismatched environment/source, `Schedulable` must show `no`.
+or reporting a mismatched environment/source, `Ready` can remain `yes` while
+`Schedulable` must show `no`.
 The `DoubleZero node` column is informational runtime state from the gate
 heartbeat; when DoubleZero is disconnected it may show `unavailable` or
 `not reported` and the gate must not be selected for new VPN configs.
@@ -949,12 +951,13 @@ WireGuard traffic is routed correctly.
 Before giving the UI to users, validate:
 
 1. Register and log in.
-2. Open the Gates table and confirm the visible status columns are `Online`,
+2. Open the Gates table and confirm the visible status columns are `Ready`,
    `Browser RTT`, `Schedulable`, and `DoubleZero node`.
-3. Confirm every gate selected for a VPN config has `Online=yes`,
+3. Confirm every gate selected for a VPN config has `Ready=yes`,
    `Schedulable=yes`, and a DoubleZero node reported.
 4. Disconnect DoubleZero on a disposable gate, if available, and verify that
-   the API reports `schedulable: false` and the UI shows `Schedulable=no`.
+   the API reports `ready: true`, `schedulable: false` and the UI shows
+   `Ready=yes`, `Schedulable=no`.
 5. Create an IP-to-target config with explicit ingress and egress gates.
 6. Download and start the WireGuard config on a client.
 7. Verify the target is reachable through the selected egress.
