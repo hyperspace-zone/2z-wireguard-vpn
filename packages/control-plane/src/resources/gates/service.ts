@@ -1,5 +1,6 @@
 import type { TransactionalQueryable } from "../../db/queryable.js";
-import { saveGateHeartbeat } from "./repository.js";
+import { recordGateLease } from "../gate-leases/service.js";
+import { saveGateHeartbeatStatus } from "./repository.js";
 import { evaluateGateReadiness, readGateDoubleZeroEnv } from "./readiness.js";
 import {
   resolveGateAgentConnectedCondition,
@@ -53,22 +54,27 @@ export async function recordGateHeartbeat(
     desiredState: gate.desiredState
   });
 
-  await saveGateHeartbeat(db, {
-    gateId: gate.id,
-    gateName: gate.name,
-    generation: gate.generation,
-    agentVersion: report.agentVersion || null,
-    bootId: report.bootId || null,
-    observedEndpoint: report.observedEndpoint || null,
-    capabilities: report.capabilities,
-    doubleZeroStatus: report.doubleZero,
-    doubleZeroCurrentDevice,
-    doubleZeroLowestLatencyDevice,
-    doubleZeroLowestLatencyDeviceWarning,
-    conditions: [
-      resolveGateAgentConnectedCondition(true),
-      ...lifecycleConditions
-    ]
+  await db.transaction(async (client) => {
+    await saveGateHeartbeatStatus(client, {
+      gateId: gate.id,
+      generation: gate.generation,
+      agentVersion: report.agentVersion || null,
+      bootId: report.bootId || null,
+      observedEndpoint: report.observedEndpoint || null,
+      capabilities: report.capabilities,
+      doubleZeroStatus: report.doubleZero,
+      doubleZeroCurrentDevice,
+      doubleZeroLowestLatencyDevice,
+      doubleZeroLowestLatencyDeviceWarning,
+      conditions: [
+        resolveGateAgentConnectedCondition(true),
+        ...lifecycleConditions
+      ]
+    });
+    await recordGateLease(client, {
+      gateId: gate.id,
+      leaseOwner: gate.name
+    });
   });
 }
 

@@ -1,6 +1,5 @@
-import type { Queryable, TransactionalQueryable } from "../../db/queryable.js";
-import { gateHeartbeatLeaseTtlSeconds } from "../gate-leases/policy.js";
-import { freshGateLeaseSqlPredicate, upsertGateLease } from "../gate-leases/repository.js";
+import type { Queryable } from "../../db/queryable.js";
+import { freshGateLeaseSqlPredicate } from "../gate-leases/repository.js";
 import type { GateConditionPersistenceInput, GateConditionStatus } from "./conditions.js";
 
 type GateDesiredState = string;
@@ -14,7 +13,6 @@ interface GateHeartbeatConditionInput {
 
 export interface GateHeartbeatPersistenceInput {
   gateId: string;
-  gateName: string;
   generation: number;
   agentVersion: string | null;
   bootId: string | null;
@@ -226,67 +224,60 @@ export async function setGateDriftCondition(
   return { changedToDrift };
 }
 
-export async function saveGateHeartbeat(
-  db: TransactionalQueryable,
+export async function saveGateHeartbeatStatus(
+  db: Queryable,
   input: GateHeartbeatPersistenceInput
 ): Promise<void> {
-  await db.transaction(async (client) => {
-    await client.query(
-      `
-        INSERT INTO gate_status (
-          gate_id,
-          observed_generation,
-          agent_version,
-          boot_id,
-          last_seen_at,
-          observed_endpoint,
-          observed_capabilities,
-          doublezero_status,
-          doublezero_current_device,
-          doublezero_lowest_latency_device,
-          doublezero_lowest_latency_device_warning,
-          updated_at
-        )
-        VALUES ($1, $2, $3, $4, now(), $5, $6::text[], $7::jsonb, $8, $9, $10, now())
-        ON CONFLICT (gate_id) DO UPDATE
-        SET
-          observed_generation = EXCLUDED.observed_generation,
-          agent_version = EXCLUDED.agent_version,
-          boot_id = EXCLUDED.boot_id,
-          last_seen_at = EXCLUDED.last_seen_at,
-          observed_endpoint = EXCLUDED.observed_endpoint,
-          observed_capabilities = EXCLUDED.observed_capabilities,
-          doublezero_status = EXCLUDED.doublezero_status,
-          doublezero_current_device = EXCLUDED.doublezero_current_device,
-          doublezero_lowest_latency_device = EXCLUDED.doublezero_lowest_latency_device,
-          doublezero_lowest_latency_device_warning = EXCLUDED.doublezero_lowest_latency_device_warning,
-          updated_at = now()
-      `,
-      [
-        input.gateId,
-        input.generation,
-        input.agentVersion,
-        input.bootId,
-        input.observedEndpoint,
-        input.capabilities,
-        JSON.stringify(input.doubleZeroStatus),
-        input.doubleZeroCurrentDevice,
-        input.doubleZeroLowestLatencyDevice,
-        input.doubleZeroLowestLatencyDeviceWarning
-      ]
-    );
-    await upsertGateLease(client, {
-      gateId: input.gateId,
-      leaseOwner: input.gateName,
-      ttlSeconds: gateHeartbeatLeaseTtlSeconds()
-    });
+  await db.query(
+    `
+      INSERT INTO gate_status (
+        gate_id,
+        observed_generation,
+        agent_version,
+        boot_id,
+        last_seen_at,
+        observed_endpoint,
+        observed_capabilities,
+        doublezero_status,
+        doublezero_current_device,
+        doublezero_lowest_latency_device,
+        doublezero_lowest_latency_device_warning,
+        updated_at
+      )
+      VALUES ($1, $2, $3, $4, now(), $5, $6::text[], $7::jsonb, $8, $9, $10, now())
+      ON CONFLICT (gate_id) DO UPDATE
+      SET
+        observed_generation = EXCLUDED.observed_generation,
+        agent_version = EXCLUDED.agent_version,
+        boot_id = EXCLUDED.boot_id,
+        last_seen_at = EXCLUDED.last_seen_at,
+        observed_endpoint = EXCLUDED.observed_endpoint,
+        observed_capabilities = EXCLUDED.observed_capabilities,
+        doublezero_status = EXCLUDED.doublezero_status,
+        doublezero_current_device = EXCLUDED.doublezero_current_device,
+        doublezero_lowest_latency_device = EXCLUDED.doublezero_lowest_latency_device,
+        doublezero_lowest_latency_device_warning = EXCLUDED.doublezero_lowest_latency_device_warning,
+        updated_at = now()
+    `,
+    [
+      input.gateId,
+      input.generation,
+      input.agentVersion,
+      input.bootId,
+      input.observedEndpoint,
+      input.capabilities,
+      JSON.stringify(input.doubleZeroStatus),
+      input.doubleZeroCurrentDevice,
+      input.doubleZeroLowestLatencyDevice,
+      input.doubleZeroLowestLatencyDeviceWarning
+    ]
+  );
 
-    for (const condition of input.conditions) {
-      await upsertGateCondition(client, {
-        gateId: input.gateId,
-        observedGeneration: input.generation,
-        ...condition
-      });
-    }
-  });
+  for (const condition of input.conditions) {
+    await upsertGateCondition(db, {
+      gateId: input.gateId,
+      observedGeneration: input.generation,
+      ...condition
+    });
+  }
 }
