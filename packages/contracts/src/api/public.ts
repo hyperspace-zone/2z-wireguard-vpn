@@ -58,6 +58,15 @@ export const publicAuthResponseSchema = {
   }
 } as const;
 
+export const publicAuthMeResponseSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["user"],
+  properties: {
+    user: publicUserSchema
+  }
+} as const;
+
 export const publicCreateSessionRequestSchema = {
   type: "object",
   additionalProperties: true,
@@ -104,4 +113,33 @@ export const publicNetworkMeResponseSchema = {
   properties: {
     ip: { type: "string" }
   }
+} as const;
+
+export const publicArtifactDownloadTokenResponseSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["token", "expiresAt", "downloadUrl", "downloadConfigUrl"],
+  properties: {
+    token: { type: "string" },
+    expiresAt: { type: "string", format: "date-time" },
+    downloadUrl: { type: "string" },
+    downloadConfigUrl: { type: "string" }
+  }
+} as const;
+
+export const publicArtifactDownloadResponseSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["artifactId", "metadata", "payload", "encryptedPayloadRef"],
+  properties: {
+    artifactId: { type: "string" },
+    metadata: {},
+    payload: { type: "object", additionalProperties: true },
+    payloadType: { type: "string" },
+    encryptedPayloadRef: { type: ["string", "null"] }
+  }
+} as const;
+
+export const publicRawWireGuardConfigResponseSchema = {
+  type: "string"
 } as const;

@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import {
   errorResponseSchema,
+  publicAuthMeResponseSchema,
   publicAuthResponseSchema,
   publicLoginRequestSchema,
   publicRegisterRequestSchema
@@ -8,7 +9,7 @@ import {
 import { loginUser, registerUser } from "@hyperspace-zone/control-plane";
 import type { Database } from "@hyperspace-zone/db";
 import type { PublicAuthUser } from "../../http/auth.js";
-import { sendHttpError } from "../../http/errors.js";
+import { sendApplicationError } from "../../http/errors.js";
 import { asRecord, readString } from "../../http/request.js";
 
 export function registerPublicAuthRoutes(
@@ -35,10 +36,10 @@ export function registerPublicAuthRoutes(
     const displayName = readString(body, "displayName") || email;
 
     if (!email || !email.includes("@")) {
-      return sendHttpError(reply, 400, { error: "invalid_email" });
+      return sendApplicationError(reply, "invalid_email");
     }
     if (!password || password.length < 12) {
-      return sendHttpError(reply, 400, { error: "weak_password", message: "password must be at least 12 characters" });
+      return sendApplicationError(reply, "weak_password", { message: "password must be at least 12 characters" });
     }
 
     const result = await registerUser(deps.db, {
@@ -48,7 +49,7 @@ export function registerPublicAuthRoutes(
       authSessionTtlSeconds: deps.authSessionTtlSeconds
     });
     if (result === "email_already_registered") {
-      return sendHttpError(reply, 409, { error: result });
+      return sendApplicationError(reply, result);
     }
 
     return reply.code(201).send(result);
@@ -69,7 +70,7 @@ export function registerPublicAuthRoutes(
     const password = readString(body, "password");
 
     if (!email || !password) {
-      return sendHttpError(reply, 400, { error: "credentials_required" });
+      return sendApplicationError(reply, "credentials_required");
     }
 
     const result = await loginUser(deps.db, {
@@ -78,13 +79,20 @@ export function registerPublicAuthRoutes(
       authSessionTtlSeconds: deps.authSessionTtlSeconds
     });
     if (result === "invalid_credentials") {
-      return sendHttpError(reply, 401, { error: "invalid_credentials" });
+      return sendApplicationError(reply, "invalid_credentials");
     }
 
     return reply.send(result);
   });
 
-  app.get("/v1/public/auth/me", async (request, reply) => {
+  app.get("/v1/public/auth/me", {
+    schema: {
+      response: {
+        200: publicAuthMeResponseSchema,
+        401: errorResponseSchema
+      }
+    }
+  }, async (request, reply) => {
     const user = await deps.requireUser(request, reply);
     if (!user) {
       return;

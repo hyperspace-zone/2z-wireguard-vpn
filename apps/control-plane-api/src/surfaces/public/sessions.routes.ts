@@ -15,7 +15,7 @@ import {
 } from "@hyperspace-zone/control-plane";
 import type { Database } from "@hyperspace-zone/db";
 import type { PublicAuthUser } from "../../http/auth.js";
-import { sendHttpError, sendNotFound } from "../../http/errors.js";
+import { sendApplicationError, type ApplicationErrorCode } from "../../http/errors.js";
 import { asRecord, readParam } from "../../http/request.js";
 
 export function registerPublicSessionsRoutes(
@@ -56,7 +56,7 @@ export function registerPublicSessionsRoutes(
 
     const parsed = parseSessionCreateBody(asRecord(request.body));
     if ("error" in parsed) {
-      return sendHttpError(reply, 400, parsed);
+      return sendApplicationError(reply, parsed.error as ApplicationErrorCode, "message" in parsed ? { message: parsed.message } : {});
     }
 
     const created = await createSession(deps.db, user, parsed);
@@ -80,7 +80,7 @@ export function registerPublicSessionsRoutes(
     const sessionId = readParam(request, "sessionId");
     const session = await readOwnSession(deps.db, user.accountId, sessionId);
     if (!session) {
-      return sendNotFound(reply, "session_not_found");
+      return sendApplicationError(reply, "session_not_found");
     }
 
     return reply.send({ session });
@@ -102,7 +102,7 @@ export function registerPublicSessionsRoutes(
     const sessionId = readParam(request, "sessionId");
     const result = await revokeSession(deps.db, user, sessionId);
     if (result === "not_found") {
-      return sendNotFound(reply, "session_not_found");
+      return sendApplicationError(reply, "session_not_found");
     }
 
     return reply.send({ session: await readOwnSession(deps.db, user.accountId, sessionId) });
@@ -125,10 +125,10 @@ export function registerPublicSessionsRoutes(
     const sessionId = readParam(request, "sessionId");
     const result = await deleteHiddenSession(deps.db, user, sessionId);
     if (result === "not_found") {
-      return sendNotFound(reply, "session_not_found");
+      return sendApplicationError(reply, "session_not_found");
     }
     if (result === "not_revoked") {
-      return sendHttpError(reply, 409, { error: "session_not_revoked" });
+      return sendApplicationError(reply, "session_not_revoked");
     }
     return reply.code(204).send();
   });

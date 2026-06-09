@@ -6,7 +6,7 @@ import {
 import { claimGateJob, isJobReportStatus, recordGateJobReport } from "@hyperspace-zone/control-plane";
 import type { Database } from "@hyperspace-zone/db";
 import type { GateAuthContext } from "../../http/auth.js";
-import { sendHttpError, sendNotFound } from "../../http/errors.js";
+import { sendApplicationError } from "../../http/errors.js";
 import { asRecord, readParam, readString } from "../../http/request.js";
 
 export function registerGateJobRoutes(
@@ -44,7 +44,7 @@ export function registerGateJobRoutes(
     const body = asRecord(request.body);
     const status = readString(body, "status");
     if (!isJobReportStatus(status)) {
-      return sendHttpError(reply, 400, { error: "invalid_job_status" });
+      return sendApplicationError(reply, "invalid_job_status");
     }
 
     const updated = await recordGateJobReport(deps.db, gate.id, readParam(request, "jobId"), {
@@ -54,7 +54,7 @@ export function registerGateJobRoutes(
       resultSummary: asRecord(body.resultSummary ?? {})
     });
     if (!updated) {
-      return sendNotFound(reply, "job_not_found");
+      return sendApplicationError(reply, "job_not_found");
     }
 
     return reply.send({ ok: true });

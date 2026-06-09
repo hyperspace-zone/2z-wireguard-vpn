@@ -1,18 +1,93 @@
 import type { FastifyReply } from "fastify";
 
-export interface HttpErrorBody {
+interface HttpErrorBody {
   error: string;
   message?: string;
 }
 
-export function sendHttpError(reply: FastifyReply, statusCode: number, body: HttpErrorBody): FastifyReply {
+function sendHttpError(reply: FastifyReply, statusCode: number, body: HttpErrorBody): FastifyReply {
   return reply.code(statusCode).send(body);
 }
 
-export function sendForbidden(reply: FastifyReply): FastifyReply {
-  return sendHttpError(reply, 403, { error: "forbidden" });
+export type ApplicationErrorCode =
+  | "admin_auth_required"
+  | "admin_surface_not_configured"
+  | "agent_surface_disabled"
+  | "artifact_encryption_not_configured"
+  | "artifact_not_ready"
+  | "auth_required"
+  | "credentials_required"
+  | "destination_required"
+  | "download_token_not_found"
+  | "distinct_gates_required"
+  | "egress_gate_required"
+  | "email_already_registered"
+  | "forbidden"
+  | "gate_auth_required"
+  | "gate_not_found"
+  | "ingress_gate_required"
+  | "invalid_auth_session"
+  | "invalid_client_public_key"
+  | "invalid_credentials"
+  | "invalid_email"
+  | "invalid_gate_credentials"
+  | "invalid_job_status"
+  | "invalid_mode"
+  | "job_not_found"
+  | "raw_config_not_available"
+  | "session_not_found"
+  | "session_not_revoked"
+  | "weak_password";
+
+export function sendApplicationError(
+  reply: FastifyReply,
+  code: ApplicationErrorCode,
+  input: {
+    message?: string;
+  } = {}
+): FastifyReply {
+  return sendHttpError(reply, applicationErrorStatus(code), {
+    error: code,
+    ...(input.message ? { message: input.message } : {})
+  });
 }
 
-export function sendNotFound(reply: FastifyReply, error: string): FastifyReply {
-  return sendHttpError(reply, 404, { error });
+function applicationErrorStatus(code: ApplicationErrorCode): number {
+  switch (code) {
+    case "admin_surface_not_configured":
+    case "agent_surface_disabled":
+    case "artifact_encryption_not_configured":
+      return 503;
+    case "artifact_not_ready":
+    case "email_already_registered":
+    case "session_not_revoked":
+      return 409;
+    case "raw_config_not_available":
+      return 406;
+    case "auth_required":
+    case "admin_auth_required":
+    case "gate_auth_required":
+    case "invalid_auth_session":
+    case "invalid_credentials":
+    case "invalid_gate_credentials":
+      return 401;
+    case "forbidden":
+      return 403;
+    case "download_token_not_found":
+    case "gate_not_found":
+    case "job_not_found":
+    case "session_not_found":
+      return 404;
+    case "credentials_required":
+    case "destination_required":
+    case "distinct_gates_required":
+    case "egress_gate_required":
+    case "ingress_gate_required":
+    case "invalid_client_public_key":
+    case "invalid_email":
+    case "invalid_job_status":
+    case "invalid_mode":
+    case "weak_password":
+      return 400;
+  }
 }

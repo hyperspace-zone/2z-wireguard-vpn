@@ -8,7 +8,7 @@ import {
 import { forceReconcile, listAdminJobs } from "@hyperspace-zone/control-plane";
 import type { Database } from "@hyperspace-zone/db";
 import type { AdminAuthContext } from "../../http/auth.js";
-import { sendForbidden } from "../../http/errors.js";
+import { sendApplicationError } from "../../http/errors.js";
 import { asRecord, readString } from "../../http/request.js";
 
 export function registerAdminJobRoutes(
@@ -56,7 +56,7 @@ export function registerAdminJobRoutes(
       ...(reason ? { reason } : {})
     });
     if (result.status === "forbidden") {
-      return sendForbidden(reply);
+      return sendApplicationError(reply, "forbidden");
     }
     return reply.code(202).send(result);
   });

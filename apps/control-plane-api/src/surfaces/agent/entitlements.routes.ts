@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { agentSurfaceDisabledResponseSchema, agentTopUpEntitlementRequestSchema } from "@hyperspace-zone/contracts";
 import { topUpEntitlement } from "@hyperspace-zone/control-plane";
-import { sendHttpError } from "../../http/errors.js";
+import { sendApplicationError } from "../../http/errors.js";
 
 export function registerAgentEntitlementRoutes(app: FastifyInstance): void {
   app.post("/v1/agent/entitlements/top-up", {
@@ -13,6 +13,6 @@ export function registerAgentEntitlementRoutes(app: FastifyInstance): void {
     }
   }, async (_request, reply) => {
     const result = await topUpEntitlement();
-    return sendHttpError(reply, 503, { error: result.error, message: result.message });
+    return sendApplicationError(reply, result.error, { message: result.message });
   });
 }

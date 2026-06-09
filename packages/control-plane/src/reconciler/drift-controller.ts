@@ -13,7 +13,8 @@ import {
   requestAssignmentRevocation
 } from "../resources/gate-assignments/service.js";
 import { enqueueApplyJob, enqueueRevokeAssignmentJob } from "../resources/jobs/service.js";
-import { setGateDriftCondition } from "../resources/gates/conditions.js";
+import { resolveGateDriftCondition } from "../resources/gates/conditions.js";
+import { setGateDriftCondition } from "../resources/gates/repository.js";
 
 export async function reconcileDrift(db: TransactionalQueryable): Promise<void> {
   await db.transaction(async (client) => {
@@ -36,11 +37,11 @@ export async function reconcileDrift(db: TransactionalQueryable): Promise<void> 
         orphanHandles: drift.orphanHandles
       };
 
-      const condition = await setGateDriftCondition(client, {
+      const condition = await setGateDriftCondition(client, resolveGateDriftCondition({
         gateId: gate.gateId,
         drifted: drift.drifted,
         message
-      });
+      }));
 
       if (condition.changedToDrift) {
         await recordGateAuditEvent(client, {

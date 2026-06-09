@@ -1,9 +1,13 @@
 import {
+  publicArtifactDownloadResponseSchema,
+  publicArtifactDownloadTokenResponseSchema,
   publicAuthResponseSchema,
+  publicAuthMeResponseSchema,
   publicCreateSessionRequestSchema,
   publicGatesResponseSchema,
   publicLoginRequestSchema,
   publicNetworkMeResponseSchema,
+  publicRawWireGuardConfigResponseSchema,
   publicRegisterRequestSchema,
   publicSessionResponseSchema,
   publicSessionsResponseSchema
@@ -13,9 +17,13 @@ export const publicApiSchemas = {
   registerRequest: publicRegisterRequestSchema,
   loginRequest: publicLoginRequestSchema,
   authResponse: publicAuthResponseSchema,
+  authMeResponse: publicAuthMeResponseSchema,
   createSessionRequest: publicCreateSessionRequestSchema,
   sessionResponse: publicSessionResponseSchema,
   sessionsResponse: publicSessionsResponseSchema,
   gatesResponse: publicGatesResponseSchema,
-  networkMeResponse: publicNetworkMeResponseSchema
+  networkMeResponse: publicNetworkMeResponseSchema,
+  artifactDownloadTokenResponse: publicArtifactDownloadTokenResponseSchema,
+  artifactDownloadResponse: publicArtifactDownloadResponseSchema,
+  rawWireGuardConfigResponse: publicRawWireGuardConfigResponseSchema
 } as const;

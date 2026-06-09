@@ -1,7 +1,7 @@
 import type { FastifyReply, FastifyRequest } from "fastify";
 import { authenticateGateToken, type AuthenticatedGate, type Principal } from "@hyperspace-zone/control-plane";
 import { sha256Hex, type Database } from "@hyperspace-zone/db";
-import { sendHttpError } from "./errors.js";
+import { sendApplicationError } from "./errors.js";
 import { bearerToken, headerValue } from "./request.js";
 
 export interface PublicAuthUser {
@@ -27,7 +27,7 @@ export function createHttpAuth(input: { db: Database; adminToken: string | undef
   async function requireUser(request: FastifyRequest, reply: FastifyReply): Promise<PublicAuthUser | null> {
     const token = bearerToken(request);
     if (!token) {
-      sendHttpError(reply, 401, { error: "auth_required" });
+      sendApplicationError(reply, "auth_required");
       return null;
     }
 
@@ -50,7 +50,7 @@ export function createHttpAuth(input: { db: Database; adminToken: string | undef
     );
     const user = result.rows[0] ?? null;
     if (!user) {
-      sendHttpError(reply, 401, { error: "invalid_auth_session" });
+      sendApplicationError(reply, "invalid_auth_session");
       return null;
     }
 
@@ -62,13 +62,13 @@ export function createHttpAuth(input: { db: Database; adminToken: string | undef
     const gateName = headerValue(request, "x-gate-name");
     const gateToken = headerValue(request, "x-gate-token");
     if (!gateName || !gateToken) {
-      sendHttpError(reply, 401, { error: "gate_auth_required" });
+      sendApplicationError(reply, "gate_auth_required");
       return null;
     }
 
     const gate = await authenticateGateToken(input.db, { gateName, gateToken });
     if (!gate) {
-      sendHttpError(reply, 401, { error: "invalid_gate_credentials" });
+      sendApplicationError(reply, "invalid_gate_credentials");
       return null;
     }
     return gate;
@@ -76,11 +76,11 @@ export function createHttpAuth(input: { db: Database; adminToken: string | undef
 
   function requireAdmin(request: FastifyRequest, reply: FastifyReply): AdminAuthContext | null {
     if (!input.adminToken) {
-      sendHttpError(reply, 503, { error: "admin_surface_not_configured" });
+      sendApplicationError(reply, "admin_surface_not_configured");
       return null;
     }
     if (headerValue(request, "x-admin-token") !== input.adminToken) {
-      sendHttpError(reply, 401, { error: "admin_auth_required" });
+      sendApplicationError(reply, "admin_auth_required");
       return null;
     }
     return { kind: "admin", id: "admin" };

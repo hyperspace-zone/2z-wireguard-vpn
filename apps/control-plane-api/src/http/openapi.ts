@@ -77,18 +77,35 @@ function responseSchemas(response: Record<string | number, JsonSchema> | undefin
   return Object.fromEntries(
     Object.entries(response).map(([statusCode, schema]) => [
       statusCode,
-      {
-        description: statusCode === "204" ? "No Content" : "Response",
-        ...(statusCode === "204" ? {} : {
-          content: {
-            "application/json": {
-              schema
-            }
-          }
-        })
-      }
+      responseSchema(statusCode, schema)
     ])
   );
+}
+
+function responseSchema(statusCode: string, schema: JsonSchema): JsonSchema {
+  if (statusCode === "204") {
+    return {
+      description: "No Content"
+    };
+  }
+  if (isContentResponseSchema(schema)) {
+    return {
+      description: "Response",
+      content: schema.content as JsonSchema
+    };
+  }
+  return {
+    description: "Response",
+    content: {
+      "application/json": {
+        schema
+      }
+    }
+  };
+}
+
+function isContentResponseSchema(schema: JsonSchema): boolean {
+  return Boolean(schema.content && typeof schema.content === "object");
 }
 
 function openApiPath(path: string): string {
