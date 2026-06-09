@@ -1,15 +1,16 @@
 import type { FastifyReply, FastifyRequest } from "fastify";
-import { authenticateGateToken, type AuthenticatedGate, type Principal } from "@hyperspace-zone/control-plane";
-import { sha256Hex, type Database } from "@hyperspace-zone/db";
+import {
+  authenticateGateToken,
+  authenticatePublicAuthSession,
+  type AuthenticatedGate,
+  type Principal,
+  type PublicUser
+} from "@hyperspace-zone/control-plane";
+import type { Database } from "@hyperspace-zone/db";
 import { sendApplicationError } from "./errors.js";
 import { bearerToken, headerValue } from "./request.js";
 
-export interface PublicAuthUser {
-  id: string;
-  accountId: string;
-  email: string;
-  displayName: string;
-}
+export type PublicAuthUser = PublicUser;
 
 export type GateAuthContext = AuthenticatedGate;
 
@@ -31,30 +32,12 @@ export function createHttpAuth(input: { db: Database; adminToken: string | undef
       return null;
     }
 
-    const tokenHash = sha256Hex(token);
-    const result = await input.db.query<PublicAuthUser>(
-      `
-        SELECT
-          users.id,
-          users.account_id AS "accountId",
-          users.email::text,
-          users.display_name AS "displayName"
-        FROM auth_sessions
-        JOIN users ON users.id = auth_sessions.user_id
-        WHERE auth_sessions.token_hash = $1
-          AND auth_sessions.expires_at > now()
-          AND auth_sessions.revoked_at IS NULL
-          AND users.disabled_at IS NULL
-      `,
-      [tokenHash]
-    );
-    const user = result.rows[0] ?? null;
+    const user = await authenticatePublicAuthSession(input.db, token);
     if (!user) {
       sendApplicationError(reply, "invalid_auth_session");
       return null;
     }
 
-    await input.db.query("UPDATE auth_sessions SET last_seen_at = now() WHERE token_hash = $1", [tokenHash]);
     return user;
   }
 

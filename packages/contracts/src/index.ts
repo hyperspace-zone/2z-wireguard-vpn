@@ -10,6 +10,7 @@ export const apiSurfaces: Record<ApiSurface, string> = {
 export * from "./api/admin.js";
 export * from "./api/agent.js";
 export * from "./api/gate.js";
+export * from "./api/health.js";
 export * from "./api/public.js";
 export * from "./resources/actual-state.js";
 export * from "./resources/artifact.js";
@@ -26,4 +27,5 @@ export * from "./resources/session.js";
 export * from "./schemas/admin.schema.js";
 export * from "./schemas/agent.schema.js";
 export * from "./schemas/gate.schema.js";
+export * from "./schemas/health.schema.js";
 export * from "./schemas/public.schema.js";

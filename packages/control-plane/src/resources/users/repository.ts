@@ -88,6 +88,36 @@ export async function insertAuthSession(
   );
 }
 
+export async function findActiveAuthSessionUserByTokenHash(
+  db: Queryable,
+  tokenHash: string
+): Promise<PublicUser | null> {
+  const result = await db.query<PublicUser>(
+    `
+      SELECT
+        users.id,
+        users.account_id AS "accountId",
+        users.email::text,
+        users.display_name AS "displayName"
+      FROM auth_sessions
+      JOIN users ON users.id = auth_sessions.user_id
+      WHERE auth_sessions.token_hash = $1
+        AND auth_sessions.expires_at > now()
+        AND auth_sessions.revoked_at IS NULL
+        AND users.disabled_at IS NULL
+    `,
+    [tokenHash]
+  );
+  return result.rows[0] ?? null;
+}
+
+export async function markAuthSessionSeen(db: Queryable, tokenHash: string): Promise<void> {
+  await db.query(
+    "UPDATE auth_sessions SET last_seen_at = now() WHERE token_hash = $1",
+    [tokenHash]
+  );
+}
+
 export async function revokeExpiredAuthSessions(db: Queryable): Promise<number> {
   const result = await db.query(
     `

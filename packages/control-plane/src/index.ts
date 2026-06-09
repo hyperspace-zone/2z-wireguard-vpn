@@ -70,6 +70,7 @@ export * from "./resources/sessions/service.js";
 export * from "./resources/sessions/transitions.js";
 export * from "./resources/sessions/validation.js";
 export * from "./resources/users/repository.js";
+export * from "./resources/users/service.js";
 export * from "./security/gate-auth.js";
 export * from "./security/passwords.js";
 export * from "./security/tokens.js";
