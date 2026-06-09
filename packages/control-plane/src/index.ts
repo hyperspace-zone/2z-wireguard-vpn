@@ -46,6 +46,7 @@ export * from "./resources/gate-assignments/conditions.js";
 export * from "./resources/gate-assignments/repository.js";
 export * from "./resources/gate-assignments/service.js";
 export * from "./resources/gate-assignments/transitions.js";
+export * from "./resources/gate-leases/policy.js";
 export * from "./resources/gate-leases/repository.js";
 export * from "./resources/gate-leases/service.js";
 export * from "./resources/gates/conditions.js";

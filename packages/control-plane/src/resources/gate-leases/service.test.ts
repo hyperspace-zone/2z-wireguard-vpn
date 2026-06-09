@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { gateHeartbeatLeaseTtlSeconds, isGateLeaseFresh } from "./service.js";
+import { gateHeartbeatLeaseTtlSeconds } from "./policy.js";
+import { isGateLeaseFresh } from "./service.js";
 
 test("gate lease freshness uses lease expiry as source of truth", () => {
   const now = new Date("2026-06-09T00:00:00Z");

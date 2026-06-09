@@ -1,6 +1,6 @@
 import type { Queryable, TransactionalQueryable } from "../../db/queryable.js";
+import { gateHeartbeatLeaseTtlSeconds } from "../gate-leases/policy.js";
 import { freshGateLeaseSqlPredicate, upsertGateLease } from "../gate-leases/repository.js";
-import { gateHeartbeatLeaseTtlSeconds } from "../gate-leases/service.js";
 import type { GateConditionPersistenceInput, GateConditionStatus } from "./conditions.js";
 
 type GateDesiredState = string;
