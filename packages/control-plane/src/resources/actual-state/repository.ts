@@ -71,7 +71,8 @@ export async function listGateActualStateDriftInputs(db: Queryable): Promise<Gat
           gate_id,
           state_hash AS "actualStateHash",
           managed_handles AS "actualHandles",
-          reported_at AS "reportedAt"
+          reported_at AS "reportedAt",
+          received_at AS "receivedAt"
         FROM gate_actual_state_snapshots
         ORDER BY gate_id, received_at DESC
       ),
@@ -81,8 +82,11 @@ export async function listGateActualStateDriftInputs(db: Queryable): Promise<Gat
           array_agg(gate_assignments.external_handle ORDER BY gate_assignments.external_handle) AS "desiredHandles"
         FROM gate_assignments
         JOIN gate_assignment_status ON gate_assignment_status.assignment_id = gate_assignments.id
+        JOIN latest_snapshot ON latest_snapshot.gate_id = gate_assignments.gate_id
         WHERE gate_assignments.desired_state = 'Applied'
-          AND gate_assignment_status.phase IN ('prepared', 'applied', 'drifted')
+          AND gate_assignment_status.phase IN ('applied', 'drifted')
+          AND gate_assignment_status.applied_at IS NOT NULL
+          AND latest_snapshot."receivedAt" >= gate_assignment_status.applied_at
         GROUP BY gate_assignments.gate_id
       )
       SELECT

@@ -222,7 +222,7 @@ export async function insertApplyAssignmentJob(
           AND jobs.type = 'apply_assignment'
           AND jobs.payload->>'operation' = $6
           AND jobs.phase = 'succeeded'
-          AND gate_assignment_status.phase IN ('queued', 'leased', 'applying', 'prepared')
+          AND gate_assignment_status.phase IN ('queued', 'leased', 'applying', 'prepared', 'applied')
       )
     `,
     [

@@ -420,7 +420,7 @@ export async function markMissingHandleAssignmentRowsDrifted(
         AND gate_assignments.gate_id = $1
         AND gate_assignments.external_handle = ANY($2::text[])
         AND gate_assignments.desired_state = 'Applied'
-        AND gate_assignment_status.phase IN ('prepared', 'applied')
+        AND gate_assignment_status.phase = 'applied'
     `,
     [
       input.gateId,
