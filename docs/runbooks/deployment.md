@@ -313,11 +313,34 @@ connect documentation for the stable package/version:
 
 https://docs.malbeclabs.com/connect/
 
-The DoubleZero repository documents the Cloudsmith APT setup flow for Ubuntu:
+Use the Cloudsmith repository that matches the target DoubleZero network. Do
+not install testnet gates from the mainnet-beta `doublezero` repository: the
+package name is the same, but the repository default environment and available
+versions can differ.
 
 ```bash
-curl -1sLf \
-  'https://dl.cloudsmith.io/public/malbeclabs/doublezero/setup.deb.sh' \
+case "$DZ_ENV" in
+  testnet)
+    DOUBLEZERO_CLOUDSMITH_REPO=doublezero-testnet
+    ;;
+  mainnet-beta)
+    DOUBLEZERO_CLOUDSMITH_REPO=doublezero
+    ;;
+  *)
+    echo "unsupported DZ_ENV=$DZ_ENV; expected testnet or mainnet-beta" >&2
+    exit 1
+    ;;
+esac
+
+# Remove the other public DoubleZero package channel if this host was
+# previously bootstrapped for the opposite network.
+if [ "$DOUBLEZERO_CLOUDSMITH_REPO" = "doublezero-testnet" ]; then
+  rm -f /etc/apt/sources.list.d/malbeclabs-doublezero.list
+else
+  rm -f /etc/apt/sources.list.d/malbeclabs-doublezero-testnet.list
+fi
+
+curl -1sLf "https://dl.cloudsmith.io/public/malbeclabs/${DOUBLEZERO_CLOUDSMITH_REPO}/setup.deb.sh" \
   | bash
 
 apt-get update
