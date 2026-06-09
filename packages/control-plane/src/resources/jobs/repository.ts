@@ -1,5 +1,19 @@
 import type { Queryable, TransactionalQueryable } from "../../db/queryable.js";
 import { mustRow } from "../../support/db.js";
+import {
+  appliedFromReportTransition,
+  failedFromReportTransition,
+  leasedAssignmentTransition,
+  preparedFromReportTransition,
+  revokedFromReportTransition,
+  type GateAssignmentPhase
+} from "../gate-assignments/transitions.js";
+import {
+  claimJobTransition,
+  expiredLeaseCandidateJobPhases,
+  expiredLeaseTransition,
+  queuedJobTransition
+} from "./transitions.js";
 
 export interface GateJobLeaseIdentity {
   id: string;
@@ -91,37 +105,48 @@ export async function claimGateJobLease(
     );
     const attemptNumber = mustRow(attempt).attemptNumber;
 
+    const jobTransition = claimJobTransition();
     await client.query(
       `
         UPDATE jobs
-        SET phase = 'leased',
-            lease_owner = $2,
-            lease_expires_at = now() + interval '60 seconds',
+        SET phase = $2::job_phase,
+            lease_owner = $3,
+            lease_expires_at = now() + ($4::int * interval '1 second'),
             updated_at = now()
         WHERE id = $1
       `,
-      [row.id, gate.name]
+      [row.id, jobTransition.phase, gate.name, jobTransition.leaseSeconds]
     );
     await client.query(
       `
         INSERT INTO job_attempts (job_id, attempt_number, lease_owner, lease_expires_at)
-        VALUES ($1, $2, $3, now() + interval '60 seconds')
+        VALUES ($1, $2, $3, now() + ($4::int * interval '1 second'))
       `,
-      [row.id, attemptNumber, gate.name]
+      [row.id, attemptNumber, gate.name, jobTransition.leaseSeconds]
     );
     if (row.assignmentId) {
+      const assignmentStatus = await client.query<{ phase: GateAssignmentPhase }>(
+        `
+          SELECT phase::text AS phase
+          FROM gate_assignment_status
+          WHERE assignment_id = $1
+          FOR UPDATE
+        `,
+        [row.assignmentId]
+      );
+      const assignmentPhase = assignmentStatus.rows[0]?.phase;
+      if (!assignmentPhase) {
+        throw new Error(`job ${row.id} references missing assignment ${row.assignmentId}`);
+      }
+      const nextAssignmentPhase = leasedAssignmentTransition(row.type, assignmentPhase);
       await client.query(
         `
           UPDATE gate_assignment_status
-          SET phase = CASE
-                WHEN $2::text = 'revoke_assignment' THEN 'revoking'::gate_assignment_phase
-                ELSE 'applying'::gate_assignment_phase
-              END,
+          SET phase = $2::gate_assignment_phase,
               updated_at = now()
           WHERE assignment_id = $1
-            AND phase NOT IN ('applied', 'revoked')
         `,
-        [row.assignmentId, row.type]
+        [row.assignmentId, nextAssignmentPhase]
       );
     }
 
@@ -205,14 +230,15 @@ export async function markAssignmentPreparedFromReport(
     material: Record<string, unknown>;
   }
 ): Promise<void> {
+  const nextPhase = preparedFromReportTransition();
   await db.query(
     `
       UPDATE gate_assignment_status
-      SET phase = 'prepared',
+      SET phase = $2::gate_assignment_phase,
           observed_generation = gate_assignments.generation,
-          actual_state_hash = $2,
-          local_material = $3::jsonb,
-          reported_state = $4::jsonb,
+          actual_state_hash = $3,
+          local_material = $4::jsonb,
+          reported_state = $5::jsonb,
           last_observed_at = now(),
           updated_at = now()
       FROM gate_assignments
@@ -221,6 +247,7 @@ export async function markAssignmentPreparedFromReport(
     `,
     [
       input.assignmentId,
+      nextPhase,
       input.actualStateHash || null,
       JSON.stringify(input.material),
       JSON.stringify(input.resultSummary)
@@ -234,14 +261,15 @@ export async function markAssignmentAppliedFromReport(
     assignmentId: string;
   }
 ): Promise<void> {
+  const nextPhase = appliedFromReportTransition();
   await db.query(
     `
       UPDATE gate_assignment_status
-      SET phase = 'applied',
+      SET phase = $2::gate_assignment_phase,
           observed_generation = gate_assignments.generation,
           applied_plan_id = gate_assignments.plan_id,
-          actual_state_hash = $2,
-          reported_state = $3::jsonb,
+          actual_state_hash = $3,
+          reported_state = $4::jsonb,
           applied_at = now(),
           last_observed_at = now(),
           updated_at = now()
@@ -249,7 +277,7 @@ export async function markAssignmentAppliedFromReport(
       WHERE gate_assignment_status.assignment_id = gate_assignments.id
         AND gate_assignment_status.assignment_id = $1
     `,
-    [input.assignmentId, input.actualStateHash || null, JSON.stringify(input.resultSummary)]
+    [input.assignmentId, nextPhase, input.actualStateHash || null, JSON.stringify(input.resultSummary)]
   );
 }
 
@@ -259,18 +287,19 @@ export async function markAssignmentRevokedFromReport(
     assignmentId: string;
   }
 ): Promise<void> {
+  const nextPhase = revokedFromReportTransition();
   await db.query(
     `
       UPDATE gate_assignment_status
-      SET phase = 'revoked',
-          actual_state_hash = $2,
-          reported_state = $3::jsonb,
+      SET phase = $2::gate_assignment_phase,
+          actual_state_hash = $3,
+          reported_state = $4::jsonb,
           revoked_at = now(),
           last_observed_at = now(),
           updated_at = now()
       WHERE assignment_id = $1
     `,
-    [input.assignmentId, input.actualStateHash || null, JSON.stringify(input.resultSummary)]
+    [input.assignmentId, nextPhase, input.actualStateHash || null, JSON.stringify(input.resultSummary)]
   );
 }
 
@@ -283,6 +312,7 @@ export async function markAssignmentFailedFromReport(
     resultSummary: Record<string, unknown>;
   }
 ): Promise<void> {
+  const nextPhase = failedFromReportTransition(input.terminalFailure);
   await db.query(
     `
       UPDATE gate_assignment_status
@@ -293,17 +323,18 @@ export async function markAssignmentFailedFromReport(
     `,
     [
       input.assignmentId,
-      input.terminalFailure ? "dead" : "retryable_failed",
+      nextPhase,
       JSON.stringify({ errorCode: input.errorCode || "job_failed", resultSummary: input.resultSummary })
     ]
   );
 }
 
 export async function insertApplyAssignmentJob(db: Queryable, input: EnqueueApplyJobInput): Promise<void> {
+  const initialPhase = queuedJobTransition();
   await db.query(
     `
       INSERT INTO jobs (type, phase, gate_id, session_id, assignment_id, payload)
-      VALUES ('apply_assignment', 'queued', $1, $2, $3, $4::jsonb)
+      VALUES ('apply_assignment', $5::job_phase, $1, $2, $3, $4::jsonb)
       ON CONFLICT DO NOTHING
     `,
     [
@@ -316,30 +347,34 @@ export async function insertApplyAssignmentJob(db: Queryable, input: EnqueueAppl
         role: input.role,
         ...(input.plan ? { plan: input.plan } : {}),
         ...(input.networkPlan ? { networkPlan: input.networkPlan } : {})
-      })
+      }),
+      initialPhase
     ]
   );
 }
 
 export async function requeueExpiredJobLeases(db: Queryable): Promise<void> {
+  const nextPhase = expiredLeaseTransition("leased");
   await db.query(
     `
       UPDATE jobs
-      SET phase = 'queued',
+      SET phase = $1::job_phase,
           lease_owner = NULL,
           lease_expires_at = NULL,
           updated_at = now()
-      WHERE phase IN ('leased', 'running')
+      WHERE phase = ANY($2::job_phase[])
         AND lease_expires_at < now()
-    `
+    `,
+    [nextPhase, expiredLeaseCandidateJobPhases]
   );
 }
 
 export async function insertReconcileJob(db: Queryable, input: EnqueueReconcileJobInput): Promise<string> {
+  const initialPhase = queuedJobTransition();
   const result = await db.query<{ id: string }>(
     `
       INSERT INTO jobs (type, phase, gate_id, session_id, payload)
-      VALUES ('reconcile', 'queued', $1::uuid, $2::uuid, $3::jsonb)
+      VALUES ('reconcile', $4::job_phase, $1::uuid, $2::uuid, $3::jsonb)
       RETURNING id
     `,
     [
@@ -348,7 +383,8 @@ export async function insertReconcileJob(db: Queryable, input: EnqueueReconcileJ
       JSON.stringify({
         requestedBy: input.requestedBy,
         ...(input.reason ? { reason: input.reason } : {})
-      })
+      }),
+      initialPhase
     ]
   );
   const row = result.rows[0];

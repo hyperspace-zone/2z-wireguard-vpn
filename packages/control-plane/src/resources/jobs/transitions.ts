@@ -1,5 +1,18 @@
 export type JobReportStatus = "succeeded" | "retryable_failed" | "failed";
+export type JobPhase = "queued" | "leased" | "running" | "succeeded" | "retryable_failed" | "dead";
 export type TerminalJobPhase = "succeeded" | "dead" | "retryable_failed";
+
+export const sessionFailureDeadCandidateJobPhases: readonly JobPhase[] = [
+  "queued",
+  "leased",
+  "running",
+  "retryable_failed"
+];
+
+export const expiredLeaseCandidateJobPhases: readonly JobPhase[] = [
+  "leased",
+  "running"
+];
 
 export interface ReportedJobTransition {
   nextPhase: TerminalJobPhase;
@@ -22,4 +35,32 @@ export function resolveReportedJobTransition(
     terminalFailure,
     retryableDelay: status === "retryable_failed" && !terminalFailure
   };
+}
+
+export function claimJobTransition(): {
+  phase: JobPhase;
+  leaseSeconds: number;
+} {
+  return {
+    phase: "leased",
+    leaseSeconds: 60
+  };
+}
+
+export function queuedJobTransition(): JobPhase {
+  return "queued";
+}
+
+export function expiredLeaseTransition(currentPhase: JobPhase): JobPhase {
+  if (currentPhase === "leased" || currentPhase === "running") {
+    return "queued";
+  }
+  return currentPhase;
+}
+
+export function deadForSessionFailureTransition(currentPhase: JobPhase): JobPhase {
+  if (currentPhase === "queued" || currentPhase === "leased" || currentPhase === "running" || currentPhase === "retryable_failed") {
+    return "dead";
+  }
+  return currentPhase;
 }

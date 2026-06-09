@@ -1,5 +1,6 @@
 import type { GateSummary } from "@hyperspace-zone/contracts";
 import type { Queryable } from "../db/queryable.js";
+import { freshGateLeaseSqlPredicate } from "../resources/gate-leases/repository.js";
 
 export async function listPublicGates(db: Queryable): Promise<GateSummary[]> {
   const result = await db.query<{
@@ -37,11 +38,12 @@ export async function listPublicGates(db: Queryable): Promise<GateSummary[]> {
         gate_status.doublezero_current_device AS "doubleZeroCurrentDevice",
         gate_status.doublezero_lowest_latency_device AS "doubleZeroLowestLatencyDevice",
         gate_status.doublezero_lowest_latency_device_warning AS "doubleZeroLowestLatencyDeviceWarning",
-        COALESCE(agent.status = 'True', false) AS "agentConnected",
-        COALESCE(agent.status = 'True', false) AND COALESCE(ready.status = 'True', false) AS ready,
-        COALESCE(agent.status = 'True', false) AND COALESCE(schedulable.status = 'True', false) AS schedulable
+        COALESCE(agent.status = 'True', false) AND ${freshGateLeaseSqlPredicate} AS "agentConnected",
+        COALESCE(agent.status = 'True', false) AND ${freshGateLeaseSqlPredicate} AND COALESCE(ready.status = 'True', false) AS ready,
+        COALESCE(agent.status = 'True', false) AND ${freshGateLeaseSqlPredicate} AND COALESCE(schedulable.status = 'True', false) AS schedulable
       FROM gates
       LEFT JOIN gate_status ON gate_status.gate_id = gates.id
+      LEFT JOIN gate_leases ON gate_leases.gate_id = gates.id
       LEFT JOIN gate_conditions agent ON agent.gate_id = gates.id AND agent.type = 'AgentConnected'
       LEFT JOIN gate_conditions ready ON ready.gate_id = gates.id AND ready.type = 'Ready'
       LEFT JOIN gate_conditions schedulable ON schedulable.gate_id = gates.id AND schedulable.type = 'Schedulable'

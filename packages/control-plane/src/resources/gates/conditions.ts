@@ -1,1 +1,1 @@
-export const gateConditionTypes = ["AgentConnected", "Ready", "Schedulable"] as const;
+export const gateConditionTypes = ["AgentConnected", "Ready", "Schedulable", "Drift"] as const;

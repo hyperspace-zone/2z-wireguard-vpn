@@ -63,6 +63,7 @@ function assertSchedulableGateQuery(sql: string): void {
   }
 
   assert.match(sql, /LEFT\s+JOIN\s+gate_status\s+ON\s+gate_status\.gate_id\s+=\s+gates\.id/i);
+  assert.match(sql, /LEFT\s+JOIN\s+gate_leases\s+ON\s+gate_leases\.gate_id\s+=\s+gates\.id/i);
   assert.match(sql, /LEFT\s+JOIN\s+gate_conditions\s+agent\b/i);
   assert.match(sql, /LEFT\s+JOIN\s+gate_conditions\s+ready\b/i);
   assert.match(sql, /LEFT\s+JOIN\s+gate_conditions\s+schedulable\b/i);
@@ -76,4 +77,5 @@ function assertSchedulableGateQuery(sql: string): void {
     /gate_status\.doublezero_status->>'network'\s+=\s+COALESCE\(NULLIF\(gates\.spec->>'doubleZeroEnv',\s+''\),\s+'testnet'\)/i
   );
   assert.match(sql, /gate_status\.doublezero_status->>'tunnelSrc'\s+=\s+gates\.public_endpoint/i);
+  assert.match(sql, /gate_leases\.lease_expires_at\s+>\s+now\(\)/i);
 }

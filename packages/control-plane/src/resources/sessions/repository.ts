@@ -1,5 +1,24 @@
 import type { Queryable, TransactionalQueryable } from "../../db/queryable.js";
 import { mustRow } from "../../support/db.js";
+import { artifactInvalidatedTransition } from "../artifacts/transitions.js";
+import {
+  deadForProvisioningFailureTransition,
+  desiredRevokedTransition,
+  provisioningFailureDeadCandidatePhases,
+  queuedForCommitTransition
+} from "../gate-assignments/transitions.js";
+import { deadForSessionFailureTransition, queuedJobTransition, sessionFailureDeadCandidateJobPhases } from "../jobs/transitions.js";
+import {
+  activeTransition,
+  beginRevokingTransition,
+  canHideSession,
+  failedTransition,
+  provisioningTransition,
+  requestRevocationTransition,
+  requestedSessionInitialTransition,
+  revokedTransition,
+  type SessionPhase
+} from "./transitions.js";
 import type { SessionCreateParsed } from "./validation.js";
 
 export interface RequestedSessionRow {
@@ -136,12 +155,13 @@ export async function insertRequestedSession(
     );
     const sessionId = mustRow(session).id;
 
+    const initialStatus = requestedSessionInitialTransition();
     await client.query(
       `
         INSERT INTO session_status (session_id, phase)
-        VALUES ($1, 'requested')
+        VALUES ($1, $2::session_phase)
       `,
-      [sessionId]
+      [sessionId, initialStatus.phase]
     );
     await client.query(
       `
@@ -174,27 +194,42 @@ export async function requestSessionRevocation(
   sessionId: string
 ): Promise<boolean> {
   return db.transaction(async (client) => {
-    const session = await client.query<{ id: string }>(
+    const session = await client.query<{ id: string; phase: SessionPhase }>(
       `
-        UPDATE sessions
-        SET desired_state = 'Revoked', generation = generation + 1, updated_at = now()
-        WHERE id = $1 AND account_id = $2 AND hidden_at IS NULL
-        RETURNING id
+        SELECT sessions.id, session_status.phase::text AS phase
+        FROM sessions
+        JOIN session_status ON session_status.session_id = sessions.id
+        WHERE sessions.id = $1
+          AND sessions.account_id = $2
+          AND sessions.hidden_at IS NULL
+        FOR UPDATE
       `,
       [sessionId, actor.accountId]
     );
     if (session.rowCount === 0) {
       return false;
     }
+    const row = mustRow(session);
+    const transition = requestRevocationTransition(row.phase);
 
     await client.query(
       `
+        UPDATE sessions
+        SET desired_state = $2::session_desired_state,
+            generation = CASE WHEN $3::boolean THEN generation + 1 ELSE generation END,
+            updated_at = now()
+        WHERE id = $1
+      `,
+      [sessionId, transition.desiredState, transition.incrementGeneration]
+    );
+    await client.query(
+      `
         UPDATE session_status
-        SET phase = CASE WHEN phase = 'revoked' THEN phase ELSE 'revoking' END,
+        SET phase = $2::session_phase,
             updated_at = now()
         WHERE session_id = $1
       `,
-      [sessionId]
+      [sessionId, transition.statusTransition.phase]
     );
     await client.query(
       `
@@ -205,6 +240,57 @@ export async function requestSessionRevocation(
     );
     return true;
   });
+}
+
+export async function requestSystemSessionRevocation(
+  db: Queryable,
+  sessionId: string,
+  reason: Record<string, unknown>
+): Promise<boolean> {
+  const session = await db.query<{ id: string; phase: SessionPhase }>(
+    `
+      SELECT sessions.id, session_status.phase::text AS phase
+      FROM sessions
+      JOIN session_status ON session_status.session_id = sessions.id
+      WHERE sessions.id = $1
+        AND sessions.hidden_at IS NULL
+      FOR UPDATE
+    `,
+    [sessionId]
+  );
+  const row = session.rows[0];
+  if (!row) {
+    return false;
+  }
+
+  const transition = requestRevocationTransition(row.phase);
+  await db.query(
+    `
+      UPDATE sessions
+      SET desired_state = $2::session_desired_state,
+          generation = CASE WHEN $3::boolean THEN generation + 1 ELSE generation END,
+          updated_at = now()
+      WHERE id = $1
+    `,
+    [sessionId, transition.desiredState, transition.incrementGeneration]
+  );
+  await db.query(
+    `
+      UPDATE session_status
+      SET phase = $2::session_phase,
+          updated_at = now()
+      WHERE session_id = $1
+    `,
+    [sessionId, transition.statusTransition.phase]
+  );
+  await db.query(
+    `
+      INSERT INTO audit_events (event_type, actor_type, session_id, details)
+      VALUES ('session_revoke_requested', 'system', $1, $2::jsonb)
+    `,
+    [sessionId, JSON.stringify(reason)]
+  );
+  return true;
 }
 
 export async function hideRevokedOrFailedSession(
@@ -226,11 +312,9 @@ export async function hideRevokedOrFailedSession(
     if (!row) {
       return "not_found" as const;
     }
-    if (row.hiddenAt) {
-      return "deleted" as const;
-    }
-    if (row.phase !== "revoked" && row.phase !== "failed") {
-      return "not_revoked" as const;
+    const decision = canHideSession(row.phase as SessionPhase, row.hiddenAt);
+    if (decision !== "can_hide") {
+      return decision;
     }
 
     await client.query(
@@ -280,9 +364,10 @@ export async function markSessionFailed(
   sessionId: string,
   error: { code: string; message: string }
 ): Promise<void> {
+  const transition = failedTransition(error);
   await db.query(
-    "UPDATE session_status SET phase = 'failed', last_error = $2::jsonb, updated_at = now() WHERE session_id = $1",
-    [sessionId, JSON.stringify(error)]
+    "UPDATE session_status SET phase = $2::session_phase, last_error = $3::jsonb, updated_at = now() WHERE session_id = $1",
+    [sessionId, transition.phase, JSON.stringify(transition.lastError)]
   );
 }
 
@@ -341,16 +426,24 @@ export async function markSessionProvisioning(
   generation: number,
   selectedPath: Record<string, unknown>
 ): Promise<void> {
+  const transition = provisioningTransition(generation, selectedPath);
   await db.query(
     `
       UPDATE session_status
-      SET phase = 'provisioning',
-          selected_path = $2::jsonb,
-          observed_generation = $3,
+      SET phase = $2::session_phase,
+          selected_path = $3::jsonb,
+          observed_generation = $4,
+          last_error = $5::jsonb,
           updated_at = now()
       WHERE session_id = $1
     `,
-    [sessionId, JSON.stringify(selectedPath), generation]
+    [
+      sessionId,
+      transition.phase,
+      JSON.stringify(selectedPath),
+      transition.observedGeneration ?? 0,
+      JSON.stringify(transition.lastError ?? null)
+    ]
   );
 }
 
@@ -423,15 +516,16 @@ export async function markPreparedAssignmentsQueued(
   ingressAssignmentId: string,
   egressAssignmentId: string
 ): Promise<void> {
+  const transition = queuedForCommitTransition();
   await db.query(
     `
       UPDATE gate_assignment_status
-      SET phase = 'queued',
+      SET phase = $3::gate_assignment_phase,
           updated_at = now()
       WHERE assignment_id IN ($1, $2)
         AND phase = 'prepared'
     `,
-    [ingressAssignmentId, egressAssignmentId]
+    [ingressAssignmentId, egressAssignmentId, transition]
   );
 }
 
@@ -469,15 +563,17 @@ export async function hasActiveClientConfigArtifact(db: Queryable, sessionId: st
 }
 
 export async function markSessionActive(db: Queryable, sessionId: string, generation: number): Promise<void> {
+  const transition = activeTransition(generation);
   await db.query(
     `
       UPDATE session_status
-      SET phase = 'active',
-          observed_generation = $2,
+      SET phase = $2::session_phase,
+          observed_generation = $3,
+          last_error = $4::jsonb,
           updated_at = now()
       WHERE session_id = $1
     `,
-    [sessionId, generation]
+    [sessionId, transition.phase, transition.observedGeneration ?? 0, JSON.stringify(transition.lastError ?? null)]
   );
 }
 
@@ -538,18 +634,19 @@ export async function listAssignmentPhasesForSession(
 }
 
 export async function markApplyJobsDeadForSession(db: Queryable, sessionId: string): Promise<void> {
+  const transition = deadForSessionFailureTransition("queued");
   await db.query(
     `
       UPDATE jobs
-      SET phase = CASE WHEN phase IN ('queued', 'leased', 'running', 'retryable_failed') THEN 'dead' ELSE phase END,
+      SET phase = $2::job_phase,
           lease_owner = NULL,
           lease_expires_at = NULL,
           updated_at = now()
       WHERE session_id = $1
         AND type = 'apply_assignment'
-        AND phase IN ('queued', 'leased', 'running', 'retryable_failed')
+        AND phase = ANY($3::job_phase[])
     `,
-    [sessionId]
+    [sessionId, transition, sessionFailureDeadCandidateJobPhases]
   );
 }
 
@@ -558,31 +655,33 @@ export async function markPendingAssignmentsDeadForSession(
   sessionId: string,
   error: Record<string, unknown>
 ): Promise<void> {
+  const transition = deadForProvisioningFailureTransition("queued");
   await db.query(
     `
       UPDATE gate_assignment_status
-      SET phase = CASE WHEN phase IN ('planned', 'queued', 'leased', 'applying', 'prepared', 'retryable_failed') THEN 'dead' ELSE phase END,
-          last_error = $2::jsonb,
+      SET phase = $2::gate_assignment_phase,
+          last_error = $3::jsonb,
           updated_at = now()
       FROM gate_assignments
       WHERE gate_assignment_status.assignment_id = gate_assignments.id
         AND gate_assignments.session_id = $1
-        AND gate_assignment_status.phase <> 'applied'
+        AND gate_assignment_status.phase = ANY($4::gate_assignment_phase[])
     `,
-    [sessionId, JSON.stringify(error)]
+    [sessionId, transition, JSON.stringify(error), provisioningFailureDeadCandidatePhases]
   );
 }
 
 export async function invalidateSessionArtifacts(db: Queryable, sessionId: string): Promise<void> {
+  const transition = artifactInvalidatedTransition();
   await db.query(
     `
       UPDATE artifacts
       SET invalidated_at = now(),
-          phase = 'invalidated'
+          phase = $2
       WHERE session_id = $1
         AND invalidated_at IS NULL
     `,
-    [sessionId]
+    [sessionId, transition]
   );
 }
 
@@ -603,7 +702,22 @@ export async function listSessionsToBeginRevocation(db: Queryable): Promise<Arra
 }
 
 export async function markSessionRevoking(db: Queryable, sessionId: string): Promise<void> {
-  await db.query("UPDATE session_status SET phase = 'revoking', updated_at = now() WHERE session_id = $1", [sessionId]);
+  const current = await db.query<{ phase: SessionPhase }>(
+    "SELECT phase::text AS phase FROM session_status WHERE session_id = $1 FOR UPDATE",
+    [sessionId]
+  );
+  const row = current.rows[0];
+  if (!row) {
+    return;
+  }
+  const transition = beginRevokingTransition(row.phase);
+  if (!transition) {
+    return;
+  }
+  await db.query("UPDATE session_status SET phase = $2::session_phase, updated_at = now() WHERE session_id = $1", [
+    sessionId,
+    transition.phase
+  ]);
 }
 
 export async function listAssignmentsToRevoke(db: Queryable): Promise<RevocableAssignmentRow[]> {
@@ -627,42 +741,46 @@ export async function listAssignmentsToRevoke(db: Queryable): Promise<RevocableA
 }
 
 export async function markAssignmentDesiredRevoked(db: Queryable, assignmentId: string): Promise<void> {
+  const transition = desiredRevokedTransition();
   await db.query(
     `
       UPDATE gate_assignments
-      SET desired_state = 'Revoked',
-          generation = generation + 1,
+      SET desired_state = $2::gate_assignment_desired_state,
+          generation = CASE WHEN $3::boolean THEN generation + 1 ELSE generation END,
           updated_at = now()
       WHERE id = $1
     `,
-    [assignmentId]
+    [assignmentId, transition.desiredState, transition.incrementGeneration]
   );
 }
 
 export async function markAssignmentRevoking(db: Queryable, assignmentId: string): Promise<void> {
+  const transition = desiredRevokedTransition();
   await db.query(
     `
       UPDATE gate_assignment_status
-      SET phase = 'revoking',
+      SET phase = $2::gate_assignment_phase,
           updated_at = now()
       WHERE assignment_id = $1
         AND phase <> 'revoked'
     `,
-    [assignmentId]
+    [assignmentId, transition.statusPhase]
   );
 }
 
 export async function enqueueRevokeAssignmentJob(db: Queryable, assignment: RevocableAssignmentRow): Promise<void> {
+  const initialPhase = queuedJobTransition();
   await db.query(
     `
       INSERT INTO jobs (type, phase, gate_id, session_id, assignment_id, payload)
-      VALUES ('revoke_assignment', 'queued', $1, $2, $3, $4::jsonb)
+      VALUES ('revoke_assignment', $5::job_phase, $1, $2, $3, $4::jsonb)
     `,
     [
       assignment.gateId,
       assignment.sessionId,
       assignment.assignmentId,
-      JSON.stringify({ assignmentId: assignment.assignmentId, role: assignment.role })
+      JSON.stringify({ assignmentId: assignment.assignmentId, role: assignment.role }),
+      initialPhase
     ]
   );
 }
@@ -689,8 +807,9 @@ export async function listSessionsReadyToMarkRevoked(db: Queryable): Promise<Ses
 }
 
 export async function markSessionRevoked(db: Queryable, sessionId: string, generation: number): Promise<void> {
+  const transition = revokedTransition(generation);
   await db.query(
-    "UPDATE session_status SET phase = 'revoked', observed_generation = $2, updated_at = now() WHERE session_id = $1",
-    [sessionId, generation]
+    "UPDATE session_status SET phase = $2::session_phase, observed_generation = $3, last_error = $4::jsonb, updated_at = now() WHERE session_id = $1",
+    [sessionId, transition.phase, transition.observedGeneration ?? 0, JSON.stringify(transition.lastError ?? null)]
   );
 }

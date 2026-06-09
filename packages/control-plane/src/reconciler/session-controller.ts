@@ -1,6 +1,6 @@
 import type { TransactionalQueryable } from "../db/queryable.js";
 import { choosePath } from "../planning/choose-path.js";
-import { assignmentNetworkMaterial, toGatePreparePlan } from "../planning/network-plan.js";
+import { toGatePreparePlan } from "../planning/network-plan.js";
 import { renderWireGuardPlan } from "../planning/render-plan.js";
 import { ensureClientAddressLease, releaseClientAddressLease, type AddressAllocatorLogger } from "../resources/addresses/allocator.js";
 import { prepareClientConfigArtifact } from "../resources/artifacts/service.js";
@@ -9,30 +9,22 @@ import { enqueueApplyJob } from "../resources/jobs/service.js";
 import { writeRenderedPlanSecret } from "../resources/rendered-plans/service.js";
 import { setSessionCondition } from "../resources/sessions/conditions.js";
 import {
-  enqueueRevokeAssignmentJob,
   hasActiveClientConfigArtifact,
   insertSessionAuditEvent,
   invalidateSessionArtifacts,
   listAssignmentPhasesForSession,
-  listAssignmentsToRevoke,
   listProvisionedSessionsForActivation,
   listRequestedSessionsForUpdate,
-  listSessionAssignmentMaterials,
   listSessionsReadyToMarkRevoked,
-  listSessionsReadyForCommit,
   listSessionsToBeginRevocation,
   listTimedOutProvisioningSessions,
   markApplyJobsDeadForSession,
-  markAssignmentDesiredRevoked,
-  markAssignmentRevoking,
   markPendingAssignmentsDeadForSession,
-  markPreparedAssignmentsQueued,
   markSessionActive,
   markSessionFailed,
   markSessionProvisioning,
   markSessionRevoked,
   markSessionRevoking,
-  touchSessionStatus,
   upsertRenderedPlan
 } from "../resources/sessions/repository.js";
 
@@ -136,60 +128,6 @@ export async function scheduleRequestedSessions(
   });
 }
 
-export async function enqueueCommitJobsForPreparedAssignments(db: TransactionalQueryable): Promise<void> {
-  await db.transaction(async (client) => {
-    const sessions = await listSessionsReadyForCommit(client);
-
-    for (const session of sessions) {
-      const assignments = await listSessionAssignmentMaterials(client, session.id);
-      const ingress = assignments.find((assignment) => assignment.role === "Ingress");
-      const egress = assignments.find((assignment) => assignment.role === "Egress");
-      if (!ingress || !egress) {
-        continue;
-      }
-
-      const networkPlan = {
-        planId: session.planId,
-        sessionId: session.id,
-        generation: session.generation,
-        publicMaterial: session.publicMaterial,
-        routingModel: session.routingModel,
-        firewallModel: session.firewallModel,
-        ingress: assignmentNetworkMaterial(ingress),
-        egress: assignmentNetworkMaterial(egress)
-      };
-
-      await enqueueApplyJob(client, {
-        assignmentId: ingress.id,
-        gateId: ingress.gateId,
-        sessionId: session.id,
-        operation: "commit",
-        role: "Ingress",
-        networkPlan
-      });
-      await enqueueApplyJob(client, {
-        assignmentId: egress.id,
-        gateId: egress.gateId,
-        sessionId: session.id,
-        operation: "commit",
-        role: "Egress",
-        networkPlan
-      });
-      await markPreparedAssignmentsQueued(client, ingress.id, egress.id);
-      await touchSessionStatus(client, session.id);
-      await setSessionCondition(
-        client,
-        session.id,
-        "Ready",
-        "False",
-        "ApplyingNetworkPlan",
-        "Both gates prepared local key material; network plan commit is queued",
-        session.generation
-      );
-    }
-  });
-}
-
 export async function completeProvisionedSessions(
   db: TransactionalQueryable,
   config: Pick<SessionReconcileConfig, "artifactEncryptionKey">
@@ -241,18 +179,11 @@ export async function failTimedOutProvisioningSessions(
   });
 }
 
-export async function beginRevocation(db: TransactionalQueryable): Promise<void> {
+export async function beginSessionRevocation(db: TransactionalQueryable): Promise<void> {
   await db.transaction(async (client) => {
     const sessions = await listSessionsToBeginRevocation(client);
     for (const session of sessions) {
       await markSessionRevoking(client, session.id);
-    }
-
-    const assignments = await listAssignmentsToRevoke(client);
-    for (const assignment of assignments) {
-      await markAssignmentDesiredRevoked(client, assignment.assignmentId);
-      await markAssignmentRevoking(client, assignment.assignmentId);
-      await enqueueRevokeAssignmentJob(client, assignment);
     }
   });
 }

@@ -1,11 +1,14 @@
+import { requeueExpiredJobs } from "@hyperspace-zone/control-plane";
+import type { Database } from "@hyperspace-zone/db";
+
 export interface RetryLoop {
   runOnce(): Promise<void>;
 }
 
-export function createRetryLoop(): RetryLoop {
+export function createRetryLoop(db: Database): RetryLoop {
   return {
     async runOnce(): Promise<void> {
-      // Retry policy currently runs inside the main reconciliation pass.
+      await requeueExpiredJobs(db);
     }
   };
 }

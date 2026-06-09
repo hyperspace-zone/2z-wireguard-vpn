@@ -1,4 +1,6 @@
 import type { Queryable, TransactionalQueryable } from "../../db/queryable.js";
+import { freshGateLeaseSqlPredicate, upsertGateLease } from "../gate-leases/repository.js";
+import { gateHeartbeatLeaseTtlSeconds } from "../gate-leases/service.js";
 
 export type GateConditionStatus = "True" | "False" | "Unknown";
 
@@ -37,6 +39,7 @@ const doubleZeroGateSqlPredicate = `
   AND gate_status.doublezero_status->>'tunnelStatus' = 'BGP Session Up'
   AND gate_status.doublezero_status->>'network' = COALESCE(NULLIF(gates.spec->>'doubleZeroEnv', ''), 'testnet')
   AND gate_status.doublezero_status->>'tunnelSrc' = gates.public_endpoint
+  AND ${freshGateLeaseSqlPredicate}
 `;
 
 export async function selectSchedulableGate(
@@ -52,6 +55,7 @@ export async function selectSchedulableGate(
       SELECT gates.id, gates.name, gates.public_endpoint AS "publicEndpoint"
       FROM gates
       LEFT JOIN gate_status ON gate_status.gate_id = gates.id
+      LEFT JOIN gate_leases ON gate_leases.gate_id = gates.id
       LEFT JOIN gate_conditions agent ON agent.gate_id = gates.id AND agent.type = 'AgentConnected'
       LEFT JOIN gate_conditions ready ON ready.gate_id = gates.id AND ready.type = 'Ready'
       LEFT JOIN gate_conditions schedulable ON schedulable.gate_id = gates.id AND schedulable.type = 'Schedulable'
@@ -161,17 +165,11 @@ export async function saveGateHeartbeat(
         input.doubleZeroLowestLatencyDeviceWarning
       ]
     );
-    await client.query(
-      `
-        INSERT INTO gate_leases (gate_id, lease_owner, lease_expires_at, heartbeat_at)
-        VALUES ($1, $2, now() + interval '30 seconds', now())
-        ON CONFLICT (gate_id) DO UPDATE
-        SET lease_owner = EXCLUDED.lease_owner,
-            lease_expires_at = EXCLUDED.lease_expires_at,
-            heartbeat_at = now()
-      `,
-      [input.gateId, input.gateName]
-    );
+    await upsertGateLease(client, {
+      gateId: input.gateId,
+      leaseOwner: input.gateName,
+      ttlSeconds: gateHeartbeatLeaseTtlSeconds()
+    });
 
     for (const condition of input.conditions) {
       await upsertGateCondition(client, {
@@ -204,9 +202,10 @@ export async function markStaleGateConditions(db: Queryable, staleSeconds: numbe
         gates.generation,
         now()
       FROM gates
-      LEFT JOIN gate_status ON gate_status.gate_id = gates.id
-      WHERE gate_status.last_seen_at IS NULL
-         OR gate_status.last_seen_at < now() - ($1::int * interval '1 second')
+      LEFT JOIN gate_leases ON gate_leases.gate_id = gates.id
+      WHERE gate_leases.lease_expires_at IS NULL
+         OR gate_leases.lease_expires_at <= now()
+         OR gate_leases.heartbeat_at < now() - ($1::int * interval '1 second')
       ON CONFLICT (gate_id, type) DO UPDATE
       SET status = EXCLUDED.status,
           reason = EXCLUDED.reason,
@@ -240,14 +239,15 @@ export async function markStaleGateConditions(db: Queryable, staleSeconds: numbe
         gates.generation,
         now()
       FROM gates
-      LEFT JOIN gate_status ON gate_status.gate_id = gates.id
+      LEFT JOIN gate_leases ON gate_leases.gate_id = gates.id
       CROSS JOIN (
         VALUES
           ('Ready', 'Gate agent heartbeat is stale'),
           ('Schedulable', 'Gate is not eligible for new sessions while agent heartbeat is stale')
       ) AS condition(type, message)
-      WHERE gate_status.last_seen_at IS NULL
-         OR gate_status.last_seen_at < now() - ($1::int * interval '1 second')
+      WHERE gate_leases.lease_expires_at IS NULL
+         OR gate_leases.lease_expires_at <= now()
+         OR gate_leases.heartbeat_at < now() - ($1::int * interval '1 second')
       ON CONFLICT (gate_id, type) DO UPDATE
       SET status = EXCLUDED.status,
           reason = EXCLUDED.reason,

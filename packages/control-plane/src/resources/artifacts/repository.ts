@@ -1,6 +1,11 @@
 import type { EncryptedJsonPayload } from "@hyperspace-zone/shared";
 import type { Queryable, TransactionalQueryable } from "../../db/queryable.js";
 import { mustRow } from "../../support/db.js";
+import {
+  artifactAvailableTransition,
+  artifactDownloadedTransition,
+  preparedArtifactTransition
+} from "./transitions.js";
 
 export interface ArtifactDownloadRow {
   id: string;
@@ -100,6 +105,7 @@ export async function insertClientConfigArtifact(
     encryptedArtifact: EncryptedJsonPayload;
   }
 ): Promise<string> {
+  const initialPhase = preparedArtifactTransition();
   const artifact = await db.query<{ id: string }>(
     `
       INSERT INTO artifacts (
@@ -111,14 +117,15 @@ export async function insertClientConfigArtifact(
         policy,
         created_at
       )
-      VALUES ($1, 'client_config', 'prepared', $2::jsonb, $3::text[], $4::jsonb, now())
+      VALUES ($1, 'client_config', $5, $2::jsonb, $3::text[], $4::jsonb, now())
       RETURNING id
     `,
     [
       input.sessionId,
       JSON.stringify(input.publicPayload),
       input.keyFingerprints,
-      JSON.stringify({ oneTime: false })
+      JSON.stringify({ oneTime: false }),
+      initialPhase
     ]
   );
   return String(mustRow(artifact).id);
@@ -129,6 +136,7 @@ export async function insertClientConfigArtifactPayload(
   artifactId: string,
   encryptedArtifact: EncryptedJsonPayload
 ): Promise<void> {
+  const availablePhase = artifactAvailableTransition();
   await db.query(
     `
       INSERT INTO artifact_payloads (
@@ -199,6 +207,7 @@ export async function insertArtifactDownloadToken(
     expiresAt: string;
   }
 ): Promise<void> {
+  const availablePhase = artifactAvailableTransition();
   await db.query(
     `
       INSERT INTO artifact_download_tokens (artifact_id, token_hash, subject_user_id, expires_at)
@@ -209,10 +218,10 @@ export async function insertArtifactDownloadToken(
   await db.query(
     `
       UPDATE artifacts
-      SET phase = 'available', issued_at = COALESCE(issued_at, now())
+      SET phase = $2, issued_at = COALESCE(issued_at, now())
       WHERE id = $1
     `,
-    [input.artifactId]
+    [input.artifactId, availablePhase]
   );
 }
 
@@ -255,9 +264,10 @@ export async function redeemArtifactDownloadTokenRow(
       "UPDATE artifact_download_tokens SET used_at = now() WHERE id = $1 AND used_at IS NULL",
       [row.id]
     );
+    const downloadedPhase = artifactDownloadedTransition();
     await client.query(
-      "UPDATE artifacts SET phase = 'downloaded', downloaded_at = now() WHERE id = $1",
-      [row.artifactId]
+      "UPDATE artifacts SET phase = $2, downloaded_at = now() WHERE id = $1",
+      [row.artifactId, downloadedPhase]
     );
     return row;
   });

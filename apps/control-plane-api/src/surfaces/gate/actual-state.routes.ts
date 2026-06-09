@@ -24,8 +24,13 @@ export function registerGateActualStateRoutes(
 
     const body = asRecord(request.body);
     await recordGateActualState(deps.db, gate.id, {
+      bootId: readString(body, "bootId"),
+      agentVersion: readString(body, "agentVersion"),
       stateHash: readString(body, "stateHash"),
-      capabilities: readStringArray(body, "capabilities")
+      managedHandles: readStringArray(body, "managedHandles"),
+      capabilities: readStringArray(body, "capabilities"),
+      diagnosticSummary: asRecord(body.diagnosticSummary ?? {}),
+      reportedAt: readString(body, "reportedAt")
     });
 
     return reply.send({ ok: true });

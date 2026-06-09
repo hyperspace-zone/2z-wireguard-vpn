@@ -5,7 +5,7 @@ export interface CleanupLoop {
 export function createCleanupLoop(): CleanupLoop {
   return {
     async runOnce(): Promise<void> {
-      // Cleanup policy currently runs inside the main reconciliation pass.
+      return;
     }
   };
 }
