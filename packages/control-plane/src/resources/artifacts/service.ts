@@ -6,12 +6,14 @@ import type { Queryable } from "../../db/queryable.js";
 import { renderClientConfig } from "./client-config.js";
 import {
   attachArtifactToSessionStatus,
+  invalidateArtifactsForSession,
   insertClientConfigArtifact,
   insertClientConfigArtifactPayload,
   listAssignmentMaterialsForArtifact,
   selectRenderedPlanForArtifact,
   selectRenderedPlanSecret
 } from "./repository.js";
+import { artifactInvalidatedTransition, preparedArtifactTransition } from "./transitions.js";
 
 export async function prepareClientConfigArtifact(
   db: Queryable,
@@ -89,10 +91,18 @@ export async function prepareClientConfigArtifact(
       egressGateName: String(egress.gateName)
     },
     keyFingerprints: [serverPublicKey],
-    encryptedArtifact
+    encryptedArtifact,
+    initialPhase: preparedArtifactTransition()
   });
   await insertClientConfigArtifactPayload(db, artifactId, encryptedArtifact);
   await attachArtifactToSessionStatus(db, sessionId, artifactId);
+}
+
+export async function invalidateSessionArtifacts(db: Queryable, sessionId: string): Promise<void> {
+  await invalidateArtifactsForSession(db, {
+    sessionId,
+    invalidatedPhase: artifactInvalidatedTransition()
+  });
 }
 
 function readOptionalString(record: Record<string, unknown>, key: string): string {

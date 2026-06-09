@@ -1,11 +1,6 @@
 import type { EncryptedJsonPayload } from "@hyperspace-zone/shared";
 import type { Queryable, TransactionalQueryable } from "../../db/queryable.js";
 import { mustRow } from "../../support/db.js";
-import {
-  artifactAvailableTransition,
-  artifactDownloadedTransition,
-  preparedArtifactTransition
-} from "./transitions.js";
 
 export interface ArtifactDownloadRow {
   id: string;
@@ -103,9 +98,9 @@ export async function insertClientConfigArtifact(
     publicPayload: Record<string, unknown>;
     keyFingerprints: string[];
     encryptedArtifact: EncryptedJsonPayload;
+    initialPhase: string;
   }
 ): Promise<string> {
-  const initialPhase = preparedArtifactTransition();
   const artifact = await db.query<{ id: string }>(
     `
       INSERT INTO artifacts (
@@ -125,7 +120,7 @@ export async function insertClientConfigArtifact(
       JSON.stringify(input.publicPayload),
       input.keyFingerprints,
       JSON.stringify({ oneTime: false }),
-      initialPhase
+      input.initialPhase
     ]
   );
   return String(mustRow(artifact).id);
@@ -136,7 +131,6 @@ export async function insertClientConfigArtifactPayload(
   artifactId: string,
   encryptedArtifact: EncryptedJsonPayload
 ): Promise<void> {
-  const availablePhase = artifactAvailableTransition();
   await db.query(
     `
       INSERT INTO artifact_payloads (
@@ -205,9 +199,9 @@ export async function insertArtifactDownloadToken(
     subjectUserId: string;
     tokenHash: string;
     expiresAt: string;
+    availablePhase: string;
   }
 ): Promise<void> {
-  const availablePhase = artifactAvailableTransition();
   await db.query(
     `
       INSERT INTO artifact_download_tokens (artifact_id, token_hash, subject_user_id, expires_at)
@@ -221,7 +215,26 @@ export async function insertArtifactDownloadToken(
       SET phase = $2, issued_at = COALESCE(issued_at, now())
       WHERE id = $1
     `,
-    [input.artifactId, availablePhase]
+    [input.artifactId, input.availablePhase]
+  );
+}
+
+export async function invalidateArtifactsForSession(
+  db: Queryable,
+  input: {
+    sessionId: string;
+    invalidatedPhase: string;
+  }
+): Promise<void> {
+  await db.query(
+    `
+      UPDATE artifacts
+      SET invalidated_at = now(),
+          phase = $2
+      WHERE session_id = $1
+        AND invalidated_at IS NULL
+    `,
+    [input.sessionId, input.invalidatedPhase]
   );
 }
 
@@ -239,7 +252,8 @@ export async function revokeExpiredArtifactDownloadTokens(db: Queryable): Promis
 
 export async function redeemArtifactDownloadTokenRow(
   db: TransactionalQueryable,
-  tokenHash: string
+  tokenHash: string,
+  downloadedPhase: string
 ): Promise<ArtifactDownloadRow | null> {
   return db.transaction(async (client) => {
     const tokenRow = await client.query<ArtifactDownloadRow>(
@@ -276,7 +290,6 @@ export async function redeemArtifactDownloadTokenRow(
       "UPDATE artifact_download_tokens SET used_at = now() WHERE id = $1 AND used_at IS NULL",
       [row.id]
     );
-    const downloadedPhase = artifactDownloadedTransition();
     await client.query(
       "UPDATE artifacts SET phase = $2, downloaded_at = now() WHERE id = $1",
       [row.artifactId, downloadedPhase]

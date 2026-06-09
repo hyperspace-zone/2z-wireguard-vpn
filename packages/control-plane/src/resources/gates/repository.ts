@@ -2,7 +2,8 @@ import type { Queryable, TransactionalQueryable } from "../../db/queryable.js";
 import { freshGateLeaseSqlPredicate, upsertGateLease } from "../gate-leases/repository.js";
 import { gateHeartbeatLeaseTtlSeconds } from "../gate-leases/service.js";
 import { upsertGateCondition, type GateConditionStatus } from "./conditions.js";
-import type { GateDesiredState } from "./transitions.js";
+
+type GateDesiredState = string;
 
 interface GateHeartbeatConditionInput {
   type: string;

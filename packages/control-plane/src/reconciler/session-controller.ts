@@ -3,19 +3,15 @@ import { choosePath } from "../planning/choose-path.js";
 import { toGatePreparePlan } from "../planning/network-plan.js";
 import { renderWireGuardPlan } from "../planning/render-plan.js";
 import { ensureClientAddressLease, releaseClientAddressLease, type AddressAllocatorLogger } from "../resources/addresses/allocator.js";
-import { prepareClientConfigArtifact } from "../resources/artifacts/service.js";
-import {
-  listAssignmentPhasesForSession,
-  markPendingAssignmentsDeadForSession
-} from "../resources/gate-assignments/repository.js";
-import { createAssignment } from "../resources/gate-assignments/service.js";
+import { invalidateSessionArtifacts, prepareClientConfigArtifact } from "../resources/artifacts/service.js";
+import { listAssignmentPhasesForSession } from "../resources/gate-assignments/repository.js";
+import { createAssignment, markPendingAssignmentsDeadForSession } from "../resources/gate-assignments/service.js";
 import { enqueueApplyJob, markApplyJobsDeadForSession } from "../resources/jobs/service.js";
 import { upsertRenderedPlan, writeRenderedPlanSecret } from "../resources/rendered-plans/service.js";
 import { setSessionCondition } from "../resources/sessions/conditions.js";
 import {
   hasActiveClientConfigArtifact,
   insertSessionAuditEvent,
-  invalidateSessionArtifacts,
   listProvisionedSessionsForActivation,
   listRequestedSessionsForUpdate,
   listSessionsReadyToMarkRevoked,
@@ -27,6 +23,14 @@ import {
   markSessionRevoked,
   markSessionRevoking
 } from "../resources/sessions/repository.js";
+import {
+  activeTransition,
+  beginRevokingTransition,
+  failedTransition,
+  provisioningTransition,
+  revokedTransition,
+  type SessionPhase
+} from "../resources/sessions/transitions.js";
 
 export interface SessionReconcileConfig {
   artifactEncryptionKey: Buffer;
@@ -49,7 +53,7 @@ export async function scheduleRequestedSessions(
           message: "No ready ingress/egress gate pair is currently schedulable"
         };
         await setSessionCondition(client, session.id, "Ready", "False", "NoSchedulablePath", error.message, session.generation);
-        await markSessionFailed(client, session.id, error);
+        await markSessionFailed(client, session.id, failedTransition(error));
         continue;
       }
 
@@ -60,7 +64,7 @@ export async function scheduleRequestedSessions(
           message: "No WireGuard client address is currently available"
         };
         await setSessionCondition(client, session.id, "Ready", "False", "AddressPoolExhausted", error.message, session.generation);
-        await markSessionFailed(client, session.id, error);
+        await markSessionFailed(client, session.id, failedTransition(error));
         continue;
       }
 
@@ -107,14 +111,15 @@ export async function scheduleRequestedSessions(
         role: "Egress",
         plan: toGatePreparePlan(planId, plan)
       });
-      await markSessionProvisioning(client, session.id, session.generation, {
+      const selectedPath = {
         ingressGateId: path.ingressGateId,
         ingressGateName: path.ingressGateName,
         ingressPublicEndpoint: path.ingressPublicEndpoint,
         egressGateId: path.egressGateId,
         egressGateName: path.egressGateName,
         egressPublicEndpoint: path.egressPublicEndpoint
-      });
+      };
+      await markSessionProvisioning(client, session.id, provisioningTransition(session.generation, selectedPath), selectedPath);
       await setSessionCondition(
         client,
         session.id,
@@ -140,7 +145,7 @@ export async function completeProvisionedSessions(
         await prepareClientConfigArtifact(client, session.id, session.generation, config.artifactEncryptionKey);
       }
 
-      await markSessionActive(client, session.id, session.generation);
+      await markSessionActive(client, session.id, activeTransition(session.generation));
       await setSessionCondition(client, session.id, "Ready", "True", "AssignmentsApplied", "Session is active", session.generation);
       await insertSessionAuditEvent(client, "session_active", session.id, {});
     }
@@ -171,7 +176,7 @@ export async function failTimedOutProvisioningSessions(
       await markApplyJobsDeadForSession(client, session.id);
       await markPendingAssignmentsDeadForSession(client, session.id, error);
       await invalidateSessionArtifacts(client, session.id);
-      await markSessionFailed(client, session.id, error);
+      await markSessionFailed(client, session.id, failedTransition(error));
       await releaseClientAddressLease(client, session.id, "provisioning_failed");
       await setSessionCondition(client, session.id, "Ready", "False", "ProvisioningFailed", message, session.generation);
       await insertSessionAuditEvent(client, "session_failed", session.id, error);
@@ -183,7 +188,10 @@ export async function beginSessionRevocation(db: TransactionalQueryable): Promis
   await db.transaction(async (client) => {
     const sessions = await listSessionsToBeginRevocation(client);
     for (const session of sessions) {
-      await markSessionRevoking(client, session.id);
+      const transition = beginRevokingTransition(session.phase as SessionPhase);
+      if (transition) {
+        await markSessionRevoking(client, session.id, transition);
+      }
     }
   });
 }
@@ -194,7 +202,7 @@ export async function completeRevokedSessions(db: TransactionalQueryable): Promi
 
     for (const session of sessions) {
       await invalidateSessionArtifacts(client, session.id);
-      await markSessionRevoked(client, session.id, session.generation);
+      await markSessionRevoked(client, session.id, revokedTransition(session.generation));
       await releaseClientAddressLease(client, session.id, "session_revoked");
       await setSessionCondition(client, session.id, "Ready", "False", "Revoked", "Session has been revoked", session.generation);
       await insertSessionAuditEvent(client, "session_revoked", session.id, {});

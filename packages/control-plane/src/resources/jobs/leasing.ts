@@ -8,7 +8,7 @@ import {
   type GateJobLeaseIdentity
 } from "./repository.js";
 import { findAssignmentPhaseForUpdate, updateAssignmentPhase } from "../gate-assignments/repository.js";
-import { leasedAssignmentTransition } from "../gate-assignments/transitions.js";
+import { leasedAssignmentTransition, type GateAssignmentPhase } from "../gate-assignments/transitions.js";
 import { claimJobTransition } from "./transitions.js";
 
 export type { ClaimedGateJob, GateJobLeaseIdentity } from "./repository.js";
@@ -45,7 +45,7 @@ export async function claimGateJob(
       }
       await updateAssignmentPhase(client, {
         assignmentId: job.assignmentId,
-        phase: leasedAssignmentTransition(job.type, assignmentPhase)
+        phase: leasedAssignmentTransition(job.type, assignmentPhase as GateAssignmentPhase)
       });
     }
 

@@ -3,7 +3,7 @@ import {
   listExpiredEntitlementSessionIds,
   revokeEntitlementsForSession
 } from "../resources/entitlements/repository.js";
-import { requestSystemSessionRevocation } from "../resources/sessions/repository.js";
+import { requestSystemSessionRevocation } from "../resources/sessions/service.js";
 
 export async function reconcileExpiry(db: TransactionalQueryable): Promise<void> {
   await db.transaction(async (client) => {

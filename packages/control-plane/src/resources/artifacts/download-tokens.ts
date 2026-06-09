@@ -8,6 +8,7 @@ import {
   selectLatestClientConfigArtifactForSession,
   type ArtifactDownloadRow
 } from "./repository.js";
+import { artifactAvailableTransition, artifactDownloadedTransition } from "./transitions.js";
 
 export interface ArtifactDownloadToken {
   token: string;
@@ -44,7 +45,8 @@ export async function createArtifactDownloadToken(
     artifactId,
     subjectUserId,
     tokenHash: sha256Hex(token),
-    expiresAt
+    expiresAt,
+    availablePhase: artifactAvailableTransition()
   });
 
   return {
@@ -61,7 +63,7 @@ export async function redeemArtifactDownloadToken(
   artifactEncryptionKey: Buffer | null
 ): Promise<ArtifactDownloadPayload | "not_found" | "encryption_not_configured"> {
   const tokenHash = sha256Hex(token);
-  const result = await redeemArtifactDownloadTokenRow(db, tokenHash);
+  const result = await redeemArtifactDownloadTokenRow(db, tokenHash, artifactDownloadedTransition());
 
   if (!result) {
     return "not_found";

@@ -2,11 +2,12 @@ import type { TransactionalQueryable } from "../db/queryable.js";
 import { assignmentNetworkMaterial } from "../planning/network-plan.js";
 import {
   listAssignmentsToRevoke,
-  listSessionAssignmentMaterials,
-  markAssignmentDesiredRevoked,
-  markAssignmentRevoking,
-  markPreparedAssignmentsQueued
+  listSessionAssignmentMaterials
 } from "../resources/gate-assignments/repository.js";
+import {
+  queuePreparedAssignmentsForCommit,
+  requestAssignmentRevocation
+} from "../resources/gate-assignments/service.js";
 import { enqueueApplyJob, enqueueRevokeAssignmentJob } from "../resources/jobs/service.js";
 import { setSessionCondition } from "../resources/sessions/conditions.js";
 import {
@@ -53,7 +54,7 @@ export async function enqueueCommitJobsForPreparedAssignments(db: TransactionalQ
         role: "Egress",
         networkPlan
       });
-      await markPreparedAssignmentsQueued(client, ingress.id, egress.id);
+      await queuePreparedAssignmentsForCommit(client, ingress.id, egress.id);
       await touchSessionStatus(client, session.id);
       await setSessionCondition(
         client,
@@ -72,8 +73,7 @@ export async function enqueueRevocationJobsForAssignments(db: TransactionalQuery
   await db.transaction(async (client) => {
     const assignments = await listAssignmentsToRevoke(client);
     for (const assignment of assignments) {
-      await markAssignmentDesiredRevoked(client, assignment.assignmentId);
-      await markAssignmentRevoking(client, assignment.assignmentId);
+      await requestAssignmentRevocation(client, assignment.assignmentId);
       await enqueueRevokeAssignmentJob(client, assignment);
     }
   });

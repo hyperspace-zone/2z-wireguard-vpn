@@ -1,17 +1,5 @@
 import type { Queryable, TransactionalQueryable } from "../../db/queryable.js";
 import { mustRow } from "../../support/db.js";
-import { artifactInvalidatedTransition } from "../artifacts/transitions.js";
-import {
-  activeTransition,
-  beginRevokingTransition,
-  canHideSession,
-  failedTransition,
-  provisioningTransition,
-  requestRevocationTransition,
-  requestedSessionInitialTransition,
-  revokedTransition,
-  type SessionPhase
-} from "./transitions.js";
 import type { SessionCreateParsed } from "./validation.js";
 
 export interface RequestedSessionRow {
@@ -36,6 +24,17 @@ export interface PreparedSessionRow {
 export interface SessionGenerationRow {
   id: string;
   generation: number;
+}
+
+export interface SessionPhaseRow {
+  id: string;
+  phase: string;
+}
+
+export interface SessionVisibilityRow {
+  id: string;
+  phase: string;
+  hiddenAt: string | null;
 }
 
 export type SessionConditionStatus = "True" | "False" | "Unknown";
@@ -92,7 +91,10 @@ export async function upsertSessionCondition(
 export async function insertRequestedSession(
   db: TransactionalQueryable,
   actor: SessionOwner,
-  parsed: SessionCreateParsed
+  parsed: SessionCreateParsed,
+  input: {
+    initialPhase: string;
+  }
 ): Promise<string> {
   return db.transaction(async (client) => {
     const session = await client.query<{ id: string }>(
@@ -125,13 +127,12 @@ export async function insertRequestedSession(
     );
     const sessionId = mustRow(session).id;
 
-    const initialStatus = requestedSessionInitialTransition();
     await client.query(
       `
         INSERT INTO session_status (session_id, phase)
         VALUES ($1, $2::session_phase)
       `,
-      [sessionId, initialStatus.phase]
+      [sessionId, input.initialPhase]
     );
     await client.query(
       `
@@ -158,66 +159,31 @@ export async function insertRequestedSession(
   });
 }
 
-export async function requestSessionRevocation(
-  db: TransactionalQueryable,
+export async function findOwnedSessionPhaseForUpdate(
+  db: Queryable,
   actor: SessionOwner,
   sessionId: string
-): Promise<boolean> {
-  return db.transaction(async (client) => {
-    const session = await client.query<{ id: string; phase: SessionPhase }>(
-      `
-        SELECT sessions.id, session_status.phase::text AS phase
-        FROM sessions
-        JOIN session_status ON session_status.session_id = sessions.id
-        WHERE sessions.id = $1
-          AND sessions.account_id = $2
-          AND sessions.hidden_at IS NULL
-        FOR UPDATE
-      `,
-      [sessionId, actor.accountId]
-    );
-    if (session.rowCount === 0) {
-      return false;
-    }
-    const row = mustRow(session);
-    const transition = requestRevocationTransition(row.phase);
-
-    await client.query(
-      `
-        UPDATE sessions
-        SET desired_state = $2::session_desired_state,
-            generation = CASE WHEN $3::boolean THEN generation + 1 ELSE generation END,
-            updated_at = now()
-        WHERE id = $1
-      `,
-      [sessionId, transition.desiredState, transition.incrementGeneration]
-    );
-    await client.query(
-      `
-        UPDATE session_status
-        SET phase = $2::session_phase,
-            updated_at = now()
-        WHERE session_id = $1
-      `,
-      [sessionId, transition.statusTransition.phase]
-    );
-    await client.query(
-      `
-        INSERT INTO audit_events (event_type, actor_type, actor_id, account_id, session_id)
-        VALUES ('session_revoke_requested', 'user', $1, $2, $3)
-      `,
-      [actor.id, actor.accountId, sessionId]
-    );
-    return true;
-  });
+): Promise<SessionPhaseRow | null> {
+  const session = await db.query<SessionPhaseRow>(
+    `
+      SELECT sessions.id, session_status.phase::text AS phase
+      FROM sessions
+      JOIN session_status ON session_status.session_id = sessions.id
+      WHERE sessions.id = $1
+        AND sessions.account_id = $2
+        AND sessions.hidden_at IS NULL
+      FOR UPDATE
+    `,
+    [sessionId, actor.accountId]
+  );
+  return session.rows[0] ?? null;
 }
 
-export async function requestSystemSessionRevocation(
+export async function findSessionPhaseForUpdate(
   db: Queryable,
-  sessionId: string,
-  reason: Record<string, unknown>
-): Promise<boolean> {
-  const session = await db.query<{ id: string; phase: SessionPhase }>(
+  sessionId: string
+): Promise<SessionPhaseRow | null> {
+  const session = await db.query<SessionPhaseRow>(
     `
       SELECT sessions.id, session_status.phase::text AS phase
       FROM sessions
@@ -228,12 +194,17 @@ export async function requestSystemSessionRevocation(
     `,
     [sessionId]
   );
-  const row = session.rows[0];
-  if (!row) {
-    return false;
-  }
+  return session.rows[0] ?? null;
+}
 
-  const transition = requestRevocationTransition(row.phase);
+export async function updateSessionDesiredState(
+  db: Queryable,
+  input: {
+    sessionId: string;
+    desiredState: string;
+    incrementGeneration: boolean;
+  }
+): Promise<void> {
   await db.query(
     `
       UPDATE sessions
@@ -242,17 +213,61 @@ export async function requestSystemSessionRevocation(
           updated_at = now()
       WHERE id = $1
     `,
-    [sessionId, transition.desiredState, transition.incrementGeneration]
+    [input.sessionId, input.desiredState, input.incrementGeneration]
   );
+}
+
+export async function updateSessionStatusPhase(
+  db: Queryable,
+  input: {
+    sessionId: string;
+    phase: string;
+    observedGeneration?: number | null;
+    selectedPath?: Record<string, unknown> | null;
+    lastError?: Record<string, unknown> | null;
+  }
+): Promise<void> {
+  const updateLastError = Object.hasOwn(input, "lastError");
   await db.query(
     `
       UPDATE session_status
       SET phase = $2::session_phase,
+          observed_generation = COALESCE($3::bigint, observed_generation),
+          selected_path = COALESCE($4::jsonb, selected_path),
+          last_error = CASE WHEN $5::boolean THEN $6::jsonb ELSE last_error END,
           updated_at = now()
       WHERE session_id = $1
     `,
-    [sessionId, transition.statusTransition.phase]
+    [
+      input.sessionId,
+      input.phase,
+      input.observedGeneration ?? null,
+      input.selectedPath ? JSON.stringify(input.selectedPath) : null,
+      updateLastError,
+      JSON.stringify(input.lastError ?? null)
+    ]
   );
+}
+
+export async function insertUserSessionRevokeRequestedAudit(
+  db: Queryable,
+  actor: SessionOwner,
+  sessionId: string
+): Promise<void> {
+  await db.query(
+    `
+      INSERT INTO audit_events (event_type, actor_type, actor_id, account_id, session_id)
+      VALUES ('session_revoke_requested', 'user', $1, $2, $3)
+    `,
+    [actor.id, actor.accountId, sessionId]
+  );
+}
+
+export async function insertSystemSessionRevokeRequestedAudit(
+  db: Queryable,
+  sessionId: string,
+  reason: Record<string, unknown>
+): Promise<void> {
   await db.query(
     `
       INSERT INTO audit_events (event_type, actor_type, session_id, details)
@@ -260,50 +275,52 @@ export async function requestSystemSessionRevocation(
     `,
     [sessionId, JSON.stringify(reason)]
   );
-  return true;
 }
 
-export async function hideRevokedOrFailedSession(
-  db: TransactionalQueryable,
+export async function findOwnedSessionVisibilityForUpdate(
+  db: Queryable,
   actor: SessionOwner,
   sessionId: string
-): Promise<"deleted" | "not_found" | "not_revoked"> {
-  return db.transaction(async (client) => {
-    const existing = await client.query<{ id: string; phase: string; hiddenAt: string | null }>(
-      `
-        SELECT sessions.id, session_status.phase::text AS phase, sessions.hidden_at AS "hiddenAt"
-        FROM sessions
-        JOIN session_status ON session_status.session_id = sessions.id
-        WHERE sessions.id = $1 AND sessions.account_id = $2
-      `,
-      [sessionId, actor.accountId]
-    );
-    const row = existing.rows[0];
-    if (!row) {
-      return "not_found" as const;
-    }
-    const decision = canHideSession(row.phase as SessionPhase, row.hiddenAt);
-    if (decision !== "can_hide") {
-      return decision;
-    }
+): Promise<SessionVisibilityRow | null> {
+  const existing = await db.query<SessionVisibilityRow>(
+    `
+      SELECT sessions.id, session_status.phase::text AS phase, sessions.hidden_at AS "hiddenAt"
+      FROM sessions
+      JOIN session_status ON session_status.session_id = sessions.id
+      WHERE sessions.id = $1 AND sessions.account_id = $2
+    `,
+    [sessionId, actor.accountId]
+  );
+  return existing.rows[0] ?? null;
+}
 
-    await client.query(
-      `
-        UPDATE sessions
-        SET hidden_at = now(), updated_at = now()
-        WHERE id = $1 AND account_id = $2
-      `,
-      [sessionId, actor.accountId]
-    );
-    await client.query(
-      `
-        INSERT INTO audit_events (event_type, actor_type, actor_id, account_id, session_id)
-        VALUES ('session_hidden', 'user', $1, $2, $3)
-      `,
-      [actor.id, actor.accountId, sessionId]
-    );
-    return "deleted" as const;
-  });
+export async function hideOwnedSession(
+  db: Queryable,
+  actor: SessionOwner,
+  sessionId: string
+): Promise<void> {
+  await db.query(
+    `
+      UPDATE sessions
+      SET hidden_at = now(), updated_at = now()
+      WHERE id = $1 AND account_id = $2
+    `,
+    [sessionId, actor.accountId]
+  );
+}
+
+export async function insertSessionHiddenAudit(
+  db: Queryable,
+  actor: SessionOwner,
+  sessionId: string
+): Promise<void> {
+  await db.query(
+    `
+      INSERT INTO audit_events (event_type, actor_type, actor_id, account_id, session_id)
+      VALUES ('session_hidden', 'user', $1, $2, $3)
+    `,
+    [actor.id, actor.accountId, sessionId]
+  );
 }
 
 export async function listRequestedSessionsForUpdate(db: Queryable): Promise<RequestedSessionRow[]> {
@@ -332,9 +349,11 @@ export async function listRequestedSessionsForUpdate(db: Queryable): Promise<Req
 export async function markSessionFailed(
   db: Queryable,
   sessionId: string,
-  error: { code: string; message: string }
+  transition: {
+    phase: string;
+    lastError?: Record<string, unknown> | null;
+  }
 ): Promise<void> {
-  const transition = failedTransition(error);
   await db.query(
     "UPDATE session_status SET phase = $2::session_phase, last_error = $3::jsonb, updated_at = now() WHERE session_id = $1",
     [sessionId, transition.phase, JSON.stringify(transition.lastError)]
@@ -344,10 +363,13 @@ export async function markSessionFailed(
 export async function markSessionProvisioning(
   db: Queryable,
   sessionId: string,
-  generation: number,
+  transition: {
+    phase: string;
+    observedGeneration?: number;
+    lastError?: Record<string, unknown> | null;
+  },
   selectedPath: Record<string, unknown>
 ): Promise<void> {
-  const transition = provisioningTransition(generation, selectedPath);
   await db.query(
     `
       UPDATE session_status
@@ -440,8 +462,15 @@ export async function hasActiveClientConfigArtifact(db: Queryable, sessionId: st
   return (existingArtifact.rowCount ?? 0) > 0;
 }
 
-export async function markSessionActive(db: Queryable, sessionId: string, generation: number): Promise<void> {
-  const transition = activeTransition(generation);
+export async function markSessionActive(
+  db: Queryable,
+  sessionId: string,
+  transition: {
+    phase: string;
+    observedGeneration?: number;
+    lastError?: Record<string, unknown> | null;
+  }
+): Promise<void> {
   await db.query(
     `
       UPDATE session_status
@@ -490,24 +519,10 @@ export async function listTimedOutProvisioningSessions(
   return sessions.rows;
 }
 
-export async function invalidateSessionArtifacts(db: Queryable, sessionId: string): Promise<void> {
-  const transition = artifactInvalidatedTransition();
-  await db.query(
+export async function listSessionsToBeginRevocation(db: Queryable): Promise<Array<{ id: string; phase: string }>> {
+  const sessions = await db.query<{ id: string; phase: string }>(
     `
-      UPDATE artifacts
-      SET invalidated_at = now(),
-          phase = $2
-      WHERE session_id = $1
-        AND invalidated_at IS NULL
-    `,
-    [sessionId, transition]
-  );
-}
-
-export async function listSessionsToBeginRevocation(db: Queryable): Promise<Array<{ id: string }>> {
-  const sessions = await db.query<{ id: string }>(
-    `
-      SELECT sessions.id
+      SELECT sessions.id, session_status.phase::text AS phase
       FROM sessions
       JOIN session_status ON session_status.session_id = sessions.id
       WHERE sessions.desired_state = 'Revoked'
@@ -520,19 +535,13 @@ export async function listSessionsToBeginRevocation(db: Queryable): Promise<Arra
   return sessions.rows;
 }
 
-export async function markSessionRevoking(db: Queryable, sessionId: string): Promise<void> {
-  const current = await db.query<{ phase: SessionPhase }>(
-    "SELECT phase::text AS phase FROM session_status WHERE session_id = $1 FOR UPDATE",
-    [sessionId]
-  );
-  const row = current.rows[0];
-  if (!row) {
-    return;
+export async function markSessionRevoking(
+  db: Queryable,
+  sessionId: string,
+  transition: {
+    phase: string;
   }
-  const transition = beginRevokingTransition(row.phase);
-  if (!transition) {
-    return;
-  }
+): Promise<void> {
   await db.query("UPDATE session_status SET phase = $2::session_phase, updated_at = now() WHERE session_id = $1", [
     sessionId,
     transition.phase
@@ -560,8 +569,15 @@ export async function listSessionsReadyToMarkRevoked(db: Queryable): Promise<Ses
   return sessions.rows;
 }
 
-export async function markSessionRevoked(db: Queryable, sessionId: string, generation: number): Promise<void> {
-  const transition = revokedTransition(generation);
+export async function markSessionRevoked(
+  db: Queryable,
+  sessionId: string,
+  transition: {
+    phase: string;
+    observedGeneration?: number;
+    lastError?: Record<string, unknown> | null;
+  }
+): Promise<void> {
   await db.query(
     "UPDATE session_status SET phase = $2::session_phase, observed_generation = $3, last_error = $4::jsonb, updated_at = now() WHERE session_id = $1",
     [sessionId, transition.phase, transition.observedGeneration ?? 0, JSON.stringify(transition.lastError ?? null)]

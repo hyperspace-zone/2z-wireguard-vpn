@@ -8,6 +8,7 @@ import {
 import { loginUser, registerUser } from "@hyperspace-zone/control-plane";
 import type { Database } from "@hyperspace-zone/db";
 import type { PublicAuthUser } from "../../http/auth.js";
+import { sendHttpError } from "../../http/errors.js";
 import { asRecord, readString } from "../../http/request.js";
 
 export function registerPublicAuthRoutes(
@@ -34,10 +35,10 @@ export function registerPublicAuthRoutes(
     const displayName = readString(body, "displayName") || email;
 
     if (!email || !email.includes("@")) {
-      return reply.code(400).send({ error: "invalid_email" });
+      return sendHttpError(reply, 400, { error: "invalid_email" });
     }
     if (!password || password.length < 12) {
-      return reply.code(400).send({ error: "weak_password", message: "password must be at least 12 characters" });
+      return sendHttpError(reply, 400, { error: "weak_password", message: "password must be at least 12 characters" });
     }
 
     const result = await registerUser(deps.db, {
@@ -47,7 +48,7 @@ export function registerPublicAuthRoutes(
       authSessionTtlSeconds: deps.authSessionTtlSeconds
     });
     if (result === "email_already_registered") {
-      return reply.code(409).send({ error: result });
+      return sendHttpError(reply, 409, { error: result });
     }
 
     return reply.code(201).send(result);
@@ -68,7 +69,7 @@ export function registerPublicAuthRoutes(
     const password = readString(body, "password");
 
     if (!email || !password) {
-      return reply.code(400).send({ error: "credentials_required" });
+      return sendHttpError(reply, 400, { error: "credentials_required" });
     }
 
     const result = await loginUser(deps.db, {
@@ -77,7 +78,7 @@ export function registerPublicAuthRoutes(
       authSessionTtlSeconds: deps.authSessionTtlSeconds
     });
     if (result === "invalid_credentials") {
-      return reply.code(401).send({ error: "invalid_credentials" });
+      return sendHttpError(reply, 401, { error: "invalid_credentials" });
     }
 
     return reply.send(result);

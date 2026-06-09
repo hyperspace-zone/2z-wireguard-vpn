@@ -1,6 +1,7 @@
 import Fastify, { type FastifyInstance } from "fastify";
 import type { Database } from "@hyperspace-zone/db";
 import { createHttpAuth } from "./http/auth.js";
+import { registerOpenApiRoute } from "./http/openapi.js";
 import { registerAdminAuditRoutes } from "./surfaces/admin/audit.routes.js";
 import { registerAdminGatesRoutes } from "./surfaces/admin/gates.routes.js";
 import { registerAdminJobRoutes } from "./surfaces/admin/jobs.routes.js";
@@ -37,6 +38,7 @@ export function createApp(input: CreateControlPlaneApiAppInput): FastifyInstance
     logger: true
   });
 
+  registerOpenApiRoute(app);
   registerHealthRoutes(app);
   registerPublicAuthRoutes(app, {
     db,

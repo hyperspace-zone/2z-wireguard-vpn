@@ -7,6 +7,7 @@ import {
 import { listPublicGates, setGateDesiredState, type GateDesiredState } from "@hyperspace-zone/control-plane";
 import type { Database } from "@hyperspace-zone/db";
 import type { AdminAuthContext } from "../../http/auth.js";
+import { sendForbidden, sendNotFound } from "../../http/errors.js";
 import { readParam } from "../../http/request.js";
 
 export function registerAdminGatesRoutes(
@@ -64,10 +65,10 @@ function registerGateDesiredStateRoute(
       desiredState
     });
     if (result === "forbidden") {
-      return reply.code(403).send({ error: "forbidden" });
+      return sendForbidden(reply);
     }
     if (result === "not_found") {
-      return reply.code(404).send({ error: "gate_not_found" });
+      return sendNotFound(reply, "gate_not_found");
     }
     return reply.send({ status: result });
   });

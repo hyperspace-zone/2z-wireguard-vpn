@@ -1,21 +1,14 @@
 import type { Queryable } from "../../db/queryable.js";
 import { mustRow } from "../../support/db.js";
-import {
-  deadForProvisioningFailureTransition,
-  desiredAppliedTransition,
-  desiredRevokedTransition,
-  driftedAssignmentTransition,
-  provisioningFailureDeadCandidatePhases,
-  queuedAfterAssignmentUpsertTransition,
-  queuedForCommitTransition,
-  type GateAssignmentPhase
-} from "./transitions.js";
+
+type GateAssignmentPhase = string;
 
 export interface CreateGateAssignmentInput {
   sessionId: string;
   gateId: string;
   role: "Ingress" | "Egress";
   planId: string;
+  desiredState: string;
 }
 
 export interface SessionAssignmentMaterialRow {
@@ -61,7 +54,6 @@ export async function upsertGateAssignment(
   db: Queryable,
   input: CreateGateAssignmentInput
 ): Promise<string> {
-  const transition = desiredAppliedTransition();
   const inserted = await db.query<{ id: string }>(
     `
       WITH generated AS (
@@ -92,13 +84,18 @@ export async function upsertGateAssignment(
           updated_at = now()
       RETURNING id
     `,
-    [input.sessionId, input.gateId, input.role, input.planId, transition.desiredState]
+    [input.sessionId, input.gateId, input.role, input.planId, input.desiredState]
   );
   return mustRow(inserted).id;
 }
 
-export async function ensureGateAssignmentQueuedStatus(db: Queryable, assignmentId: string): Promise<void> {
-  const plannedTransition = queuedAfterAssignmentUpsertTransition("planned");
+export async function ensureGateAssignmentStatusPhase(
+  db: Queryable,
+  input: {
+    assignmentId: string;
+    phase: GateAssignmentPhase;
+  }
+): Promise<void> {
   await db.query(
     `
       INSERT INTO gate_assignment_status (assignment_id, phase)
@@ -110,7 +107,7 @@ export async function ensureGateAssignmentQueuedStatus(db: Queryable, assignment
           END,
           updated_at = now()
     `,
-    [assignmentId, plannedTransition]
+    [input.assignmentId, input.phase]
   );
 }
 
@@ -142,9 +139,9 @@ export async function listSessionAssignmentMaterials(
 export async function markPreparedAssignmentsQueued(
   db: Queryable,
   ingressAssignmentId: string,
-  egressAssignmentId: string
+  egressAssignmentId: string,
+  nextPhase: GateAssignmentPhase
 ): Promise<void> {
-  const transition = queuedForCommitTransition();
   await db.query(
     `
       UPDATE gate_assignment_status
@@ -153,7 +150,7 @@ export async function markPreparedAssignmentsQueued(
       WHERE assignment_id IN ($1, $2)
         AND phase = 'prepared'
     `,
-    [ingressAssignmentId, egressAssignmentId, transition]
+    [ingressAssignmentId, egressAssignmentId, nextPhase]
   );
 }
 
@@ -178,12 +175,15 @@ export async function listAssignmentPhasesForSession(
   return assignments.rows;
 }
 
-export async function markPendingAssignmentsDeadForSession(
+export async function markPendingAssignmentsPhaseForSession(
   db: Queryable,
-  sessionId: string,
-  error: Record<string, unknown>
+  input: {
+    sessionId: string;
+    nextPhase: GateAssignmentPhase;
+    error: Record<string, unknown>;
+    candidatePhases: readonly GateAssignmentPhase[];
+  }
 ): Promise<void> {
-  const transition = deadForProvisioningFailureTransition("queued");
   await db.query(
     `
       UPDATE gate_assignment_status
@@ -195,7 +195,12 @@ export async function markPendingAssignmentsDeadForSession(
         AND gate_assignments.session_id = $1
         AND gate_assignment_status.phase = ANY($4::gate_assignment_phase[])
     `,
-    [sessionId, transition, JSON.stringify(error), provisioningFailureDeadCandidatePhases]
+    [
+      input.sessionId,
+      input.nextPhase,
+      JSON.stringify(input.error),
+      input.candidatePhases
+    ]
   );
 }
 
@@ -219,8 +224,14 @@ export async function listAssignmentsToRevoke(db: Queryable): Promise<RevocableA
   return assignments.rows;
 }
 
-export async function markAssignmentDesiredRevoked(db: Queryable, assignmentId: string): Promise<void> {
-  const transition = desiredRevokedTransition();
+export async function updateAssignmentDesiredState(
+  db: Queryable,
+  input: {
+    assignmentId: string;
+    desiredState: string;
+    incrementGeneration: boolean;
+  }
+): Promise<void> {
   await db.query(
     `
       UPDATE gate_assignments
@@ -229,12 +240,15 @@ export async function markAssignmentDesiredRevoked(db: Queryable, assignmentId: 
           updated_at = now()
       WHERE id = $1
     `,
-    [assignmentId, transition.desiredState, transition.incrementGeneration]
+    [input.assignmentId, input.desiredState, input.incrementGeneration]
   );
 }
 
-export async function markAssignmentRevoking(db: Queryable, assignmentId: string): Promise<void> {
-  const transition = desiredRevokedTransition();
+export async function markAssignmentRevoking(
+  db: Queryable,
+  assignmentId: string,
+  phase: GateAssignmentPhase
+): Promise<void> {
   await db.query(
     `
       UPDATE gate_assignment_status
@@ -243,7 +257,7 @@ export async function markAssignmentRevoking(db: Queryable, assignmentId: string
       WHERE assignment_id = $1
         AND phase <> 'revoked'
     `,
-    [assignmentId, transition.statusPhase]
+    [assignmentId, phase]
   );
 }
 
@@ -383,15 +397,18 @@ export async function markAssignmentFailedFromReport(
   );
 }
 
-export async function markMissingHandleAssignmentsDrifted(
+export async function markMissingHandleAssignmentRowsDrifted(
   db: Queryable,
-  gateId: string,
-  missingHandles: string[]
+  input: {
+    gateId: string;
+    missingHandles: string[];
+    nextPhase: GateAssignmentPhase;
+    error: Record<string, unknown>;
+  }
 ): Promise<void> {
-  if (missingHandles.length === 0) {
+  if (input.missingHandles.length === 0) {
     return;
   }
-  const transition = driftedAssignmentTransition();
   await db.query(
     `
       UPDATE gate_assignment_status
@@ -406,13 +423,10 @@ export async function markMissingHandleAssignmentsDrifted(
         AND gate_assignment_status.phase IN ('prepared', 'applied')
     `,
     [
-      gateId,
-      missingHandles,
-      transition,
-      JSON.stringify({
-        code: "actual_state_missing_handle",
-        message: "Desired assignment handle is absent from gate actual state"
-      })
+      input.gateId,
+      input.missingHandles,
+      input.nextPhase,
+      JSON.stringify(input.error)
     ]
   );
 }

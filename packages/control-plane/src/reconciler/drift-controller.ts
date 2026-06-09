@@ -6,10 +6,12 @@ import { recordGateAuditEvent } from "../resources/audit/service.js";
 import {
   listKnownOrphanAssignmentsForCleanup,
   listMissingHandleRepairSessions,
-  listSessionAssignmentMaterials,
-  markAssignmentRevoking,
-  markMissingHandleAssignmentsDrifted
+  listSessionAssignmentMaterials
 } from "../resources/gate-assignments/repository.js";
+import {
+  markMissingHandleAssignmentsDrifted,
+  requestAssignmentRevocation
+} from "../resources/gate-assignments/service.js";
 import { enqueueApplyJob, enqueueRevokeAssignmentJob } from "../resources/jobs/service.js";
 import { setGateDriftCondition } from "../resources/gates/conditions.js";
 
@@ -110,7 +112,7 @@ async function enqueueCleanupJobsForKnownOrphans(
 ): Promise<void> {
   const assignments = await listKnownOrphanAssignmentsForCleanup(db, gateId, orphanHandles);
   for (const assignment of assignments) {
-    await markAssignmentRevoking(db, assignment.assignmentId);
+    await requestAssignmentRevocation(db, assignment.assignmentId);
     await enqueueRevokeAssignmentJob(db, assignment);
   }
 }

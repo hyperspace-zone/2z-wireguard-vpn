@@ -6,6 +6,7 @@ import {
 } from "@hyperspace-zone/control-plane";
 import type { Database } from "@hyperspace-zone/db";
 import type { PublicAuthUser } from "../../http/auth.js";
+import { sendHttpError, sendNotFound } from "../../http/errors.js";
 import { readParam, readString } from "../../http/request.js";
 import { shouldReturnRawWireGuardConfig } from "../../resources/artifacts/downloads.js";
 
@@ -31,7 +32,7 @@ export function registerPublicArtifactRoutes(
       deps.downloadTokenTtlSeconds
     );
     if (token === "not_ready") {
-      return reply.code(409).send({ error: "artifact_not_ready" });
+      return sendHttpError(reply, 409, { error: "artifact_not_ready" });
     }
 
     return reply.send(token);
@@ -45,16 +46,16 @@ export function registerPublicArtifactRoutes(
     );
 
     if (result === "not_found") {
-      return reply.code(404).send({ error: "download_token_not_found" });
+      return sendNotFound(reply, "download_token_not_found");
     }
     if (result === "encryption_not_configured") {
-      return reply.code(503).send({ error: "artifact_encryption_not_configured" });
+      return sendHttpError(reply, 503, { error: "artifact_encryption_not_configured" });
     }
 
     if (shouldReturnRawWireGuardConfig(request)) {
       const configText = readString(result.payload, "configText");
       if (!configText) {
-        return reply.code(406).send({ error: "raw_config_not_available" });
+        return sendHttpError(reply, 406, { error: "raw_config_not_available" });
       }
       const fileName = attachmentFileName(readString(result.payload, "fileName") || undefined, result.artifactId);
       return reply
