@@ -582,8 +582,8 @@ install -d -o caddy -g caddy -m 0755 /var/www/hyperspace-web
 rsync -a --delete "$HS_REPO_DIR/apps/web/dist/" /var/www/hyperspace-web/
 
 export APP_HOST="$HS_WEB_HOST"
-export TLS_FULLCHAIN=/etc/caddy/certs/${HS_WEB_HOST}/fullchain.pem
-export TLS_PRIVKEY=/etc/caddy/certs/${HS_WEB_HOST}/privkey.pem
+export TLS_FULLCHAIN=/etc/caddy/certs/"$HS_WEB_HOST"/fullchain.pem
+export TLS_PRIVKEY=/etc/caddy/certs/$"HS_WEB_HOST"/privkey.pem
 : "${APP_HOST:?APP_HOST is required}"
 : "${TLS_FULLCHAIN:?TLS_FULLCHAIN is required}"
 : "${TLS_PRIVKEY:?TLS_PRIVKEY is required}"
