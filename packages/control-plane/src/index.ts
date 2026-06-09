@@ -21,6 +21,7 @@ export * from "./read-models/admin-jobs.query.js";
 export * from "./read-models/admin-sessions.query.js";
 export * from "./read-models/audit-events.query.js";
 export * from "./reconciler/assignment-controller.js";
+export * from "./reconciler/cleanup-controller.js";
 export * from "./reconciler/drift-controller.js";
 export * from "./reconciler/expiry-controller.js";
 export * from "./reconciler/gate-controller.js";

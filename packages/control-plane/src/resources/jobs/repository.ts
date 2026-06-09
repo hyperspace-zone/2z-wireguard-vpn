@@ -1,22 +1,5 @@
-import type { Queryable, TransactionalQueryable } from "../../db/queryable.js";
+import type { Queryable } from "../../db/queryable.js";
 import { mustRow } from "../../support/db.js";
-import type { RevocableAssignmentRow } from "../gate-assignments/repository.js";
-import {
-  appliedFromReportTransition,
-  failedFromReportTransition,
-  leasedAssignmentTransition,
-  preparedFromReportTransition,
-  revokedFromReportTransition,
-  type GateAssignmentPhase
-} from "../gate-assignments/transitions.js";
-import {
-  claimJobTransition,
-  deadForSessionFailureTransition,
-  expiredLeaseCandidateJobPhases,
-  expiredLeaseTransition,
-  sessionFailureDeadCandidateJobPhases,
-  queuedJobTransition
-} from "./transitions.js";
 
 export interface GateJobLeaseIdentity {
   id: string;
@@ -56,6 +39,13 @@ export interface EnqueueApplyJobInput {
   networkPlan?: Record<string, unknown>;
 }
 
+export interface EnqueueRevokeAssignmentJobInput {
+  assignmentId: string;
+  gateId: string;
+  sessionId: string;
+  role: "Ingress" | "Egress";
+}
+
 export interface EnqueueReconcileJobInput {
   gateId?: string;
   sessionId?: string;
@@ -63,105 +53,82 @@ export interface EnqueueReconcileJobInput {
   reason?: string;
 }
 
-export async function claimGateJobLease(
-  db: TransactionalQueryable,
-  gate: GateJobLeaseIdentity
-): Promise<ClaimedGateJob | null> {
-  return db.transaction(async (client) => {
-    const job = await client.query<{
-      id: string;
-      type: string;
-      payload: unknown;
-      sessionId: string | null;
-      assignmentId: string | null;
-    }>(
-      `
-        SELECT
-          id,
-          type::text,
-          payload,
-          session_id AS "sessionId",
-          assignment_id AS "assignmentId"
-        FROM jobs
-        WHERE gate_id = $1
-          AND phase IN ('queued', 'retryable_failed')
-          AND run_after <= now()
-          AND (lease_expires_at IS NULL OR lease_expires_at < now())
-        ORDER BY created_at ASC
-        FOR UPDATE SKIP LOCKED
-        LIMIT 1
-      `,
-      [gate.id]
-    );
-    const row = job.rows[0];
-    if (!row) {
-      return null;
-    }
+export async function findClaimableGateJobForUpdate(
+  db: Queryable,
+  gateId: string
+): Promise<Omit<ClaimedGateJob, "attemptNumber"> | null> {
+  const job = await db.query<Omit<ClaimedGateJob, "attemptNumber">>(
+    `
+      SELECT
+        id,
+        type::text,
+        payload,
+        session_id AS "sessionId",
+        assignment_id AS "assignmentId"
+      FROM jobs
+      WHERE gate_id = $1
+        AND phase IN ('queued', 'retryable_failed')
+        AND run_after <= now()
+        AND (lease_expires_at IS NULL OR lease_expires_at < now())
+      ORDER BY created_at ASC
+      FOR UPDATE SKIP LOCKED
+      LIMIT 1
+    `,
+    [gateId]
+  );
+  return job.rows[0] ?? null;
+}
 
-    const attempt = await client.query<{ attemptNumber: number }>(
-      `
-        SELECT COALESCE(MAX(attempt_number), 0) + 1 AS "attemptNumber"
-        FROM job_attempts
-        WHERE job_id = $1
-      `,
-      [row.id]
-    );
-    const attemptNumber = mustRow(attempt).attemptNumber;
+export async function nextJobAttemptNumber(db: Queryable, jobId: string): Promise<number> {
+  const attempt = await db.query<{ attemptNumber: number }>(
+    `
+      SELECT COALESCE(MAX(attempt_number), 0) + 1 AS "attemptNumber"
+      FROM job_attempts
+      WHERE job_id = $1
+    `,
+    [jobId]
+  );
+  return mustRow(attempt).attemptNumber;
+}
 
-    const jobTransition = claimJobTransition();
-    await client.query(
-      `
-        UPDATE jobs
-        SET phase = $2::job_phase,
-            lease_owner = $3,
-            lease_expires_at = now() + ($4::int * interval '1 second'),
-            updated_at = now()
-        WHERE id = $1
-      `,
-      [row.id, jobTransition.phase, gate.name, jobTransition.leaseSeconds]
-    );
-    await client.query(
-      `
-        INSERT INTO job_attempts (job_id, attempt_number, lease_owner, lease_expires_at)
-        VALUES ($1, $2, $3, now() + ($4::int * interval '1 second'))
-      `,
-      [row.id, attemptNumber, gate.name, jobTransition.leaseSeconds]
-    );
-    if (row.assignmentId) {
-      const assignmentStatus = await client.query<{ phase: GateAssignmentPhase }>(
-        `
-          SELECT phase::text AS phase
-          FROM gate_assignment_status
-          WHERE assignment_id = $1
-          FOR UPDATE
-        `,
-        [row.assignmentId]
-      );
-      const assignmentPhase = assignmentStatus.rows[0]?.phase;
-      if (!assignmentPhase) {
-        throw new Error(`job ${row.id} references missing assignment ${row.assignmentId}`);
-      }
-      const nextAssignmentPhase = leasedAssignmentTransition(row.type, assignmentPhase);
-      await client.query(
-        `
-          UPDATE gate_assignment_status
-          SET phase = $2::gate_assignment_phase,
-              updated_at = now()
-          WHERE assignment_id = $1
-        `,
-        [row.assignmentId, nextAssignmentPhase]
-      );
-    }
+export async function updateJobLease(
+  db: Queryable,
+  input: {
+    jobId: string;
+    phase: string;
+    leaseOwner: string;
+    leaseSeconds: number;
+  }
+): Promise<void> {
+  await db.query(
+    `
+      UPDATE jobs
+      SET phase = $2::job_phase,
+          lease_owner = $3,
+          lease_expires_at = now() + ($4::int * interval '1 second'),
+          updated_at = now()
+      WHERE id = $1
+    `,
+    [input.jobId, input.phase, input.leaseOwner, input.leaseSeconds]
+  );
+}
 
-    return {
-      id: row.id,
-      type: row.type,
-      payload: row.payload,
-      sessionId: row.sessionId,
-      assignmentId: row.assignmentId,
-      attemptNumber
-    };
-  });
+export async function insertJobAttemptLease(
+  db: Queryable,
+  input: {
+    jobId: string;
+    attemptNumber: number;
+    leaseOwner: string;
+    leaseSeconds: number;
+  }
+): Promise<void> {
+  await db.query(
+    `
+      INSERT INTO job_attempts (job_id, attempt_number, lease_owner, lease_expires_at)
+      VALUES ($1, $2, $3, now() + ($4::int * interval '1 second'))
+    `,
+    [input.jobId, input.attemptNumber, input.leaseOwner, input.leaseSeconds]
+  );
 }
 
 export async function findJobForReportForUpdate(
@@ -191,21 +158,23 @@ export async function recordJobReportOutcome(
   input: GateJobReportPersistenceInput & {
     jobId: string;
     nextPhase: string;
-    retryableDelay: boolean;
+    retryDelaySeconds: number | null;
   }
 ): Promise<void> {
-  const nextRunAfter = input.retryableDelay ? "now() + interval '10 seconds'" : "now()";
   await db.query(
     `
       UPDATE jobs
       SET phase = $2::job_phase,
           retry_count = CASE WHEN $2::job_phase = 'retryable_failed' THEN retry_count + 1 ELSE retry_count END,
           lease_expires_at = NULL,
-          run_after = ${nextRunAfter},
+          run_after = CASE
+            WHEN $3::int IS NULL THEN now()
+            ELSE now() + ($3::int * interval '1 second')
+          END,
           updated_at = now()
       WHERE id = $1
     `,
-    [input.jobId, input.nextPhase]
+    [input.jobId, input.nextPhase, input.retryDelaySeconds]
   );
   await db.query(
     `
@@ -226,114 +195,12 @@ export async function recordJobReportOutcome(
   );
 }
 
-export async function markAssignmentPreparedFromReport(
+export async function insertApplyAssignmentJob(
   db: Queryable,
-  input: GateJobReportPersistenceInput & {
-    assignmentId: string;
-    material: Record<string, unknown>;
+  input: EnqueueApplyJobInput & {
+    initialPhase: string;
   }
 ): Promise<void> {
-  const nextPhase = preparedFromReportTransition();
-  await db.query(
-    `
-      UPDATE gate_assignment_status
-      SET phase = $2::gate_assignment_phase,
-          observed_generation = gate_assignments.generation,
-          actual_state_hash = $3,
-          local_material = $4::jsonb,
-          reported_state = $5::jsonb,
-          last_observed_at = now(),
-          updated_at = now()
-      FROM gate_assignments
-      WHERE gate_assignment_status.assignment_id = gate_assignments.id
-        AND gate_assignment_status.assignment_id = $1
-    `,
-    [
-      input.assignmentId,
-      nextPhase,
-      input.actualStateHash || null,
-      JSON.stringify(input.material),
-      JSON.stringify(input.resultSummary)
-    ]
-  );
-}
-
-export async function markAssignmentAppliedFromReport(
-  db: Queryable,
-  input: GateJobReportPersistenceInput & {
-    assignmentId: string;
-  }
-): Promise<void> {
-  const nextPhase = appliedFromReportTransition();
-  await db.query(
-    `
-      UPDATE gate_assignment_status
-      SET phase = $2::gate_assignment_phase,
-          observed_generation = gate_assignments.generation,
-          applied_plan_id = gate_assignments.plan_id,
-          actual_state_hash = $3,
-          reported_state = $4::jsonb,
-          applied_at = now(),
-          last_observed_at = now(),
-          updated_at = now()
-      FROM gate_assignments
-      WHERE gate_assignment_status.assignment_id = gate_assignments.id
-        AND gate_assignment_status.assignment_id = $1
-    `,
-    [input.assignmentId, nextPhase, input.actualStateHash || null, JSON.stringify(input.resultSummary)]
-  );
-}
-
-export async function markAssignmentRevokedFromReport(
-  db: Queryable,
-  input: GateJobReportPersistenceInput & {
-    assignmentId: string;
-  }
-): Promise<void> {
-  const nextPhase = revokedFromReportTransition();
-  await db.query(
-    `
-      UPDATE gate_assignment_status
-      SET phase = $2::gate_assignment_phase,
-          actual_state_hash = $3,
-          reported_state = $4::jsonb,
-          revoked_at = now(),
-          last_observed_at = now(),
-          updated_at = now()
-      WHERE assignment_id = $1
-    `,
-    [input.assignmentId, nextPhase, input.actualStateHash || null, JSON.stringify(input.resultSummary)]
-  );
-}
-
-export async function markAssignmentFailedFromReport(
-  db: Queryable,
-  input: {
-    assignmentId: string;
-    terminalFailure: boolean;
-    errorCode: string;
-    resultSummary: Record<string, unknown>;
-  }
-): Promise<void> {
-  const nextPhase = failedFromReportTransition(input.terminalFailure);
-  await db.query(
-    `
-      UPDATE gate_assignment_status
-      SET phase = $2::gate_assignment_phase,
-          last_error = $3::jsonb,
-          updated_at = now()
-      WHERE assignment_id = $1
-    `,
-    [
-      input.assignmentId,
-      nextPhase,
-      JSON.stringify({ errorCode: input.errorCode || "job_failed", resultSummary: input.resultSummary })
-    ]
-  );
-}
-
-export async function insertApplyAssignmentJob(db: Queryable, input: EnqueueApplyJobInput): Promise<void> {
-  const initialPhase = queuedJobTransition();
   await db.query(
     `
       INSERT INTO jobs (type, phase, gate_id, session_id, assignment_id, payload)
@@ -358,14 +225,18 @@ export async function insertApplyAssignmentJob(db: Queryable, input: EnqueueAppl
         ...(input.plan ? { plan: input.plan } : {}),
         ...(input.networkPlan ? { networkPlan: input.networkPlan } : {})
       }),
-      initialPhase,
+      input.initialPhase,
       input.operation
     ]
   );
 }
 
-export async function insertRevokeAssignmentJob(db: Queryable, assignment: RevocableAssignmentRow): Promise<void> {
-  const initialPhase = queuedJobTransition();
+export async function insertRevokeAssignmentJob(
+  db: Queryable,
+  input: EnqueueRevokeAssignmentJobInput & {
+    initialPhase: string;
+  }
+): Promise<void> {
   await db.query(
     `
       INSERT INTO jobs (type, phase, gate_id, session_id, assignment_id, payload)
@@ -379,17 +250,23 @@ export async function insertRevokeAssignmentJob(db: Queryable, assignment: Revoc
       )
     `,
     [
-      assignment.gateId,
-      assignment.sessionId,
-      assignment.assignmentId,
-      JSON.stringify({ assignmentId: assignment.assignmentId, role: assignment.role }),
-      initialPhase
+      input.gateId,
+      input.sessionId,
+      input.assignmentId,
+      JSON.stringify({ assignmentId: input.assignmentId, role: input.role }),
+      input.initialPhase
     ]
   );
 }
 
-export async function markApplyJobsDeadForSession(db: Queryable, sessionId: string): Promise<void> {
-  const transition = deadForSessionFailureTransition("queued");
+export async function markApplyJobsPhaseForSession(
+  db: Queryable,
+  input: {
+    sessionId: string;
+    nextPhase: string;
+    candidatePhases: readonly string[];
+  }
+): Promise<void> {
   await db.query(
     `
       UPDATE jobs
@@ -401,12 +278,17 @@ export async function markApplyJobsDeadForSession(db: Queryable, sessionId: stri
         AND type = 'apply_assignment'
         AND phase = ANY($3::job_phase[])
     `,
-    [sessionId, transition, sessionFailureDeadCandidateJobPhases]
+    [input.sessionId, input.nextPhase, input.candidatePhases]
   );
 }
 
-export async function requeueExpiredJobLeases(db: Queryable): Promise<void> {
-  const nextPhase = expiredLeaseTransition("leased");
+export async function updateExpiredJobLeasePhases(
+  db: Queryable,
+  input: {
+    nextPhase: string;
+    candidatePhases: readonly string[];
+  }
+): Promise<void> {
   await db.query(
     `
       UPDATE jobs
@@ -417,12 +299,16 @@ export async function requeueExpiredJobLeases(db: Queryable): Promise<void> {
       WHERE phase = ANY($2::job_phase[])
         AND lease_expires_at < now()
     `,
-    [nextPhase, expiredLeaseCandidateJobPhases]
+    [input.nextPhase, input.candidatePhases]
   );
 }
 
-export async function insertReconcileJob(db: Queryable, input: EnqueueReconcileJobInput): Promise<string> {
-  const initialPhase = queuedJobTransition();
+export async function insertReconcileJob(
+  db: Queryable,
+  input: EnqueueReconcileJobInput & {
+    initialPhase: string;
+  }
+): Promise<string> {
   const result = await db.query<{ id: string }>(
     `
       INSERT INTO jobs (type, phase, gate_id, session_id, payload)
@@ -436,7 +322,7 @@ export async function insertReconcileJob(db: Queryable, input: EnqueueReconcileJ
         requestedBy: input.requestedBy,
         ...(input.reason ? { reason: input.reason } : {})
       }),
-      initialPhase
+      input.initialPhase
     ]
   );
   const row = result.rows[0];

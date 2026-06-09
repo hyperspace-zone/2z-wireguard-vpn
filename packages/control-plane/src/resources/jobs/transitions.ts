@@ -17,7 +17,7 @@ export const expiredLeaseCandidateJobPhases: readonly JobPhase[] = [
 export interface ReportedJobTransition {
   nextPhase: TerminalJobPhase;
   terminalFailure: boolean;
-  retryableDelay: boolean;
+  retryDelaySeconds: number | null;
 }
 
 export function isJobReportStatus(value: string): value is JobReportStatus {
@@ -33,7 +33,7 @@ export function resolveReportedJobTransition(
   return {
     nextPhase: status === "succeeded" ? "succeeded" : terminalFailure ? "dead" : "retryable_failed",
     terminalFailure,
-    retryableDelay: status === "retryable_failed" && !terminalFailure
+    retryDelaySeconds: status === "retryable_failed" && !terminalFailure ? 10 : null
   };
 }
 

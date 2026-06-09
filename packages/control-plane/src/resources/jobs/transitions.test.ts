@@ -14,17 +14,17 @@ test("job report transitions centralize retry and terminal decisions", () => {
   assert.deepEqual(resolveReportedJobTransition("succeeded", 0, 5), {
     nextPhase: "succeeded",
     terminalFailure: false,
-    retryableDelay: false
+    retryDelaySeconds: null
   });
   assert.deepEqual(resolveReportedJobTransition("retryable_failed", 0, 5), {
     nextPhase: "retryable_failed",
     terminalFailure: false,
-    retryableDelay: true
+    retryDelaySeconds: 10
   });
   assert.deepEqual(resolveReportedJobTransition("retryable_failed", 4, 5), {
     nextPhase: "dead",
     terminalFailure: true,
-    retryableDelay: false
+    retryDelaySeconds: null
   });
 });
 

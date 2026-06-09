@@ -1,10 +1,18 @@
-import type { TransactionalQueryable } from "../../db/queryable.js";
+import type { Queryable, TransactionalQueryable } from "../../db/queryable.js";
 import {
-  findJobForReportForUpdate,
   markAssignmentAppliedFromReport,
   markAssignmentFailedFromReport,
   markAssignmentPreparedFromReport,
-  markAssignmentRevokedFromReport,
+  markAssignmentRevokedFromReport
+} from "../gate-assignments/repository.js";
+import {
+  appliedFromReportTransition,
+  failedFromReportTransition,
+  preparedFromReportTransition,
+  revokedFromReportTransition
+} from "../gate-assignments/transitions.js";
+import {
+  findJobForReportForUpdate,
   recordJobReportOutcome
 } from "./repository.js";
 import { resolveReportedJobTransition, type JobReportStatus } from "./transitions.js";
@@ -32,7 +40,7 @@ export async function recordGateJobReport(
     await recordJobReportOutcome(client, {
       jobId: row.id,
       nextPhase: transition.nextPhase,
-      retryableDelay: transition.retryableDelay,
+      retryDelaySeconds: transition.retryDelaySeconds,
       actualStateHash: report.actualStateHash,
       errorCode: report.errorCode,
       resultSummary: report.resultSummary
@@ -52,7 +60,7 @@ export async function recordGateJobReport(
 }
 
 async function recordAssignmentProgress(
-  db: Parameters<typeof markAssignmentPreparedFromReport>[0],
+  db: Queryable,
   input: {
     assignmentId: string;
     jobType: string;
@@ -65,6 +73,7 @@ async function recordAssignmentProgress(
     if (operation === "prepare") {
       await markAssignmentPreparedFromReport(db, {
         assignmentId: input.assignmentId,
+        nextPhase: preparedFromReportTransition(),
         actualStateHash: input.report.actualStateHash,
         errorCode: input.report.errorCode,
         resultSummary: input.report.resultSummary,
@@ -75,6 +84,7 @@ async function recordAssignmentProgress(
 
     await markAssignmentAppliedFromReport(db, {
       assignmentId: input.assignmentId,
+      nextPhase: appliedFromReportTransition(),
       actualStateHash: input.report.actualStateHash,
       errorCode: input.report.errorCode,
       resultSummary: input.report.resultSummary
@@ -85,6 +95,7 @@ async function recordAssignmentProgress(
   if (input.report.status === "succeeded" && input.jobType === "revoke_assignment") {
     await markAssignmentRevokedFromReport(db, {
       assignmentId: input.assignmentId,
+      nextPhase: revokedFromReportTransition(),
       actualStateHash: input.report.actualStateHash,
       errorCode: input.report.errorCode,
       resultSummary: input.report.resultSummary
@@ -94,7 +105,7 @@ async function recordAssignmentProgress(
 
   await markAssignmentFailedFromReport(db, {
     assignmentId: input.assignmentId,
-    terminalFailure: input.terminalFailure,
+    nextPhase: failedFromReportTransition(input.terminalFailure),
     errorCode: input.report.errorCode,
     resultSummary: input.report.resultSummary
   });

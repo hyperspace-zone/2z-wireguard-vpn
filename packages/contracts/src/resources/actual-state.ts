@@ -1,3 +1,5 @@
+import type { FromSchema } from "json-schema-to-ts";
+
 export const gateActualSnapshotSchema = {
   type: "object",
   additionalProperties: false,
@@ -13,3 +15,5 @@ export const gateActualSnapshotSchema = {
     reportedAt: { type: "string", format: "date-time" }
   }
 } as const;
+
+export type GateActualSnapshot = FromSchema<typeof gateActualSnapshotSchema>;

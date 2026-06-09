@@ -1,3 +1,5 @@
+import type { FromSchema } from "json-schema-to-ts";
+
 export const gateRoleValues = ["Ingress", "Egress"] as const;
 export const gateAssignmentDesiredStateValues = ["Applied", "Revoked"] as const;
 export const gateAssignmentPhaseValues = [
@@ -13,6 +15,10 @@ export const gateAssignmentPhaseValues = [
   "retryable_failed",
   "dead"
 ] as const;
+
+export type GateRole = typeof gateRoleValues[number];
+export type GateAssignmentDesiredState = typeof gateAssignmentDesiredStateValues[number];
+export type GateAssignmentPhase = typeof gateAssignmentPhaseValues[number];
 
 export const gateAssignmentSchema = {
   type: "object",
@@ -31,3 +37,5 @@ export const gateAssignmentSchema = {
     reportedState: { type: "object", additionalProperties: true }
   }
 } as const;
+
+export type GateAssignment = FromSchema<typeof gateAssignmentSchema>;

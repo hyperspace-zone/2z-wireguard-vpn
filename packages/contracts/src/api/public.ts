@@ -1,3 +1,4 @@
+import type { FromSchema } from "json-schema-to-ts";
 import { gateSummarySchema } from "../resources/gate.js";
 import { sessionSummarySchema, sessionSpecSchema } from "../resources/session.js";
 
@@ -43,6 +44,8 @@ export const publicUserSchema = {
     displayName: { type: "string" }
   }
 } as const;
+
+export type PublicUser = FromSchema<typeof publicUserSchema>;
 
 export const publicAuthResponseSchema = {
   type: "object",

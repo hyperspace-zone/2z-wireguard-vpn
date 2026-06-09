@@ -1,4 +1,8 @@
+import type { FromSchema } from "json-schema-to-ts";
+
 export const gateDesiredStateValues = ["Enabled", "Draining", "Disabled", "Maintenance"] as const;
+
+export type GateDesiredState = typeof gateDesiredStateValues[number];
 
 export const gateDoubleZeroStatusSchema = {
   type: "object",
@@ -24,6 +28,8 @@ export const gateDoubleZeroStatusSchema = {
   }
 } as const;
 
+export type GateDoubleZeroStatus = FromSchema<typeof gateDoubleZeroStatusSchema>;
+
 export const gateSummarySchema = {
   type: "object",
   additionalProperties: false,
@@ -44,3 +50,5 @@ export const gateSummarySchema = {
     schedulable: { type: "boolean" }
   }
 } as const;
+
+export type GateSummary = FromSchema<typeof gateSummarySchema>;

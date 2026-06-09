@@ -225,6 +225,18 @@ export async function insertArtifactDownloadToken(
   );
 }
 
+export async function revokeExpiredArtifactDownloadTokens(db: Queryable): Promise<number> {
+  const result = await db.query(
+    `
+      UPDATE artifact_download_tokens
+      SET revoked_at = now()
+      WHERE revoked_at IS NULL
+        AND expires_at <= now()
+    `
+  );
+  return result.rowCount ?? 0;
+}
+
 export async function redeemArtifactDownloadTokenRow(
   db: TransactionalQueryable,
   tokenHash: string

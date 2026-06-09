@@ -9,8 +9,7 @@ import {
   markPendingAssignmentsDeadForSession
 } from "../resources/gate-assignments/repository.js";
 import { createAssignment } from "../resources/gate-assignments/service.js";
-import { enqueueApplyJob } from "../resources/jobs/service.js";
-import { markApplyJobsDeadForSession } from "../resources/jobs/repository.js";
+import { enqueueApplyJob, markApplyJobsDeadForSession } from "../resources/jobs/service.js";
 import { upsertRenderedPlan, writeRenderedPlanSecret } from "../resources/rendered-plans/service.js";
 import { setSessionCondition } from "../resources/sessions/conditions.js";
 import {

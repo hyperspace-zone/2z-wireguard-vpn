@@ -19,7 +19,7 @@ export function createWorkerRunner(input: {
     config: input.config
   });
   const retryLoop = createRetryLoop(input.db);
-  const cleanupLoop = createCleanupLoop();
+  const cleanupLoop = createCleanupLoop(input.db);
   let stopping = false;
 
   return {

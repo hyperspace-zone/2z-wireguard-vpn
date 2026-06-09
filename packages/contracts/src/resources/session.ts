@@ -1,3 +1,5 @@
+import type { FromSchema } from "json-schema-to-ts";
+
 export const sessionModeValues = ["IpToIp", "FullTunnel"] as const;
 export const desiredSessionStateValues = ["Active", "Revoked"] as const;
 export const sessionPhaseValues = [
@@ -11,6 +13,10 @@ export const sessionPhaseValues = [
   "revoked",
   "failed"
 ] as const;
+
+export type SessionMode = typeof sessionModeValues[number];
+export type DesiredSessionState = typeof desiredSessionStateValues[number];
+export type SessionPhase = typeof sessionPhaseValues[number];
 
 export const sessionSpecSchema = {
   type: "object",
@@ -30,6 +36,8 @@ export const sessionSpecSchema = {
     artifactPolicy: { type: "object", additionalProperties: true }
   }
 } as const;
+
+export type SessionSpec = FromSchema<typeof sessionSpecSchema>;
 
 export const sessionSummarySchema = {
   type: "object",
@@ -56,3 +64,5 @@ export const sessionSummarySchema = {
     updatedAt: { type: "string", format: "date-time" }
   }
 } as const;
+
+export type SessionSummary = FromSchema<typeof sessionSummarySchema>;

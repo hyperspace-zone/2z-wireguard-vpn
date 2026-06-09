@@ -7,7 +7,8 @@ import {
   driftedAssignmentTransition,
   provisioningFailureDeadCandidatePhases,
   queuedAfterAssignmentUpsertTransition,
-  queuedForCommitTransition
+  queuedForCommitTransition,
+  type GateAssignmentPhase
 } from "./transitions.js";
 
 export interface CreateGateAssignmentInput {
@@ -38,6 +39,13 @@ export interface RevocableAssignmentRow {
   gateId: string;
   sessionId: string;
   role: "Ingress" | "Egress";
+}
+
+export interface AssignmentReportPersistenceInput {
+  assignmentId: string;
+  actualStateHash: string;
+  errorCode: string;
+  resultSummary: Record<string, unknown>;
 }
 
 export interface DriftRepairSessionRow {
@@ -236,6 +244,142 @@ export async function markAssignmentRevoking(db: Queryable, assignmentId: string
         AND phase <> 'revoked'
     `,
     [assignmentId, transition.statusPhase]
+  );
+}
+
+export async function findAssignmentPhaseForUpdate(
+  db: Queryable,
+  assignmentId: string
+): Promise<GateAssignmentPhase | null> {
+  const assignmentStatus = await db.query<{ phase: GateAssignmentPhase }>(
+    `
+      SELECT phase::text AS phase
+      FROM gate_assignment_status
+      WHERE assignment_id = $1
+      FOR UPDATE
+    `,
+    [assignmentId]
+  );
+  return assignmentStatus.rows[0]?.phase ?? null;
+}
+
+export async function updateAssignmentPhase(
+  db: Queryable,
+  input: {
+    assignmentId: string;
+    phase: GateAssignmentPhase;
+  }
+): Promise<void> {
+  await db.query(
+    `
+      UPDATE gate_assignment_status
+      SET phase = $2::gate_assignment_phase,
+          updated_at = now()
+      WHERE assignment_id = $1
+    `,
+    [input.assignmentId, input.phase]
+  );
+}
+
+export async function markAssignmentPreparedFromReport(
+  db: Queryable,
+  input: AssignmentReportPersistenceInput & {
+    nextPhase: GateAssignmentPhase;
+    material: Record<string, unknown>;
+  }
+): Promise<void> {
+  await db.query(
+    `
+      UPDATE gate_assignment_status
+      SET phase = $2::gate_assignment_phase,
+          observed_generation = gate_assignments.generation,
+          actual_state_hash = $3,
+          local_material = $4::jsonb,
+          reported_state = $5::jsonb,
+          last_observed_at = now(),
+          updated_at = now()
+      FROM gate_assignments
+      WHERE gate_assignment_status.assignment_id = gate_assignments.id
+        AND gate_assignment_status.assignment_id = $1
+    `,
+    [
+      input.assignmentId,
+      input.nextPhase,
+      input.actualStateHash || null,
+      JSON.stringify(input.material),
+      JSON.stringify(input.resultSummary)
+    ]
+  );
+}
+
+export async function markAssignmentAppliedFromReport(
+  db: Queryable,
+  input: AssignmentReportPersistenceInput & {
+    nextPhase: GateAssignmentPhase;
+  }
+): Promise<void> {
+  await db.query(
+    `
+      UPDATE gate_assignment_status
+      SET phase = $2::gate_assignment_phase,
+          observed_generation = gate_assignments.generation,
+          applied_plan_id = gate_assignments.plan_id,
+          actual_state_hash = $3,
+          reported_state = $4::jsonb,
+          applied_at = now(),
+          last_observed_at = now(),
+          updated_at = now()
+      FROM gate_assignments
+      WHERE gate_assignment_status.assignment_id = gate_assignments.id
+        AND gate_assignment_status.assignment_id = $1
+    `,
+    [input.assignmentId, input.nextPhase, input.actualStateHash || null, JSON.stringify(input.resultSummary)]
+  );
+}
+
+export async function markAssignmentRevokedFromReport(
+  db: Queryable,
+  input: AssignmentReportPersistenceInput & {
+    nextPhase: GateAssignmentPhase;
+  }
+): Promise<void> {
+  await db.query(
+    `
+      UPDATE gate_assignment_status
+      SET phase = $2::gate_assignment_phase,
+          actual_state_hash = $3,
+          reported_state = $4::jsonb,
+          revoked_at = now(),
+          last_observed_at = now(),
+          updated_at = now()
+      WHERE assignment_id = $1
+    `,
+    [input.assignmentId, input.nextPhase, input.actualStateHash || null, JSON.stringify(input.resultSummary)]
+  );
+}
+
+export async function markAssignmentFailedFromReport(
+  db: Queryable,
+  input: {
+    assignmentId: string;
+    nextPhase: GateAssignmentPhase;
+    errorCode: string;
+    resultSummary: Record<string, unknown>;
+  }
+): Promise<void> {
+  await db.query(
+    `
+      UPDATE gate_assignment_status
+      SET phase = $2::gate_assignment_phase,
+          last_error = $3::jsonb,
+          updated_at = now()
+      WHERE assignment_id = $1
+    `,
+    [
+      input.assignmentId,
+      input.nextPhase,
+      JSON.stringify({ errorCode: input.errorCode || "job_failed", resultSummary: input.resultSummary })
+    ]
   );
 }
 

@@ -1,25 +1,10 @@
+import type { FromSchema } from "json-schema-to-ts";
+
 export const jobTypeValues = ["probe", "apply_assignment", "revoke_assignment", "cleanup_orphan", "reconcile"] as const;
 export const jobPhaseValues = ["queued", "leased", "running", "succeeded", "retryable_failed", "dead"] as const;
 
 export type JobType = typeof jobTypeValues[number];
 export type JobPhase = typeof jobPhaseValues[number];
-
-export interface JobSummary {
-  id: string;
-  type: JobType;
-  phase: JobPhase;
-  gateId?: string;
-  sessionId?: string;
-  assignmentId?: string;
-  payload: Record<string, unknown>;
-  retryCount: number;
-  maxRetries: number;
-  runAfter: string;
-  leaseOwner?: string;
-  leaseExpiresAt?: string;
-  createdAt: string;
-  updatedAt: string;
-}
 
 export const jobSchema = {
   type: "object",
@@ -42,3 +27,5 @@ export const jobSchema = {
     updatedAt: { type: "string", format: "date-time" }
   }
 } as const;
+
+export type JobSummary = FromSchema<typeof jobSchema>;

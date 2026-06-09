@@ -1,3 +1,4 @@
+import type { FromSchema } from "json-schema-to-ts";
 import { gateActualSnapshotSchema } from "../resources/actual-state.js";
 import { gateDoubleZeroStatusSchema } from "../resources/gate.js";
 
@@ -12,6 +13,8 @@ export const gateHeartbeatRequestSchema = {
     doubleZero: gateDoubleZeroStatusSchema
   }
 } as const;
+
+export type GateAgentHeartbeat = FromSchema<typeof gateHeartbeatRequestSchema>;
 
 export const gateActualStateRequestSchema = {
   ...gateActualSnapshotSchema

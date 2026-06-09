@@ -87,3 +87,15 @@ export async function insertAuthSession(
     [input.userId, input.tokenHash, input.expiresAt]
   );
 }
+
+export async function revokeExpiredAuthSessions(db: Queryable): Promise<number> {
+  const result = await db.query(
+    `
+      UPDATE auth_sessions
+      SET revoked_at = now()
+      WHERE revoked_at IS NULL
+        AND expires_at <= now()
+    `
+  );
+  return result.rowCount ?? 0;
+}
