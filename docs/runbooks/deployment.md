@@ -557,9 +557,95 @@ Health check paths depend on which host you call:
 ```bash
 # API origin directly:
 curl -fsS https://<api-host>/health
+curl -fsS https://<api-host>/v1/public/health
 
-# Combined web/API host where /api/* is proxied to the API:
+# Web/API host where /api/* is proxied to the API:
 curl -fsS https://<web-host>/api/health
+curl -fsS https://<web-host>/api/v1/public/health
+```
+
+The API exposes OpenAPI at `/openapi.json`. If callers enter through the web
+host's `/api/*` reverse proxy, use `/api/openapi.json` instead:
+
+```bash
+# API origin directly:
+curl -fsS https://<api-host>/openapi.json | jq '.paths["/health"]'
+
+# Web host reverse proxy:
+curl -fsS https://<web-host>/api/openapi.json | jq '.paths["/v1/public/health"]'
+```
+
+Every registered route, including health routes, should have a runtime schema
+and appear in the generated OpenAPI document.
+
+## Upgrading an Existing Deployment
+
+For an existing cluster, update the control-plane host before publishing static
+web assets. This keeps migrations, API code, worker code, contracts, and the web
+bundle aligned. The long-running public-vs-Hyperspace measurement matrix is not
+part of the routine upgrade path; run it only when collecting placement or
+milestone evidence.
+
+On the control-plane host:
+
+```bash
+cd "$HS_REPO_DIR"
+
+# If this host has a git checkout:
+sudo -u hyperspace git fetch --all --prune
+sudo -u hyperspace git checkout main
+sudo -u hyperspace git pull --ff-only
+
+# If this host receives release files by rsync instead of git, sync the new
+# tree from your operator workstation first, excluding node_modules and dist.
+
+chown -R hyperspace:hyperspace "$HS_REPO_DIR"
+sudo -u hyperspace npm ci
+sudo -u hyperspace npm run build
+sudo -u hyperspace npm run typecheck
+sudo -u hyperspace npm test --workspaces --if-present
+
+set -a
+. /etc/hyperspace/control-plane-api.env
+set +a
+sudo -u hyperspace env DATABASE_URL="$DATABASE_URL" npm run db:migrate
+
+install -o root -g root -m 0644 infra/systemd/hyperspace-control-plane-api.service /etc/systemd/system/
+install -o root -g root -m 0644 infra/systemd/hyperspace-control-plane-worker.service /etc/systemd/system/
+systemctl daemon-reload
+systemctl restart hyperspace-control-plane-api hyperspace-control-plane-worker
+systemctl is-active hyperspace-control-plane-api hyperspace-control-plane-worker
+```
+
+If the web UI is served from the same host, sync the freshly built web assets
+locally:
+
+```bash
+install -d -o caddy -g caddy -m 0755 /var/www/hyperspace-web
+rsync -a --delete "$HS_REPO_DIR/apps/web/dist/" /var/www/hyperspace-web/
+chown -R caddy:caddy /var/www/hyperspace-web
+systemctl reload caddy
+```
+
+If the web UI is served from a separate web host, copy the same
+`$HS_REPO_DIR/apps/web/dist/` directory from the control-plane build to that web
+host and reload its reverse proxy:
+
+```bash
+rsync -a --delete "$HS_REPO_DIR/apps/web/dist/" root@<web-host>:/var/www/hyperspace-web/
+ssh root@<web-host> 'chown -R caddy:caddy /var/www/hyperspace-web && systemctl reload caddy'
+```
+
+Validate the public entrypoint after every upgrade:
+
+```bash
+curl -fsS https://<web-host>/api/health | jq .
+curl -fsS https://<web-host>/api/openapi.json \
+  | jq -e '.paths["/health"] and .paths["/v1/public/health"] and .paths["/v1/public/auth/me"]'
+
+HS_WEB_BASE=https://<web-host> \
+HS_API_BASE=https://<web-host>/api \
+npm run test:live:ui
 ```
 
 ## Gate Catalog
