@@ -63,6 +63,10 @@ export function revokedFromReportTransition(): GateAssignmentPhase {
   return "revoked";
 }
 
+export function driftedAssignmentTransition(): GateAssignmentPhase {
+  return "drifted";
+}
+
 export function failedFromReportTransition(terminalFailure: boolean): GateAssignmentPhase {
   return terminalFailure ? "dead" : "retryable_failed";
 }

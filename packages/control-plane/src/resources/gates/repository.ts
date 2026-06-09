@@ -1,10 +1,9 @@
 import type { Queryable, TransactionalQueryable } from "../../db/queryable.js";
 import { freshGateLeaseSqlPredicate, upsertGateLease } from "../gate-leases/repository.js";
 import { gateHeartbeatLeaseTtlSeconds } from "../gate-leases/service.js";
+import { upsertGateCondition, type GateConditionStatus } from "./conditions.js";
 
-export type GateConditionStatus = "True" | "False" | "Unknown";
-
-export interface GateConditionPersistenceInput {
+interface GateHeartbeatConditionInput {
   type: string;
   status: GateConditionStatus;
   reason: string;
@@ -23,7 +22,7 @@ export interface GateHeartbeatPersistenceInput {
   doubleZeroCurrentDevice: string | null;
   doubleZeroLowestLatencyDevice: string | null;
   doubleZeroLowestLatencyDeviceWarning: boolean | null;
-  conditions: GateConditionPersistenceInput[];
+  conditions: GateHeartbeatConditionInput[];
 }
 
 export interface SchedulableGateRow {
@@ -179,126 +178,4 @@ export async function saveGateHeartbeat(
       });
     }
   });
-}
-
-export async function markStaleGateConditions(db: Queryable, staleSeconds: number): Promise<void> {
-  await db.query(
-    `
-      INSERT INTO gate_conditions (
-        gate_id,
-        type,
-        status,
-        reason,
-        message,
-        observed_generation,
-        last_transition_at
-      )
-      SELECT
-        gates.id,
-        'AgentConnected',
-        'False',
-        'HeartbeatStale',
-        'Gate agent heartbeat is stale',
-        gates.generation,
-        now()
-      FROM gates
-      LEFT JOIN gate_leases ON gate_leases.gate_id = gates.id
-      WHERE gate_leases.lease_expires_at IS NULL
-         OR gate_leases.lease_expires_at <= now()
-         OR gate_leases.heartbeat_at < now() - ($1::int * interval '1 second')
-      ON CONFLICT (gate_id, type) DO UPDATE
-      SET status = EXCLUDED.status,
-          reason = EXCLUDED.reason,
-          message = EXCLUDED.message,
-          observed_generation = EXCLUDED.observed_generation,
-          last_transition_at = CASE
-            WHEN gate_conditions.status <> EXCLUDED.status THEN now()
-            ELSE gate_conditions.last_transition_at
-          END
-    `,
-    [staleSeconds]
-  );
-
-  await db.query(
-    `
-      INSERT INTO gate_conditions (
-        gate_id,
-        type,
-        status,
-        reason,
-        message,
-        observed_generation,
-        last_transition_at
-      )
-      SELECT
-        gates.id,
-        condition.type,
-        'False',
-        'HeartbeatStale',
-        condition.message,
-        gates.generation,
-        now()
-      FROM gates
-      LEFT JOIN gate_leases ON gate_leases.gate_id = gates.id
-      CROSS JOIN (
-        VALUES
-          ('Ready', 'Gate agent heartbeat is stale'),
-          ('Schedulable', 'Gate is not eligible for new sessions while agent heartbeat is stale')
-      ) AS condition(type, message)
-      WHERE gate_leases.lease_expires_at IS NULL
-         OR gate_leases.lease_expires_at <= now()
-         OR gate_leases.heartbeat_at < now() - ($1::int * interval '1 second')
-      ON CONFLICT (gate_id, type) DO UPDATE
-      SET status = EXCLUDED.status,
-          reason = EXCLUDED.reason,
-          message = EXCLUDED.message,
-          observed_generation = EXCLUDED.observed_generation,
-          last_transition_at = CASE
-            WHEN gate_conditions.status <> EXCLUDED.status
-              OR gate_conditions.reason <> EXCLUDED.reason THEN now()
-            ELSE gate_conditions.last_transition_at
-          END
-    `,
-    [staleSeconds]
-  );
-}
-
-async function upsertGateCondition(
-  client: Queryable,
-  input: GateConditionPersistenceInput & {
-    gateId: string;
-    observedGeneration: number;
-  }
-): Promise<void> {
-  await client.query(
-    `
-      INSERT INTO gate_conditions (
-        gate_id,
-        type,
-        status,
-        reason,
-        message,
-        observed_generation,
-        last_transition_at
-      )
-      VALUES ($1, $2, $3, $4, $5, $6, now())
-      ON CONFLICT (gate_id, type) DO UPDATE
-      SET status = EXCLUDED.status,
-          reason = EXCLUDED.reason,
-          message = EXCLUDED.message,
-          observed_generation = EXCLUDED.observed_generation,
-          last_transition_at = CASE
-            WHEN gate_conditions.status <> EXCLUDED.status THEN now()
-            ELSE gate_conditions.last_transition_at
-          END
-    `,
-    [
-      input.gateId,
-      input.type,
-      input.status,
-      input.reason,
-      input.message,
-      input.observedGeneration
-    ]
-  );
 }

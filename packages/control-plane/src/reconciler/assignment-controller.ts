@@ -1,15 +1,16 @@
 import type { TransactionalQueryable } from "../db/queryable.js";
 import { assignmentNetworkMaterial } from "../planning/network-plan.js";
-import { enqueueApplyJob } from "../resources/jobs/service.js";
-import { setSessionCondition } from "../resources/sessions/conditions.js";
 import {
-  enqueueRevokeAssignmentJob,
   listAssignmentsToRevoke,
   listSessionAssignmentMaterials,
-  listSessionsReadyForCommit,
   markAssignmentDesiredRevoked,
   markAssignmentRevoking,
-  markPreparedAssignmentsQueued,
+  markPreparedAssignmentsQueued
+} from "../resources/gate-assignments/repository.js";
+import { enqueueApplyJob, enqueueRevokeAssignmentJob } from "../resources/jobs/service.js";
+import { setSessionCondition } from "../resources/sessions/conditions.js";
+import {
+  listSessionsReadyForCommit,
   touchSessionStatus
 } from "../resources/sessions/repository.js";
 

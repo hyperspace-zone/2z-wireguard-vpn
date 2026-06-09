@@ -4,6 +4,7 @@ import {
   appliedFromReportTransition,
   deadForProvisioningFailureTransition,
   desiredRevokedTransition,
+  driftedAssignmentTransition,
   failedFromReportTransition,
   leasedAssignmentTransition,
   preparedFromReportTransition,
@@ -20,6 +21,7 @@ test("assignment transitions centralize apply and revoke phases", () => {
   assert.equal(preparedFromReportTransition(), "prepared");
   assert.equal(appliedFromReportTransition(), "applied");
   assert.equal(revokedFromReportTransition(), "revoked");
+  assert.equal(driftedAssignmentTransition(), "drifted");
 });
 
 test("assignment failure and desired revoke policies are canonical", () => {

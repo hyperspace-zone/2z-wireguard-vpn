@@ -1,4 +1,4 @@
-export type ArtifactPhase = "planned" | "prepared" | "available" | "downloaded" | "invalidated";
+export type ArtifactPhase = "prepared" | "available" | "downloaded" | "invalidated";
 
 export function preparedArtifactTransition(): ArtifactPhase {
   return "prepared";

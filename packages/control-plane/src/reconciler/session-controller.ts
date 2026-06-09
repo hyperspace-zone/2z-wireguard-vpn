@@ -4,28 +4,29 @@ import { toGatePreparePlan } from "../planning/network-plan.js";
 import { renderWireGuardPlan } from "../planning/render-plan.js";
 import { ensureClientAddressLease, releaseClientAddressLease, type AddressAllocatorLogger } from "../resources/addresses/allocator.js";
 import { prepareClientConfigArtifact } from "../resources/artifacts/service.js";
+import {
+  listAssignmentPhasesForSession,
+  markPendingAssignmentsDeadForSession
+} from "../resources/gate-assignments/repository.js";
 import { createAssignment } from "../resources/gate-assignments/service.js";
 import { enqueueApplyJob } from "../resources/jobs/service.js";
-import { writeRenderedPlanSecret } from "../resources/rendered-plans/service.js";
+import { markApplyJobsDeadForSession } from "../resources/jobs/repository.js";
+import { upsertRenderedPlan, writeRenderedPlanSecret } from "../resources/rendered-plans/service.js";
 import { setSessionCondition } from "../resources/sessions/conditions.js";
 import {
   hasActiveClientConfigArtifact,
   insertSessionAuditEvent,
   invalidateSessionArtifacts,
-  listAssignmentPhasesForSession,
   listProvisionedSessionsForActivation,
   listRequestedSessionsForUpdate,
   listSessionsReadyToMarkRevoked,
   listSessionsToBeginRevocation,
   listTimedOutProvisioningSessions,
-  markApplyJobsDeadForSession,
-  markPendingAssignmentsDeadForSession,
   markSessionActive,
   markSessionFailed,
   markSessionProvisioning,
   markSessionRevoked,
-  markSessionRevoking,
-  upsertRenderedPlan
+  markSessionRevoking
 } from "../resources/sessions/repository.js";
 
 export interface SessionReconcileConfig {

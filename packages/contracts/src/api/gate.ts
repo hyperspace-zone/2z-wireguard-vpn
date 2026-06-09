@@ -14,13 +14,7 @@ export const gateHeartbeatRequestSchema = {
 } as const;
 
 export const gateActualStateRequestSchema = {
-  ...gateActualSnapshotSchema,
-  required: ["stateHash"],
-  properties: {
-    ...gateActualSnapshotSchema.properties,
-    stateHash: { type: "string" },
-    capabilities: { type: "array", items: { type: "string" } }
-  }
+  ...gateActualSnapshotSchema
 } as const;
 
 export const gateJobClaimResponseSchema = {

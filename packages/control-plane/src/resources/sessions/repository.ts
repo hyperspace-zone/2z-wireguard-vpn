@@ -2,13 +2,6 @@ import type { Queryable, TransactionalQueryable } from "../../db/queryable.js";
 import { mustRow } from "../../support/db.js";
 import { artifactInvalidatedTransition } from "../artifacts/transitions.js";
 import {
-  deadForProvisioningFailureTransition,
-  desiredRevokedTransition,
-  provisioningFailureDeadCandidatePhases,
-  queuedForCommitTransition
-} from "../gate-assignments/transitions.js";
-import { deadForSessionFailureTransition, queuedJobTransition, sessionFailureDeadCandidateJobPhases } from "../jobs/transitions.js";
-import {
   activeTransition,
   beginRevokingTransition,
   canHideSession,
@@ -40,32 +33,9 @@ export interface PreparedSessionRow {
   firewallModel: Record<string, unknown>;
 }
 
-export interface SessionAssignmentMaterialRow {
-  id: string;
-  gateId: string;
-  role: "Ingress" | "Egress";
-  externalHandle: string;
-  gateName: string;
-  publicEndpoint: string;
-  localMaterial: Record<string, unknown>;
-}
-
 export interface SessionGenerationRow {
   id: string;
   generation: number;
-}
-
-export interface PendingAssignmentPhaseRow {
-  gateName: string;
-  role: "Ingress" | "Egress";
-  phase: string;
-}
-
-export interface RevocableAssignmentRow {
-  assignmentId: string;
-  gateId: string;
-  sessionId: string;
-  role: "Ingress" | "Egress";
 }
 
 export type SessionConditionStatus = "True" | "False" | "Unknown";
@@ -371,55 +341,6 @@ export async function markSessionFailed(
   );
 }
 
-export async function upsertRenderedPlan(
-  db: Queryable,
-  input: {
-    sessionId: string;
-    generation: number;
-    planHash: string;
-    publicMaterial: Record<string, unknown>;
-    routingModel: Record<string, unknown>;
-    firewallModel: Record<string, unknown>;
-    secretRefs: Record<string, unknown>;
-  }
-): Promise<string> {
-  const planRow = await db.query<{ id: string }>(
-    `
-      INSERT INTO rendered_plans (
-        session_id,
-        generation,
-        plan_hash,
-        public_material,
-        routing_model,
-        firewall_model,
-        secret_refs
-      )
-      VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6::jsonb, $7::jsonb)
-      ON CONFLICT (session_id, generation) DO UPDATE
-      SET plan_hash = EXCLUDED.plan_hash,
-          public_material = EXCLUDED.public_material,
-          routing_model = EXCLUDED.routing_model,
-          firewall_model = EXCLUDED.firewall_model,
-          secret_refs = EXCLUDED.secret_refs
-      RETURNING id
-    `,
-    [
-      input.sessionId,
-      input.generation,
-      input.planHash,
-      JSON.stringify(input.publicMaterial),
-      JSON.stringify(input.routingModel),
-      JSON.stringify(input.firewallModel),
-      JSON.stringify(input.secretRefs)
-    ]
-  );
-  const row = planRow.rows[0];
-  if (!row) {
-    throw new Error("expected rendered plan row");
-  }
-  return row.id;
-}
-
 export async function markSessionProvisioning(
   db: Queryable,
   sessionId: string,
@@ -484,49 +405,6 @@ export async function listSessionsReadyForCommit(db: Queryable): Promise<Prepare
     `
   );
   return sessions.rows;
-}
-
-export async function listSessionAssignmentMaterials(
-  db: Queryable,
-  sessionId: string
-): Promise<SessionAssignmentMaterialRow[]> {
-  const assignments = await db.query<SessionAssignmentMaterialRow>(
-    `
-      SELECT
-        gate_assignments.id,
-        gate_assignments.gate_id AS "gateId",
-        gate_assignments.role::text AS role,
-        gate_assignments.external_handle AS "externalHandle",
-        gates.name AS "gateName",
-        gates.public_endpoint AS "publicEndpoint",
-        gate_assignment_status.local_material AS "localMaterial"
-      FROM gate_assignments
-      JOIN gates ON gates.id = gate_assignments.gate_id
-      JOIN gate_assignment_status ON gate_assignment_status.assignment_id = gate_assignments.id
-      WHERE gate_assignments.session_id = $1
-      ORDER BY gate_assignments.role ASC
-    `,
-    [sessionId]
-  );
-  return assignments.rows;
-}
-
-export async function markPreparedAssignmentsQueued(
-  db: Queryable,
-  ingressAssignmentId: string,
-  egressAssignmentId: string
-): Promise<void> {
-  const transition = queuedForCommitTransition();
-  await db.query(
-    `
-      UPDATE gate_assignment_status
-      SET phase = $3::gate_assignment_phase,
-          updated_at = now()
-      WHERE assignment_id IN ($1, $2)
-        AND phase = 'prepared'
-    `,
-    [ingressAssignmentId, egressAssignmentId, transition]
-  );
 }
 
 export async function touchSessionStatus(db: Queryable, sessionId: string): Promise<void> {
@@ -612,65 +490,6 @@ export async function listTimedOutProvisioningSessions(
   return sessions.rows;
 }
 
-export async function listAssignmentPhasesForSession(
-  db: Queryable,
-  sessionId: string
-): Promise<PendingAssignmentPhaseRow[]> {
-  const assignments = await db.query<PendingAssignmentPhaseRow>(
-    `
-      SELECT
-        gates.name AS "gateName",
-        gate_assignments.role::text AS role,
-        gate_assignment_status.phase::text AS phase
-      FROM gate_assignments
-      JOIN gates ON gates.id = gate_assignments.gate_id
-      JOIN gate_assignment_status ON gate_assignment_status.assignment_id = gate_assignments.id
-      WHERE gate_assignments.session_id = $1
-      ORDER BY gate_assignments.role ASC
-    `,
-    [sessionId]
-  );
-  return assignments.rows;
-}
-
-export async function markApplyJobsDeadForSession(db: Queryable, sessionId: string): Promise<void> {
-  const transition = deadForSessionFailureTransition("queued");
-  await db.query(
-    `
-      UPDATE jobs
-      SET phase = $2::job_phase,
-          lease_owner = NULL,
-          lease_expires_at = NULL,
-          updated_at = now()
-      WHERE session_id = $1
-        AND type = 'apply_assignment'
-        AND phase = ANY($3::job_phase[])
-    `,
-    [sessionId, transition, sessionFailureDeadCandidateJobPhases]
-  );
-}
-
-export async function markPendingAssignmentsDeadForSession(
-  db: Queryable,
-  sessionId: string,
-  error: Record<string, unknown>
-): Promise<void> {
-  const transition = deadForProvisioningFailureTransition("queued");
-  await db.query(
-    `
-      UPDATE gate_assignment_status
-      SET phase = $2::gate_assignment_phase,
-          last_error = $3::jsonb,
-          updated_at = now()
-      FROM gate_assignments
-      WHERE gate_assignment_status.assignment_id = gate_assignments.id
-        AND gate_assignments.session_id = $1
-        AND gate_assignment_status.phase = ANY($4::gate_assignment_phase[])
-    `,
-    [sessionId, transition, JSON.stringify(error), provisioningFailureDeadCandidatePhases]
-  );
-}
-
 export async function invalidateSessionArtifacts(db: Queryable, sessionId: string): Promise<void> {
   const transition = artifactInvalidatedTransition();
   await db.query(
@@ -718,71 +537,6 @@ export async function markSessionRevoking(db: Queryable, sessionId: string): Pro
     sessionId,
     transition.phase
   ]);
-}
-
-export async function listAssignmentsToRevoke(db: Queryable): Promise<RevocableAssignmentRow[]> {
-  const assignments = await db.query<RevocableAssignmentRow>(
-    `
-      SELECT
-        gate_assignments.id AS "assignmentId",
-        gate_assignments.gate_id AS "gateId",
-        gate_assignments.session_id AS "sessionId",
-        gate_assignments.role::text AS role
-      FROM gate_assignments
-      JOIN sessions ON sessions.id = gate_assignments.session_id
-      JOIN gate_assignment_status ON gate_assignment_status.assignment_id = gate_assignments.id
-      WHERE sessions.desired_state = 'Revoked'
-        AND gate_assignments.desired_state <> 'Revoked'
-      FOR UPDATE SKIP LOCKED
-      LIMIT 100
-    `
-  );
-  return assignments.rows;
-}
-
-export async function markAssignmentDesiredRevoked(db: Queryable, assignmentId: string): Promise<void> {
-  const transition = desiredRevokedTransition();
-  await db.query(
-    `
-      UPDATE gate_assignments
-      SET desired_state = $2::gate_assignment_desired_state,
-          generation = CASE WHEN $3::boolean THEN generation + 1 ELSE generation END,
-          updated_at = now()
-      WHERE id = $1
-    `,
-    [assignmentId, transition.desiredState, transition.incrementGeneration]
-  );
-}
-
-export async function markAssignmentRevoking(db: Queryable, assignmentId: string): Promise<void> {
-  const transition = desiredRevokedTransition();
-  await db.query(
-    `
-      UPDATE gate_assignment_status
-      SET phase = $2::gate_assignment_phase,
-          updated_at = now()
-      WHERE assignment_id = $1
-        AND phase <> 'revoked'
-    `,
-    [assignmentId, transition.statusPhase]
-  );
-}
-
-export async function enqueueRevokeAssignmentJob(db: Queryable, assignment: RevocableAssignmentRow): Promise<void> {
-  const initialPhase = queuedJobTransition();
-  await db.query(
-    `
-      INSERT INTO jobs (type, phase, gate_id, session_id, assignment_id, payload)
-      VALUES ('revoke_assignment', $5::job_phase, $1, $2, $3, $4::jsonb)
-    `,
-    [
-      assignment.gateId,
-      assignment.sessionId,
-      assignment.assignmentId,
-      JSON.stringify({ assignmentId: assignment.assignmentId, role: assignment.role }),
-      initialPhase
-    ]
-  );
 }
 
 export async function listSessionsReadyToMarkRevoked(db: Queryable): Promise<SessionGenerationRow[]> {

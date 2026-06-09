@@ -1,5 +1,6 @@
 import type { Queryable, TransactionalQueryable } from "../../db/queryable.js";
 import { mustRow } from "../../support/db.js";
+import type { RevocableAssignmentRow } from "../gate-assignments/repository.js";
 import {
   appliedFromReportTransition,
   failedFromReportTransition,
@@ -10,8 +11,10 @@ import {
 } from "../gate-assignments/transitions.js";
 import {
   claimJobTransition,
+  deadForSessionFailureTransition,
   expiredLeaseCandidateJobPhases,
   expiredLeaseTransition,
+  sessionFailureDeadCandidateJobPhases,
   queuedJobTransition
 } from "./transitions.js";
 
@@ -334,8 +337,15 @@ export async function insertApplyAssignmentJob(db: Queryable, input: EnqueueAppl
   await db.query(
     `
       INSERT INTO jobs (type, phase, gate_id, session_id, assignment_id, payload)
-      VALUES ('apply_assignment', $5::job_phase, $1, $2, $3, $4::jsonb)
-      ON CONFLICT DO NOTHING
+      SELECT 'apply_assignment', $5::job_phase, $1, $2, $3, $4::jsonb
+      WHERE NOT EXISTS (
+        SELECT 1
+        FROM jobs
+        WHERE assignment_id = $3
+          AND type = 'apply_assignment'
+          AND payload->>'operation' = $6
+          AND phase IN ('queued', 'leased', 'running', 'retryable_failed')
+      )
     `,
     [
       input.gateId,
@@ -348,8 +358,50 @@ export async function insertApplyAssignmentJob(db: Queryable, input: EnqueueAppl
         ...(input.plan ? { plan: input.plan } : {}),
         ...(input.networkPlan ? { networkPlan: input.networkPlan } : {})
       }),
+      initialPhase,
+      input.operation
+    ]
+  );
+}
+
+export async function insertRevokeAssignmentJob(db: Queryable, assignment: RevocableAssignmentRow): Promise<void> {
+  const initialPhase = queuedJobTransition();
+  await db.query(
+    `
+      INSERT INTO jobs (type, phase, gate_id, session_id, assignment_id, payload)
+      SELECT 'revoke_assignment', $5::job_phase, $1, $2, $3, $4::jsonb
+      WHERE NOT EXISTS (
+        SELECT 1
+        FROM jobs
+        WHERE assignment_id = $3
+          AND type = 'revoke_assignment'
+          AND phase IN ('queued', 'leased', 'running', 'retryable_failed')
+      )
+    `,
+    [
+      assignment.gateId,
+      assignment.sessionId,
+      assignment.assignmentId,
+      JSON.stringify({ assignmentId: assignment.assignmentId, role: assignment.role }),
       initialPhase
     ]
+  );
+}
+
+export async function markApplyJobsDeadForSession(db: Queryable, sessionId: string): Promise<void> {
+  const transition = deadForSessionFailureTransition("queued");
+  await db.query(
+    `
+      UPDATE jobs
+      SET phase = $2::job_phase,
+          lease_owner = NULL,
+          lease_expires_at = NULL,
+          updated_at = now()
+      WHERE session_id = $1
+        AND type = 'apply_assignment'
+        AND phase = ANY($3::job_phase[])
+    `,
+    [sessionId, transition, sessionFailureDeadCandidateJobPhases]
   );
 }
 
