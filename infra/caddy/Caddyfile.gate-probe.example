@@ -21,15 +21,15 @@
 	}
 }
 
-https://{$GATE_HOST} {
-	tls {$TLS_FULLCHAIN} {$TLS_PRIVKEY}
+https://${GATE_HOST} {
+	tls ${TLS_FULLCHAIN} ${TLS_PRIVKEY}
 
 	@probe path /.well-known/hyperspace-probe
-	header @probe Access-Control-Allow-Origin "{$WEB_ORIGIN}"
+	header @probe Access-Control-Allow-Origin "${WEB_ORIGIN}"
 	header @probe Access-Control-Allow-Methods "GET, HEAD, OPTIONS"
 	header @probe Access-Control-Max-Age "86400"
-	header @probe Timing-Allow-Origin "{$WEB_ORIGIN}"
+	header @probe Timing-Allow-Origin "${WEB_ORIGIN}"
 	respond @probe "" 204
 
-	respond "{$GATE_NAME}" 200
+	respond "${GATE_NAME}" 200
 }

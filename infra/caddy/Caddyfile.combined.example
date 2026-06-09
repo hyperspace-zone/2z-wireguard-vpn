@@ -21,8 +21,8 @@
 	}
 }
 
-https://{$APP_HOST} {
-	tls {$TLS_FULLCHAIN} {$TLS_PRIVKEY}
+https://${APP_HOST} {
+	tls ${TLS_FULLCHAIN} ${TLS_PRIVKEY}
 
 	handle /api/* {
 		uri strip_prefix /api

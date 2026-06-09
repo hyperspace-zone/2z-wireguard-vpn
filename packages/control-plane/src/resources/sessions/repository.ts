@@ -419,7 +419,7 @@ export async function listSessionsReadyForCommit(db: Queryable): Promise<Prepare
           WHERE jobs.session_id = sessions.id
             AND jobs.type = 'apply_assignment'
             AND jobs.payload->>'operation' = 'commit'
-            AND jobs.phase IN ('queued', 'leased', 'running', 'retryable_failed')
+            AND jobs.phase IN ('queued', 'leased', 'running', 'retryable_failed', 'succeeded')
         )
       ORDER BY sessions.updated_at ASC
       FOR UPDATE SKIP LOCKED

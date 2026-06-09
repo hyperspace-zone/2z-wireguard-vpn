@@ -213,6 +213,17 @@ export async function insertApplyAssignmentJob(
           AND payload->>'operation' = $6
           AND phase IN ('queued', 'leased', 'running', 'retryable_failed')
       )
+      AND NOT EXISTS (
+        SELECT 1
+        FROM jobs
+        JOIN gate_assignment_status
+          ON gate_assignment_status.assignment_id = jobs.assignment_id
+        WHERE jobs.assignment_id = $3
+          AND jobs.type = 'apply_assignment'
+          AND jobs.payload->>'operation' = $6
+          AND jobs.phase = 'succeeded'
+          AND gate_assignment_status.phase IN ('queued', 'leased', 'applying', 'prepared')
+      )
     `,
     [
       input.gateId,
@@ -247,6 +258,13 @@ export async function insertRevokeAssignmentJob(
         WHERE assignment_id = $3
           AND type = 'revoke_assignment'
           AND phase IN ('queued', 'leased', 'running', 'retryable_failed')
+      )
+      AND NOT EXISTS (
+        SELECT 1
+        FROM jobs
+        WHERE assignment_id = $3
+          AND type = 'revoke_assignment'
+          AND phase = 'succeeded'
       )
     `,
     [

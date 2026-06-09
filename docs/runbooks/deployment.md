@@ -105,6 +105,29 @@ Current gate-agent env names are `CONTROL_PLANE_URL`, `GATE_NAME`,
 `POLL_INTERVAL`, and `HEARTBEAT_INTERVAL`. Legacy names such as `API_URL`,
 `GATE_ID`, and `POLL_INTERVAL_SEC` are not used by the current agent.
 
+## SSH Host Key Verification
+
+If a server was reimaged, its SSH host key should change. Treat any
+`known_hosts` mismatch as a stop-and-verify event instead of blindly disabling
+host key checks.
+
+From the operator workstation, collect the expected fingerprint and compare it
+with the provider console or another trusted out-of-band source:
+
+```bash
+export BOOTSTRAP_HOST=<public-ip-or-domain>
+ssh-keyscan -t ed25519 "$BOOTSTRAP_HOST" >"/tmp/${BOOTSTRAP_HOST}.ed25519"
+ssh-keygen -lf "/tmp/${BOOTSTRAP_HOST}.ed25519"
+```
+
+Only after the fingerprint is confirmed, update local trust:
+
+```bash
+ssh-keygen -R "$BOOTSTRAP_HOST"
+install -d -m 0700 ~/.ssh
+cat "/tmp/${BOOTSTRAP_HOST}.ed25519" >> ~/.ssh/known_hosts
+```
+
 ## TLS Requirements
 
 Do not run browser, automation, or gate-agent traffic over plain HTTP. The web
@@ -299,11 +322,24 @@ curl -1sLf \
 
 apt-get update
 apt-cache policy doublezero
-apt-get install -y doublezero
+
+# Optional but recommended for production reproducibility:
+# export DOUBLEZERO_VERSION=<tested-version>
+if [ -n "${DOUBLEZERO_VERSION:-}" ]; then
+  apt-get install -y "doublezero=${DOUBLEZERO_VERSION}"
+else
+  apt-get install -y doublezero
+fi
+
+install -d -o root -g root -m 0750 /etc/hyperspace
+dpkg-query -W -f='${Package} ${Version}\n' doublezero \
+  | tee /etc/hyperspace/doublezero-version.txt
 ```
 
 If DoubleZero documentation specifies a pinned package version for your target
-network, install that exact version instead of the unpinned package.
+network, install that exact version instead of the unpinned package. If you use
+the unpinned package, keep `/etc/hyperspace/doublezero-version.txt` with the
+deployment evidence so the installed version is explicit.
 
 Configure the DoubleZero keypair and verify the `access-pass` on each gate:
 
@@ -537,7 +573,9 @@ host's `/api/*` reverse proxy, while gate agents and automation clients use the
 API origin directly.
 
 For a combined web/API/control-plane host, copy the current web build and render
-the provided Caddyfile:
+the provided Caddyfile. The provided template intentionally uses shell-style
+`${APP_HOST}` variables because it is rendered with `envsubst`; do not replace
+them with Caddy runtime `{$APP_HOST}` syntax when using this flow:
 
 ```bash
 install -d -o caddy -g caddy -m 0755 /var/www/hyperspace-web
@@ -546,8 +584,16 @@ rsync -a --delete "$HS_REPO_DIR/apps/web/dist/" /var/www/hyperspace-web/
 export APP_HOST="$HS_WEB_HOST"
 export TLS_FULLCHAIN=/etc/caddy/certs/${HS_WEB_HOST}/fullchain.pem
 export TLS_PRIVKEY=/etc/caddy/certs/${HS_WEB_HOST}/privkey.pem
+: "${APP_HOST:?APP_HOST is required}"
+: "${TLS_FULLCHAIN:?TLS_FULLCHAIN is required}"
+: "${TLS_PRIVKEY:?TLS_PRIVKEY is required}"
 envsubst < "$HS_REPO_DIR/infra/caddy/Caddyfile.combined.example" > /etc/caddy/Caddyfile
+if grep -n '\${' /etc/caddy/Caddyfile; then
+  echo "unrendered Caddy template variables remain" >&2
+  exit 1
+fi
 caddy fmt --overwrite /etc/caddy/Caddyfile
+caddy validate --config /etc/caddy/Caddyfile
 systemctl enable --now caddy
 systemctl reload caddy
 ```
@@ -555,13 +601,24 @@ systemctl reload caddy
 Health check paths depend on which host you call:
 
 ```bash
+wait_https() {
+  url="${1:?url required}"
+  for i in $(seq 1 30); do
+    if curl -fsS "$url"; then
+      return 0
+    fi
+    sleep 1
+  done
+  return 1
+}
+
 # API origin directly:
-curl -fsS https://<api-host>/health
-curl -fsS https://<api-host>/v1/public/health
+wait_https https://<api-host>/health
+wait_https https://<api-host>/v1/public/health
 
 # Web/API host where /api/* is proxied to the API:
-curl -fsS https://<web-host>/api/health
-curl -fsS https://<web-host>/api/v1/public/health
+wait_https https://<web-host>/api/health
+wait_https https://<web-host>/api/v1/public/health
 ```
 
 The API exposes OpenAPI at `/openapi.json`. If callers enter through the web
@@ -639,7 +696,18 @@ ssh root@<web-host> 'chown -R caddy:caddy /var/www/hyperspace-web && systemctl r
 Validate the public entrypoint after every upgrade:
 
 ```bash
-curl -fsS https://<web-host>/api/health | jq .
+wait_https() {
+  url="${1:?url required}"
+  for i in $(seq 1 30); do
+    if curl -fsS "$url"; then
+      return 0
+    fi
+    sleep 1
+  done
+  return 1
+}
+
+wait_https https://<web-host>/api/health | jq .
 curl -fsS https://<web-host>/api/openapi.json \
   | jq -e '.paths["/health"] and .paths["/v1/public/health"] and .paths["/v1/public/auth/me"]'
 
@@ -683,7 +751,8 @@ Seed gates into PostgreSQL for an interactive operator flow:
 
 ```bash
 cd "$HS_REPO_DIR"
-sudo -u hyperspace env DATABASE_URL="$DATABASE_URL" npm --silent run db:seed:gates -- /path/to/your-gates.json
+install -o root -g hyperspace -m 0640 /path/to/your-gates.json /etc/hyperspace/gates.json
+sudo -u hyperspace env DATABASE_URL="$DATABASE_URL" npm --silent run db:seed:gates -- /etc/hyperspace/gates.json
 ```
 
 The seed command prints per-gate tokens. Store each token only on the
@@ -694,7 +763,8 @@ writes machine-readable JSON only to stdout:
 
 ```bash
 cd "$HS_REPO_DIR"
-sudo -u hyperspace env DATABASE_URL="$DATABASE_URL" scripts/seed-gates-json /path/to/your-gates.json | jq .
+install -o root -g hyperspace -m 0640 /path/to/your-gates.json /etc/hyperspace/gates.json
+sudo -u hyperspace env DATABASE_URL="$DATABASE_URL" scripts/seed-gates-json /etc/hyperspace/gates.json | jq .
 ```
 
 The seed command validates the gate catalog before writing to PostgreSQL:
@@ -825,7 +895,8 @@ GET /.well-known/hyperspace-probe -> 204 No Content
 ```
 
 Enable CORS and `Timing-Allow-Origin` for your web UI origin. Use the provided
-Caddyfile example on each gate:
+Caddyfile example on each gate. The template uses shell-style `${GATE_HOST}`
+variables for `envsubst`, not Caddy runtime `{$GATE_HOST}` variables:
 
 ```bash
 export GATE_HOST=<gate-public-ip-or-domain>
@@ -834,9 +905,19 @@ export GATE_NAME=<gate-name-from-catalog>
 export TLS_FULLCHAIN=/etc/caddy/certs/${GATE_HOST}/fullchain.pem
 export TLS_PRIVKEY=/etc/caddy/certs/${GATE_HOST}/privkey.pem
 export GATE_CADDYFILE_TEMPLATE=/opt/2z-wireguard-vpn/infra/caddy/Caddyfile.gate-probe.example
+: "${GATE_HOST:?GATE_HOST is required}"
+: "${WEB_ORIGIN:?WEB_ORIGIN is required}"
+: "${GATE_NAME:?GATE_NAME is required}"
+: "${TLS_FULLCHAIN:?TLS_FULLCHAIN is required}"
+: "${TLS_PRIVKEY:?TLS_PRIVKEY is required}"
 
 envsubst < "$GATE_CADDYFILE_TEMPLATE" > /etc/caddy/Caddyfile
+if grep -n '\${' /etc/caddy/Caddyfile; then
+  echo "unrendered Caddy template variables remain" >&2
+  exit 1
+fi
 caddy fmt --overwrite /etc/caddy/Caddyfile
+caddy validate --config /etc/caddy/Caddyfile
 systemctl enable --now caddy
 systemctl reload caddy
 ```
