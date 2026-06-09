@@ -428,6 +428,9 @@ sudo -u hyperspace npm run typecheck
 sudo -u hyperspace npm test --workspaces --if-present
 ```
 
+These workspace tests are local regression tests. They do not run the
+long-running public/Hyperspace connectivity matrix.
+
 The TypeScript backend is organized as a modular monolith: thin API and worker
 entrypoints in `apps/*` call domain/application code from
 `packages/control-plane`, while API/resource contracts live in
@@ -818,7 +821,7 @@ export HS_TEST_OUTPUT_DIR=m1-results/live-cluster
 export HS_HEADLESS=true
 export PLAYWRIGHT_CHROMIUM_EXECUTABLE=/path/to/chromium-or-chrome
 
-node scripts/testnet/live-ui-smoke.mjs
+npm run test:live:ui
 ```
 
 Expected result:
@@ -854,7 +857,7 @@ export HS_TARGET_IP=<target-public-ip>
 export HS_NON_TARGET_HOST=<non-target-testnode-host>
 export HS_NON_TARGET_IP=<non-target-public-ip>
 
-node scripts/testnet/live-policy-smoke.mjs
+npm run test:live:policy
 ```
 
 Expected result:
@@ -866,7 +869,11 @@ Expected result:
 - A user-provided WireGuard public key works only with its matching private key.
 - Temporary sessions are revoked and deleted in cleanup.
 
-### Full testnode latency matrix
+### Optional Long-Running Measurement Matrix
+
+This section is for placement/performance evidence, not for routine deployment
+testing. It can create many temporary configs and probe every directed
+testnode pair, so do not run it as part of `npm test` or the live smoke tests.
 
 Prepare every validation testnode:
 
@@ -880,7 +887,7 @@ Create an inventory file modelled on `scripts/testnodes/inventory.example.json`
 with at least two testnodes and two gates. Then run:
 
 ```bash
-python3 scripts/testnodes/run_measurement_matrix.py \
+npm run measure:matrix -- \
   --mode all \
   --inventory ./m1-testnodes.json \
   --api-base "$HS_API_BASE" \
@@ -889,7 +896,7 @@ python3 scripts/testnodes/run_measurement_matrix.py \
   --active-timeout 120 \
   --revoke-timeout 120
 
-python3 scripts/testnodes/compare_measurements.py \
+npm run measure:compare -- \
   --public m1-results/live-cluster/matrix/public.json \
   --hyperspace m1-results/live-cluster/matrix/hyperspace.json \
   --output m1-results/live-cluster/matrix/comparison.md

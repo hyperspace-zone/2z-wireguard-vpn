@@ -183,6 +183,12 @@ npm run build
 npm test
 ```
 
+Test and measurement workflows are separate. `npm test` runs the fast workspace
+regression suite only. Live deployment checks are available as
+`npm run test:live:ui` and `npm run test:live:policy`. Long-running
+public-vs-Hyperspace connectivity matrices are explicit measurements:
+`npm run measure:matrix -- ...` followed by `npm run measure:compare -- ...`.
+
 Gate agent checks:
 
 ```bash

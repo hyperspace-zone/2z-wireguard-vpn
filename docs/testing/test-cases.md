@@ -15,8 +15,25 @@ run.
 | --- | --- |
 | Local unit/build | Type safety, state-machine policies, route planning, gate readiness logic. |
 | Public web/API | Self-service user flow, API contract, gate catalog visibility. |
-| Validation testnodes | Real WireGuard traffic, source/target restrictions, RTT and one-way measurements. |
+| Validation testnodes | Real WireGuard traffic and source/target restriction tests. |
+| Measurement testnodes | Long-running public-vs-Hyperspace RTT and one-way matrices. |
 | Gate hosts | Reconciliation, job execution, WireGuard/nftables cleanup, DoubleZero readiness. |
+
+## Command Taxonomy
+
+Keep tests and measurements separate:
+
+| Command | Purpose | Expected runtime | Runs connectivity matrix |
+| --- | --- | --- | --- |
+| `npm test` or `npm run test:unit` | Local workspace regression tests. | Short. | No |
+| `npm run test:live:ui` | Browser/API smoke against a deployed HTTPS cluster. | Short to moderate. | No |
+| `npm run test:live:policy` | Real WireGuard policy smoke on a small fixed set of validation clients. | Moderate. | No |
+| `npm run measure:matrix -- ...` | Full directed public/Hyperspace RTT and one-way matrix. | Long. | Yes |
+| `npm run measure:compare -- ...` | Compare already captured measurement JSON files. | Short. | Reads matrix outputs |
+
+The `PERF-*` cases below are measurements, not regression tests. Run them on
+demand for placement analysis, milestone evidence, or after topology changes.
+Do not include them in routine `npm test` or live smoke runs.
 
 ## Core Health And Gate Readiness
 
@@ -64,7 +81,7 @@ run.
 
 | ID | Case | Steps | Expected | Coverage |
 | --- | --- | --- | --- | --- |
-| WG-001 | Target allow | Start downloaded target-restricted config on a validation client and reach selected target IP. | Target is reachable through selected ingress/egress path. | `scripts/testnodes/run_measurement_matrix.py`, `scripts/testnet/live-policy-smoke.mjs` |
+| WG-001 | Target allow | Start downloaded target-restricted config on a validation client and reach selected target IP. | Target is reachable through selected ingress/egress path. | `scripts/testnet/live-policy-smoke.mjs` |
 | WG-002 | Non-target deny | With same config, widen client-side `AllowedIPs` and try a different non-target IP. | Non-target traffic is blocked/times out at the gate policy layer. | `scripts/testnet/live-policy-smoke.mjs` |
 | WG-003 | Source allow | Create config restricted to validation client A public IP, start it on client A. | WireGuard handshake and target traffic work. | `scripts/testnet/live-policy-smoke.mjs` |
 | WG-004 | Source deny | Start the same config from validation client B public IP. | WireGuard traffic is dropped by ingress source restriction. | `scripts/testnet/live-policy-smoke.mjs` |
@@ -73,13 +90,13 @@ run.
 | WG-007 | Revoke isolation | Keep config A active, revoke/delete config B. | Config A remains connected and traffic continues. | Testnode/manual |
 | WG-008 | Cleanup after revoke | Revoke/delete config and inspect gates. | No stale WireGuard interfaces, nftables rules, leases, or managed handles remain for the revoked config. | Testnode/manual |
 
-## Performance And Measurements
+## Performance Measurements
 
 | ID | Case | Steps | Expected | Coverage |
 | --- | --- | --- | --- | --- |
-| PERF-001 | Public RTT/one-way matrix | Run `scripts/testnodes/run_measurement_matrix.py --mode public`. | `public.json` contains every directed testnode pair with low packet loss. | Testnode matrix |
-| PERF-002 | Hyperspace RTT/one-way matrix | Run `scripts/testnodes/run_measurement_matrix.py --mode hyperspace`. | `hyperspace.json` contains selected ingress/egress path per pair and successful probes. | Testnode matrix |
-| PERF-003 | Public vs Hyperspace comparison | Run `scripts/testnodes/compare_measurements.py`. | Markdown report shows RTT p50 delta and forward/reverse one-way deltas sorted for review. | Testnode matrix |
+| PERF-001 | Public RTT/one-way matrix | Run `npm run measure:matrix -- --mode public`. | `public.json` contains every directed testnode pair with low packet loss. | Measurement-only |
+| PERF-002 | Hyperspace RTT/one-way matrix | Run `npm run measure:matrix -- --mode hyperspace`. | `hyperspace.json` contains selected ingress/egress path per pair and successful probes. | Measurement-only |
+| PERF-003 | Public vs Hyperspace comparison | Run `npm run measure:compare -- ...`. | Markdown report shows RTT p50 delta and forward/reverse one-way deltas sorted for review. | Measurement-only |
 | PERF-004 | Gate selection heuristic | Inspect matrix path selection. | Ingress is chosen near source testnode; egress is chosen near destination testnode based on public ping ranking. | Testnode matrix |
 
 ## Regression Unit Tests
@@ -96,7 +113,7 @@ Run the browser/API smoke against the public testnet deployment:
 
 ```bash
 npm install
-node scripts/testnet/live-ui-smoke.mjs
+npm run test:live:ui
 ```
 
 Useful environment overrides:
@@ -122,10 +139,33 @@ Run the validation-client policy smoke after the UI smoke:
 HS_API_BASE=https://app.testnet.hyperspace.zone/api \
 HS_TEST_OUTPUT_DIR=m1-results/live-testnet \
 HS_TESTNODE_SSH_KEY=/path/to/testnode-ssh-key \
-node scripts/testnet/live-policy-smoke.mjs
+npm run test:live:policy
 ```
 
 The policy smoke creates temporary source-restricted configs, starts them with
 `wg-quick` on validation testnodes, verifies target allow, non-target deny,
 source deny, custom public key ownership, and then revokes/deletes the temporary
 configs.
+
+## Long-Running Measurements
+
+Run the directed connectivity matrix only when measurement evidence is needed:
+
+```bash
+npm run measure:matrix -- \
+  --mode all \
+  --inventory ./m1-testnodes.json \
+  --api-base "$HS_API_BASE" \
+  --ssh-key "$HS_TESTNODE_SSH_KEY" \
+  --output-dir ./m1-results/matrix
+
+npm run measure:compare -- \
+  --public ./m1-results/matrix/public.json \
+  --hyperspace ./m1-results/matrix/hyperspace.json \
+  --output ./m1-results/matrix/public-vs-hyperspace.md
+```
+
+This matrix creates many temporary configs, starts WireGuard repeatedly on
+validation nodes, and probes every directed testnode pair. It is intentionally
+excluded from `npm test`, `npm run test:live:ui`, and
+`npm run test:live:policy`.

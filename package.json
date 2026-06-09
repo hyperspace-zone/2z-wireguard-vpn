@@ -19,6 +19,12 @@
     "db:seed:gates": "npm run build -w @hyperspace-zone/db && node packages/db/dist/seed-gates.js",
     "db:seed:gates:json": "scripts/seed-gates-json",
     "test": "npm run test --workspaces --if-present",
+    "test:unit": "npm run test --workspaces --if-present",
+    "test:live:ui": "node scripts/testnet/live-ui-smoke.mjs",
+    "test:live:policy": "node scripts/testnet/live-policy-smoke.mjs",
+    "test:live": "npm run test:live:ui && npm run test:live:policy",
+    "measure:matrix": "python3 scripts/testnodes/run_measurement_matrix.py",
+    "measure:compare": "python3 scripts/testnodes/compare_measurements.py",
     "typecheck": "npm run typecheck --workspaces --if-present"
   },
   "devDependencies": {
