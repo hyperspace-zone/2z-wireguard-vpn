@@ -40,7 +40,10 @@ export async function listPublicGates(db: Queryable): Promise<GateSummary[]> {
         gate_status.doublezero_lowest_latency_device_warning AS "doubleZeroLowestLatencyDeviceWarning",
         COALESCE(agent.status = 'True', false) AND ${freshGateLeaseSqlPredicate} AS "agentConnected",
         COALESCE(agent.status = 'True', false) AND ${freshGateLeaseSqlPredicate} AND COALESCE(ready.status = 'True', false) AS ready,
-        COALESCE(agent.status = 'True', false) AND ${freshGateLeaseSqlPredicate} AND COALESCE(schedulable.status = 'True', false) AS schedulable
+        gates.desired_state = 'Enabled'
+          AND COALESCE(agent.status = 'True', false)
+          AND ${freshGateLeaseSqlPredicate}
+          AND COALESCE(schedulable.status = 'True', false) AS schedulable
       FROM gates
       LEFT JOIN gate_status ON gate_status.gate_id = gates.id
       LEFT JOIN gate_leases ON gate_leases.gate_id = gates.id

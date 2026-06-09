@@ -1,20 +1,18 @@
 import type { Queryable } from "../../db/queryable.js";
-import { canOperateCluster } from "../../authz/policies.js";
 import type { Principal } from "../../authz/principals.js";
-import { updateGateDesiredState } from "../../resources/gates/repository.js";
+import { setGateDesiredState } from "./set-gate-desired-state.scenario.js";
 
 export async function drainGate(
   db: Queryable,
   principal: Principal,
   gateId: string
 ): Promise<"draining" | "forbidden" | "not_found"> {
-  if (!canOperateCluster(principal)) {
-    return "forbidden";
-  }
-  const updated = await updateGateDesiredState(db, {
+  const result = await setGateDesiredState(db, principal, {
     gateId,
-    desiredState: "Draining",
-    actorId: principal.id
+    desiredState: "Draining"
   });
-  return updated ? "draining" : "not_found";
+  if (result === "forbidden" || result === "not_found") {
+    return result;
+  }
+  return "draining";
 }

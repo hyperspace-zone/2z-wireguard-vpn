@@ -1,4 +1,5 @@
 import type { Queryable } from "../../db/queryable.js";
+import { resolveGateStaleConditions } from "./transitions.js";
 
 export const gateConditionTypes = ["AgentConnected", "Ready", "Schedulable", "Drift"] as const;
 
@@ -48,85 +49,51 @@ export async function upsertGateCondition(db: Queryable, input: GateConditionPer
 }
 
 export async function markStaleGateConditions(db: Queryable, staleSeconds: number): Promise<void> {
-  await db.query(
-    `
-      INSERT INTO gate_conditions (
-        gate_id,
-        type,
-        status,
-        reason,
-        message,
-        observed_generation,
-        last_transition_at
-      )
-      SELECT
-        gates.id,
-        'AgentConnected',
-        'False',
-        'HeartbeatStale',
-        'Gate agent heartbeat is stale',
-        gates.generation,
-        now()
-      FROM gates
-      LEFT JOIN gate_leases ON gate_leases.gate_id = gates.id
-      WHERE gate_leases.lease_expires_at IS NULL
-         OR gate_leases.lease_expires_at <= now()
-         OR gate_leases.heartbeat_at < now() - ($1::int * interval '1 second')
-      ON CONFLICT (gate_id, type) DO UPDATE
-      SET status = EXCLUDED.status,
-          reason = EXCLUDED.reason,
-          message = EXCLUDED.message,
-          observed_generation = EXCLUDED.observed_generation,
-          last_transition_at = CASE
-            WHEN gate_conditions.status <> EXCLUDED.status THEN now()
-            ELSE gate_conditions.last_transition_at
-          END
-    `,
-    [staleSeconds]
-  );
-
-  await db.query(
-    `
-      INSERT INTO gate_conditions (
-        gate_id,
-        type,
-        status,
-        reason,
-        message,
-        observed_generation,
-        last_transition_at
-      )
-      SELECT
-        gates.id,
+  for (const condition of resolveGateStaleConditions()) {
+    await db.query(
+      `
+        INSERT INTO gate_conditions (
+          gate_id,
+          type,
+          status,
+          reason,
+          message,
+          observed_generation,
+          last_transition_at
+        )
+        SELECT
+          gates.id,
+          $2,
+          $3,
+          $4,
+          $5,
+          gates.generation,
+          now()
+        FROM gates
+        LEFT JOIN gate_leases ON gate_leases.gate_id = gates.id
+        WHERE gate_leases.lease_expires_at IS NULL
+           OR gate_leases.lease_expires_at <= now()
+           OR gate_leases.heartbeat_at < now() - ($1::int * interval '1 second')
+        ON CONFLICT (gate_id, type) DO UPDATE
+        SET status = EXCLUDED.status,
+            reason = EXCLUDED.reason,
+            message = EXCLUDED.message,
+            observed_generation = EXCLUDED.observed_generation,
+            last_transition_at = CASE
+              WHEN gate_conditions.status <> EXCLUDED.status
+                OR gate_conditions.reason <> EXCLUDED.reason THEN now()
+              ELSE gate_conditions.last_transition_at
+            END
+      `,
+      [
+        staleSeconds,
         condition.type,
-        'False',
-        'HeartbeatStale',
-        condition.message,
-        gates.generation,
-        now()
-      FROM gates
-      LEFT JOIN gate_leases ON gate_leases.gate_id = gates.id
-      CROSS JOIN (
-        VALUES
-          ('Ready', 'Gate agent heartbeat is stale'),
-          ('Schedulable', 'Gate is not eligible for new sessions while agent heartbeat is stale')
-      ) AS condition(type, message)
-      WHERE gate_leases.lease_expires_at IS NULL
-         OR gate_leases.lease_expires_at <= now()
-         OR gate_leases.heartbeat_at < now() - ($1::int * interval '1 second')
-      ON CONFLICT (gate_id, type) DO UPDATE
-      SET status = EXCLUDED.status,
-          reason = EXCLUDED.reason,
-          message = EXCLUDED.message,
-          observed_generation = EXCLUDED.observed_generation,
-          last_transition_at = CASE
-            WHEN gate_conditions.status <> EXCLUDED.status
-              OR gate_conditions.reason <> EXCLUDED.reason THEN now()
-            ELSE gate_conditions.last_transition_at
-          END
-    `,
-    [staleSeconds]
-  );
+        condition.status,
+        condition.reason,
+        condition.message
+      ]
+    );
+  }
 }
 
 export async function setGateDriftCondition(

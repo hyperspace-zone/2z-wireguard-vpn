@@ -6,6 +6,7 @@ export * from "./application/auth/register-user.scenario.js";
 export * from "./application/artifacts/issue-download-token.scenario.js";
 export * from "./application/operator/drain-gate.scenario.js";
 export * from "./application/operator/force-reconcile.scenario.js";
+export * from "./application/operator/set-gate-desired-state.scenario.js";
 export * from "./application/sessions/create-session.scenario.js";
 export * from "./application/sessions/delete-session.scenario.js";
 export * from "./application/sessions/revoke-session.scenario.js";

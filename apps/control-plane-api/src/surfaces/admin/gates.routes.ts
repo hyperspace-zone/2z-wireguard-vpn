@@ -4,7 +4,7 @@ import {
   adminGatesResponseSchema,
   errorResponseSchema
 } from "@hyperspace-zone/contracts";
-import { drainGate, listPublicGates } from "@hyperspace-zone/control-plane";
+import { listPublicGates, setGateDesiredState, type GateDesiredState } from "@hyperspace-zone/control-plane";
 import type { Database } from "@hyperspace-zone/db";
 import type { AdminAuthContext } from "../../http/auth.js";
 import { readParam } from "../../http/request.js";
@@ -30,7 +30,22 @@ export function registerAdminGatesRoutes(
     return reply.send({ gates: await listPublicGates(deps.db) });
   });
 
-  app.post("/v1/admin/gates/:gateId/drain", {
+  registerGateDesiredStateRoute(app, deps, "enable", "Enabled");
+  registerGateDesiredStateRoute(app, deps, "drain", "Draining");
+  registerGateDesiredStateRoute(app, deps, "disable", "Disabled");
+  registerGateDesiredStateRoute(app, deps, "maintenance", "Maintenance");
+}
+
+function registerGateDesiredStateRoute(
+  app: FastifyInstance,
+  deps: {
+    db: Database;
+    requireAdmin: (request: FastifyRequest, reply: FastifyReply) => AdminAuthContext | null;
+  },
+  command: "enable" | "drain" | "disable" | "maintenance",
+  desiredState: GateDesiredState
+): void {
+  app.post(`/v1/admin/gates/:gateId/${command}`, {
     schema: {
       response: {
         200: adminGateCommandResponseSchema,
@@ -44,7 +59,10 @@ export function registerAdminGatesRoutes(
       return;
     }
 
-    const result = await drainGate(deps.db, admin, readParam(request, "gateId"));
+    const result = await setGateDesiredState(deps.db, admin, {
+      gateId: readParam(request, "gateId"),
+      desiredState
+    });
     if (result === "forbidden") {
       return reply.code(403).send({ error: "forbidden" });
     }

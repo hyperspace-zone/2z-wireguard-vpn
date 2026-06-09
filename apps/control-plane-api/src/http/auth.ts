@@ -1,5 +1,5 @@
 import type { FastifyReply, FastifyRequest } from "fastify";
-import type { Principal } from "@hyperspace-zone/control-plane";
+import { authenticateGateToken, type AuthenticatedGate, type Principal } from "@hyperspace-zone/control-plane";
 import { sha256Hex, type Database } from "@hyperspace-zone/db";
 import { bearerToken, headerValue } from "./request.js";
 
@@ -10,13 +10,7 @@ export interface PublicAuthUser {
   displayName: string;
 }
 
-export interface GateAuthContext {
-  id: string;
-  name: string;
-  generation: number;
-  publicEndpoint: string;
-  spec: Record<string, unknown>;
-}
+export type GateAuthContext = AuthenticatedGate;
 
 export interface AdminAuthContext extends Principal {
   kind: "admin";
@@ -71,24 +65,7 @@ export function createHttpAuth(input: { db: Database; adminToken: string | undef
       return null;
     }
 
-    const result = await input.db.query<GateAuthContext>(
-      `
-        SELECT
-          gates.id,
-          gates.name,
-          gates.generation::int AS generation,
-          gates.public_endpoint AS "publicEndpoint",
-          gates.spec
-        FROM gates
-        JOIN gate_auth_tokens ON gate_auth_tokens.gate_id = gates.id
-        WHERE gates.name = $1
-          AND gate_auth_tokens.token_hash = $2
-          AND gate_auth_tokens.revoked_at IS NULL
-          AND (gate_auth_tokens.expires_at IS NULL OR gate_auth_tokens.expires_at > now())
-      `,
-      [gateName, sha256Hex(gateToken)]
-    );
-    const gate = result.rows[0] ?? null;
+    const gate = await authenticateGateToken(input.db, { gateName, gateToken });
     if (!gate) {
       reply.code(401).send({ error: "invalid_gate_credentials" });
       return null;

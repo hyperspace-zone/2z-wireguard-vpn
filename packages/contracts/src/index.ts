@@ -125,6 +125,8 @@ export interface GateActualSnapshot {
   agentVersion: string;
   managedHandles: string[];
   stateHash: string;
+  capabilities?: string[];
+  diagnosticSummary?: Record<string, unknown>;
   reportedAt: string;
 }
 

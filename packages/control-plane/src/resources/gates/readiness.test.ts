@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { evaluateGateReadiness, readGateDoubleZeroEnv } from "./readiness.js";
+import { resolveGateHeartbeatConditions, resolveGateStaleConditions } from "./transitions.js";
 
 const readyCapabilities = [
   "wireguard-tools:present",
@@ -76,4 +77,37 @@ test("gate is not ready when tunnel source mismatches public endpoint", () => {
 test("gate catalog defaults DoubleZero environment to testnet", () => {
   assert.equal(readGateDoubleZeroEnv({}), "testnet");
   assert.equal(readGateDoubleZeroEnv({ doubleZeroEnv: "mainnet-beta" }), "mainnet-beta");
+});
+
+test("gate schedulability requires enabled desired state", () => {
+  for (const desiredState of ["Draining", "Disabled", "Maintenance"] as const) {
+    const conditions = resolveGateHeartbeatConditions({
+      ready: true,
+      reason: "DoubleZeroReady",
+      message: "Gate host tools and DoubleZero tunnel are ready",
+      desiredState
+    });
+    const schedulable = conditions.find((condition) => condition.type === "Schedulable");
+    assert.equal(schedulable?.status, "False");
+    assert.equal(schedulable?.reason, `DesiredState${desiredState}`);
+  }
+
+  const enabled = resolveGateHeartbeatConditions({
+    ready: true,
+    reason: "DoubleZeroReady",
+    message: "Gate host tools and DoubleZero tunnel are ready",
+    desiredState: "Enabled"
+  }).find((condition) => condition.type === "Schedulable");
+  assert.equal(enabled?.status, "True");
+});
+
+test("stale gate conditions are resolved by gate lifecycle policy", () => {
+  const conditions = resolveGateStaleConditions();
+  assert.deepEqual(conditions.map((condition) => condition.type), [
+    "AgentConnected",
+    "Ready",
+    "Schedulable"
+  ]);
+  assert.equal(conditions.every((condition) => condition.status === "False"), true);
+  assert.equal(conditions.find((condition) => condition.type === "Schedulable")?.reason, "HeartbeatStale");
 });

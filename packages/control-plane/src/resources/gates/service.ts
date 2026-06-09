@@ -1,11 +1,17 @@
 import type { TransactionalQueryable } from "../../db/queryable.js";
 import { saveGateHeartbeat } from "./repository.js";
 import { evaluateGateReadiness, readGateDoubleZeroEnv } from "./readiness.js";
+import {
+  resolveGateAgentConnectedCondition,
+  resolveGateHeartbeatConditions,
+  type GateDesiredState
+} from "./transitions.js";
 
 export interface GateRuntimeIdentity {
   id: string;
   name: string;
   generation: number;
+  desiredState: GateDesiredState;
   publicEndpoint: string;
   spec: Record<string, unknown>;
 }
@@ -40,6 +46,12 @@ export async function recordGateHeartbeat(
     doubleZeroEnv: readGateDoubleZeroEnv(gate.spec),
     hostReady
   });
+  const lifecycleConditions = resolveGateHeartbeatConditions({
+    ready: readiness.ready,
+    reason: readiness.reason,
+    message: readiness.message,
+    desiredState: gate.desiredState
+  });
 
   await saveGateHeartbeat(db, {
     gateId: gate.id,
@@ -54,26 +66,8 @@ export async function recordGateHeartbeat(
     doubleZeroLowestLatencyDevice,
     doubleZeroLowestLatencyDeviceWarning,
     conditions: [
-      {
-        type: "AgentConnected",
-        status: "True",
-        reason: "HeartbeatFresh",
-        message: "Gate agent heartbeat is fresh"
-      },
-      {
-        type: "Ready",
-        status: readiness.ready ? "True" : "False",
-        reason: readiness.reason,
-        message: readiness.message
-      },
-      {
-        type: "Schedulable",
-        status: readiness.ready ? "True" : "False",
-        reason: readiness.ready ? "Enabled" : readiness.reason,
-        message: readiness.ready
-          ? "Gate is eligible for new sessions"
-          : `Gate is not eligible for new sessions: ${readiness.message}`
-      }
+      resolveGateAgentConnectedCondition(true),
+      ...lifecycleConditions
     ]
   });
 }

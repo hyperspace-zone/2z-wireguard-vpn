@@ -2,6 +2,7 @@ import type { Queryable, TransactionalQueryable } from "../../db/queryable.js";
 import { freshGateLeaseSqlPredicate, upsertGateLease } from "../gate-leases/repository.js";
 import { gateHeartbeatLeaseTtlSeconds } from "../gate-leases/service.js";
 import { upsertGateCondition, type GateConditionStatus } from "./conditions.js";
+import type { GateDesiredState } from "./transitions.js";
 
 interface GateHeartbeatConditionInput {
   type: string;
@@ -30,8 +31,6 @@ export interface SchedulableGateRow {
   name: string;
   publicEndpoint: string;
 }
-
-export type GateDesiredState = "Enabled" | "Draining" | "Disabled" | "Maintenance";
 
 const doubleZeroGateSqlPredicate = `
   AND 'doublezero0:up' = ANY(gate_status.observed_capabilities)
