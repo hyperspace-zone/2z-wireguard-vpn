@@ -367,13 +367,17 @@ deployment evidence so the installed version is explicit.
 Configure the DoubleZero keypair and verify the `access-pass` on each gate:
 
 ```bash
-doublezero config set --env "$DZ_ENV" --keypair ~/.config/doublezero/id.json
-doublezero address
-doublezero access-pass list | grep "$(doublezero address)"
-doublezero connect ibrl
-doublezero status
+doublezero config set --env "$DZ_ENV" --keypair ~/.config/doublezero/id.json </dev/null
+doublezero address </dev/null
+doublezero access-pass list </dev/null | grep "$(doublezero address </dev/null)"
+doublezero connect ibrl </dev/null
+doublezero status </dev/null
 ip link show doublezero0
 ```
+
+Redirect stdin from `/dev/null` when running these commands inside an SSH
+heredoc. Some DoubleZero CLI commands may read stdin, which can otherwise
+consume the remaining heredoc body and skip later bootstrap commands.
 
 If the packaged `doublezerod.service` starts in a different environment than
 the target deployment, add a systemd drop-in before connecting:
@@ -644,14 +648,16 @@ wait_https https://<web-host>/api/health
 wait_https https://<web-host>/api/v1/public/health
 ```
 
-The API exposes OpenAPI at `/openapi.json`. If callers enter through the web
-host's `/api/*` reverse proxy, use `/api/openapi.json` instead:
+The API process exposes OpenAPI at `/openapi.json` on a direct API origin. In
+the combined web/API deployment, the public Caddy entrypoint serves the SPA at
+the root and proxies API traffic only under `/api/*`, so use
+`/api/openapi.json` from the public web host:
 
 ```bash
-# API origin directly:
+# Direct API origin or dedicated API vhost:
 curl -fsS https://<api-host>/openapi.json | jq '.paths["/health"]'
 
-# Web host reverse proxy:
+# Combined web/API public host:
 curl -fsS https://<web-host>/api/openapi.json | jq '.paths["/v1/public/health"]'
 ```
 
