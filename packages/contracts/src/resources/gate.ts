@@ -1,0 +1,46 @@
+export const gateDesiredStateValues = ["Enabled", "Draining", "Disabled", "Maintenance"] as const;
+
+export const gateDoubleZeroStatusSchema = {
+  type: "object",
+  additionalProperties: true,
+  properties: {
+    tunnelStatus: { type: "string" },
+    lastSessionUpdate: { type: "string" },
+    tunnelName: { type: "string" },
+    tunnelSrc: { type: "string" },
+    tunnelDst: { type: "string" },
+    doubleZeroIp: { type: "string" },
+    userType: { type: "string" },
+    reconciler: { type: "string" },
+    tenant: { type: "string" },
+    currentDevice: { type: "string" },
+    lowestLatencyDevice: { type: "string" },
+    lowestLatencyDeviceWarning: { type: "boolean" },
+    metro: { type: "string" },
+    network: { type: "string" },
+    reportedAt: { type: "string", format: "date-time" },
+    error: { type: "string" },
+    raw: { type: "string" }
+  }
+} as const;
+
+export const gateSummarySchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["id", "name", "desiredState", "region", "publicEndpoint", "ready", "schedulable"],
+  properties: {
+    id: { type: "string" },
+    name: { type: "string" },
+    desiredState: { enum: gateDesiredStateValues },
+    region: { type: "string" },
+    city: { type: "string" },
+    country: { type: "string" },
+    countryCode: { type: "string" },
+    publicEndpoint: { type: "string" },
+    probeUrl: { type: "string" },
+    lastSeenAt: { type: "string", format: "date-time" },
+    doubleZero: gateDoubleZeroStatusSchema,
+    ready: { type: "boolean" },
+    schedulable: { type: "boolean" }
+  }
+} as const;

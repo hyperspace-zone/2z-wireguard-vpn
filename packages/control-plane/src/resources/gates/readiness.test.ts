@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { evaluateGateReadiness, readGateDoubleZeroEnv } from "./gate-readiness.js";
+import { evaluateGateReadiness, readGateDoubleZeroEnv } from "./readiness.js";
 
 const readyCapabilities = [
   "wireguard-tools:present",

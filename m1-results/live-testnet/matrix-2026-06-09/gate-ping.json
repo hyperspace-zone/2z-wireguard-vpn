@@ -1,0 +1,227 @@
+[
+  {
+    "avg_ms": 27.593,
+    "elapsed_seconds": 4.431117269967217,
+    "gate": "gate-eu-fra-01",
+    "gateIp": "212.147.230.200",
+    "node": "eu-sto",
+    "rank_ms": 27.593,
+    "reachable": true
+  },
+  {
+    "avg_ms": 20.457,
+    "elapsed_seconds": 4.236627837002743,
+    "gate": "gate-eu-ams-01",
+    "gateIp": "85.9.219.252",
+    "node": "eu-sto",
+    "rank_ms": 20.457,
+    "reachable": true
+  },
+  {
+    "avg_ms": 25.619,
+    "elapsed_seconds": 4.244295387004968,
+    "gate": "gate-eu-lon-01",
+    "gateIp": "94.237.62.140",
+    "node": "eu-sto",
+    "rank_ms": 25.619,
+    "reachable": true
+  },
+  {
+    "avg_ms": 92.24,
+    "elapsed_seconds": 4.316155145992525,
+    "gate": "gate-na-nyc-01",
+    "gateIp": "85.9.199.104",
+    "node": "eu-sto",
+    "rank_ms": 92.24,
+    "reachable": true
+  },
+  {
+    "avg_ms": 183.688,
+    "elapsed_seconds": 4.41023794200737,
+    "gate": "gate-ap-sin-01",
+    "gateIp": "213.163.192.30",
+    "node": "eu-sto",
+    "rank_ms": 183.688,
+    "reachable": true
+  },
+  {
+    "avg_ms": 30.264,
+    "elapsed_seconds": 4.909580626990646,
+    "gate": "gate-eu-fra-01",
+    "gateIp": "212.147.230.200",
+    "node": "eu-mad",
+    "rank_ms": 30.264,
+    "reachable": true
+  },
+  {
+    "avg_ms": 23.566,
+    "elapsed_seconds": 4.7775542919989675,
+    "gate": "gate-eu-ams-01",
+    "gateIp": "85.9.219.252",
+    "node": "eu-mad",
+    "rank_ms": 23.566,
+    "reachable": true
+  },
+  {
+    "avg_ms": 28.714,
+    "elapsed_seconds": 4.783234092989005,
+    "gate": "gate-eu-lon-01",
+    "gateIp": "94.237.62.140",
+    "node": "eu-mad",
+    "rank_ms": 28.714,
+    "reachable": true
+  },
+  {
+    "avg_ms": 95.29,
+    "elapsed_seconds": 4.847690824011806,
+    "gate": "gate-na-nyc-01",
+    "gateIp": "85.9.199.104",
+    "node": "eu-mad",
+    "rank_ms": 95.29,
+    "reachable": true
+  },
+  {
+    "avg_ms": 189.834,
+    "elapsed_seconds": 4.95031021599425,
+    "gate": "gate-ap-sin-01",
+    "gateIp": "213.163.192.30",
+    "node": "eu-mad",
+    "rank_ms": 189.834,
+    "reachable": true
+  },
+  {
+    "avg_ms": 303.497,
+    "elapsed_seconds": 8.293180231994484,
+    "gate": "gate-eu-fra-01",
+    "gateIp": "212.147.230.200",
+    "node": "ap-syd",
+    "rank_ms": 303.497,
+    "reachable": true
+  },
+  {
+    "avg_ms": 294.479,
+    "elapsed_seconds": 8.26396225503413,
+    "gate": "gate-eu-ams-01",
+    "gateIp": "85.9.219.252",
+    "node": "ap-syd",
+    "rank_ms": 294.479,
+    "reachable": true
+  },
+  {
+    "avg_ms": 270.331,
+    "elapsed_seconds": 8.062610087974463,
+    "gate": "gate-eu-lon-01",
+    "gateIp": "94.237.62.140",
+    "node": "ap-syd",
+    "rank_ms": 270.331,
+    "reachable": true
+  },
+  {
+    "avg_ms": 200.498,
+    "elapsed_seconds": 8.176721847965382,
+    "gate": "gate-na-nyc-01",
+    "gateIp": "85.9.199.104",
+    "node": "ap-syd",
+    "rank_ms": 200.498,
+    "reachable": true
+  },
+  {
+    "avg_ms": 92.379,
+    "elapsed_seconds": 7.885363118024543,
+    "gate": "gate-ap-sin-01",
+    "gateIp": "213.163.192.30",
+    "node": "ap-syd",
+    "rank_ms": 92.379,
+    "reachable": true
+  },
+  {
+    "avg_ms": 142.016,
+    "elapsed_seconds": 6.7744744859519415,
+    "gate": "gate-eu-fra-01",
+    "gateIp": "212.147.230.200",
+    "node": "na-sjc",
+    "rank_ms": 142.016,
+    "reachable": true
+  },
+  {
+    "avg_ms": 136.162,
+    "elapsed_seconds": 6.218743076024111,
+    "gate": "gate-eu-ams-01",
+    "gateIp": "85.9.219.252",
+    "node": "na-sjc",
+    "rank_ms": 136.162,
+    "reachable": true
+  },
+  {
+    "avg_ms": 141.278,
+    "elapsed_seconds": 6.2284966700244695,
+    "gate": "gate-eu-lon-01",
+    "gateIp": "94.237.62.140",
+    "node": "na-sjc",
+    "rank_ms": 141.278,
+    "reachable": true
+  },
+  {
+    "avg_ms": 83.002,
+    "elapsed_seconds": 6.149787759990431,
+    "gate": "gate-na-nyc-01",
+    "gateIp": "85.9.199.104",
+    "node": "na-sjc",
+    "rank_ms": 83.002,
+    "reachable": true
+  },
+  {
+    "avg_ms": 166.068,
+    "elapsed_seconds": 6.249893278989475,
+    "gate": "gate-ap-sin-01",
+    "gateIp": "213.163.192.30",
+    "node": "na-sjc",
+    "rank_ms": 166.068,
+    "reachable": true
+  },
+  {
+    "avg_ms": 104.169,
+    "elapsed_seconds": 5.818996665009763,
+    "gate": "gate-eu-fra-01",
+    "gateIp": "212.147.230.200",
+    "node": "na-chi",
+    "rank_ms": 104.169,
+    "reachable": true
+  },
+  {
+    "avg_ms": 109.842,
+    "elapsed_seconds": 5.756624626053963,
+    "gate": "gate-eu-ams-01",
+    "gateIp": "85.9.219.252",
+    "node": "na-chi",
+    "rank_ms": 109.842,
+    "reachable": true
+  },
+  {
+    "avg_ms": 121.317,
+    "elapsed_seconds": 5.868208302010316,
+    "gate": "gate-eu-lon-01",
+    "gateIp": "94.237.62.140",
+    "node": "na-chi",
+    "rank_ms": 121.317,
+    "reachable": true
+  },
+  {
+    "avg_ms": 16.897,
+    "elapsed_seconds": 5.899927576014306,
+    "gate": "gate-na-nyc-01",
+    "gateIp": "85.9.199.104",
+    "node": "na-chi",
+    "rank_ms": 16.897,
+    "reachable": true
+  },
+  {
+    "avg_ms": 217.251,
+    "elapsed_seconds": 5.858946588006802,
+    "gate": "gate-ap-sin-01",
+    "gateIp": "213.163.192.30",
+    "node": "na-chi",
+    "rank_ms": 217.251,
+    "reachable": true
+  }
+]

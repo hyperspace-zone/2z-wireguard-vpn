@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { choosePath } from "./scheduler.js";
+import { choosePath } from "./choose-path.js";
 
 interface QueryCall {
   sql: string;
@@ -24,17 +24,20 @@ const egressGate = {
 test("choosePath schedules an explicit mainnet-beta gate pair using gate_status readiness", async () => {
   const calls: QueryCall[] = [];
   const client = {
-    async query(sql: string, params?: readonly unknown[]): Promise<{ rows: Array<Record<string, unknown>> }> {
+    async query<Row extends object = Record<string, unknown>>(
+      sql: string,
+      params?: readonly unknown[]
+    ): Promise<{ rows: Row[] }> {
       calls.push({ sql, params });
       assertSchedulableGateQuery(sql);
 
       if (calls.length === 1) {
-        assert.deepEqual(params, [null, ingressGate.name]);
-        return { rows: [ingressGate] };
+        assert.deepEqual(params, [null, null, ingressGate.name]);
+        return { rows: [ingressGate as unknown as Row] };
       }
 
       assert.deepEqual(params, [ingressGate.id, null, egressGate.name]);
-      return { rows: [egressGate] };
+      return { rows: [egressGate as unknown as Row] };
     }
   };
 

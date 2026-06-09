@@ -1,0 +1,862 @@
+[
+  {
+    "destination": {
+      "host": "testnode-eu-mad-01.testnet.hyperspace.zone",
+      "key": "eu-mad",
+      "publicIp": "5.22.218.206"
+    },
+    "elapsed_seconds": 7.1636195769533515,
+    "mode": "public",
+    "probe": {
+      "forward_one_way_ms": {
+        "max": 27.783,
+        "mean": 27.73,
+        "min": 27.679,
+        "p50": 27.733,
+        "p95": 27.765
+      },
+      "loss_percent": 0.0,
+      "lost": 0,
+      "port": 19191,
+      "received": 80,
+      "reverse_one_way_ms": {
+        "max": 16.479,
+        "mean": 16.425,
+        "min": 16.384,
+        "p50": 16.423,
+        "p95": 16.462
+      },
+      "rtt_ms": {
+        "max": 44.246,
+        "mean": 44.182,
+        "min": 44.08,
+        "p50": 44.187,
+        "p95": 44.231
+      },
+      "sent": 80,
+      "target": "5.22.218.206"
+    },
+    "source": {
+      "host": "testnode-eu-sto-01.testnet.hyperspace.zone",
+      "key": "eu-sto",
+      "publicIp": "212.147.245.233"
+    }
+  },
+  {
+    "destination": {
+      "host": "testnode-ap-syd-01.testnet.hyperspace.zone",
+      "key": "ap-syd",
+      "publicIp": "212.147.252.52"
+    },
+    "elapsed_seconds": 29.85534886602545,
+    "mode": "public",
+    "probe": {
+      "forward_one_way_ms": {
+        "max": 162.62,
+        "mean": 162.568,
+        "min": 162.505,
+        "p50": 162.567,
+        "p95": 162.609
+      },
+      "loss_percent": 0.0,
+      "lost": 0,
+      "port": 19191,
+      "received": 80,
+      "reverse_one_way_ms": {
+        "max": 167.523,
+        "mean": 167.458,
+        "min": 167.4,
+        "p50": 167.455,
+        "p95": 167.497
+      },
+      "rtt_ms": {
+        "max": 330.143,
+        "mean": 330.063,
+        "min": 329.989,
+        "p50": 330.058,
+        "p95": 330.128
+      },
+      "sent": 80,
+      "target": "212.147.252.52"
+    },
+    "source": {
+      "host": "testnode-eu-sto-01.testnet.hyperspace.zone",
+      "key": "eu-sto",
+      "publicIp": "212.147.245.233"
+    }
+  },
+  {
+    "destination": {
+      "host": "testnode-na-sjc-01.testnet.hyperspace.zone",
+      "key": "na-sjc",
+      "publicIp": "209.151.144.208"
+    },
+    "elapsed_seconds": 16.00714672502363,
+    "mode": "public",
+    "probe": {
+      "forward_one_way_ms": {
+        "max": 78.958,
+        "mean": 78.475,
+        "min": 78.398,
+        "p50": 78.464,
+        "p95": 78.53
+      },
+      "loss_percent": 0.0,
+      "lost": 0,
+      "port": 19191,
+      "received": 80,
+      "reverse_one_way_ms": {
+        "max": 85.366,
+        "mean": 78.435,
+        "min": 78.232,
+        "p50": 78.281,
+        "p95": 78.353
+      },
+      "rtt_ms": {
+        "max": 163.918,
+        "mean": 156.951,
+        "min": 156.673,
+        "p50": 156.794,
+        "p95": 156.901
+      },
+      "sent": 80,
+      "target": "209.151.144.208"
+    },
+    "source": {
+      "host": "testnode-eu-sto-01.testnet.hyperspace.zone",
+      "key": "eu-sto",
+      "publicIp": "212.147.245.233"
+    }
+  },
+  {
+    "destination": {
+      "host": "testnode-na-chi-01.testnet.hyperspace.zone",
+      "key": "na-chi",
+      "publicIp": "209.50.49.117"
+    },
+    "elapsed_seconds": 13.916849207947962,
+    "mode": "public",
+    "probe": {
+      "forward_one_way_ms": {
+        "max": 68.492,
+        "mean": 68.398,
+        "min": 68.359,
+        "p50": 68.394,
+        "p95": 68.443
+      },
+      "loss_percent": 0.0,
+      "lost": 0,
+      "port": 19191,
+      "received": 80,
+      "reverse_one_way_ms": {
+        "max": 72.7,
+        "mean": 62.257,
+        "min": 62.01,
+        "p50": 62.044,
+        "p95": 62.864
+      },
+      "rtt_ms": {
+        "max": 141.165,
+        "mean": 130.691,
+        "min": 130.415,
+        "p50": 130.478,
+        "p95": 131.312
+      },
+      "sent": 80,
+      "target": "209.50.49.117"
+    },
+    "source": {
+      "host": "testnode-eu-sto-01.testnet.hyperspace.zone",
+      "key": "eu-sto",
+      "publicIp": "212.147.245.233"
+    }
+  },
+  {
+    "destination": {
+      "host": "testnode-eu-sto-01.testnet.hyperspace.zone",
+      "key": "eu-sto",
+      "publicIp": "212.147.245.233"
+    },
+    "elapsed_seconds": 7.645346766978037,
+    "mode": "public",
+    "probe": {
+      "forward_one_way_ms": {
+        "max": 16.534,
+        "mean": 16.449,
+        "min": 16.404,
+        "p50": 16.447,
+        "p95": 16.486
+      },
+      "loss_percent": 0.0,
+      "lost": 0,
+      "port": 19191,
+      "received": 80,
+      "reverse_one_way_ms": {
+        "max": 27.756,
+        "mean": 27.695,
+        "min": 27.648,
+        "p50": 27.693,
+        "p95": 27.734
+      },
+      "rtt_ms": {
+        "max": 44.302,
+        "mean": 44.18,
+        "min": 44.092,
+        "p50": 44.174,
+        "p95": 44.237
+      },
+      "sent": 80,
+      "target": "212.147.245.233"
+    },
+    "source": {
+      "host": "testnode-eu-mad-01.testnet.hyperspace.zone",
+      "key": "eu-mad",
+      "publicIp": "5.22.218.206"
+    }
+  },
+  {
+    "destination": {
+      "host": "testnode-ap-syd-01.testnet.hyperspace.zone",
+      "key": "ap-syd",
+      "publicIp": "212.147.252.52"
+    },
+    "elapsed_seconds": 26.69247869303217,
+    "mode": "public",
+    "probe": {
+      "forward_one_way_ms": {
+        "max": 154.806,
+        "mean": 154.502,
+        "min": 154.439,
+        "p50": 154.496,
+        "p95": 154.542
+      },
+      "loss_percent": 0.0,
+      "lost": 0,
+      "port": 19191,
+      "received": 80,
+      "reverse_one_way_ms": {
+        "max": 190.067,
+        "mean": 129.267,
+        "min": 128.436,
+        "p50": 128.496,
+        "p95": 128.536
+      },
+      "rtt_ms": {
+        "max": 344.629,
+        "mean": 283.806,
+        "min": 282.954,
+        "p50": 283.035,
+        "p95": 283.109
+      },
+      "sent": 80,
+      "target": "212.147.252.52"
+    },
+    "source": {
+      "host": "testnode-eu-mad-01.testnet.hyperspace.zone",
+      "key": "eu-mad",
+      "publicIp": "5.22.218.206"
+    }
+  },
+  {
+    "destination": {
+      "host": "testnode-na-sjc-01.testnet.hyperspace.zone",
+      "key": "na-sjc",
+      "publicIp": "209.151.144.208"
+    },
+    "elapsed_seconds": 17.32495642104186,
+    "mode": "public",
+    "probe": {
+      "forward_one_way_ms": {
+        "max": 74.84,
+        "mean": 74.369,
+        "min": 74.32,
+        "p50": 74.358,
+        "p95": 74.409
+      },
+      "loss_percent": 0.0,
+      "lost": 0,
+      "port": 19191,
+      "received": 80,
+      "reverse_one_way_ms": {
+        "max": 195.601,
+        "mean": 92.387,
+        "min": 85.455,
+        "p50": 85.513,
+        "p95": 133.421
+      },
+      "rtt_ms": {
+        "max": 269.991,
+        "mean": 166.797,
+        "min": 159.815,
+        "p50": 159.926,
+        "p95": 207.802
+      },
+      "sent": 80,
+      "target": "209.151.144.208"
+    },
+    "source": {
+      "host": "testnode-eu-mad-01.testnet.hyperspace.zone",
+      "key": "eu-mad",
+      "publicIp": "5.22.218.206"
+    }
+  },
+  {
+    "destination": {
+      "host": "testnode-na-chi-01.testnet.hyperspace.zone",
+      "key": "na-chi",
+      "publicIp": "209.50.49.117"
+    },
+    "elapsed_seconds": 15.108517963031773,
+    "mode": "public",
+    "probe": {
+      "forward_one_way_ms": {
+        "max": 64.745,
+        "mean": 64.69,
+        "min": 64.609,
+        "p50": 64.689,
+        "p95": 64.717
+      },
+      "loss_percent": 0.0,
+      "lost": 0,
+      "port": 19191,
+      "received": 80,
+      "reverse_one_way_ms": {
+        "max": 182.786,
+        "mean": 74.351,
+        "min": 69.591,
+        "p50": 69.644,
+        "p95": 85.809
+      },
+      "rtt_ms": {
+        "max": 247.49,
+        "mean": 139.075,
+        "min": 134.295,
+        "p50": 134.372,
+        "p95": 150.516
+      },
+      "sent": 80,
+      "target": "209.50.49.117"
+    },
+    "source": {
+      "host": "testnode-eu-mad-01.testnet.hyperspace.zone",
+      "key": "eu-mad",
+      "publicIp": "5.22.218.206"
+    }
+  },
+  {
+    "destination": {
+      "host": "testnode-eu-sto-01.testnet.hyperspace.zone",
+      "key": "eu-sto",
+      "publicIp": "212.147.245.233"
+    },
+    "elapsed_seconds": 33.81738479802152,
+    "mode": "public",
+    "probe": {
+      "forward_one_way_ms": {
+        "max": 169.862,
+        "mean": 169.788,
+        "min": 169.731,
+        "p50": 169.789,
+        "p95": 169.834
+      },
+      "loss_percent": 0.0,
+      "lost": 0,
+      "port": 19191,
+      "received": 80,
+      "reverse_one_way_ms": {
+        "max": 165.622,
+        "mean": 162.497,
+        "min": 162.402,
+        "p50": 162.456,
+        "p95": 162.505
+      },
+      "rtt_ms": {
+        "max": 335.451,
+        "mean": 332.318,
+        "min": 332.195,
+        "p50": 332.272,
+        "p95": 332.387
+      },
+      "sent": 80,
+      "target": "212.147.245.233"
+    },
+    "source": {
+      "host": "testnode-ap-syd-01.testnet.hyperspace.zone",
+      "key": "ap-syd",
+      "publicIp": "212.147.252.52"
+    }
+  },
+  {
+    "destination": {
+      "host": "testnode-eu-mad-01.testnet.hyperspace.zone",
+      "key": "eu-mad",
+      "publicIp": "5.22.218.206"
+    },
+    "elapsed_seconds": 32.82701602502493,
+    "mode": "public",
+    "probe": {
+      "forward_one_way_ms": {
+        "max": 167.641,
+        "mean": 167.575,
+        "min": 167.515,
+        "p50": 167.578,
+        "p95": 167.612
+      },
+      "loss_percent": 0.0,
+      "lost": 0,
+      "port": 19191,
+      "received": 80,
+      "reverse_one_way_ms": {
+        "max": 154.799,
+        "mean": 154.662,
+        "min": 154.622,
+        "p50": 154.659,
+        "p95": 154.698
+      },
+      "rtt_ms": {
+        "max": 322.415,
+        "mean": 322.268,
+        "min": 322.195,
+        "p50": 322.267,
+        "p95": 322.325
+      },
+      "sent": 80,
+      "target": "5.22.218.206"
+    },
+    "source": {
+      "host": "testnode-ap-syd-01.testnet.hyperspace.zone",
+      "key": "ap-syd",
+      "publicIp": "212.147.252.52"
+    }
+  },
+  {
+    "destination": {
+      "host": "testnode-na-sjc-01.testnet.hyperspace.zone",
+      "key": "na-sjc",
+      "publicIp": "209.151.144.208"
+    },
+    "elapsed_seconds": 18.865919008967467,
+    "mode": "public",
+    "probe": {
+      "forward_one_way_ms": {
+        "max": 74.695,
+        "mean": 74.573,
+        "min": 74.53,
+        "p50": 74.566,
+        "p95": 74.619
+      },
+      "loss_percent": 0.0,
+      "lost": 0,
+      "port": 19191,
+      "received": 80,
+      "reverse_one_way_ms": {
+        "max": 74.401,
+        "mean": 74.221,
+        "min": 74.175,
+        "p50": 74.212,
+        "p95": 74.306
+      },
+      "rtt_ms": {
+        "max": 149.039,
+        "mean": 148.834,
+        "min": 148.763,
+        "p50": 148.825,
+        "p95": 148.922
+      },
+      "sent": 80,
+      "target": "209.151.144.208"
+    },
+    "source": {
+      "host": "testnode-ap-syd-01.testnet.hyperspace.zone",
+      "key": "ap-syd",
+      "publicIp": "212.147.252.52"
+    }
+  },
+  {
+    "destination": {
+      "host": "testnode-na-chi-01.testnet.hyperspace.zone",
+      "key": "na-chi",
+      "publicIp": "209.50.49.117"
+    },
+    "elapsed_seconds": 21.717949693033006,
+    "mode": "public",
+    "probe": {
+      "forward_one_way_ms": {
+        "max": 95.553,
+        "mean": 95.471,
+        "min": 95.403,
+        "p50": 95.47,
+        "p95": 95.509
+      },
+      "loss_percent": 0.0,
+      "lost": 0,
+      "port": 19191,
+      "received": 80,
+      "reverse_one_way_ms": {
+        "max": 88.826,
+        "mean": 88.767,
+        "min": 88.697,
+        "p50": 88.765,
+        "p95": 88.801
+      },
+      "rtt_ms": {
+        "max": 184.378,
+        "mean": 184.271,
+        "min": 184.184,
+        "p50": 184.269,
+        "p95": 184.323
+      },
+      "sent": 80,
+      "target": "209.50.49.117"
+    },
+    "source": {
+      "host": "testnode-ap-syd-01.testnet.hyperspace.zone",
+      "key": "ap-syd",
+      "publicIp": "212.147.252.52"
+    }
+  },
+  {
+    "destination": {
+      "host": "testnode-eu-sto-01.testnet.hyperspace.zone",
+      "key": "eu-sto",
+      "publicIp": "212.147.245.233"
+    },
+    "elapsed_seconds": 18.424693035020027,
+    "mode": "public",
+    "probe": {
+      "forward_one_way_ms": {
+        "max": 204.028,
+        "mean": 82.819,
+        "min": 78.294,
+        "p50": 78.356,
+        "p95": 108.293
+      },
+      "loss_percent": 0.0,
+      "lost": 0,
+      "port": 19191,
+      "received": 80,
+      "reverse_one_way_ms": {
+        "max": 78.592,
+        "mean": 78.445,
+        "min": 78.403,
+        "p50": 78.439,
+        "p95": 78.509
+      },
+      "rtt_ms": {
+        "max": 282.471,
+        "mean": 161.298,
+        "min": 156.759,
+        "p50": 156.832,
+        "p95": 186.736
+      },
+      "sent": 80,
+      "target": "212.147.245.233"
+    },
+    "source": {
+      "host": "testnode-na-sjc-01.testnet.hyperspace.zone",
+      "key": "na-sjc",
+      "publicIp": "209.151.144.208"
+    }
+  },
+  {
+    "destination": {
+      "host": "testnode-eu-mad-01.testnet.hyperspace.zone",
+      "key": "eu-mad",
+      "publicIp": "5.22.218.206"
+    },
+    "elapsed_seconds": 18.171421248000115,
+    "mode": "public",
+    "probe": {
+      "forward_one_way_ms": {
+        "max": 92.838,
+        "mean": 86.121,
+        "min": 85.502,
+        "p50": 85.546,
+        "p95": 88.956
+      },
+      "loss_percent": 0.0,
+      "lost": 0,
+      "port": 19191,
+      "received": 80,
+      "reverse_one_way_ms": {
+        "max": 74.508,
+        "mean": 74.329,
+        "min": 74.282,
+        "p50": 74.324,
+        "p95": 74.386
+      },
+      "rtt_ms": {
+        "max": 167.253,
+        "mean": 160.48,
+        "min": 159.817,
+        "p50": 159.903,
+        "p95": 163.343
+      },
+      "sent": 80,
+      "target": "5.22.218.206"
+    },
+    "source": {
+      "host": "testnode-na-sjc-01.testnet.hyperspace.zone",
+      "key": "na-sjc",
+      "publicIp": "209.151.144.208"
+    }
+  },
+  {
+    "destination": {
+      "host": "testnode-ap-syd-01.testnet.hyperspace.zone",
+      "key": "ap-syd",
+      "publicIp": "212.147.252.52"
+    },
+    "elapsed_seconds": 17.23941689595813,
+    "mode": "public",
+    "probe": {
+      "forward_one_way_ms": {
+        "max": 75.473,
+        "mean": 74.214,
+        "min": 74.136,
+        "p50": 74.195,
+        "p95": 74.264
+      },
+      "loss_percent": 0.0,
+      "lost": 0,
+      "port": 19191,
+      "received": 80,
+      "reverse_one_way_ms": {
+        "max": 75.05,
+        "mean": 74.58,
+        "min": 74.52,
+        "p50": 74.566,
+        "p95": 74.623
+      },
+      "rtt_ms": {
+        "max": 150.1,
+        "mean": 148.83,
+        "min": 148.705,
+        "p50": 148.805,
+        "p95": 148.976
+      },
+      "sent": 80,
+      "target": "212.147.252.52"
+    },
+    "source": {
+      "host": "testnode-na-sjc-01.testnet.hyperspace.zone",
+      "key": "na-sjc",
+      "publicIp": "209.151.144.208"
+    }
+  },
+  {
+    "destination": {
+      "host": "testnode-na-chi-01.testnet.hyperspace.zone",
+      "key": "na-chi",
+      "publicIp": "209.50.49.117"
+    },
+    "elapsed_seconds": 12.688935976999346,
+    "mode": "public",
+    "probe": {
+      "forward_one_way_ms": {
+        "max": 151.647,
+        "mean": 54.314,
+        "min": 43.833,
+        "p50": 43.899,
+        "p95": 125.633
+      },
+      "loss_percent": 0.0,
+      "lost": 0,
+      "port": 19191,
+      "received": 80,
+      "reverse_one_way_ms": {
+        "max": 38.093,
+        "mean": 37.606,
+        "min": 37.551,
+        "p50": 37.592,
+        "p95": 37.67
+      },
+      "rtt_ms": {
+        "max": 189.3,
+        "mean": 91.954,
+        "min": 81.451,
+        "p50": 81.54,
+        "p95": 163.264
+      },
+      "sent": 80,
+      "target": "209.50.49.117"
+    },
+    "source": {
+      "host": "testnode-na-sjc-01.testnet.hyperspace.zone",
+      "key": "na-sjc",
+      "publicIp": "209.151.144.208"
+    }
+  },
+  {
+    "destination": {
+      "host": "testnode-eu-sto-01.testnet.hyperspace.zone",
+      "key": "eu-sto",
+      "publicIp": "212.147.245.233"
+    },
+    "elapsed_seconds": 15.43450427800417,
+    "mode": "public",
+    "probe": {
+      "forward_one_way_ms": {
+        "max": 79.166,
+        "mean": 62.282,
+        "min": 62.001,
+        "p50": 62.06,
+        "p95": 62.127
+      },
+      "loss_percent": 0.0,
+      "lost": 0,
+      "port": 19191,
+      "received": 80,
+      "reverse_one_way_ms": {
+        "max": 68.436,
+        "mean": 68.366,
+        "min": 68.304,
+        "p50": 68.362,
+        "p95": 68.411
+      },
+      "rtt_ms": {
+        "max": 147.589,
+        "mean": 130.681,
+        "min": 130.335,
+        "p50": 130.461,
+        "p95": 130.53
+      },
+      "sent": 80,
+      "target": "212.147.245.233"
+    },
+    "source": {
+      "host": "testnode-na-chi-01.testnet.hyperspace.zone",
+      "key": "na-chi",
+      "publicIp": "209.50.49.117"
+    }
+  },
+  {
+    "destination": {
+      "host": "testnode-eu-mad-01.testnet.hyperspace.zone",
+      "key": "eu-mad",
+      "publicIp": "5.22.218.206"
+    },
+    "elapsed_seconds": 15.688853616011329,
+    "mode": "public",
+    "probe": {
+      "forward_one_way_ms": {
+        "max": 102.501,
+        "mean": 70.422,
+        "min": 69.624,
+        "p50": 69.689,
+        "p95": 70.651
+      },
+      "loss_percent": 0.0,
+      "lost": 0,
+      "port": 19191,
+      "received": 80,
+      "reverse_one_way_ms": {
+        "max": 64.71,
+        "mean": 64.673,
+        "min": 64.625,
+        "p50": 64.671,
+        "p95": 64.701
+      },
+      "rtt_ms": {
+        "max": 167.184,
+        "mean": 135.125,
+        "min": 134.321,
+        "p50": 134.395,
+        "p95": 135.348
+      },
+      "sent": 80,
+      "target": "5.22.218.206"
+    },
+    "source": {
+      "host": "testnode-na-chi-01.testnet.hyperspace.zone",
+      "key": "na-chi",
+      "publicIp": "209.50.49.117"
+    }
+  },
+  {
+    "destination": {
+      "host": "testnode-ap-syd-01.testnet.hyperspace.zone",
+      "key": "ap-syd",
+      "publicIp": "212.147.252.52"
+    },
+    "elapsed_seconds": 19.63250862096902,
+    "mode": "public",
+    "probe": {
+      "forward_one_way_ms": {
+        "max": 88.973,
+        "mean": 88.899,
+        "min": 88.85,
+        "p50": 88.899,
+        "p95": 88.936
+      },
+      "loss_percent": 0.0,
+      "lost": 0,
+      "port": 19191,
+      "received": 80,
+      "reverse_one_way_ms": {
+        "max": 95.501,
+        "mean": 95.438,
+        "min": 95.358,
+        "p50": 95.436,
+        "p95": 95.475
+      },
+      "rtt_ms": {
+        "max": 184.515,
+        "mean": 184.376,
+        "min": 184.291,
+        "p50": 184.372,
+        "p95": 184.45
+      },
+      "sent": 80,
+      "target": "212.147.252.52"
+    },
+    "source": {
+      "host": "testnode-na-chi-01.testnet.hyperspace.zone",
+      "key": "na-chi",
+      "publicIp": "209.50.49.117"
+    }
+  },
+  {
+    "destination": {
+      "host": "testnode-na-sjc-01.testnet.hyperspace.zone",
+      "key": "na-sjc",
+      "publicIp": "209.151.144.208"
+    },
+    "elapsed_seconds": 11.410138961975463,
+    "mode": "public",
+    "probe": {
+      "forward_one_way_ms": {
+        "max": 39.388,
+        "mean": 37.65,
+        "min": 37.567,
+        "p50": 37.616,
+        "p95": 37.674
+      },
+      "loss_percent": 0.0,
+      "lost": 0,
+      "port": 19191,
+      "received": 80,
+      "reverse_one_way_ms": {
+        "max": 44.174,
+        "mean": 43.866,
+        "min": 43.818,
+        "p50": 43.859,
+        "p95": 43.909
+      },
+      "rtt_ms": {
+        "max": 83.282,
+        "mean": 81.554,
+        "min": 81.442,
+        "p50": 81.521,
+        "p95": 81.612
+      },
+      "sent": 80,
+      "target": "209.151.144.208"
+    },
+    "source": {
+      "host": "testnode-na-chi-01.testnet.hyperspace.zone",
+      "key": "na-chi",
+      "publicIp": "209.50.49.117"
+    }
+  }
+]

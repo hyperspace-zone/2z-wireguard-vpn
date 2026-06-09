@@ -1,0 +1,139 @@
+{
+  "runId": "2026-06-09T07-32-49-712Z",
+  "webBase": "https://app.testnet.hyperspace.zone",
+  "apiBase": "https://app.testnet.hyperspace.zone/api",
+  "email": "codex-live-1780990369712@example.com",
+  "targetIp": "1.1.1.1",
+  "ingressGateName": "gate-eu-fra-01",
+  "egressGateName": "gate-eu-lon-01",
+  "gates": [
+    {
+      "name": "gate-ap-sin-01",
+      "ready": true,
+      "schedulable": true,
+      "doubleZero": {
+        "metro": "Singapore",
+        "network": "testnet",
+        "userType": "IBRL",
+        "tunnelDst": "180.87.102.98",
+        "tunnelSrc": "213.163.192.30",
+        "reconciler": "true",
+        "reportedAt": "2026-06-09T07:32:47Z",
+        "tunnelName": "doublezero0",
+        "doubleZeroIp": "213.163.192.30",
+        "tunnelStatus": "BGP Session Up",
+        "currentDevice": "sin-dz001",
+        "lastSessionUpdate": "2026-06-05 14:35:55 UTC",
+        "lowestLatencyDevice": "sin-dz001",
+        "lowestLatencyDeviceWarning": false
+      }
+    },
+    {
+      "name": "gate-eu-ams-01",
+      "ready": true,
+      "schedulable": true,
+      "doubleZero": {
+        "metro": "Amsterdam",
+        "network": "testnet",
+        "userType": "IBRL",
+        "tunnelDst": "195.219.138.96",
+        "tunnelSrc": "85.9.219.252",
+        "reconciler": "true",
+        "reportedAt": "2026-06-09T07:32:40Z",
+        "tunnelName": "doublezero0",
+        "doubleZeroIp": "85.9.219.252",
+        "tunnelStatus": "BGP Session Up",
+        "currentDevice": "ams-dz001",
+        "lastSessionUpdate": "2026-06-05 12:00:08 UTC",
+        "lowestLatencyDevice": "ams-dz001",
+        "lowestLatencyDeviceWarning": false
+      }
+    },
+    {
+      "name": "gate-eu-fra-01",
+      "ready": true,
+      "schedulable": true,
+      "doubleZero": {
+        "metro": "Frankfurt",
+        "network": "testnet",
+        "userType": "IBRL",
+        "tunnelDst": "195.219.220.58",
+        "tunnelSrc": "212.147.230.200",
+        "reconciler": "true",
+        "reportedAt": "2026-06-09T07:32:39Z",
+        "tunnelName": "doublezero0",
+        "doubleZeroIp": "212.147.230.200",
+        "tunnelStatus": "BGP Session Up",
+        "currentDevice": "fra-dz001",
+        "lastSessionUpdate": "2026-06-09 06:21:37 UTC",
+        "lowestLatencyDevice": "fra-dz001",
+        "lowestLatencyDeviceWarning": false
+      }
+    },
+    {
+      "name": "gate-eu-lon-01",
+      "ready": true,
+      "schedulable": true,
+      "doubleZero": {
+        "metro": "London",
+        "network": "testnet",
+        "userType": "IBRL",
+        "tunnelDst": "195.219.121.96",
+        "tunnelSrc": "94.237.62.140",
+        "reconciler": "true",
+        "reportedAt": "2026-06-09T07:32:48Z",
+        "tunnelName": "doublezero0",
+        "doubleZeroIp": "94.237.62.140",
+        "tunnelStatus": "BGP Session Up",
+        "currentDevice": "lon-dz001",
+        "lastSessionUpdate": "2026-06-03 08:53:18 UTC",
+        "lowestLatencyDevice": "lon-dz001",
+        "lowestLatencyDeviceWarning": false
+      }
+    },
+    {
+      "name": "gate-na-nyc-01",
+      "ready": true,
+      "schedulable": true,
+      "doubleZero": {
+        "metro": "New York",
+        "network": "testnet",
+        "userType": "IBRL",
+        "tunnelDst": "64.86.249.22",
+        "tunnelSrc": "85.9.199.104",
+        "reconciler": "true",
+        "reportedAt": "2026-06-09T07:32:48Z",
+        "tunnelName": "doublezero0",
+        "doubleZeroIp": "85.9.199.104",
+        "tunnelStatus": "BGP Session Up",
+        "currentDevice": "nyc-dz001",
+        "lastSessionUpdate": "2026-06-03 08:28:03 UTC",
+        "lowestLatencyDevice": "nyc-dz001",
+        "lowestLatencyDeviceWarning": false
+      }
+    }
+  ],
+  "steps": [
+    "registered",
+    "logged_in",
+    "dashboard_gates_checked",
+    "egress_validation_checked",
+    "config_requested",
+    "config_active",
+    "raw_config_validated",
+    "ui_download_clicked",
+    "config_revoked",
+    "config_deleted"
+  ],
+  "sessionId": "12833be0-3265-4db5-b983-9f3a2a394f16",
+  "rawConfig": {
+    "byteLength": 254,
+    "hasInterface": true,
+    "hasPeer": true,
+    "hasEndpoint": true,
+    "hasAllowedIps": true
+  },
+  "status": "passed",
+  "consoleErrors": [],
+  "pageErrors": []
+}

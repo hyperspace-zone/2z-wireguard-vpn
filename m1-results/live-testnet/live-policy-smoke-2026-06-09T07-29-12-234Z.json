@@ -1,0 +1,111 @@
+{
+  "runId": "2026-06-09T07-29-12-234Z",
+  "apiBase": "https://app.testnet.hyperspace.zone/api",
+  "email": "policy-smoke-1780990152234@example.com",
+  "ingressGateName": "gate-eu-ams-01",
+  "egressGateName": "gate-eu-lon-01",
+  "allowedSource": {
+    "key": "eu-sto",
+    "host": "testnode-eu-sto-01.testnet.hyperspace.zone",
+    "publicIp": "212.147.245.233"
+  },
+  "deniedSource": {
+    "key": "na-chi",
+    "host": "testnode-na-chi-01.testnet.hyperspace.zone",
+    "publicIp": "209.50.49.117"
+  },
+  "target": {
+    "key": "eu-mad",
+    "host": "testnode-eu-mad-01.testnet.hyperspace.zone",
+    "publicIp": "5.22.218.206"
+  },
+  "nonTarget": {
+    "key": "ap-syd",
+    "host": "testnode-ap-syd-01.testnet.hyperspace.zone",
+    "publicIp": "212.147.252.52"
+  },
+  "steps": [
+    "probe_servers_reachable",
+    "registered",
+    "session_active:policy-restricted-2026-06-09T07-29-12-234Z",
+    "session_active:policy-custom-key-2026-06-09T07-29-12-234Z"
+  ],
+  "checks": [
+    {
+      "id": "WG-001",
+      "status": "passed",
+      "detail": "eu-sto reached eu-mad through gate-eu-ams-01->gate-eu-lon-01",
+      "probe": {
+        "target": "5.22.218.206",
+        "sent": 10,
+        "received": 10,
+        "lost": 0,
+        "lossPercent": 0,
+        "rttP50Ms": 62.31,
+        "forwardP50Ms": 33.14,
+        "reverseP50Ms": 29.143
+      }
+    },
+    {
+      "id": "WG-002",
+      "status": "passed",
+      "detail": "eu-sto could not reach non-target ap-syd after client-side AllowedIPs widening",
+      "probe": {
+        "target": "212.147.252.52",
+        "sent": 10,
+        "received": 0,
+        "lost": 10,
+        "lossPercent": 100,
+        "rttP50Ms": null,
+        "forwardP50Ms": null,
+        "reverseP50Ms": null
+      }
+    },
+    {
+      "id": "WG-004",
+      "status": "passed",
+      "detail": "na-chi could not use a config restricted to 212.147.245.233",
+      "probe": {
+        "target": "5.22.218.206",
+        "sent": 10,
+        "received": 0,
+        "lost": 10,
+        "lossPercent": 100,
+        "rttP50Ms": null,
+        "forwardP50Ms": null,
+        "reverseP50Ms": null
+      }
+    },
+    {
+      "id": "WG-005A",
+      "status": "passed",
+      "detail": "custom client public key worked with its matching private key",
+      "probe": {
+        "target": "5.22.218.206",
+        "sent": 10,
+        "received": 10,
+        "lost": 0,
+        "lossPercent": 0,
+        "rttP50Ms": 62.432,
+        "forwardP50Ms": 33.146,
+        "reverseP50Ms": 29.241
+      }
+    },
+    {
+      "id": "WG-005B",
+      "status": "passed",
+      "detail": "custom client public key did not work with a non-matching private key",
+      "probe": {
+        "target": "5.22.218.206",
+        "sent": 10,
+        "received": 0,
+        "lost": 10,
+        "lossPercent": 100,
+        "rttP50Ms": null,
+        "forwardP50Ms": null,
+        "reverseP50Ms": null
+      }
+    }
+  ],
+  "status": "passed"
+}

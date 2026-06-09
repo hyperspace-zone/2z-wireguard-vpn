@@ -1,0 +1,1062 @@
+[
+  {
+    "destination": {
+      "host": "testnode-eu-mad-01.testnet.hyperspace.zone",
+      "key": "eu-mad",
+      "publicIp": "5.22.218.206"
+    },
+    "elapsed_seconds": 15.881932299002074,
+    "mode": "hyperspace",
+    "path": {
+      "egressGateName": "gate-eu-lon-01",
+      "ingressGateName": "gate-eu-ams-01"
+    },
+    "probe": {
+      "forward_one_way_ms": {
+        "max": 33.801,
+        "mean": 33.234,
+        "min": 33.133,
+        "p50": 33.21,
+        "p95": 33.318
+      },
+      "loss_percent": 0.0,
+      "lost": 0,
+      "port": 19191,
+      "received": 80,
+      "reverse_one_way_ms": {
+        "max": 28.826,
+        "mean": 28.604,
+        "min": 28.496,
+        "p50": 28.593,
+        "p95": 28.711
+      },
+      "rtt_ms": {
+        "max": 62.408,
+        "mean": 61.865,
+        "min": 61.706,
+        "p50": 61.837,
+        "p95": 62.015
+      },
+      "sent": 80,
+      "target": "5.22.218.206"
+    },
+    "routeCheck": "5.22.218.206 dev hsow01 src 10.64.0.56 uid 0 ",
+    "session": {
+      "createdAt": "2026-06-09T07:12:49.771Z",
+      "id": "ff5bf5e5-4741-4ffc-b151-65d95e308b9c",
+      "phase": "active"
+    },
+    "source": {
+      "host": "testnode-eu-sto-01.testnet.hyperspace.zone",
+      "key": "eu-sto",
+      "publicIp": "212.147.245.233"
+    }
+  },
+  {
+    "destination": {
+      "host": "testnode-ap-syd-01.testnet.hyperspace.zone",
+      "key": "ap-syd",
+      "publicIp": "212.147.252.52"
+    },
+    "elapsed_seconds": 35.98828816699097,
+    "mode": "hyperspace",
+    "path": {
+      "egressGateName": "gate-ap-sin-01",
+      "ingressGateName": "gate-eu-ams-01"
+    },
+    "probe": {
+      "forward_one_way_ms": {
+        "max": 133.765,
+        "mean": 133.125,
+        "min": 133.026,
+        "p50": 133.111,
+        "p95": 133.201
+      },
+      "loss_percent": 0.0,
+      "lost": 0,
+      "port": 19191,
+      "received": 80,
+      "reverse_one_way_ms": {
+        "max": 142.707,
+        "mean": 142.507,
+        "min": 142.431,
+        "p50": 142.5,
+        "p95": 142.589
+      },
+      "rtt_ms": {
+        "max": 276.297,
+        "mean": 275.668,
+        "min": 275.513,
+        "p50": 275.653,
+        "p95": 275.798
+      },
+      "sent": 80,
+      "target": "212.147.252.52"
+    },
+    "routeCheck": "212.147.252.52 dev hsow02 src 10.64.0.57 uid 0 ",
+    "session": {
+      "createdAt": "2026-06-09T07:13:09.164Z",
+      "id": "9dd8e56d-66d9-4c49-9640-93a8085ec2b4",
+      "phase": "active"
+    },
+    "source": {
+      "host": "testnode-eu-sto-01.testnet.hyperspace.zone",
+      "key": "eu-sto",
+      "publicIp": "212.147.245.233"
+    }
+  },
+  {
+    "destination": {
+      "host": "testnode-na-sjc-01.testnet.hyperspace.zone",
+      "key": "na-sjc",
+      "publicIp": "209.151.144.208"
+    },
+    "elapsed_seconds": 24.562611632980406,
+    "mode": "hyperspace",
+    "path": {
+      "egressGateName": "gate-na-nyc-01",
+      "ingressGateName": "gate-eu-ams-01"
+    },
+    "probe": {
+      "forward_one_way_ms": {
+        "max": 79.094,
+        "mean": 78.774,
+        "min": 78.644,
+        "p50": 78.766,
+        "p95": 78.884
+      },
+      "loss_percent": 0.0,
+      "lost": 0,
+      "port": 19191,
+      "received": 80,
+      "reverse_one_way_ms": {
+        "max": 86.954,
+        "mean": 79.24,
+        "min": 78.586,
+        "p50": 78.69,
+        "p95": 81.806
+      },
+      "rtt_ms": {
+        "max": 165.71,
+        "mean": 158.051,
+        "min": 157.305,
+        "p50": 157.519,
+        "p95": 160.62
+      },
+      "sent": 80,
+      "target": "209.151.144.208"
+    },
+    "routeCheck": "209.151.144.208 dev hsow03 src 10.64.0.58 uid 0 ",
+    "session": {
+      "createdAt": "2026-06-09T07:13:48.804Z",
+      "id": "9dac2bcd-4981-42dd-87b9-615663dfb267",
+      "phase": "active"
+    },
+    "source": {
+      "host": "testnode-eu-sto-01.testnet.hyperspace.zone",
+      "key": "eu-sto",
+      "publicIp": "212.147.245.233"
+    }
+  },
+  {
+    "destination": {
+      "host": "testnode-na-chi-01.testnet.hyperspace.zone",
+      "key": "na-chi",
+      "publicIp": "209.50.49.117"
+    },
+    "elapsed_seconds": 20.494434867985547,
+    "mode": "hyperspace",
+    "path": {
+      "egressGateName": "gate-na-nyc-01",
+      "ingressGateName": "gate-eu-ams-01"
+    },
+    "probe": {
+      "forward_one_way_ms": {
+        "max": 58.474,
+        "mean": 58.024,
+        "min": 57.914,
+        "p50": 58.001,
+        "p95": 58.172
+      },
+      "loss_percent": 0.0,
+      "lost": 0,
+      "port": 19191,
+      "received": 80,
+      "reverse_one_way_ms": {
+        "max": 52.104,
+        "mean": 51.655,
+        "min": 51.537,
+        "p50": 51.628,
+        "p95": 51.828
+      },
+      "rtt_ms": {
+        "max": 110.18,
+        "mean": 109.713,
+        "min": 109.547,
+        "p50": 109.67,
+        "p95": 110.065
+      },
+      "sent": 80,
+      "target": "209.50.49.117"
+    },
+    "routeCheck": "209.50.49.117 dev hsow04 src 10.64.0.59 uid 0 ",
+    "session": {
+      "createdAt": "2026-06-09T07:14:17.019Z",
+      "id": "2ae28220-2ff2-4f83-b4bd-e110496ed471",
+      "phase": "active"
+    },
+    "source": {
+      "host": "testnode-eu-sto-01.testnet.hyperspace.zone",
+      "key": "eu-sto",
+      "publicIp": "212.147.245.233"
+    }
+  },
+  {
+    "destination": {
+      "host": "testnode-eu-sto-01.testnet.hyperspace.zone",
+      "key": "eu-sto",
+      "publicIp": "212.147.245.233"
+    },
+    "elapsed_seconds": 17.934784643992316,
+    "mode": "hyperspace",
+    "path": {
+      "egressGateName": "gate-eu-lon-01",
+      "ingressGateName": "gate-eu-ams-01"
+    },
+    "probe": {
+      "forward_one_way_ms": {
+        "max": 22.034,
+        "mean": 21.783,
+        "min": 21.693,
+        "p50": 21.773,
+        "p95": 21.875
+      },
+      "loss_percent": 0.0,
+      "lost": 0,
+      "port": 19191,
+      "received": 80,
+      "reverse_one_way_ms": {
+        "max": 42.305,
+        "mean": 40.71,
+        "min": 40.611,
+        "p50": 40.679,
+        "p95": 40.824
+      },
+      "rtt_ms": {
+        "max": 64.158,
+        "mean": 62.528,
+        "min": 62.38,
+        "p50": 62.488,
+        "p95": 62.678
+      },
+      "sent": 80,
+      "target": "212.147.245.233"
+    },
+    "routeCheck": "212.147.245.233 dev hsow05 src 10.64.0.60 uid 0 ",
+    "session": {
+      "createdAt": "2026-06-09T07:14:41.164Z",
+      "id": "1f60fbff-1ece-4ffa-b70a-9079463883df",
+      "phase": "active"
+    },
+    "source": {
+      "host": "testnode-eu-mad-01.testnet.hyperspace.zone",
+      "key": "eu-mad",
+      "publicIp": "5.22.218.206"
+    }
+  },
+  {
+    "destination": {
+      "host": "testnode-ap-syd-01.testnet.hyperspace.zone",
+      "key": "ap-syd",
+      "publicIp": "212.147.252.52"
+    },
+    "elapsed_seconds": 48.554398492968176,
+    "mode": "hyperspace",
+    "path": {
+      "egressGateName": "gate-ap-sin-01",
+      "ingressGateName": "gate-eu-ams-01"
+    },
+    "probe": {
+      "forward_one_way_ms": {
+        "max": 269.682,
+        "mean": 269.201,
+        "min": 269.087,
+        "p50": 269.19,
+        "p95": 269.277
+      },
+      "loss_percent": 0.0,
+      "lost": 0,
+      "port": 19191,
+      "received": 80,
+      "reverse_one_way_ms": {
+        "max": 150.491,
+        "mean": 149.764,
+        "min": 149.676,
+        "p50": 149.751,
+        "p95": 149.838
+      },
+      "rtt_ms": {
+        "max": 419.705,
+        "mean": 419.003,
+        "min": 418.873,
+        "p50": 418.986,
+        "p95": 419.143
+      },
+      "sent": 80,
+      "target": "212.147.252.52"
+    },
+    "routeCheck": "212.147.252.52 dev hsow06 src 10.64.0.61 uid 0 ",
+    "session": {
+      "createdAt": "2026-06-09T07:15:03.869Z",
+      "id": "b6f0a74d-6e3b-4c63-b209-ebc71f63c73d",
+      "phase": "active"
+    },
+    "source": {
+      "host": "testnode-eu-mad-01.testnet.hyperspace.zone",
+      "key": "eu-mad",
+      "publicIp": "5.22.218.206"
+    }
+  },
+  {
+    "destination": {
+      "host": "testnode-na-sjc-01.testnet.hyperspace.zone",
+      "key": "na-sjc",
+      "publicIp": "209.151.144.208"
+    },
+    "elapsed_seconds": 30.239988403976895,
+    "mode": "hyperspace",
+    "path": {
+      "egressGateName": "gate-na-nyc-01",
+      "ingressGateName": "gate-eu-ams-01"
+    },
+    "probe": {
+      "forward_one_way_ms": {
+        "max": 75.458,
+        "mean": 74.551,
+        "min": 74.418,
+        "p50": 74.528,
+        "p95": 74.68
+      },
+      "loss_percent": 0.0,
+      "lost": 0,
+      "port": 19191,
+      "received": 80,
+      "reverse_one_way_ms": {
+        "max": 90.308,
+        "mean": 86.019,
+        "min": 85.818,
+        "p50": 85.933,
+        "p95": 86.256
+      },
+      "rtt_ms": {
+        "max": 164.867,
+        "mean": 160.611,
+        "min": 160.311,
+        "p50": 160.519,
+        "p95": 160.89
+      },
+      "sent": 80,
+      "target": "209.151.144.208"
+    },
+    "routeCheck": "209.151.144.208 dev hsow07 src 10.64.0.62 uid 0 ",
+    "session": {
+      "createdAt": "2026-06-09T07:15:57.184Z",
+      "id": "08b14ffc-cac3-427a-8b08-73a9ca9de216",
+      "phase": "active"
+    },
+    "source": {
+      "host": "testnode-eu-mad-01.testnet.hyperspace.zone",
+      "key": "eu-mad",
+      "publicIp": "5.22.218.206"
+    }
+  },
+  {
+    "destination": {
+      "host": "testnode-na-chi-01.testnet.hyperspace.zone",
+      "key": "na-chi",
+      "publicIp": "209.50.49.117"
+    },
+    "elapsed_seconds": 21.854318882978987,
+    "mode": "hyperspace",
+    "path": {
+      "egressGateName": "gate-na-nyc-01",
+      "ingressGateName": "gate-eu-ams-01"
+    },
+    "probe": {
+      "forward_one_way_ms": {
+        "max": 54.298,
+        "mean": 53.847,
+        "min": 53.742,
+        "p50": 53.828,
+        "p95": 53.929
+      },
+      "loss_percent": 0.0,
+      "lost": 0,
+      "port": 19191,
+      "received": 80,
+      "reverse_one_way_ms": {
+        "max": 60.848,
+        "mean": 58.924,
+        "min": 58.769,
+        "p50": 58.878,
+        "p95": 59.092
+      },
+      "rtt_ms": {
+        "max": 114.736,
+        "mean": 112.806,
+        "min": 112.584,
+        "p50": 112.76,
+        "p95": 113.043
+      },
+      "sent": 80,
+      "target": "209.50.49.117"
+    },
+    "routeCheck": "209.50.49.117 dev hsow08 src 10.64.0.63 uid 0 ",
+    "session": {
+      "createdAt": "2026-06-09T07:16:32.185Z",
+      "id": "86536fe9-e6a6-42ab-8f34-6174e75ea64f",
+      "phase": "active"
+    },
+    "source": {
+      "host": "testnode-eu-mad-01.testnet.hyperspace.zone",
+      "key": "eu-mad",
+      "publicIp": "5.22.218.206"
+    }
+  },
+  {
+    "destination": {
+      "host": "testnode-eu-sto-01.testnet.hyperspace.zone",
+      "key": "eu-sto",
+      "publicIp": "212.147.245.233"
+    },
+    "elapsed_seconds": 52.06524069997249,
+    "mode": "hyperspace",
+    "path": {
+      "egressGateName": "gate-eu-ams-01",
+      "ingressGateName": "gate-ap-sin-01"
+    },
+    "probe": {
+      "forward_one_way_ms": {
+        "max": 143.08,
+        "mean": 142.591,
+        "min": 142.499,
+        "p50": 142.577,
+        "p95": 142.668
+      },
+      "loss_percent": 0.0,
+      "lost": 0,
+      "port": 19191,
+      "received": 80,
+      "reverse_one_way_ms": {
+        "max": 472.031,
+        "mean": 266.298,
+        "min": 262.159,
+        "p50": 262.229,
+        "p95": 262.317
+      },
+      "rtt_ms": {
+        "max": 614.626,
+        "mean": 408.923,
+        "min": 404.73,
+        "p50": 404.851,
+        "p95": 405.03
+      },
+      "sent": 80,
+      "target": "212.147.245.233"
+    },
+    "routeCheck": "212.147.245.233 dev hsow09 src 10.64.0.64 uid 0 ",
+    "session": {
+      "createdAt": "2026-06-09T07:16:57.690Z",
+      "id": "3ef43f79-524f-4aa5-bb2e-3ab58c6fa7ad",
+      "phase": "active"
+    },
+    "source": {
+      "host": "testnode-ap-syd-01.testnet.hyperspace.zone",
+      "key": "ap-syd",
+      "publicIp": "212.147.252.52"
+    }
+  },
+  {
+    "destination": {
+      "host": "testnode-eu-mad-01.testnet.hyperspace.zone",
+      "key": "eu-mad",
+      "publicIp": "5.22.218.206"
+    },
+    "elapsed_seconds": 44.161362965009175,
+    "mode": "hyperspace",
+    "path": {
+      "egressGateName": "gate-eu-ams-01",
+      "ingressGateName": "gate-ap-sin-01"
+    },
+    "probe": {
+      "forward_one_way_ms": {
+        "max": 150.32,
+        "mean": 149.852,
+        "min": 149.769,
+        "p50": 149.841,
+        "p95": 149.95
+      },
+      "loss_percent": 0.0,
+      "lost": 0,
+      "port": 19191,
+      "received": 80,
+      "reverse_one_way_ms": {
+        "max": 132.251,
+        "mean": 130.914,
+        "min": 130.804,
+        "p50": 130.891,
+        "p95": 130.997
+      },
+      "rtt_ms": {
+        "max": 282.164,
+        "mean": 280.795,
+        "min": 280.614,
+        "p50": 280.76,
+        "p95": 280.912
+      },
+      "sent": 80,
+      "target": "5.22.218.206"
+    },
+    "routeCheck": "5.22.218.206 dev hsow10 src 10.64.0.65 uid 0 ",
+    "session": {
+      "createdAt": "2026-06-09T07:17:56.733Z",
+      "id": "284aac51-345e-4903-8898-300a91b9840e",
+      "phase": "active"
+    },
+    "source": {
+      "host": "testnode-ap-syd-01.testnet.hyperspace.zone",
+      "key": "ap-syd",
+      "publicIp": "212.147.252.52"
+    }
+  },
+  {
+    "destination": {
+      "host": "testnode-na-sjc-01.testnet.hyperspace.zone",
+      "key": "na-sjc",
+      "publicIp": "209.151.144.208"
+    },
+    "elapsed_seconds": 52.84614642895758,
+    "mode": "hyperspace",
+    "path": {
+      "egressGateName": "gate-na-nyc-01",
+      "ingressGateName": "gate-ap-sin-01"
+    },
+    "probe": {
+      "forward_one_way_ms": {
+        "max": 190.602,
+        "mean": 190.164,
+        "min": 190.051,
+        "p50": 190.139,
+        "p95": 190.379
+      },
+      "loss_percent": 0.0,
+      "lost": 0,
+      "port": 19191,
+      "received": 80,
+      "reverse_one_way_ms": {
+        "max": 207.4,
+        "mean": 204.39,
+        "min": 204.149,
+        "p50": 204.224,
+        "p95": 204.817
+      },
+      "rtt_ms": {
+        "max": 397.567,
+        "mean": 394.592,
+        "min": 394.269,
+        "p50": 394.426,
+        "p95": 395.112
+      },
+      "sent": 80,
+      "target": "209.151.144.208"
+    },
+    "routeCheck": "209.151.144.208 dev hsow11 src 10.64.0.66 uid 0 ",
+    "session": {
+      "createdAt": "2026-06-09T07:18:44.544Z",
+      "id": "6f7dc373-ba93-48db-81eb-28868118dfed",
+      "phase": "active"
+    },
+    "source": {
+      "host": "testnode-ap-syd-01.testnet.hyperspace.zone",
+      "key": "ap-syd",
+      "publicIp": "212.147.252.52"
+    }
+  },
+  {
+    "destination": {
+      "host": "testnode-na-chi-01.testnet.hyperspace.zone",
+      "key": "na-chi",
+      "publicIp": "209.50.49.117"
+    },
+    "elapsed_seconds": 46.227270563016646,
+    "mode": "hyperspace",
+    "path": {
+      "egressGateName": "gate-na-nyc-01",
+      "ingressGateName": "gate-ap-sin-01"
+    },
+    "probe": {
+      "forward_one_way_ms": {
+        "max": 170.324,
+        "mean": 169.515,
+        "min": 169.373,
+        "p50": 169.496,
+        "p95": 169.651
+      },
+      "loss_percent": 0.0,
+      "lost": 0,
+      "port": 19191,
+      "received": 80,
+      "reverse_one_way_ms": {
+        "max": 165.518,
+        "mean": 165.077,
+        "min": 164.942,
+        "p50": 165.062,
+        "p95": 165.199
+      },
+      "rtt_ms": {
+        "max": 335.431,
+        "mean": 334.625,
+        "min": 334.456,
+        "p50": 334.606,
+        "p95": 334.933
+      },
+      "sent": 80,
+      "target": "209.50.49.117"
+    },
+    "routeCheck": "209.50.49.117 dev hsow12 src 10.64.0.67 uid 0 ",
+    "session": {
+      "createdAt": "2026-06-09T07:19:43.272Z",
+      "id": "20f7cdfa-d1d5-45f8-9515-89f9e3aa5213",
+      "phase": "active"
+    },
+    "source": {
+      "host": "testnode-ap-syd-01.testnet.hyperspace.zone",
+      "key": "ap-syd",
+      "publicIp": "212.147.252.52"
+    }
+  },
+  {
+    "destination": {
+      "host": "testnode-eu-sto-01.testnet.hyperspace.zone",
+      "key": "eu-sto",
+      "publicIp": "212.147.245.233"
+    },
+    "elapsed_seconds": 28.690685932000633,
+    "mode": "hyperspace",
+    "path": {
+      "egressGateName": "gate-eu-ams-01",
+      "ingressGateName": "gate-na-nyc-01"
+    },
+    "probe": {
+      "forward_one_way_ms": {
+        "max": 147.58,
+        "mean": 80.738,
+        "min": 78.725,
+        "p50": 78.812,
+        "p95": 79.733
+      },
+      "loss_percent": 0.0,
+      "lost": 0,
+      "port": 19191,
+      "received": 80,
+      "reverse_one_way_ms": {
+        "max": 79.006,
+        "mean": 78.687,
+        "min": 78.581,
+        "p50": 78.661,
+        "p95": 78.834
+      },
+      "rtt_ms": {
+        "max": 226.239,
+        "mean": 159.457,
+        "min": 157.41,
+        "p50": 157.516,
+        "p95": 158.41
+      },
+      "sent": 80,
+      "target": "212.147.245.233"
+    },
+    "routeCheck": "212.147.245.233 dev hsow13 src 10.64.0.68 uid 0 ",
+    "session": {
+      "createdAt": "2026-06-09T07:20:35.369Z",
+      "id": "412999d0-c45a-4b27-8c12-42dae72e2f18",
+      "phase": "active"
+    },
+    "source": {
+      "host": "testnode-na-sjc-01.testnet.hyperspace.zone",
+      "key": "na-sjc",
+      "publicIp": "209.151.144.208"
+    }
+  },
+  {
+    "destination": {
+      "host": "testnode-eu-mad-01.testnet.hyperspace.zone",
+      "key": "eu-mad",
+      "publicIp": "5.22.218.206"
+    },
+    "elapsed_seconds": 28.685323459969368,
+    "mode": "hyperspace",
+    "path": {
+      "egressGateName": "gate-eu-ams-01",
+      "ingressGateName": "gate-na-nyc-01"
+    },
+    "probe": {
+      "forward_one_way_ms": {
+        "max": 163.528,
+        "mean": 88.525,
+        "min": 85.898,
+        "p50": 86.026,
+        "p95": 97.942
+      },
+      "loss_percent": 0.0,
+      "lost": 0,
+      "port": 19191,
+      "received": 80,
+      "reverse_one_way_ms": {
+        "max": 76.229,
+        "mean": 74.587,
+        "min": 74.42,
+        "p50": 74.528,
+        "p95": 75.172
+      },
+      "rtt_ms": {
+        "max": 238.1,
+        "mean": 163.14,
+        "min": 160.435,
+        "p50": 160.585,
+        "p95": 172.42
+      },
+      "sent": 80,
+      "target": "5.22.218.206"
+    },
+    "routeCheck": "5.22.218.206 dev hsow14 src 10.64.0.69 uid 0 ",
+    "session": {
+      "createdAt": "2026-06-09T07:21:07.714Z",
+      "id": "c865ec54-23eb-42fa-a247-7ad94fd947d7",
+      "phase": "active"
+    },
+    "source": {
+      "host": "testnode-na-sjc-01.testnet.hyperspace.zone",
+      "key": "na-sjc",
+      "publicIp": "209.151.144.208"
+    }
+  },
+  {
+    "destination": {
+      "host": "testnode-ap-syd-01.testnet.hyperspace.zone",
+      "key": "ap-syd",
+      "publicIp": "212.147.252.52"
+    },
+    "elapsed_seconds": 48.628079663962126,
+    "mode": "hyperspace",
+    "path": {
+      "egressGateName": "gate-ap-sin-01",
+      "ingressGateName": "gate-na-nyc-01"
+    },
+    "probe": {
+      "forward_one_way_ms": {
+        "max": 200.281,
+        "mean": 191.995,
+        "min": 191.74,
+        "p50": 191.862,
+        "p95": 192.177
+      },
+      "loss_percent": 0.0,
+      "lost": 0,
+      "port": 19191,
+      "received": 80,
+      "reverse_one_way_ms": {
+        "max": 190.598,
+        "mean": 190.347,
+        "min": 190.222,
+        "p50": 190.339,
+        "p95": 190.434
+      },
+      "rtt_ms": {
+        "max": 390.67,
+        "mean": 382.377,
+        "min": 382.079,
+        "p50": 382.232,
+        "p95": 382.554
+      },
+      "sent": 80,
+      "target": "212.147.252.52"
+    },
+    "routeCheck": "212.147.252.52 dev hsow15 src 10.64.0.70 uid 0 ",
+    "session": {
+      "createdAt": "2026-06-09T07:21:38.950Z",
+      "id": "69d3edfc-75c4-410b-8d08-1c0ca3ca0fc6",
+      "phase": "active"
+    },
+    "source": {
+      "host": "testnode-na-sjc-01.testnet.hyperspace.zone",
+      "key": "na-sjc",
+      "publicIp": "209.151.144.208"
+    }
+  },
+  {
+    "destination": {
+      "host": "testnode-na-chi-01.testnet.hyperspace.zone",
+      "key": "na-chi",
+      "publicIp": "209.50.49.117"
+    },
+    "elapsed_seconds": 39.53263093600981,
+    "mode": "hyperspace",
+    "path": {
+      "egressGateName": "gate-eu-fra-01",
+      "ingressGateName": "gate-na-nyc-01"
+    },
+    "probe": {
+      "forward_one_way_ms": {
+        "max": 220.169,
+        "mean": 128.424,
+        "min": 126.618,
+        "p50": 126.762,
+        "p95": 130.151
+      },
+      "loss_percent": 0.0,
+      "lost": 0,
+      "port": 19191,
+      "received": 80,
+      "reverse_one_way_ms": {
+        "max": 171.85,
+        "mean": 142.458,
+        "min": 141.609,
+        "p50": 141.772,
+        "p95": 143.237
+      },
+      "rtt_ms": {
+        "max": 361.99,
+        "mean": 270.914,
+        "min": 268.318,
+        "p50": 268.59,
+        "p95": 277.647
+      },
+      "sent": 80,
+      "target": "209.50.49.117"
+    },
+    "routeCheck": "209.50.49.117 dev hsow16 src 10.64.0.71 uid 0 ",
+    "session": {
+      "createdAt": "2026-06-09T07:22:31.231Z",
+      "id": "7bff6670-f61c-43f2-ab15-2d01f5cbc0cf",
+      "phase": "active"
+    },
+    "source": {
+      "host": "testnode-na-sjc-01.testnet.hyperspace.zone",
+      "key": "na-sjc",
+      "publicIp": "209.151.144.208"
+    }
+  },
+  {
+    "destination": {
+      "host": "testnode-eu-sto-01.testnet.hyperspace.zone",
+      "key": "eu-sto",
+      "publicIp": "212.147.245.233"
+    },
+    "elapsed_seconds": 23.57576831697952,
+    "mode": "hyperspace",
+    "path": {
+      "egressGateName": "gate-eu-ams-01",
+      "ingressGateName": "gate-na-nyc-01"
+    },
+    "probe": {
+      "forward_one_way_ms": {
+        "max": 52.114,
+        "mean": 51.659,
+        "min": 51.501,
+        "p50": 51.648,
+        "p95": 51.843
+      },
+      "loss_percent": 0.0,
+      "lost": 0,
+      "port": 19191,
+      "received": 80,
+      "reverse_one_way_ms": {
+        "max": 58.456,
+        "mean": 58.027,
+        "min": 57.906,
+        "p50": 58.007,
+        "p95": 58.214
+      },
+      "rtt_ms": {
+        "max": 110.576,
+        "mean": 109.72,
+        "min": 109.441,
+        "p50": 109.699,
+        "p95": 109.973
+      },
+      "sent": 80,
+      "target": "212.147.245.233"
+    },
+    "routeCheck": "212.147.245.233 dev hsow17 src 10.64.0.72 uid 0 ",
+    "session": {
+      "createdAt": "2026-06-09T07:23:14.416Z",
+      "id": "a0ddb706-62bc-421a-8ca9-83faf6a1ddc5",
+      "phase": "active"
+    },
+    "source": {
+      "host": "testnode-na-chi-01.testnet.hyperspace.zone",
+      "key": "na-chi",
+      "publicIp": "209.50.49.117"
+    }
+  },
+  {
+    "destination": {
+      "host": "testnode-eu-mad-01.testnet.hyperspace.zone",
+      "key": "eu-mad",
+      "publicIp": "5.22.218.206"
+    },
+    "elapsed_seconds": 24.815415298042353,
+    "mode": "hyperspace",
+    "path": {
+      "egressGateName": "gate-eu-ams-01",
+      "ingressGateName": "gate-na-nyc-01"
+    },
+    "probe": {
+      "forward_one_way_ms": {
+        "max": 59.112,
+        "mean": 58.868,
+        "min": 58.766,
+        "p50": 58.853,
+        "p95": 58.996
+      },
+      "loss_percent": 0.0,
+      "lost": 0,
+      "port": 19191,
+      "received": 80,
+      "reverse_one_way_ms": {
+        "max": 54.193,
+        "mean": 53.868,
+        "min": 53.785,
+        "p50": 53.861,
+        "p95": 53.93
+      },
+      "rtt_ms": {
+        "max": 113.238,
+        "mean": 112.767,
+        "min": 112.606,
+        "p50": 112.759,
+        "p95": 112.885
+      },
+      "sent": 80,
+      "target": "5.22.218.206"
+    },
+    "routeCheck": "5.22.218.206 dev hsow18 src 10.64.0.73 uid 0 ",
+    "session": {
+      "createdAt": "2026-06-09T07:23:41.646Z",
+      "id": "6960f9ea-23d0-4f06-bc70-84e9a54b0361",
+      "phase": "active"
+    },
+    "source": {
+      "host": "testnode-na-chi-01.testnet.hyperspace.zone",
+      "key": "na-chi",
+      "publicIp": "209.50.49.117"
+    }
+  },
+  {
+    "destination": {
+      "host": "testnode-ap-syd-01.testnet.hyperspace.zone",
+      "key": "ap-syd",
+      "publicIp": "212.147.252.52"
+    },
+    "elapsed_seconds": 42.42591401399113,
+    "mode": "hyperspace",
+    "path": {
+      "egressGateName": "gate-ap-sin-01",
+      "ingressGateName": "gate-na-nyc-01"
+    },
+    "probe": {
+      "forward_one_way_ms": {
+        "max": 177.251,
+        "mean": 176.661,
+        "min": 176.542,
+        "p50": 176.635,
+        "p95": 176.866
+      },
+      "loss_percent": 0.0,
+      "lost": 0,
+      "port": 19191,
+      "received": 80,
+      "reverse_one_way_ms": {
+        "max": 170.017,
+        "mean": 169.702,
+        "min": 169.578,
+        "p50": 169.693,
+        "p95": 169.821
+      },
+      "rtt_ms": {
+        "max": 347.072,
+        "mean": 346.398,
+        "min": 346.193,
+        "p50": 346.372,
+        "p95": 346.631
+      },
+      "sent": 80,
+      "target": "212.147.252.52"
+    },
+    "routeCheck": "212.147.252.52 dev hsow19 src 10.64.0.74 uid 0 ",
+    "session": {
+      "createdAt": "2026-06-09T07:24:10.114Z",
+      "id": "1ea340a0-74a1-4cbe-b991-e60de7385149",
+      "phase": "active"
+    },
+    "source": {
+      "host": "testnode-na-chi-01.testnet.hyperspace.zone",
+      "key": "na-chi",
+      "publicIp": "209.50.49.117"
+    }
+  },
+  {
+    "destination": {
+      "host": "testnode-na-sjc-01.testnet.hyperspace.zone",
+      "key": "na-sjc",
+      "publicIp": "209.151.144.208"
+    },
+    "elapsed_seconds": 35.05926280195126,
+    "mode": "hyperspace",
+    "path": {
+      "egressGateName": "gate-eu-ams-01",
+      "ingressGateName": "gate-na-nyc-01"
+    },
+    "probe": {
+      "forward_one_way_ms": {
+        "max": 111.177,
+        "mean": 109.476,
+        "min": 109.36,
+        "p50": 109.441,
+        "p95": 109.608
+      },
+      "loss_percent": 0.0,
+      "lost": 0,
+      "port": 19191,
+      "received": 80,
+      "reverse_one_way_ms": {
+        "max": 126.018,
+        "mean": 116.234,
+        "min": 115.817,
+        "p50": 115.957,
+        "p95": 116.625
+      },
+      "rtt_ms": {
+        "max": 235.482,
+        "mean": 225.75,
+        "min": 225.291,
+        "p50": 225.456,
+        "p95": 227.182
+      },
+      "sent": 80,
+      "target": "209.151.144.208"
+    },
+    "routeCheck": "209.151.144.208 dev hsow20 src 10.64.0.75 uid 0 ",
+    "session": {
+      "createdAt": "2026-06-09T07:24:56.202Z",
+      "id": "af6d81ed-d012-4d7c-acdf-cc32733f374a",
+      "phase": "active"
+    },
+    "source": {
+      "host": "testnode-na-chi-01.testnet.hyperspace.zone",
+      "key": "na-chi",
+      "publicIp": "209.50.49.117"
+    }
+  }
+]

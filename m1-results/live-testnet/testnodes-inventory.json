@@ -1,0 +1,51 @@
+{
+  "testnodes": [
+    {
+      "key": "eu-sto",
+      "host": "testnode-eu-sto-01.testnet.hyperspace.zone",
+      "publicIp": "212.147.245.233"
+    },
+    {
+      "key": "eu-mad",
+      "host": "testnode-eu-mad-01.testnet.hyperspace.zone",
+      "publicIp": "5.22.218.206"
+    },
+    {
+      "key": "ap-syd",
+      "host": "testnode-ap-syd-01.testnet.hyperspace.zone",
+      "publicIp": "212.147.252.52"
+    },
+    {
+      "key": "na-sjc",
+      "host": "testnode-na-sjc-01.testnet.hyperspace.zone",
+      "publicIp": "209.151.144.208"
+    },
+    {
+      "key": "na-chi",
+      "host": "testnode-na-chi-01.testnet.hyperspace.zone",
+      "publicIp": "209.50.49.117"
+    }
+  ],
+  "gates": [
+    {
+      "name": "gate-eu-fra-01",
+      "publicEndpoint": "212.147.230.200"
+    },
+    {
+      "name": "gate-eu-ams-01",
+      "publicEndpoint": "85.9.219.252"
+    },
+    {
+      "name": "gate-eu-lon-01",
+      "publicEndpoint": "94.237.62.140"
+    },
+    {
+      "name": "gate-na-nyc-01",
+      "publicEndpoint": "85.9.199.104"
+    },
+    {
+      "name": "gate-ap-sin-01",
+      "publicEndpoint": "213.163.192.30"
+    }
+  ]
+}

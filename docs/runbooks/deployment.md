@@ -424,8 +424,16 @@ chown -R hyperspace:hyperspace "$HS_REPO_DIR"
 cd "$HS_REPO_DIR"
 sudo -u hyperspace npm ci
 sudo -u hyperspace npm run build
-sudo -u hyperspace npm test
+sudo -u hyperspace npm run typecheck
+sudo -u hyperspace npm test --workspaces --if-present
 ```
+
+The TypeScript backend is organized as a modular monolith: thin API and worker
+entrypoints in `apps/*` call domain/application code from
+`packages/control-plane`, while API/resource contracts live in
+`packages/contracts`. Always build and typecheck the full workspace after a
+checkout or upgrade so route, reconciler, repository, and contract boundaries
+are validated together.
 
 ## Database
 
@@ -760,11 +768,13 @@ Expected result is `204 No Content` with `Access-Control-Allow-Origin` and
 
 ## Validation
 
-Provision at least one validation client that is not a gate and not the
-control-plane host. For restricted IP-to-target validation, also choose a target
-IP that is reachable from the egress gate and a different non-target IP that
-must remain blocked. Provisioning, artifact download, and revoke checks alone
-do not prove that real WireGuard traffic is routed correctly.
+The canonical test-case catalog is `docs/testing/test-cases.md`. Use it as the
+source of truth for release validation. Provision at least two validation
+clients that are not gates and not the control-plane host. For restricted
+IP-to-target validation, also choose a target IP that is reachable from the
+egress gate and a different non-target IP that must remain blocked.
+Provisioning, artifact download, and revoke checks alone do not prove that real
+WireGuard traffic is routed correctly.
 
 Before giving the UI to users, validate:
 
@@ -786,6 +796,114 @@ Before giving the UI to users, validate:
 
 Keep validation clients separate from gate hosts so the results reflect the
 user path.
+
+### Automated UI/API smoke
+
+Run this from an operator workstation, CI runner, or the control-plane host
+after the web/API endpoint is reachable over HTTPS. The script uses
+`playwright-core`, so provide a local Chromium/Chrome executable:
+
+```bash
+cd "$HS_REPO_DIR"
+
+export HS_WEB_BASE=https://<web-host>
+export HS_API_BASE=https://<web-host>/api
+# If calling a split API host directly from automation, use:
+# export HS_API_BASE=https://<api-host>
+
+export HS_TEST_INGRESS=<schedulable-ingress-gate-name>
+export HS_TEST_EGRESS=<different-schedulable-egress-gate-name>
+export HS_TEST_TARGET_IP=<reachable-ipv4-target>
+export HS_TEST_OUTPUT_DIR=m1-results/live-cluster
+export HS_HEADLESS=true
+export PLAYWRIGHT_CHROMIUM_EXECUTABLE=/path/to/chromium-or-chrome
+
+node scripts/testnet/live-ui-smoke.mjs
+```
+
+Expected result:
+
+- `status: "passed"` in `live-ui-smoke-*.json`.
+- No browser console errors.
+- Registration, login, create-config Step 1/Step 2, provisioning to `active`,
+  raw `.conf` download contract, UI download, revoke, and delete all succeed.
+- The script does not persist raw WireGuard `.conf` files in the output
+  directory.
+
+### Automated WireGuard policy smoke
+
+Run this after preparing validation clients with `wireguard-tools`,
+`wg-quick`, SSH access, and the one-way probe from `scripts/testnodes`.
+
+```bash
+cd "$HS_REPO_DIR"
+
+export HS_API_BASE=https://<web-host>/api
+export HS_TEST_OUTPUT_DIR=m1-results/live-cluster
+export HS_TESTNODE_SSH_KEY=/path/to/testnode-ssh-key
+
+export HS_TEST_INGRESS=<schedulable-ingress-gate-name>
+export HS_TEST_EGRESS=<different-schedulable-egress-gate-name>
+
+export HS_ALLOWED_SOURCE_HOST=<allowed-source-testnode-host>
+export HS_ALLOWED_SOURCE_IP=<allowed-source-public-ip>
+export HS_DENIED_SOURCE_HOST=<denied-source-testnode-host>
+export HS_DENIED_SOURCE_IP=<denied-source-public-ip>
+export HS_TARGET_HOST=<target-testnode-host>
+export HS_TARGET_IP=<target-public-ip>
+export HS_NON_TARGET_HOST=<non-target-testnode-host>
+export HS_NON_TARGET_IP=<non-target-public-ip>
+
+node scripts/testnet/live-policy-smoke.mjs
+```
+
+Expected result:
+
+- Target-restricted config works from the allowed source to the selected target.
+- The same config cannot reach a non-target IP even if the client-side
+  `AllowedIPs` line is widened.
+- The same config cannot be used from a different public source IP.
+- A user-provided WireGuard public key works only with its matching private key.
+- Temporary sessions are revoked and deleted in cleanup.
+
+### Full testnode latency matrix
+
+Prepare every validation testnode:
+
+```bash
+rsync -az scripts/testnodes/ root@<testnode-host>:/opt/hyperspace-testnodes/
+ssh root@<testnode-host> 'bash /opt/hyperspace-testnodes/prepare-testnode.sh'
+ssh root@<testnode-host> 'nohup /opt/hyperspace-testnodes/one_way_probe.py server --port 19191 >/var/log/hyperspace-one-way-probe.log 2>&1 &'
+```
+
+Create an inventory file modelled on `scripts/testnodes/inventory.example.json`
+with at least two testnodes and two gates. Then run:
+
+```bash
+python3 scripts/testnodes/run_measurement_matrix.py \
+  --mode all \
+  --inventory ./m1-testnodes.json \
+  --api-base "$HS_API_BASE" \
+  --ssh-key "$HS_TESTNODE_SSH_KEY" \
+  --output-dir m1-results/live-cluster/matrix \
+  --active-timeout 120 \
+  --revoke-timeout 120
+
+python3 scripts/testnodes/compare_measurements.py \
+  --public m1-results/live-cluster/matrix/public.json \
+  --hyperspace m1-results/live-cluster/matrix/hyperspace.json \
+  --output m1-results/live-cluster/matrix/comparison.md
+```
+
+Expected result:
+
+- `public.json`, `gate-ping.json`, `hyperspace.json`, and `comparison.md` are
+  produced.
+- Every directed pair reaches `active` before the Hyperspace probe.
+- Packet loss is acceptable for both public and Hyperspace samples.
+- `hyperspace.json` records the selected ingress/egress gate pair per directed
+  measurement.
+- Temporary sessions are revoked and deleted after each measurement.
 
 For API automation, first request a client-config download token, then fetch the
 raw WireGuard config with either `downloadConfigUrl` or `?format=conf`:
