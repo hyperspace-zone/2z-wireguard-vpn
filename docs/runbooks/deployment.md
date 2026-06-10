@@ -105,6 +105,39 @@ Current gate-agent env names are `CONTROL_PLANE_URL`, `GATE_NAME`,
 `POLL_INTERVAL`, and `HEARTBEAT_INTERVAL`. Legacy names such as `API_URL`,
 `GATE_ID`, and `POLL_INTERVAL_SEC` are not used by the current agent.
 
+Gate hosts must be dedicated network hosts. Do not run Docker/containerd or
+other software that rewrites forwarding policy on a gate. Docker commonly sets
+`iptables` `FORWARD` policy to `DROP`; Hyperspace nftables rules can then show
+accepted packets while Docker drops forwarding later in the host firewall path.
+
+Run this preflight on every gate before installing Hyperspace:
+
+```bash
+systemctl is-active --quiet docker && {
+  echo "docker is active; use a clean dedicated gate host or disable Docker first" >&2
+  exit 1
+}
+systemctl is-active --quiet containerd && {
+  echo "containerd is active; use a clean dedicated gate host or disable containerd first" >&2
+  exit 1
+}
+
+iptables -S FORWARD 2>/dev/null || true
+iptables -S FORWARD 2>/dev/null | grep -q '^-P FORWARD DROP' && {
+  echo "iptables FORWARD policy is DROP; gate forwarding will fail" >&2
+  exit 1
+}
+```
+
+On a disposable gate host where Docker/containerd is not used by any workload,
+clean it before continuing:
+
+```bash
+systemctl disable --now docker docker.socket containerd 2>/dev/null || true
+iptables -P FORWARD ACCEPT 2>/dev/null || true
+iptables -F DOCKER-USER 2>/dev/null || true
+```
+
 ## SSH Host Key Verification
 
 If a server was reimaged, its SSH host key should change. Treat any
@@ -628,24 +661,13 @@ systemctl reload caddy
 Health check paths depend on which host you call:
 
 ```bash
-wait_https() {
-  url="${1:?url required}"
-  for i in $(seq 1 30); do
-    if curl -fsS "$url"; then
-      return 0
-    fi
-    sleep 1
-  done
-  return 1
-}
-
 # API origin directly:
-wait_https https://<api-host>/health
-wait_https https://<api-host>/v1/public/health
+curl --retry 30 --retry-delay 1 --retry-all-errors -fsS https://<api-host>/health
+curl --retry 30 --retry-delay 1 --retry-all-errors -fsS https://<api-host>/v1/public/health
 
 # Web/API host where /api/* is proxied to the API:
-wait_https https://<web-host>/api/health
-wait_https https://<web-host>/api/v1/public/health
+curl --retry 30 --retry-delay 1 --retry-all-errors -fsS https://<web-host>/api/health
+curl --retry 30 --retry-delay 1 --retry-all-errors -fsS https://<web-host>/api/v1/public/health
 ```
 
 The API process exposes OpenAPI at `/openapi.json` on a direct API origin. In
@@ -725,19 +747,8 @@ ssh root@<web-host> 'chown -R caddy:caddy /var/www/hyperspace-web && systemctl r
 Validate the public entrypoint after every upgrade:
 
 ```bash
-wait_https() {
-  url="${1:?url required}"
-  for i in $(seq 1 30); do
-    if curl -fsS "$url"; then
-      return 0
-    fi
-    sleep 1
-  done
-  return 1
-}
-
-wait_https https://<web-host>/api/health | jq .
-curl -fsS https://<web-host>/api/openapi.json \
+curl --retry 30 --retry-delay 1 --retry-all-errors -fsS https://<web-host>/api/health | jq .
+curl --retry 30 --retry-delay 1 --retry-all-errors -fsS https://<web-host>/api/openapi.json \
   | jq -e '.paths["/health"] and .paths["/v1/public/health"] and .paths["/v1/public/auth/me"]'
 
 HS_WEB_BASE=https://<web-host> \
@@ -824,10 +835,15 @@ Build and test the gate-agent binary:
 
 ```bash
 cd "$HS_REPO_DIR/apps/gate-agent"
-/usr/local/go/bin/go test ./...
-/usr/local/go/bin/go build -o /tmp/hyperspace-gate-agent ./cmd/hyperspace-gate-agent
+sudo -u hyperspace env PATH="/usr/local/go/bin:$PATH" /usr/local/go/bin/go test ./...
+sudo -u hyperspace env PATH="/usr/local/go/bin:$PATH" /usr/local/go/bin/go build -buildvcs=false -o /tmp/hyperspace-gate-agent ./cmd/hyperspace-gate-agent
 chmod 0755 /tmp/hyperspace-gate-agent
 ```
+
+Build as the `hyperspace` repository owner. Building as root from a checkout
+owned by `hyperspace` can fail with Git dubious ownership or VCS stamping
+errors. `-buildvcs=false` keeps the binary build independent from local Git
+ownership metadata.
 
 Copy the binary and systemd unit to each gate:
 
