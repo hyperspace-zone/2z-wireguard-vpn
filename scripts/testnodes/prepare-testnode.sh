@@ -22,9 +22,9 @@ apt-get install -y \
   wireguard-tools
 
 systemctl enable --now chrony
-chronyc waitsync 20 0.1 || true
+chronyc waitsync 60 0.05
 
 install -d -m 0755 /opt/hyperspace-testnodes
 
 echo "testnode prepared"
-chronyc tracking || true
+chronyc tracking

@@ -643,10 +643,12 @@ rsync -a --delete "$HS_REPO_DIR/apps/web/dist/" /var/www/hyperspace-web/
 
 export APP_HOST="$HS_WEB_HOST"
 export TLS_FULLCHAIN=/etc/caddy/certs/"$HS_WEB_HOST"/fullchain.pem
-export TLS_PRIVKEY=/etc/caddy/certs/$"HS_WEB_HOST"/privkey.pem
+export TLS_PRIVKEY=/etc/caddy/certs/"$HS_WEB_HOST"/privkey.pem
 : "${APP_HOST:?APP_HOST is required}"
 : "${TLS_FULLCHAIN:?TLS_FULLCHAIN is required}"
 : "${TLS_PRIVKEY:?TLS_PRIVKEY is required}"
+test -f "$TLS_FULLCHAIN" || { echo "missing TLS_FULLCHAIN: $TLS_FULLCHAIN" >&2; exit 1; }
+test -f "$TLS_PRIVKEY" || { echo "missing TLS_PRIVKEY: $TLS_PRIVKEY" >&2; exit 1; }
 envsubst < "$HS_REPO_DIR/infra/caddy/Caddyfile.combined.example" > /etc/caddy/Caddyfile
 if grep -n '\${' /etc/caddy/Caddyfile; then
   echo "unrendered Caddy template variables remain" >&2
@@ -1096,6 +1098,14 @@ Prepare every validation testnode:
 rsync -az scripts/testnodes/ root@<testnode-host>:/opt/hyperspace-testnodes/
 ssh root@<testnode-host> 'bash /opt/hyperspace-testnodes/prepare-testnode.sh'
 ssh root@<testnode-host> 'nohup /opt/hyperspace-testnodes/one_way_probe.py server --port 19191 >/var/log/hyperspace-one-way-probe.log 2>&1 &'
+```
+
+Wait for chrony to stabilize before running one-way measurements. RTT, jitter,
+and loss do not depend on cross-host wall-clock sync, but forward/reverse
+one-way latency does:
+
+```bash
+ssh root@<testnode-host> 'chronyc waitsync 60 0.05 && chronyc tracking'
 ```
 
 Create an inventory file modelled on `scripts/testnodes/inventory.example.json`

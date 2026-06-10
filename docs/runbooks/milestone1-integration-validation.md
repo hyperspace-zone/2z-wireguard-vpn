@@ -43,12 +43,12 @@ ssh root@<testnode-host> 'nohup /opt/hyperspace-testnodes/one_way_probe.py serve
 Confirm time synchronization before one-way measurements:
 
 ```bash
-ssh root@<testnode-host> 'chronyc tracking'
+ssh root@<testnode-host> 'chronyc waitsync 60 0.05 && chronyc tracking'
 ```
 
 One-way values depend on both hosts' wall clocks. Treat one-way deltas as
-directional diagnostics unless chrony offset is low on both hosts. RTT does not
-depend on cross-host clock synchronization.
+directional diagnostics unless chrony offset is low and stable on both hosts.
+RTT does not depend on cross-host clock synchronization.
 
 ## Inventory
 
