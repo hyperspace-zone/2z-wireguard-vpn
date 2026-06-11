@@ -60,18 +60,18 @@ Do not mix environments. A gate with a `testnet` `access-pass` must run
 
 ## Bootstrap Variables
 
-Set these input variables before following the copy/paste examples. Keep the
-same values across the control-plane and gate hosts where applicable:
+Set these input variables before following the copy/paste examples. Replace the
+example values with your real public IPs/DNS names and operations email. Keep
+the same values across the control-plane and gate hosts where applicable:
 
 ```bash
 export HS_REPO_URL=https://github.com/hyperspace-zone/2z-wireguard-vpn.git
 export HS_REPO_DIR=/opt/2z-wireguard-vpn
-export HS_WEB_HOST="${HS_WEB_HOST:-}"
-export HS_API_HOST="${HS_API_HOST:-}"
-export OPS_EMAIL="${OPS_EMAIL:-}"
-: "${HS_WEB_HOST:?set HS_WEB_HOST to the web public IP or DNS name}"
-: "${HS_API_HOST:?set HS_API_HOST to the control-plane public IP or DNS name}"
-: "${OPS_EMAIL:?set OPS_EMAIL to the Let's Encrypt operations email}"
+
+# Example for a combined web/API/control-plane host. Replace with your values.
+export HS_WEB_HOST=94.237.39.142
+export HS_API_HOST=94.237.39.142
+export OPS_EMAIL=ops@example.com
 
 export DZ_ENV=mainnet-beta
 # or:
@@ -230,7 +230,8 @@ From the operator workstation, collect the expected fingerprint and compare it
 with the provider console or another trusted out-of-band source:
 
 ```bash
-: "${BOOTSTRAP_HOST:?set BOOTSTRAP_HOST to the public IP or DNS name to verify}"
+# Example only. Replace with the host you are verifying.
+export BOOTSTRAP_HOST=94.237.39.142
 ssh-keyscan -t ed25519 "$BOOTSTRAP_HOST" >"/tmp/${BOOTSTRAP_HOST}.ed25519"
 ssh-keygen -lf "/tmp/${BOOTSTRAP_HOST}.ed25519"
 ```
@@ -308,7 +309,8 @@ address for an IP-only bootstrap, or the DNS name if you already have stable DNS
 pointing at this host. Do not use a private/local address.
 
 ```bash
-: "${TLS_CERT_NAME:?set TLS_CERT_NAME to this host's public IP or DNS name}"
+# Example only. Replace on each host with that host's public IP or DNS name.
+export TLS_CERT_NAME=94.237.39.142
 ```
 
 For the combined web/control-plane host this is usually `HS_WEB_HOST`. For a
