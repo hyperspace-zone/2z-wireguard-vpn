@@ -244,50 +244,12 @@ owner, ingress gate, and egress gate in the validation notes.
 
 ## Long-Running Measurements
 
-The following sections produce a connectivity matrix. They are intentionally
-not part of `npm test`, `npm run test:live:ui`, or
-`npm run test:live:policy`.
+The connectivity matrix is intentionally not part of `npm test`,
+`npm run test:live:ui`, or `npm run test:live:policy`. Use
+`docs/runbooks/long-running-measurement-matrix.md` when measurement evidence is
+requested.
 
-### Public Baseline
-
-Measure direct public Internet paths between validation clients:
-
-```bash
-npm run measure:matrix -- \
-  --mode public \
-  --inventory ./m1-testnodes.json \
-  --ssh-key ~/.ssh/<validation-key> \
-  --count 80 \
-  --interval 0.04 \
-  --timeout 2.0 \
-  --output-dir ./m1-results
-```
-
-Expected result:
-
-- `m1-results/public.json` is written.
-- Every directed pair has `loss_percent` close to `0.0`.
-
-### Hyperspace Route Matrix
-
-Run the same directed matrix through issued WireGuard configs:
-
-```bash
-npm run measure:matrix -- \
-  --mode hyperspace \
-  --inventory ./m1-testnodes.json \
-  --api-base "$HS_PUBLIC_API_BASE" \
-  --ssh-key ~/.ssh/<validation-key> \
-  --count 80 \
-  --interval 0.04 \
-  --timeout 2.0 \
-  --active-timeout 120 \
-  --revoke-timeout 120 \
-  --wg-warmup-seconds 2.0 \
-  --output-dir ./m1-results
-```
-
-What the script does:
+The matrix script:
 
 1. Registers or logs in with a validation account.
 2. Selects ingress and egress gates by nearest public ping from source and
@@ -300,30 +262,14 @@ What the script does:
 
 Expected result:
 
+- `public.json` is written with the public baseline.
 - `m1-results/hyperspace.json` is written.
 - Every directed pair reaches `active` before measurement.
 - Every directed pair has `loss_percent` close to `0.0`.
 - The `path.ingressGateName` and `path.egressGateName` fields show the selected
   gate pair for each measurement.
-
-### Compare Public vs Hyperspace
-
-Create a markdown comparison report:
-
-```bash
-npm run measure:compare -- \
-  --public ./m1-results/public.json \
-  --hyperspace ./m1-results/hyperspace.json \
-  --output ./m1-results/public-vs-hyperspace.md
-```
-
-Review:
-
-- Directed pairs measured.
-- Hyperspace path used for every pair.
-- RTT p50 delta.
-- Forward and reverse one-way deltas.
-- Packet loss.
+- `comparison.md` reviews directed pairs, selected Hyperspace paths, RTT p50
+  deltas, forward/reverse one-way deltas, and packet loss.
 
 Positive deltas mean Hyperspace was faster than public Internet for that
 sample window. Negative deltas are acceptable for Milestone 1 when gate

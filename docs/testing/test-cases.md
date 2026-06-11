@@ -159,21 +159,9 @@ configs.
 
 ## Long-Running Measurements
 
-Run the directed connectivity matrix only when measurement evidence is needed:
-
-```bash
-npm run measure:matrix -- \
-  --mode all \
-  --inventory ./m1-testnodes.json \
-  --api-base "$HS_API_BASE" \
-  --ssh-key "$HS_TESTNODE_SSH_KEY" \
-  --output-dir ./m1-results/matrix
-
-npm run measure:compare -- \
-  --public ./m1-results/matrix/public.json \
-  --hyperspace ./m1-results/matrix/hyperspace.json \
-  --output ./m1-results/matrix/public-vs-hyperspace.md
-```
+Run the directed connectivity matrix only when measurement evidence is needed.
+Use `docs/runbooks/long-running-measurement-matrix.md` for prerequisites and
+commands.
 
 This matrix creates many temporary configs, starts WireGuard repeatedly on
 validation nodes, and probes every directed testnode pair. It is intentionally

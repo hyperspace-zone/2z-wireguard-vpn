@@ -1365,9 +1365,22 @@ Expected result:
 - The script does not persist raw WireGuard `.conf` files in the output
   directory.
 
-### Automated WireGuard policy smoke
+### Open the Web UI
 
-Run this after preparing validation clients with `wireguard-tools`,
+At this point the deployment is usable for normal operator testing. From a
+browser on your workstation, open the web origin and register or log in:
+
+```bash
+printf 'Open: https://%s\n' "$HS_WEB_HOST"
+```
+
+Use the Gates view to confirm at least two gates are `Ready=yes` and
+`Schedulable=yes`, then create and download a VPN config from the UI.
+
+### Optional Automated WireGuard Policy Smoke
+
+Skip this in a minimal deployment until you have dedicated validation clients.
+Run it only after preparing validation clients with `wireguard-tools`,
 `wg-quick`, SSH access, and the one-way probe from `scripts/testnodes`.
 Run it from the control-plane host, an operator workstation, or CI runner that
 has the repository checkout, Node dependencies, HTTPS access to the API, and
@@ -1432,56 +1445,9 @@ Expected result:
 - A user-provided WireGuard public key works only with its matching private key.
 - Temporary sessions are revoked and deleted in cleanup.
 
-### Optional Long-Running Measurement Matrix
-
-This section is for placement/performance evidence, not for routine deployment
-testing. It can create many temporary configs and probe every directed
-testnode pair, so do not run it as part of `npm test` or the live smoke tests.
-
-Prepare every validation testnode:
-
-```bash
-rsync -az scripts/testnodes/ root@<testnode-host>:/opt/hyperspace-testnodes/
-ssh root@<testnode-host> 'bash /opt/hyperspace-testnodes/prepare-testnode.sh'
-ssh root@<testnode-host> 'nohup /opt/hyperspace-testnodes/one_way_probe.py server --port 19191 >/var/log/hyperspace-one-way-probe.log 2>&1 &'
-```
-
-Wait for chrony to stabilize before running one-way measurements. RTT, jitter,
-and loss do not depend on cross-host wall-clock sync, but forward/reverse
-one-way latency does:
-
-```bash
-ssh root@<testnode-host> 'chronyc waitsync 60 0.05 && chronyc tracking'
-```
-
-Create an inventory file modelled on `scripts/testnodes/inventory.example.json`
-with at least two testnodes and two gates. Then run:
-
-```bash
-npm run measure:matrix -- \
-  --mode all \
-  --inventory ./m1-testnodes.json \
-  --api-base "$HS_API_BASE" \
-  --ssh-key "$HS_TESTNODE_SSH_KEY" \
-  --output-dir m1-results/live-cluster/matrix \
-  --active-timeout 120 \
-  --revoke-timeout 120
-
-npm run measure:compare -- \
-  --public m1-results/live-cluster/matrix/public.json \
-  --hyperspace m1-results/live-cluster/matrix/hyperspace.json \
-  --output m1-results/live-cluster/matrix/comparison.md
-```
-
-Expected result:
-
-- `public.json`, `gate-ping.json`, `hyperspace.json`, and `comparison.md` are
-  produced.
-- Every directed pair reaches `active` before the Hyperspace probe.
-- Packet loss is acceptable for both public and Hyperspace samples.
-- `hyperspace.json` records the selected ingress/egress gate pair per directed
-  measurement.
-- Temporary sessions are revoked and deleted after each measurement.
+For long-running placement and performance measurements, use
+`docs/runbooks/long-running-measurement-matrix.md`. That workflow requires
+separate testnode servers and is not part of routine deployment.
 
 For API automation, first request a client-config download token, then fetch the
 raw WireGuard config with either `downloadConfigUrl` or `?format=conf`:

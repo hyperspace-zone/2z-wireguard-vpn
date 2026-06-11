@@ -188,6 +188,7 @@ regression suite only. Live deployment checks are available as
 `npm run test:live:ui` and `npm run test:live:policy`. Long-running
 public-vs-Hyperspace connectivity matrices are explicit measurements:
 `npm run measure:matrix -- ...` followed by `npm run measure:compare -- ...`.
+See `docs/runbooks/long-running-measurement-matrix.md` for prerequisites.
 
 Gate agent checks:
 
