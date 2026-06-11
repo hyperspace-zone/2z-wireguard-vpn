@@ -150,7 +150,9 @@ iptables -F DOCKER-USER 2>/dev/null || true
 
 Start from clean, fully updated Ubuntu hosts. Do not continue deployment on a
 host with a pending kernel upgrade, pending reboot, or interactive
-`needrestart` prompt. Reboot first, reconnect, then rerun this preflight.
+`needrestart` prompt. If Ubuntu login prints `*** System restart required ***`,
+or if this preflight reports `/var/run/reboot-required`, reboot first,
+reconnect, then rerun this preflight.
 
 Run this on every control-plane, web, gate, and validation host before
 installing Hyperspace components:
@@ -185,6 +187,21 @@ fi
 After reboot, rerun the same block. It should finish without asking for input,
 without `/var/run/reboot-required`, and with the running kernel matching the
 latest installed kernel.
+
+If the preflight exits with a reboot message, run:
+
+```bash
+reboot
+```
+
+Then reconnect over SSH and rerun the preflight block. Continue only when the
+host no longer prints `*** System restart required ***` at login and the final
+kernel check succeeds, for example:
+
+```text
+running kernel: 6.8.0-124-generic
+latest installed kernel: 6.8.0-124-generic
+```
 
 The `full-upgrade` step is required before platform installation because these
 hosts carry kernel networking, WireGuard, nftables, Caddy, PostgreSQL, Node.js,
