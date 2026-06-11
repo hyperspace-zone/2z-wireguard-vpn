@@ -760,8 +760,11 @@ export DATABASE_URL="postgres://hyperspace:${DB_PASSWORD_URLENCODED}@127.0.0.1:5
 Run migrations from the control-plane checkout after `npm ci` and build:
 
 ```bash
-cd "$HS_REPO_DIR"
-sudo -u hyperspace env DATABASE_URL="$DATABASE_URL" npm run db:migrate
+if [ -f "$HS_REPO_DIR/package.json" ]; then
+  sudo -u hyperspace env DATABASE_URL="$DATABASE_URL" npm --prefix "$HS_REPO_DIR" run db:migrate
+else
+  echo "STOP: HS_REPO_DIR does not point to the cloned checkout; rerun Bootstrap Variables first" >&2
+fi
 ```
 
 Configure backups and test restore before accepting users.
@@ -923,7 +926,7 @@ sudo -u hyperspace npm test --workspaces --if-present
 set -a
 . /etc/hyperspace/control-plane-api.env
 set +a
-sudo -u hyperspace env DATABASE_URL="$DATABASE_URL" npm run db:migrate
+sudo -u hyperspace env DATABASE_URL="$DATABASE_URL" npm --prefix "$HS_REPO_DIR" run db:migrate
 
 install -o root -g root -m 0644 infra/systemd/hyperspace-control-plane-api.service /etc/systemd/system/
 install -o root -g root -m 0644 infra/systemd/hyperspace-control-plane-worker.service /etc/systemd/system/
