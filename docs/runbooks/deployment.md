@@ -1225,18 +1225,14 @@ Browser RTT measurement requires each gate to expose an HTTPS probe endpoint:
 GET /.well-known/hyperspace-probe -> 204 No Content
 ```
 
-Enable CORS and `Timing-Allow-Origin` for your web UI origin. Use the provided
-Caddyfile example on each gate. If the gate does not have a repository
-checkout, copy the template from the control-plane host first:
+Copy the Caddy probe template from the control-plane host to each gate:
 
 ```bash
 export GATE_PUBLIC_IPV4=203.0.113.10
 scp "$HS_REPO_DIR/infra/caddy/Caddyfile.gate-probe.example" "root@${GATE_PUBLIC_IPV4}:/tmp/Caddyfile.gate-probe.example"
 ```
 
-On each gate host, render and reload the gate probe Caddyfile. The template
-uses shell-style `${GATE_HOST}` variables for `envsubst`, not Caddy runtime
-`{$GATE_HOST}` variables:
+On each gate host, render and reload the probe Caddyfile:
 
 ```bash
 export GATE_HOST=203.0.113.10
@@ -1245,33 +1241,20 @@ export GATE_NAME=gate-eu-fra-01
 export TLS_FULLCHAIN=/etc/caddy/certs/${GATE_HOST}/fullchain.pem
 export TLS_PRIVKEY=/etc/caddy/certs/${GATE_HOST}/privkey.pem
 export GATE_CADDYFILE_TEMPLATE=/tmp/Caddyfile.gate-probe.example
-: "${GATE_HOST:?GATE_HOST is required}"
-: "${WEB_ORIGIN:?WEB_ORIGIN is required}"
-: "${GATE_NAME:?GATE_NAME is required}"
-: "${TLS_FULLCHAIN:?TLS_FULLCHAIN is required}"
-: "${TLS_PRIVKEY:?TLS_PRIVKEY is required}"
 
 envsubst < "$GATE_CADDYFILE_TEMPLATE" > /etc/caddy/Caddyfile
-if grep -n '\${' /etc/caddy/Caddyfile; then
-  echo "unrendered Caddy template variables remain" >&2
-  exit 1
-fi
 caddy fmt --overwrite /etc/caddy/Caddyfile
 caddy validate --config /etc/caddy/Caddyfile
 systemctl enable --now caddy
 systemctl reload caddy
 ```
 
-Verify that clients receive the expected certificate from the gate:
+Verify the certificate and probe:
 
 ```bash
 echo | openssl s_client -connect "${GATE_HOST}:443" -servername "${GATE_HOST}" 2>/dev/null \
   | openssl x509 -noout -issuer -dates -ext subjectAltName
-```
 
-Validate the probe:
-
-```bash
 curl -i "https://${GATE_HOST}/.well-known/hyperspace-probe"
 ```
 
