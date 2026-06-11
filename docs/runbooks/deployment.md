@@ -526,28 +526,36 @@ address, so a new `access-pass` must be issued for the new address and this
 gate public IP.
 
 ```bash
-install -d -m 0700 ~/.config/doublezero
-test -s ~/.config/doublezero/id.json || {
-  echo "missing DoubleZero keypair: ~/.config/doublezero/id.json" >&2
-  echo "restore the keypair that has an access-pass, or run: doublezero keygen --outfile ~/.config/doublezero/id.json" >&2
-  exit 1
+check_doublezero_access_pass() {
+  install -d -m 0700 ~/.config/doublezero
+  if ! test -s ~/.config/doublezero/id.json; then
+    echo "missing DoubleZero keypair: ~/.config/doublezero/id.json" >&2
+    echo "restore the keypair that has an access-pass, or run: doublezero keygen --outfile ~/.config/doublezero/id.json" >&2
+    return 1
+  fi
+  chmod 0600 ~/.config/doublezero/id.json
+
+  doublezero config set --env "$DZ_ENV" --keypair ~/.config/doublezero/id.json </dev/null
+  DOUBLEZERO_ADDRESS="$(doublezero --env "$DZ_ENV" --keypair ~/.config/doublezero/id.json address </dev/null)"
+  printf 'DoubleZero address: %s\n' "$DOUBLEZERO_ADDRESS"
+
+  if [ "$DOUBLEZERO_ADDRESS" = "11111111111111111111111111111111" ]; then
+    echo "invalid DoubleZero address; the CLI is not using a real gate keypair" >&2
+    return 1
+  fi
+
+  if ! doublezero --env "$DZ_ENV" --keypair ~/.config/doublezero/id.json access-pass list </dev/null | grep -F "$DOUBLEZERO_ADDRESS"; then
+    echo "no access-pass found for DoubleZero address $DOUBLEZERO_ADDRESS" >&2
+    echo "request an access-pass for this address and this gate public IP before continuing" >&2
+    return 1
+  fi
 }
-chmod 0600 ~/.config/doublezero/id.json
 
-doublezero config set --env "$DZ_ENV" --keypair ~/.config/doublezero/id.json </dev/null
-DOUBLEZERO_ADDRESS="$(doublezero --env "$DZ_ENV" --keypair ~/.config/doublezero/id.json address </dev/null)"
-printf 'DoubleZero address: %s\n' "$DOUBLEZERO_ADDRESS"
-
-if [ "$DOUBLEZERO_ADDRESS" = "11111111111111111111111111111111" ]; then
-  echo "invalid DoubleZero address; the CLI is not using a real gate keypair" >&2
-  exit 1
+if check_doublezero_access_pass; then
+  echo "DoubleZero keypair and access-pass check passed"
+else
+  echo "STOP: fix the DoubleZero keypair/access-pass before continuing" >&2
 fi
-
-doublezero --env "$DZ_ENV" --keypair ~/.config/doublezero/id.json access-pass list </dev/null | grep -F "$DOUBLEZERO_ADDRESS" || {
-  echo "no access-pass found for DoubleZero address $DOUBLEZERO_ADDRESS" >&2
-  echo "request an access-pass for this address and this gate public IP before continuing" >&2
-  exit 1
-}
 ```
 
 Redirect stdin from `/dev/null` when running these commands inside an SSH
