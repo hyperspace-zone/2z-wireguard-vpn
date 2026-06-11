@@ -60,18 +60,19 @@ Do not mix environments. A gate with a `testnet` `access-pass` must run
 
 ## Bootstrap Variables
 
-Set these input variables before following the copy/paste examples. Replace the
-example values with your real public IPs/DNS names and operations email. Keep
-the same values across the control-plane and gate hosts where applicable:
+Set these input variables before following the copy/paste examples. The
+`<...>` placeholders are intentionally invalid shell values: replace them with
+your real public IPs/DNS names and operations email before running the block.
+Keep the same values across the control-plane and gate hosts where applicable:
 
 ```bash
 export HS_REPO_URL=https://github.com/hyperspace-zone/2z-wireguard-vpn.git
 export HS_REPO_DIR=/opt/2z-wireguard-vpn
 
 # Example for a combined web/API/control-plane host. Replace with your values.
-export HS_WEB_HOST=YOUR_WEB_PUBLIC_IP_OR_DNS
-export HS_API_HOST=YOUR_CONTROL_PLANE_PUBLIC_IP_OR_DNS
-export OPS_EMAIL=YOUR_OPS_EMAIL
+export HS_WEB_HOST=<web-public-ip-or-dns>
+export HS_API_HOST=<control-plane-public-ip-or-dns>
+export OPS_EMAIL=<ops-email>
 
 export DZ_ENV=mainnet-beta
 # or:
@@ -231,7 +232,7 @@ with the provider console or another trusted out-of-band source:
 
 ```bash
 # Example only. Replace with the host you are verifying.
-export BOOTSTRAP_HOST=YOUR_HOST_PUBLIC_IP_OR_DNS
+export BOOTSTRAP_HOST=<host-public-ip-or-dns>
 ssh-keyscan -t ed25519 "$BOOTSTRAP_HOST" >"/tmp/${BOOTSTRAP_HOST}.ed25519"
 ssh-keygen -lf "/tmp/${BOOTSTRAP_HOST}.ed25519"
 ```
@@ -310,7 +311,7 @@ pointing at this host. Do not use a private/local address.
 
 ```bash
 # Example only. Replace on each host with that host's public IP or DNS name.
-export TLS_CERT_NAME=YOUR_HOST_PUBLIC_IP_OR_DNS
+export TLS_CERT_NAME=<host-public-ip-or-dns>
 ```
 
 For the combined web/control-plane host this is usually `HS_WEB_HOST`. For a
