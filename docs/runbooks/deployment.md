@@ -344,7 +344,8 @@ After Caddy is serving HTTPS, verify the certificate contains the expected
 domain or IP subject alternative name:
 
 ```bash
-echo | openssl s_client -connect <public-ip-or-domain>:443 -servername <public-ip-or-domain> 2>/dev/null \
+TLS_CERT_NAME="$(cat /etc/hyperspace/tls-cert-name)"
+echo | openssl s_client -connect "${TLS_CERT_NAME}:443" -servername "${TLS_CERT_NAME}" 2>/dev/null \
   | openssl x509 -noout -issuer -dates -ext subjectAltName
 ```
 
