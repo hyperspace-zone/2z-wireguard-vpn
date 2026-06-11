@@ -46,8 +46,8 @@ The handle lets an agent recover, retry, and report already-applied host state.
 
 ### Gate
 
-`Gate.spec` declares desired scheduling state, region, city/country location,
-endpoint, capabilities, capacity, and required agent version.
+`Gate.spec` declares desired scheduling state, city/country location, public
+IPv4 endpoint, capabilities, capacity, and required agent version.
 
 `Gate.status` reports heartbeat freshness, observed capabilities, capacity,
 headroom, and conditions such as `AgentConnected`, `Schedulable`, `Ready`, and

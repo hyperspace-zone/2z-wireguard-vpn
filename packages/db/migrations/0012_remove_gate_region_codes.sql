@@ -1,0 +1,3 @@
+ALTER TABLE gates
+  DROP COLUMN IF EXISTS region,
+  DROP COLUMN IF EXISTS country_code;

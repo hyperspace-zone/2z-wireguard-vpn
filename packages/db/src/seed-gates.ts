@@ -32,10 +32,8 @@ try {
             name,
             desired_state,
             identity,
-            region,
             city,
             country,
-            country_code,
             public_endpoint,
             scheduling_weight,
             capacity_limit,
@@ -45,10 +43,8 @@ try {
           ON CONFLICT (name) DO UPDATE
           SET
             identity = EXCLUDED.identity,
-            region = EXCLUDED.region,
             city = EXCLUDED.city,
             country = EXCLUDED.country,
-            country_code = EXCLUDED.country_code,
             public_endpoint = EXCLUDED.public_endpoint,
             scheduling_weight = EXCLUDED.scheduling_weight,
             capacity_limit = EXCLUDED.capacity_limit,
@@ -60,10 +56,8 @@ try {
         [
           seed.name,
           seed.identity,
-          seed.region,
           seed.city,
           seed.country,
-          seed.countryCode,
           seed.publicEndpoint,
           100,
           0,
@@ -72,8 +66,7 @@ try {
             ...(seed.probeUrl ? { probeUrl: seed.probeUrl } : {}),
             location: {
               city: seed.city,
-              country: seed.country,
-              countryCode: seed.countryCode
+              country: seed.country
             }
           })
         ]

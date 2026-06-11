@@ -29,10 +29,10 @@ For IP-to-target routes:
 For full-tunnel routes:
 
 - Ingress should be near the users.
-- Egress should be near the desired internet exit region.
+- Egress should be near the desired internet exit location.
 
-The best public-cloud region is not always the best gate region. Prefer a VPS
-or bare-metal region that is close, in network terms, to the selected
+The best public-cloud location is not always the best gate placement. Prefer a
+VPS or bare-metal site that is close, in network terms, to the selected
 DoubleZero device or metro.
 
 ## Measuring The Nearest DoubleZero PoP
@@ -60,15 +60,15 @@ Record:
 
 Repeat the measurement from representative destination or exit-side locations.
 
-## Choosing VPS Regions
+## Choosing VPS Locations
 
 For each planned gate:
 
 1. Pick the DoubleZero device/metro with the lowest reliable latency from the
    relevant side of the route.
-2. Find VPS or bare-metal providers with regions in the same metro or nearby
+2. Find VPS or bare-metal providers with sites in the same metro or nearby
    carrier hotels.
-3. Start with a small temporary instance in each candidate provider/region.
+3. Start with a small temporary instance in each candidate provider site.
 4. Install DoubleZero tooling and run `doublezero latency`.
 5. Keep the instance with the lowest stable latency to the intended DoubleZero
    device and acceptable public-internet performance.
@@ -87,7 +87,7 @@ Bad signs:
 
 - The closest DoubleZero device is in a different continent.
 - Provider routing changes frequently.
-- The VPS region is geographically close but has poor network path to the
+- The VPS location is geographically close but has poor network path to the
   DoubleZero PoP.
 - The provider cannot guarantee a stable public IPv4 address.
 
@@ -136,12 +136,12 @@ identity.
 
 ## Minimum Topology Examples
 
-Small regional deployment:
+Small two-location deployment:
 
 ```text
-client region A -> ingress gate near DoubleZero PoP A
+client location A -> ingress gate near DoubleZero PoP A
 DoubleZero transit
-egress gate near DoubleZero PoP B -> target region B
+egress gate near DoubleZero PoP B -> target location B
 ```
 
 Public internet exit deployment:
@@ -152,10 +152,10 @@ DoubleZero transit
 egress gate in desired internet exit metro -> internet
 ```
 
-Multi-region deployment:
+Multi-location deployment:
 
 ```text
 several ingress gates near user clusters
-several egress gates near target or exit regions
+several egress gates near target or exit locations
 control plane schedules only ready gates with matching route policy
 ```

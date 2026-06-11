@@ -7,10 +7,8 @@ export async function listPublicGates(db: Queryable): Promise<GateSummary[]> {
     id: string;
     name: string;
     desiredState: GateSummary["desiredState"];
-    region: string;
     city: string;
     country: string;
-    countryCode: string;
     publicEndpoint: string;
     probeUrl: string | null;
     lastSeenAt: string | null;
@@ -27,10 +25,8 @@ export async function listPublicGates(db: Queryable): Promise<GateSummary[]> {
         gates.id,
         gates.name,
         gates.desired_state::text AS "desiredState",
-        gates.region,
         gates.city,
         gates.country,
-        gates.country_code AS "countryCode",
         gates.public_endpoint AS "publicEndpoint",
         NULLIF(gates.spec->>'probeUrl', '') AS "probeUrl",
         gate_status.last_seen_at AS "lastSeenAt",
@@ -50,7 +46,7 @@ export async function listPublicGates(db: Queryable): Promise<GateSummary[]> {
       LEFT JOIN gate_conditions agent ON agent.gate_id = gates.id AND agent.type = 'AgentConnected'
       LEFT JOIN gate_conditions ready ON ready.gate_id = gates.id AND ready.type = 'Ready'
       LEFT JOIN gate_conditions schedulable ON schedulable.gate_id = gates.id AND schedulable.type = 'Schedulable'
-      ORDER BY gates.region, gates.name
+      ORDER BY gates.country, gates.city, gates.name
     `
   );
   return result.rows.map((row) => {
@@ -64,10 +60,8 @@ export async function listPublicGates(db: Queryable): Promise<GateSummary[]> {
       id: row.id,
       name: row.name,
       desiredState: row.desiredState,
-      region: row.region,
       ...(row.city ? { city: row.city } : {}),
       ...(row.country ? { country: row.country } : {}),
-      ...(row.countryCode ? { countryCode: row.countryCode } : {}),
       publicEndpoint: row.publicEndpoint,
       ...(row.probeUrl ? { probeUrl: row.probeUrl } : {}),
       ...(row.lastSeenAt ? { lastSeenAt: row.lastSeenAt } : {}),

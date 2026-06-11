@@ -63,7 +63,7 @@ Do not include them in routine `npm test` or live smoke runs.
 | --- | --- | --- | --- | --- |
 | UI-001 | Separate auth pages | Open `/register` and `/login`. | Register and login are separate pages; event console is not shown on auth pages. | `scripts/testnet/live-ui-smoke.mjs` |
 | UI-002 | Dashboard layout | Log in with no configs. | Dashboard shows VPN configs area, Create config action, and Gates table as secondary information. | `scripts/testnet/live-ui-smoke.mjs` |
-| UI-003 | Gates table columns | Open dashboard. | Columns include Name, Region, Endpoint, Ready, Browser RTT, Schedulable, DoubleZero node. | `scripts/testnet/live-ui-smoke.mjs` |
+| UI-003 | Gates table columns | Open dashboard. | Columns include Name, City, Country, Endpoint, Ready, Browser RTT, Schedulable, DoubleZero node. | `scripts/testnet/live-ui-smoke.mjs` |
 | UI-004 | Browser RTT measurement | Click Measure browser RTT. | Rows update per gate as measurements finish; sort is low-to-high by default; measured rows keep stable row height. | UI smoke plus visual/manual |
 | UI-005 | Create config Step 1 | Open `/create-config`. | Header says Step 1; ingress and egress selectors are aligned; no Ingress Auto/Egress Auto option exists. | `scripts/testnet/live-ui-smoke.mjs` |
 | UI-006 | Explicit egress required | Choose ingress but leave egress empty and submit. | Inline validation says egress is required; config is not created. | `scripts/testnet/live-ui-smoke.mjs` |

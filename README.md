@@ -79,18 +79,18 @@ Plan at least two locations:
 
 - Ingress gate: near the source clients that will initiate WireGuard
   connections.
-- Egress gate: near the destination side or desired internet exit region.
+- Egress gate: near the destination side or desired internet exit location.
 
 Recommended process:
 
 1. From a representative source network, install DoubleZero tooling and run
    `doublezero latency`.
 2. Identify the nearest reachable DoubleZero device or metro.
-3. Choose a VPS or bare-metal provider with a region physically and
+3. Choose a VPS or bare-metal provider location physically and
    network-wise close to that DoubleZero point of presence.
 4. Provision the ingress gate there.
 5. Repeat the same process from a representative destination or exit-side
-   location to select the egress gate region.
+   location to select the egress gate placement.
 6. Ask the DoubleZero team to issue `access-pass` records for the final gate
    public IPs and DoubleZero identities.
 

@@ -979,7 +979,6 @@ Use real values:
     "identity": "7pFRA2uV4q2Jr7mN8pQ9sT3wX5yZ7aB9cD2eF4gH6",
     "city": "Frankfurt",
     "country": "Germany",
-    "countryCode": "DE",
     "publicEndpoint": "203.0.113.10",
     "probeUrl": "https://gate-eu-fra-01.example.net/.well-known/hyperspace-probe",
     "doubleZeroEnv": "mainnet-beta"
@@ -989,7 +988,6 @@ Use real values:
     "identity": "8qCH3vT5wX7yZ9aB2cD4eF6gH8jK9mN2pQ4rS6tU8V",
     "city": "Chicago",
     "country": "United States",
-    "countryCode": "US",
     "publicEndpoint": "203.0.113.20",
     "probeUrl": "https://203.0.113.20/.well-known/hyperspace-probe",
     "doubleZeroEnv": "mainnet-beta"
@@ -1013,8 +1011,8 @@ the gate's DoubleZero `access-pass`. The value above is only a Solana-style
 example; replace it with the real address for this gate.
 
 `publicEndpoint` is the gate public IPv4 address used for DoubleZero tunnel
-source validation and WireGuard endpoint generation. The current seed validator
-requires an IPv4 address here. `publicEndpoint` must be unique in the catalog.
+source validation and WireGuard endpoint generation. Hostnames are not accepted
+in this field. `publicEndpoint` must be unique in the catalog.
 
 `probeUrl` is the HTTPS browser probe endpoint. It may use either a DNS name or
 an IP address, as long as clients can validate the HTTPS certificate for that
@@ -1039,9 +1037,8 @@ requires distinct ingress and egress gates for a session. The seed command also
 rejects duplicate `name`, `identity`, `publicEndpoint`, and duplicate
 `probeUrl` values.
 
-The seed command derives the public API `region` from `countryCode` as a coarse
-two-letter grouping such as `eu`, `na`, `ap`, `sa`, `af`, or `me`. Use `city`,
-`country`, and `countryCode` as the authoritative location fields.
+Use `city` and `country` as operator-facing location fields. The control plane
+does not validate or normalize spelling; values are displayed as provided.
 
 The ordinary gate catalog does not expose scheduling weights or capacity
 limits. Internally, new gates use `scheduling_weight=100`, which only affects
@@ -1074,7 +1071,7 @@ sudo -u hyperspace env DATABASE_URL="$DATABASE_URL" scripts/seed-gates-json /etc
 The seed command validates the gate catalog before writing to PostgreSQL:
 the file must contain at least two gates, `name`, `identity`, and
 `publicEndpoint` must be unique, `probeUrl` must be unique when present,
-`publicEndpoint` must be IPv4, and `doubleZeroEnv` must be `testnet` or
+`publicEndpoint` must be a public IPv4 address, and `doubleZeroEnv` must be `testnet` or
 `mainnet-beta`.
 
 ## Gate Agents

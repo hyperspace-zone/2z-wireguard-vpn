@@ -8,10 +8,8 @@ type SessionValidationErrors = Partial<Record<"sourceIp" | "targetIp" | "ingress
 interface Gate {
   id: string;
   name: string;
-  region: string;
   city?: string;
   country?: string;
-  countryCode?: string;
   publicEndpoint: string;
   probeUrl?: string;
   doubleZero?: GateDoubleZeroStatus;
@@ -357,7 +355,8 @@ function gatesPanel(gates: Gate[]): string {
       <thead>
         <tr>
           <th>Name</th>
-          <th>Region</th>
+          <th>City</th>
+          <th>Country</th>
           <th>Endpoint</th>
           <th>Ready</th>
           <th aria-sort="${gateBrowserRttSortDirection === "desc" ? "descending" : "ascending"}">
@@ -373,7 +372,8 @@ function gatesPanel(gates: Gate[]): string {
             (gate) => `
               <tr>
                 <td>${escapeHtml(gate.name)}</td>
-                <td>${escapeHtml(gate.region)}${gateLocationLabel(gate) !== gate.region ? `<small>${escapeHtml(gateLocationLabel(gate))}</small>` : ""}</td>
+                <td>${escapeHtml(gate.city || "unknown")}</td>
+                <td>${escapeHtml(gate.country || "unknown")}</td>
                 <td><small class="mono">${escapeHtml(gate.publicEndpoint)}</small></td>
                 <td>${statusDot(gate.ready)}</td>
                 <td class="latency-cell">${latencyCell(gate)}</td>
@@ -1701,7 +1701,7 @@ function ensureSessionDraftGateSelection(ingressGates: Gate[], egressGates: Gate
 
 function gateOptionLabel(gate: Gate, includeLatency: boolean): string {
   const latency = includeLatency ? `, ${latencyText(gate)}` : "";
-  return `${gate.name} - ${gateLocationLabel(gate)} (${gate.region}${latency})`;
+  return `${gate.name} - ${gateLocationLabel(gate)}${latency}`;
 }
 
 function gateLocationLabel(gate: Gate): string {
@@ -1710,7 +1710,7 @@ function gateLocationLabel(gate: Gate): string {
   if (city && country) {
     return `${city}, ${country}`;
   }
-  return city || country || gate.region;
+  return city || country || "unknown location";
 }
 
 function draftRouteTypeLabel(): string {

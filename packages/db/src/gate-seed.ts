@@ -8,34 +8,16 @@ export interface GateSeed {
    * gate's access-pass.
    */
   identity: string;
-  region?: string;
   city: string;
   country: string;
-  countryCode: string;
   publicEndpoint: string;
   probeUrl?: string;
   doubleZeroEnv?: "testnet" | "mainnet-beta";
 }
 
 export interface NormalizedGateSeed extends GateSeed {
-  region: string;
-  countryCode: string;
   doubleZeroEnv: "testnet" | "mainnet-beta";
 }
-
-const regionCountryCodes: Record<string, ReadonlySet<string>> = {
-  eu: new Set([
-    "AT", "BE", "BG", "CH", "CZ", "DE", "DK", "EE", "ES", "FI", "FR", "GB", "GR", "HR", "HU",
-    "IE", "IS", "IT", "LT", "LU", "LV", "NL", "NO", "PL", "PT", "RO", "RS", "SE", "SI", "SK"
-  ]),
-  na: new Set(["BM", "CA", "MX", "US"]),
-  ap: new Set([
-    "AU", "CN", "HK", "ID", "IN", "JP", "KR", "MY", "NZ", "PH", "SG", "TH", "TW", "VN"
-  ]),
-  sa: new Set(["AR", "BO", "BR", "CL", "CO", "EC", "PE", "PY", "UY", "VE"]),
-  af: new Set(["EG", "KE", "MA", "NG", "ZA"]),
-  me: new Set(["AE", "BH", "IL", "KW", "OM", "QA", "SA", "TR"])
-};
 
 export function normalizeGateSeeds(input: unknown): NormalizedGateSeed[] {
   if (!Array.isArray(input) || input.length < 2) {
@@ -56,12 +38,10 @@ export function normalizeGateSeeds(input: unknown): NormalizedGateSeed[] {
     const identity = readRequiredToken(seed.identity, `${label}.identity`);
     const city = readRequiredText(seed.city, `${label}.city`);
     const country = readRequiredText(seed.country, `${label}.country`);
-    const countryCode = readRequiredToken(seed.countryCode, `${label}.countryCode`).toUpperCase();
     const publicEndpoint = readRequiredToken(seed.publicEndpoint, `${label}.publicEndpoint`);
     const probeUrl = seed.probeUrl ? readHttpsUrl(seed.probeUrl, `${label}.probeUrl`) : "";
-    const region = seed.region === undefined ? "" : readRequiredToken(seed.region, `${label}.region`);
     if (isIP(publicEndpoint) !== 4) {
-      throw new Error(`${label}.publicEndpoint must be an IPv4 address`);
+      throw new Error(`${label}.publicEndpoint must be a public IPv4 address`);
     }
     if (seed.doubleZeroEnv && seed.doubleZeroEnv !== "testnet" && seed.doubleZeroEnv !== "mainnet-beta") {
       throw new Error(`${label}.doubleZeroEnv must be testnet or mainnet-beta`);
@@ -90,23 +70,11 @@ export function normalizeGateSeeds(input: unknown): NormalizedGateSeed[] {
       identity,
       city,
       country,
-      countryCode,
       publicEndpoint,
       ...(probeUrl ? { probeUrl } : {}),
-      region: region || inferRegionFromCountryCode(countryCode),
       doubleZeroEnv: seed.doubleZeroEnv ?? "testnet"
     };
   });
-}
-
-export function inferRegionFromCountryCode(countryCode: string): string {
-  const normalized = countryCode.trim().toUpperCase();
-  for (const [region, countryCodes] of Object.entries(regionCountryCodes)) {
-    if (countryCodes.has(normalized)) {
-      return region;
-    }
-  }
-  return "xx";
 }
 
 function readRequiredToken(value: unknown, field: string): string {
