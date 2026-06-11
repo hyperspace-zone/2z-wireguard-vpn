@@ -571,17 +571,29 @@ else
 fi
 ```
 
-If you must create a new DoubleZero identity, generate the keypair and stop
-there. Send the printed address and this gate's public IP to the DoubleZero team
-and wait for a matching `access-pass` before continuing deployment:
+If you must create a new DoubleZero identity, run this only on the gate host.
+Generate the keypair if it does not already exist, then stop there. Send the
+printed DoubleZero address and gate public IPv4 to the DoubleZero team and wait
+for a matching `access-pass` before continuing deployment:
 
 ```bash
 if [ "$DZ_ENV" = "mainnet-beta" ] || [ "$DZ_ENV" = "testnet" ]; then
   install -d -m 0700 ~/.config/doublezero
-  doublezero keygen --outfile ~/.config/doublezero/id.json
+  if test -s ~/.config/doublezero/id.json; then
+    echo "DoubleZero keypair already exists; not overwriting ~/.config/doublezero/id.json"
+  else
+    doublezero keygen --outfile ~/.config/doublezero/id.json
+  fi
   chmod 0600 ~/.config/doublezero/id.json
-  doublezero --env "$DZ_ENV" --keypair ~/.config/doublezero/id.json address </dev/null
-  curl -4 ifconfig.me; echo
+  DOUBLEZERO_ADDRESS="$(doublezero --env "$DZ_ENV" --keypair ~/.config/doublezero/id.json address </dev/null)"
+  GATE_PUBLIC_IPV4="$(curl -fsS4 https://api.ipify.org || true)"
+
+  if ! printf '%s' "$GATE_PUBLIC_IPV4" | grep -Eq '^[0-9]+(\.[0-9]+){3}$'; then
+    echo "STOP: could not determine a public IPv4 for this gate; do not use an IPv6 address for the access-pass request" >&2
+  else
+    printf 'DoubleZero address: %s\n' "$DOUBLEZERO_ADDRESS"
+    printf 'Gate public IPv4: %s\n' "$GATE_PUBLIC_IPV4"
+  fi
 else
   echo "STOP: set DZ_ENV to mainnet-beta or testnet before generating a DoubleZero identity" >&2
 fi
