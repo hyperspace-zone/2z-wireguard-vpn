@@ -60,21 +60,23 @@ Do not mix environments. A gate with a `testnet` `access-pass` must run
 
 ## Bootstrap Variables
 
-Set these variables before following the copy/paste examples. Keep the same
-values across the control-plane and gate hosts where applicable:
+Set these input variables before following the copy/paste examples. Keep the
+same values across the control-plane and gate hosts where applicable:
 
 ```bash
 export HS_REPO_URL=https://github.com/hyperspace-zone/2z-wireguard-vpn.git
 export HS_REPO_DIR=/opt/2z-wireguard-vpn
 export HS_WEB_HOST=<web-public-ip-or-domain>
 export HS_API_HOST=<control-plane-public-ip-or-domain>
-export HS_WEB_ORIGIN=https://$HS_WEB_HOST
-export HS_API_ORIGIN=https://$HS_API_HOST
 export OPS_EMAIL=<ops-email-for-letsencrypt>
 
 export DZ_ENV=mainnet-beta
 # or:
 # export DZ_ENV=testnet
+
+# Derived values; normally do not edit.
+export HS_WEB_ORIGIN="https://$HS_WEB_HOST"
+export HS_API_ORIGIN="https://$HS_API_HOST"
 ```
 
 For the minimum combined-host deployment, set `HS_WEB_HOST` and `HS_API_HOST`
@@ -82,6 +84,9 @@ to the same public IP address or DNS name. For a split deployment, set
 `HS_WEB_HOST` to the web UI host and `HS_API_HOST` to the public control-plane
 API host. The web UI should call the API through `/api/*` on the web origin;
 gate agents and automation clients should call `HS_API_ORIGIN` directly.
+Override `HS_WEB_ORIGIN` or `HS_API_ORIGIN` manually only when the public origin
+is not `https://<host>`, for example when a non-standard public port or external
+reverse proxy is used.
 
 Use an operations email for real deployments. For short-lived disposable tests
 only, Certbot can be run with `--register-unsafely-without-email` instead of
