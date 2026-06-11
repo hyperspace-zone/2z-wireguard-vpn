@@ -1317,6 +1317,10 @@ fi
 ```
 
 ```bash
+export HS_REPO_DIR="${HS_REPO_DIR:-/opt/2z-wireguard-vpn}"
+export HS_WEB_HOST="${HS_WEB_HOST:-$(cat /etc/hyperspace/tls-cert-name 2>/dev/null || true)}"
+export HS_API_HOST="${HS_API_HOST:-$HS_WEB_HOST}"
+
 cd "$HS_REPO_DIR"
 
 export HS_WEB_BASE="https://${HS_WEB_HOST}"
