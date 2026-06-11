@@ -195,12 +195,13 @@ Prepare a webroot for HTTP-01 challenges:
 install -d -o root -g root -m 0755 /var/www/acme-challenges
 ```
 
-During bootstrap, configure Caddy on port 80 to serve only
-`/.well-known/acme-challenge/*` from that webroot and to redirect all other
-HTTP traffic to HTTPS. Use two `handle` blocks so Caddy directive ordering does
-not redirect ACME challenge files:
+During bootstrap, write a temporary Caddyfile that serves only
+`/.well-known/acme-challenge/*` from that webroot on port 80 and redirects all
+other HTTP traffic to HTTPS. Use two `handle` blocks so Caddy directive ordering
+does not redirect ACME challenge files:
 
-```caddy
+```bash
+cat >/etc/caddy/Caddyfile <<'EOF'
 {
   auto_https disable_redirects
 }
@@ -216,6 +217,12 @@ not redirect ACME challenge files:
     redir https://{host}{uri} permanent
   }
 }
+EOF
+
+caddy fmt --overwrite /etc/caddy/Caddyfile
+caddy validate --config /etc/caddy/Caddyfile
+systemctl enable --now caddy
+systemctl reload caddy
 ```
 
 Request an IP address certificate:
