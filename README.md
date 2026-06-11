@@ -182,10 +182,13 @@ npm test
 
 Test and measurement workflows are separate. `npm test` runs the fast workspace
 regression suite only. Live deployment checks are available as
-`npm run test:live:ui` and `npm run test:live:policy`. Long-running
-public-vs-Hyperspace connectivity matrices are explicit measurements:
+`npm run test:live:ui` and `npm run test:live:policy`; see
+[Live Smoke Tests](docs/runbooks/live-smoke-tests.md) for prerequisites and
+commands.
+Long-running public-vs-Hyperspace connectivity matrices are explicit measurements:
 `npm run measure:matrix -- ...` followed by `npm run measure:compare -- ...`.
-See `docs/runbooks/long-running-measurement-matrix.md` for prerequisites.
+See [Long-Running Measurement Matrix](docs/runbooks/long-running-measurement-matrix.md)
+for prerequisites.
 
 Gate agent checks:
 
