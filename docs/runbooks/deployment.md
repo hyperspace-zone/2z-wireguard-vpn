@@ -977,7 +977,7 @@ Use real values:
   {
     "name": "gate-eu-fra-01",
     "identity": "replace-with-doublezero-address-gate-01",
-    "region": "eu-central",
+    "region": "eu",
     "city": "Frankfurt",
     "country": "Germany",
     "countryCode": "DE",
@@ -985,7 +985,7 @@ Use real values:
     "probeUrl": "https://gate-eu-fra-01.example.net/.well-known/hyperspace-probe",
     "doubleZeroEnv": "mainnet-beta",
     "schedulingWeight": 100,
-    "capacityLimit": 128
+    "capacityLimit": 0
   }
 ]
 ```
@@ -1001,6 +1001,19 @@ endpoint must be authorized by the gate's DoubleZero `access-pass`.
 Set `doubleZeroEnv` to the same value as `DZ_ENV` for every gate:
 `testnet` for DoubleZero testnet clusters, or `mainnet-beta` for DoubleZero
 mainnet-beta clusters.
+
+Use a short coarse `region` code for grouping and sorting gates, for example
+`eu`, `na`, `ap`, or `sa`. Put the precise location in `city`, `country`, and
+`countryCode`.
+
+`schedulingWeight` is an optional auto-selection priority. Higher values are
+preferred when the scheduler chooses among otherwise eligible gates. Keep the
+default `100` for equal gates; raise or lower it only when an operator wants to
+prefer one gate over another.
+
+`capacityLimit` is reserved capacity metadata. The current scheduler does not
+enforce it, and `0` means no configured cap. Do not rely on it for admission
+control until active-session capacity accounting is implemented.
 
 Seed gates into PostgreSQL for an interactive operator flow:
 

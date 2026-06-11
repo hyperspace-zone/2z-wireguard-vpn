@@ -86,7 +86,7 @@ try {
           seed.countryCode,
           seed.publicEndpoint,
           seed.schedulingWeight ?? 100,
-          seed.capacityLimit ?? 128,
+          seed.capacityLimit ?? 0,
           JSON.stringify({
             doubleZeroEnv: seed.doubleZeroEnv ?? "testnet",
             ...(seed.probeUrl ? { probeUrl: seed.probeUrl } : {}),
