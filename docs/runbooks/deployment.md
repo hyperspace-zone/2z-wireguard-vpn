@@ -92,6 +92,10 @@ Override `HS_WEB_ORIGIN` or `HS_API_ORIGIN` manually only when the public origin
 is not `https://<host>`, for example when a non-standard public port or external
 reverse proxy is used.
 
+These `export` values live only in the current SSH shell. If you reconnect,
+reboot, or switch to another host, rerun the Bootstrap Variables block before
+continuing.
+
 Use an operations email for real deployments. For short-lived disposable tests
 only, Certbot can be run with `--register-unsafely-without-email` instead of
 `--email "$OPS_EMAIL"`, but do not use that for production-like clusters.
@@ -526,10 +530,6 @@ address, so a new `access-pass` must be issued for the new address and this
 gate public IP.
 
 ```bash
-export DZ_ENV=mainnet-beta
-# or:
-# export DZ_ENV=testnet
-
 check_doublezero_access_pass() {
   case "$DZ_ENV" in
     mainnet-beta|testnet) ;;
@@ -576,15 +576,15 @@ there. Send the printed address and this gate's public IP to the DoubleZero team
 and wait for a matching `access-pass` before continuing deployment:
 
 ```bash
-export DZ_ENV=mainnet-beta
-# or:
-# export DZ_ENV=testnet
-
-install -d -m 0700 ~/.config/doublezero
-doublezero keygen --outfile ~/.config/doublezero/id.json
-chmod 0600 ~/.config/doublezero/id.json
-doublezero --env "$DZ_ENV" --keypair ~/.config/doublezero/id.json address </dev/null
-curl -4 ifconfig.me; echo
+if [ "$DZ_ENV" = "mainnet-beta" ] || [ "$DZ_ENV" = "testnet" ]; then
+  install -d -m 0700 ~/.config/doublezero
+  doublezero keygen --outfile ~/.config/doublezero/id.json
+  chmod 0600 ~/.config/doublezero/id.json
+  doublezero --env "$DZ_ENV" --keypair ~/.config/doublezero/id.json address </dev/null
+  curl -4 ifconfig.me; echo
+else
+  echo "STOP: set DZ_ENV to mainnet-beta or testnet before generating a DoubleZero identity" >&2
+fi
 ```
 
 Do not run `doublezero connect` until `doublezero access-pass list` shows an
