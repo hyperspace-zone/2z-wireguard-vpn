@@ -530,7 +530,8 @@ check_doublezero_access_pass() {
   install -d -m 0700 ~/.config/doublezero
   if ! test -s ~/.config/doublezero/id.json; then
     echo "missing DoubleZero keypair: ~/.config/doublezero/id.json" >&2
-    echo "restore the keypair that has an access-pass, or run: doublezero keygen --outfile ~/.config/doublezero/id.json" >&2
+    echo "restore the keypair that already has an access-pass" >&2
+    echo "if you generate a new keypair, you must request a new access-pass from DoubleZero before continuing" >&2
     return 1
   fi
   chmod 0600 ~/.config/doublezero/id.json
@@ -557,6 +558,21 @@ else
   echo "STOP: fix the DoubleZero keypair/access-pass before continuing" >&2
 fi
 ```
+
+If you must create a new DoubleZero identity, generate the keypair and stop
+there. Send the printed address and this gate's public IP to the DoubleZero team
+and wait for a matching `access-pass` before continuing deployment:
+
+```bash
+install -d -m 0700 ~/.config/doublezero
+doublezero keygen --outfile ~/.config/doublezero/id.json
+chmod 0600 ~/.config/doublezero/id.json
+doublezero --env "$DZ_ENV" --keypair ~/.config/doublezero/id.json address </dev/null
+curl -4 ifconfig.me
+```
+
+Do not run `doublezero connect` until `doublezero access-pass list` shows an
+`access-pass` for that new address and the gate public IP.
 
 Redirect stdin from `/dev/null` when running these commands inside an SSH
 heredoc. Some DoubleZero CLI commands may read stdin, which can otherwise
