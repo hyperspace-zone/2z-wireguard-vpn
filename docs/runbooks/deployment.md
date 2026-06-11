@@ -225,30 +225,6 @@ installation. If `full-upgrade` installs a newer kernel, reboot before
 continuing so dataplane tests run on the same kernel that the package manager
 considers current.
 
-## SSH Host Key Verification
-
-If a server was reimaged, its SSH host key should change. Treat any
-`known_hosts` mismatch as a stop-and-verify event instead of blindly disabling
-host key checks.
-
-From the operator workstation, collect the expected fingerprint and compare it
-with the provider console or another trusted out-of-band source:
-
-```bash
-# Example only. Replace with the host you are verifying.
-export BOOTSTRAP_HOST=<host-public-ip-or-dns>
-ssh-keyscan -t ed25519 "$BOOTSTRAP_HOST" >"/tmp/${BOOTSTRAP_HOST}.ed25519"
-ssh-keygen -lf "/tmp/${BOOTSTRAP_HOST}.ed25519"
-```
-
-Only after the fingerprint is confirmed, update local trust:
-
-```bash
-ssh-keygen -R "$BOOTSTRAP_HOST"
-install -d -m 0700 ~/.ssh
-cat "/tmp/${BOOTSTRAP_HOST}.ed25519" >> ~/.ssh/known_hosts
-```
-
 ## TLS Requirements
 
 Do not run browser, automation, or gate-agent traffic over plain HTTP. The web
