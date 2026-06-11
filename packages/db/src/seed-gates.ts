@@ -1,25 +1,6 @@
 import { readFile } from "node:fs/promises";
-import { isIP } from "node:net";
+import { normalizeGateSeeds } from "./gate-seed.js";
 import { createDatabase, newSecretToken, sha256Hex } from "./index.js";
-
-interface GateSeed {
-  name: string;
-  /**
-   * DoubleZero user_payer identity for this gate. This should match
-   * `doublezero address` on the gate host and the identity authorized by the
-   * gate's access-pass.
-   */
-  identity: string;
-  region: string;
-  city: string;
-  country: string;
-  countryCode: string;
-  publicEndpoint: string;
-  probeUrl?: string;
-  doubleZeroEnv?: "testnet" | "mainnet-beta";
-  schedulingWeight?: number;
-  capacityLimit?: number;
-}
 
 const connectionString = process.env.DATABASE_URL;
 const args = process.argv.slice(2);
@@ -34,8 +15,7 @@ if (!seedPath) {
   throw new Error("seed JSON path is required");
 }
 
-const seeds = JSON.parse(await readFile(seedPath, "utf8")) as GateSeed[];
-validateGateSeeds(seeds);
+const seeds = normalizeGateSeeds(JSON.parse(await readFile(seedPath, "utf8")));
 const db = createDatabase({
   connectionString,
   applicationName: "hyperspace-gate-seed"
@@ -85,10 +65,10 @@ try {
           seed.country,
           seed.countryCode,
           seed.publicEndpoint,
-          seed.schedulingWeight ?? 100,
-          seed.capacityLimit ?? 0,
+          100,
+          0,
           JSON.stringify({
-            doubleZeroEnv: seed.doubleZeroEnv ?? "testnet",
+            doubleZeroEnv: seed.doubleZeroEnv,
             ...(seed.probeUrl ? { probeUrl: seed.probeUrl } : {}),
             location: {
               city: seed.city,
@@ -145,49 +125,4 @@ try {
   );
 } finally {
   await db.close();
-}
-
-function validateGateSeeds(seeds: GateSeed[]): void {
-  if (!Array.isArray(seeds) || seeds.length === 0) {
-    throw new Error("gate seed file must contain a non-empty JSON array");
-  }
-  const names = new Set<string>();
-  const identities = new Set<string>();
-  for (const [index, seed] of seeds.entries()) {
-    const label = seed?.name ? `gate ${seed.name}` : `gate seed at index ${index}`;
-    validateRequiredToken(seed.name, `${label}.name`);
-    validateRequiredToken(seed.identity, `${label}.identity`);
-    validateRequiredToken(seed.region, `${label}.region`);
-    validateRequiredText(seed.city, `${label}.city`);
-    validateRequiredText(seed.country, `${label}.country`);
-    validateRequiredToken(seed.countryCode, `${label}.countryCode`);
-    validateRequiredToken(seed.publicEndpoint, `${label}.publicEndpoint`);
-    if (isIP(seed.publicEndpoint) !== 4) {
-      throw new Error(`${label}.publicEndpoint must be an IPv4 address`);
-    }
-    if (seed.doubleZeroEnv && seed.doubleZeroEnv !== "testnet" && seed.doubleZeroEnv !== "mainnet-beta") {
-      throw new Error(`${label}.doubleZeroEnv must be testnet or mainnet-beta`);
-    }
-    if (names.has(seed.name)) {
-      throw new Error(`duplicate gate name ${seed.name}`);
-    }
-    if (identities.has(seed.identity)) {
-      throw new Error(`duplicate gate identity ${seed.identity}`);
-    }
-    names.add(seed.name);
-    identities.add(seed.identity);
-  }
-}
-
-function validateRequiredToken(value: unknown, field: string): void {
-  validateRequiredText(value, field);
-  if (typeof value === "string" && /\s/.test(value)) {
-    throw new Error(`${field} must not contain whitespace`);
-  }
-}
-
-function validateRequiredText(value: unknown, field: string): void {
-  if (typeof value !== "string" || value.trim().length === 0) {
-    throw new Error(`${field} is required`);
-  }
 }

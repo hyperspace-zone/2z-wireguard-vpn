@@ -976,16 +976,13 @@ Use real values:
 [
   {
     "name": "gate-eu-fra-01",
-    "identity": "replace-with-doublezero-address-gate-01",
-    "region": "eu",
+    "identity": "7pFRA2uV4q2Jr7mN8pQ9sT3wX5yZ7aB9cD2eF4gH6",
     "city": "Frankfurt",
     "country": "Germany",
     "countryCode": "DE",
     "publicEndpoint": "203.0.113.10",
     "probeUrl": "https://gate-eu-fra-01.example.net/.well-known/hyperspace-probe",
-    "doubleZeroEnv": "mainnet-beta",
-    "schedulingWeight": 100,
-    "capacityLimit": 0
+    "doubleZeroEnv": "mainnet-beta"
   }
 ]
 ```
@@ -999,7 +996,8 @@ be selected as ingress for one session and egress for another session.
 `identity` is the DoubleZero `user_payer` identity for the gate. It is not a
 hostname and not a Hyperspace name. Use the exact output of `doublezero address`
 on that gate host. The same identity and public endpoint must be authorized by
-the gate's DoubleZero `access-pass`.
+the gate's DoubleZero `access-pass`. The value above is only a Solana-style
+example; replace it with the real address for this gate.
 
 `publicEndpoint` is the gate public IPv4 address used for DoubleZero tunnel
 source validation and WireGuard endpoint generation. The current seed validator
@@ -1020,18 +1018,17 @@ deployment. The data model stores `doubleZeroEnv` per gate, but current path
 selection is intended for one DoubleZero environment per control-plane cluster
 and does not provide separate scheduling pools for mixed environments.
 
-Use a short coarse `region` code for grouping and sorting gates, for example
-`eu`, `na`, `ap`, or `sa`. Put the precise location in `city`, `country`, and
-`countryCode`.
+The seed command derives the public API `region` from `countryCode` as a coarse
+two-letter grouping such as `eu`, `na`, `ap`, `sa`, `af`, or `me`. Use `city`,
+`country`, and `countryCode` as the authoritative location fields.
 
-`schedulingWeight` is an optional auto-selection priority. Higher values are
-preferred when the scheduler chooses among otherwise eligible gates. Keep the
-default `100` for equal gates; raise or lower it only when an operator wants to
-prefer one gate over another.
-
-`capacityLimit` is reserved capacity metadata. The current scheduler does not
-enforce it, and `0` means no configured cap. Do not rely on it for admission
-control until active-session capacity accounting is implemented.
+The ordinary gate catalog does not expose scheduling weights or capacity
+limits. Internally, new gates use `scheduling_weight=100`, which only affects
+API-created sessions that do not specify explicit gate names. The web UI orders
+gate choices by measured Browser RTT. The database also has a reserved
+`capacity_limit` column, but the current scheduler does not enforce it; do not
+use it as admission control until active-session capacity accounting and
+limit-exceeded tests are implemented.
 
 Seed gates into PostgreSQL for an interactive operator flow:
 

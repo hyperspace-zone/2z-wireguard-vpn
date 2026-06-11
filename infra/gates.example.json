@@ -1,28 +1,22 @@
 [
   {
     "name": "gate-eu-fra-01",
-    "identity": "replace-with-doublezero-address-gate-01",
-    "region": "eu",
+    "identity": "7pFRA2uV4q2Jr7mN8pQ9sT3wX5yZ7aB9cD2eF4gH6",
     "city": "Frankfurt",
     "country": "Germany",
     "countryCode": "DE",
     "publicEndpoint": "203.0.113.10",
     "probeUrl": "https://gate-eu-fra-01.example.net/.well-known/hyperspace-probe",
-    "doubleZeroEnv": "testnet",
-    "schedulingWeight": 100,
-    "capacityLimit": 0
+    "doubleZeroEnv": "testnet"
   },
   {
     "name": "gate-na-chi-01",
-    "identity": "replace-with-doublezero-address-gate-02",
-    "region": "na",
+    "identity": "8qCH3vT5wX7yZ9aB2cD4eF6gH8jK9mN2pQ4rS6tU8V",
     "city": "Chicago",
     "country": "United States",
     "countryCode": "US",
     "publicEndpoint": "203.0.113.20",
     "probeUrl": "https://gate-na-chi-01.example.net/.well-known/hyperspace-probe",
-    "doubleZeroEnv": "testnet",
-    "schedulingWeight": 100,
-    "capacityLimit": 0
+    "doubleZeroEnv": "testnet"
   }
 ]
