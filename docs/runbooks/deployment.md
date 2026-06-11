@@ -442,15 +442,35 @@ network, install that exact version instead of the unpinned package. If you use
 the unpinned package, keep `/etc/hyperspace/doublezero-version.txt` with the
 deployment evidence so the installed version is explicit.
 
-Configure the DoubleZero keypair and verify the `access-pass` on each gate:
+Install or restore the DoubleZero keypair for this gate before connecting. If
+an `access-pass` has already been issued, use the exact same keypair that was
+used when requesting it. Generating a new keypair changes the DoubleZero
+address, so a new `access-pass` must be issued for the new address and this
+gate public IP.
 
 ```bash
+install -d -m 0700 ~/.config/doublezero
+test -s ~/.config/doublezero/id.json || {
+  echo "missing DoubleZero keypair: ~/.config/doublezero/id.json" >&2
+  echo "restore the keypair that has an access-pass, or run: doublezero keygen --outfile ~/.config/doublezero/id.json" >&2
+  exit 1
+}
+chmod 0600 ~/.config/doublezero/id.json
+
 doublezero config set --env "$DZ_ENV" --keypair ~/.config/doublezero/id.json </dev/null
-doublezero address </dev/null
-doublezero access-pass list </dev/null | grep "$(doublezero address </dev/null)"
-doublezero connect ibrl </dev/null
-doublezero status </dev/null
-ip link show doublezero0
+DOUBLEZERO_ADDRESS="$(doublezero --env "$DZ_ENV" --keypair ~/.config/doublezero/id.json address </dev/null)"
+printf 'DoubleZero address: %s\n' "$DOUBLEZERO_ADDRESS"
+
+if [ "$DOUBLEZERO_ADDRESS" = "11111111111111111111111111111111" ]; then
+  echo "invalid DoubleZero address; the CLI is not using a real gate keypair" >&2
+  exit 1
+fi
+
+doublezero --env "$DZ_ENV" --keypair ~/.config/doublezero/id.json access-pass list </dev/null | grep -F "$DOUBLEZERO_ADDRESS" || {
+  echo "no access-pass found for DoubleZero address $DOUBLEZERO_ADDRESS" >&2
+  echo "request an access-pass for this address and this gate public IP before continuing" >&2
+  exit 1
+}
 ```
 
 Redirect stdin from `/dev/null` when running these commands inside an SSH
@@ -479,7 +499,9 @@ Then run:
 systemctl daemon-reload
 systemctl enable --now doublezerod
 systemctl restart doublezerod
-doublezero --env "$DZ_ENV" --keypair ~/.config/doublezero/id.json connect ibrl
+doublezero --env "$DZ_ENV" --keypair ~/.config/doublezero/id.json connect ibrl </dev/null
+doublezero --env "$DZ_ENV" --keypair ~/.config/doublezero/id.json status </dev/null
+ip link show doublezero0
 ```
 
 The `access-pass` row must match the `doublezero address` output and the public
