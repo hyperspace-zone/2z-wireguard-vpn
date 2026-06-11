@@ -13,11 +13,11 @@
   ],
   "gates": [
     {
-      "name": "gate-ingress-01",
+      "name": "gate-eu-fra-01",
       "publicEndpoint": "203.0.113.10"
     },
     {
-      "name": "gate-egress-01",
+      "name": "gate-na-chi-01",
       "publicEndpoint": "203.0.113.20"
     }
   ]

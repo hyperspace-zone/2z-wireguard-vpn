@@ -990,17 +990,35 @@ Use real values:
 ]
 ```
 
-Gate names should describe location or inventory identity, not fixed traffic
-direction. The same deployed gate can be selected as ingress for one session
-and egress for another session.
+`name` is the Hyperspace resource name for the gate. It is chosen by the
+operator, shown in the API/UI, used by `GATE_NAME` in `gate-agent.env`, and used
+when users or tests select explicit gates. Gate names should describe location
+or inventory identity, not fixed traffic direction. The same deployed gate can
+be selected as ingress for one session and egress for another session.
 
-`identity` is the DoubleZero `user_payer` identity for the gate. Use the exact
-output of `doublezero address` on that gate host. The same identity and public
-endpoint must be authorized by the gate's DoubleZero `access-pass`.
+`identity` is the DoubleZero `user_payer` identity for the gate. It is not a
+hostname and not a Hyperspace name. Use the exact output of `doublezero address`
+on that gate host. The same identity and public endpoint must be authorized by
+the gate's DoubleZero `access-pass`.
+
+`publicEndpoint` is the gate public IPv4 address used for DoubleZero tunnel
+source validation and WireGuard endpoint generation. The current seed validator
+requires an IPv4 address here.
+
+`probeUrl` is the HTTPS browser probe endpoint. If you use DNS names such as
+`gate-eu-fra-02.hyperspace.zone`, put that hostname in `probeUrl`, for example
+`https://gate-eu-fra-02.hyperspace.zone/.well-known/hyperspace-probe`.
 
 Set `doubleZeroEnv` to the same value as `DZ_ENV` for every gate:
 `testnet` for DoubleZero testnet clusters, or `mainnet-beta` for DoubleZero
-mainnet-beta clusters.
+mainnet-beta clusters. The control plane compares this expected value with the
+`network` reported by `doublezero status`; a gate connected to the wrong
+DoubleZero network remains not schedulable.
+
+Do not mix DoubleZero testnet and mainnet-beta gates in one schedulable
+deployment. The data model stores `doubleZeroEnv` per gate, but current path
+selection is intended for one DoubleZero environment per control-plane cluster
+and does not provide separate scheduling pools for mixed environments.
 
 Use a short coarse `region` code for grouping and sorting gates, for example
 `eu`, `na`, `ap`, or `sa`. Put the precise location in `city`, `country`, and

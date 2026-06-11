@@ -9,14 +9,14 @@ interface QueryCall {
 
 const ingressGate = {
   id: "00000000-0000-4000-8000-000000000001",
-  name: "gate-ingress-01",
+  name: "gate-eu-fra-01",
   publicEndpoint: "203.0.113.10",
   doubleZeroEnv: "mainnet-beta"
 };
 
 const egressGate = {
   id: "00000000-0000-4000-8000-000000000002",
-  name: "gate-egress-01",
+  name: "gate-na-chi-01",
   publicEndpoint: "203.0.113.20",
   doubleZeroEnv: "mainnet-beta"
 };
