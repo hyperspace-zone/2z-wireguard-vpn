@@ -38,12 +38,14 @@ const regionCountryCodes: Record<string, ReadonlySet<string>> = {
 };
 
 export function normalizeGateSeeds(input: unknown): NormalizedGateSeed[] {
-  if (!Array.isArray(input) || input.length === 0) {
-    throw new Error("gate seed file must contain a non-empty JSON array");
+  if (!Array.isArray(input) || input.length < 2) {
+    throw new Error("gate seed file must contain at least two gates");
   }
 
   const names = new Set<string>();
   const identities = new Set<string>();
+  const publicEndpoints = new Set<string>();
+  const probeUrls = new Set<string>();
   return input.map((value, index) => {
     if (typeof value !== "object" || value === null) {
       throw new Error(`gate seed at index ${index} must be an object`);
@@ -56,6 +58,7 @@ export function normalizeGateSeeds(input: unknown): NormalizedGateSeed[] {
     const country = readRequiredText(seed.country, `${label}.country`);
     const countryCode = readRequiredToken(seed.countryCode, `${label}.countryCode`).toUpperCase();
     const publicEndpoint = readRequiredToken(seed.publicEndpoint, `${label}.publicEndpoint`);
+    const probeUrl = seed.probeUrl ? readHttpsUrl(seed.probeUrl, `${label}.probeUrl`) : "";
     const region = seed.region === undefined ? "" : readRequiredToken(seed.region, `${label}.region`);
     if (isIP(publicEndpoint) !== 4) {
       throw new Error(`${label}.publicEndpoint must be an IPv4 address`);
@@ -69,8 +72,18 @@ export function normalizeGateSeeds(input: unknown): NormalizedGateSeed[] {
     if (identities.has(identity)) {
       throw new Error(`duplicate gate identity ${identity}`);
     }
+    if (publicEndpoints.has(publicEndpoint)) {
+      throw new Error(`duplicate gate publicEndpoint ${publicEndpoint}`);
+    }
+    if (probeUrl && probeUrls.has(probeUrl)) {
+      throw new Error(`duplicate gate probeUrl ${probeUrl}`);
+    }
     names.add(name);
     identities.add(identity);
+    publicEndpoints.add(publicEndpoint);
+    if (probeUrl) {
+      probeUrls.add(probeUrl);
+    }
 
     return {
       name,
@@ -79,7 +92,7 @@ export function normalizeGateSeeds(input: unknown): NormalizedGateSeed[] {
       country,
       countryCode,
       publicEndpoint,
-      ...(seed.probeUrl ? { probeUrl: seed.probeUrl } : {}),
+      ...(probeUrl ? { probeUrl } : {}),
       region: region || inferRegionFromCountryCode(countryCode),
       doubleZeroEnv: seed.doubleZeroEnv ?? "testnet"
     };
@@ -102,6 +115,20 @@ function readRequiredToken(value: unknown, field: string): string {
     throw new Error(`${field} must not contain whitespace`);
   }
   return text;
+}
+
+function readHttpsUrl(value: unknown, field: string): string {
+  const text = readRequiredText(value, field);
+  let url: URL;
+  try {
+    url = new URL(text);
+  } catch {
+    throw new Error(`${field} must be a valid URL`);
+  }
+  if (url.protocol !== "https:") {
+    throw new Error(`${field} must use https`);
+  }
+  return url.toString();
 }
 
 function readRequiredText(value: unknown, field: string): string {

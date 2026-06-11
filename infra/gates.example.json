@@ -16,7 +16,7 @@
     "country": "United States",
     "countryCode": "US",
     "publicEndpoint": "203.0.113.20",
-    "probeUrl": "https://gate-na-chi-01.example.net/.well-known/hyperspace-probe",
+    "probeUrl": "https://203.0.113.20/.well-known/hyperspace-probe",
     "doubleZeroEnv": "testnet"
   }
 ]

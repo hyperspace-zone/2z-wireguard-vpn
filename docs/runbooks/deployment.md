@@ -983,6 +983,16 @@ Use real values:
     "publicEndpoint": "203.0.113.10",
     "probeUrl": "https://gate-eu-fra-01.example.net/.well-known/hyperspace-probe",
     "doubleZeroEnv": "mainnet-beta"
+  },
+  {
+    "name": "gate-na-chi-01",
+    "identity": "8qCH3vT5wX7yZ9aB2cD4eF6gH8jK9mN2pQ4rS6tU8V",
+    "city": "Chicago",
+    "country": "United States",
+    "countryCode": "US",
+    "publicEndpoint": "203.0.113.20",
+    "probeUrl": "https://203.0.113.20/.well-known/hyperspace-probe",
+    "doubleZeroEnv": "mainnet-beta"
   }
 ]
 ```
@@ -991,7 +1001,10 @@ Use real values:
 operator, shown in the API/UI, used by `GATE_NAME` in `gate-agent.env`, and used
 when users or tests select explicit gates. Gate names should describe location
 or inventory identity, not fixed traffic direction. The same deployed gate can
-be selected as ingress for one session and egress for another session.
+be selected as ingress for one session and egress for another session. `name`
+must be unique in the catalog. It may look like a hostname, but it is not used
+as a network endpoint; avoid using a raw IP address as the name unless you want
+renaming whenever the host IP changes.
 
 `identity` is the DoubleZero `user_payer` identity for the gate. It is not a
 hostname and not a Hyperspace name. Use the exact output of `doublezero address`
@@ -1001,11 +1014,14 @@ example; replace it with the real address for this gate.
 
 `publicEndpoint` is the gate public IPv4 address used for DoubleZero tunnel
 source validation and WireGuard endpoint generation. The current seed validator
-requires an IPv4 address here.
+requires an IPv4 address here. `publicEndpoint` must be unique in the catalog.
 
-`probeUrl` is the HTTPS browser probe endpoint. If you use DNS names such as
-`gate-eu-fra-02.hyperspace.zone`, put that hostname in `probeUrl`, for example
+`probeUrl` is the HTTPS browser probe endpoint. It may use either a DNS name or
+an IP address, as long as clients can validate the HTTPS certificate for that
+URL. If you use DNS names such as `gate-eu-fra-02.hyperspace.zone`, put that
+hostname in `probeUrl`, for example
 `https://gate-eu-fra-02.hyperspace.zone/.well-known/hyperspace-probe`.
+`probeUrl` must be unique when present.
 
 Set `doubleZeroEnv` to the same value as `DZ_ENV` for every gate:
 `testnet` for DoubleZero testnet clusters, or `mainnet-beta` for DoubleZero
@@ -1017,6 +1033,11 @@ Do not mix DoubleZero testnet and mainnet-beta gates in one schedulable
 deployment. The data model stores `doubleZeroEnv` per gate, but current path
 selection is intended for one DoubleZero environment per control-plane cluster
 and does not provide separate scheduling pools for mixed environments.
+
+The seed file must contain at least two gates because the current platform
+requires distinct ingress and egress gates for a session. The seed command also
+rejects duplicate `name`, `identity`, `publicEndpoint`, and duplicate
+`probeUrl` values.
 
 The seed command derives the public API `region` from `countryCode` as a coarse
 two-letter grouping such as `eu`, `na`, `ap`, `sa`, `af`, or `me`. Use `city`,
@@ -1051,8 +1072,10 @@ sudo -u hyperspace env DATABASE_URL="$DATABASE_URL" scripts/seed-gates-json /etc
 ```
 
 The seed command validates the gate catalog before writing to PostgreSQL:
-`identity` must be non-empty and unique, `publicEndpoint` must be IPv4, and
-`doubleZeroEnv` must be `testnet` or `mainnet-beta`.
+the file must contain at least two gates, `name`, `identity`, and
+`publicEndpoint` must be unique, `probeUrl` must be unique when present,
+`publicEndpoint` must be IPv4, and `doubleZeroEnv` must be `testnet` or
+`mainnet-beta`.
 
 ## Gate Agents
 
