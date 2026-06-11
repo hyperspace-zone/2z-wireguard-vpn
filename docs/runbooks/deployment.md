@@ -703,22 +703,35 @@ npm --version
 Create the system user and file layout expected by the systemd units:
 
 ```bash
-adduser --system --group --home "$HS_REPO_DIR" --no-create-home hyperspace
-install -d -o hyperspace -g hyperspace -m 0755 "$HS_REPO_DIR"
-install -d -o root -g hyperspace -m 0750 /etc/hyperspace
+case "$HS_REPO_DIR" in
+  /*)
+    getent group hyperspace >/dev/null || addgroup --system hyperspace
+    getent passwd hyperspace >/dev/null || adduser --system --ingroup hyperspace --home "$HS_REPO_DIR" --no-create-home hyperspace
+    install -d -o hyperspace -g hyperspace -m 0755 "$HS_REPO_DIR"
+    install -d -o root -g hyperspace -m 0750 /etc/hyperspace
+    ;;
+  *)
+    echo "STOP: HS_REPO_DIR must be set to an absolute path, for example /opt/2z-wireguard-vpn" >&2
+    echo "rerun the Bootstrap Variables block in this SSH session before continuing" >&2
+    ;;
+esac
 ```
 
 Check out and build the repository:
 
 ```bash
-git clone "$HS_REPO_URL" "$HS_REPO_DIR"
-chown -R hyperspace:hyperspace "$HS_REPO_DIR"
+if [ -z "${HS_REPO_URL:-}" ] || [ -z "${HS_REPO_DIR:-}" ]; then
+  echo "STOP: HS_REPO_URL and HS_REPO_DIR must be set; rerun Bootstrap Variables first" >&2
+else
+  git clone "$HS_REPO_URL" "$HS_REPO_DIR"
+  chown -R hyperspace:hyperspace "$HS_REPO_DIR"
 
-cd "$HS_REPO_DIR"
-sudo -u hyperspace npm ci
-sudo -u hyperspace npm run build
-sudo -u hyperspace npm run typecheck
-sudo -u hyperspace npm test --workspaces --if-present
+  cd "$HS_REPO_DIR"
+  sudo -u hyperspace npm ci
+  sudo -u hyperspace npm run build
+  sudo -u hyperspace npm run typecheck
+  sudo -u hyperspace npm test --workspaces --if-present
+fi
 ```
 
 These workspace tests are local regression tests. They do not run the
