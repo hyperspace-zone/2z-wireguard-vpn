@@ -1134,11 +1134,16 @@ ssh "root@${GATE_PUBLIC_IPV4}" 'chown root:root /usr/local/bin/hyperspace-gate-a
 On each gate host, create `/etc/hyperspace/gate-agent.env`:
 
 ```bash
+export CONTROL_PLANE_URL="${HS_API_ORIGIN}"
+export GATE_NAME=gate-eu-fra-01
+read -rsp "Issued gate token for ${GATE_NAME}: " GATE_TOKEN
+echo
+
 install -d -o root -g root -m 0750 /etc/hyperspace
 cat >/etc/hyperspace/gate-agent.env <<EOF
-CONTROL_PLANE_URL=${HS_API_ORIGIN}
-GATE_NAME=<gate-name-from-catalog>
-GATE_TOKEN=<issued-gate-token>
+CONTROL_PLANE_URL=${CONTROL_PLANE_URL}
+GATE_NAME=${GATE_NAME}
+GATE_TOKEN=${GATE_TOKEN}
 POLL_INTERVAL=2s
 HEARTBEAT_INTERVAL=10s
 GATE_AGENT_EXECUTION_MODE=apply
@@ -1146,6 +1151,7 @@ GATE_AGENT_STATE_DIR=/var/lib/hyperspace-gate
 EOF
 chown root:root /etc/hyperspace/gate-agent.env
 chmod 0600 /etc/hyperspace/gate-agent.env
+unset GATE_TOKEN
 ```
 
 `CONTROL_PLANE_URL` must point to the API origin that exposes `/v1/gate/*`.
@@ -1224,9 +1230,9 @@ Caddyfile example on each gate. The template uses shell-style `${GATE_HOST}`
 variables for `envsubst`, not Caddy runtime `{$GATE_HOST}` variables:
 
 ```bash
-export GATE_HOST=<gate-public-ip-or-domain>
+export GATE_HOST=203.0.113.10
 export WEB_ORIGIN="$HS_WEB_ORIGIN"
-export GATE_NAME=<gate-name-from-catalog>
+export GATE_NAME=gate-eu-fra-01
 export TLS_FULLCHAIN=/etc/caddy/certs/${GATE_HOST}/fullchain.pem
 export TLS_PRIVKEY=/etc/caddy/certs/${GATE_HOST}/privkey.pem
 export GATE_CADDYFILE_TEMPLATE=/opt/2z-wireguard-vpn/infra/caddy/Caddyfile.gate-probe.example
