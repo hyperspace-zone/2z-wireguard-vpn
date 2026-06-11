@@ -80,6 +80,12 @@ export DZ_ENV=mainnet-beta
 # Derived values; normally do not edit.
 export HS_WEB_ORIGIN="https://$HS_WEB_HOST"
 export HS_API_ORIGIN="https://$HS_API_HOST"
+
+# Keep apt-based bootstrap copy/pasteable over SSH. Ubuntu's needrestart can
+# otherwise open an interactive whiptail dialog after package installs.
+export DEBIAN_FRONTEND=noninteractive
+export APT_LISTCHANGES_FRONTEND=none
+export NEEDRESTART_MODE=a
 ```
 
 For the minimum combined-host deployment, set `HS_WEB_HOST` and `HS_API_HOST`
