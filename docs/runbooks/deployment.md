@@ -1232,12 +1232,16 @@ export GATE_PUBLIC_IPV4=203.0.113.10
 scp "$HS_REPO_DIR/infra/caddy/Caddyfile.gate-probe.example" "root@${GATE_PUBLIC_IPV4}:/tmp/Caddyfile.gate-probe.example"
 ```
 
-On each gate host, render and reload the probe Caddyfile:
+On each gate host, render and reload the probe Caddyfile. For split web/API
+deployments, set `HS_WEB_ORIGIN` to the web UI origin before running this block:
 
 ```bash
-export GATE_HOST=203.0.113.10
-export WEB_ORIGIN="$HS_WEB_ORIGIN"
-export GATE_NAME=gate-eu-fra-01
+set -a
+. /etc/hyperspace/gate-agent.env
+set +a
+
+export GATE_HOST="$(cat /etc/hyperspace/tls-cert-name)"
+export WEB_ORIGIN="${HS_WEB_ORIGIN:-$CONTROL_PLANE_URL}"
 export TLS_FULLCHAIN=/etc/caddy/certs/${GATE_HOST}/fullchain.pem
 export TLS_PRIVKEY=/etc/caddy/certs/${GATE_HOST}/privkey.pem
 export GATE_CADDYFILE_TEMPLATE=/tmp/Caddyfile.gate-probe.example
