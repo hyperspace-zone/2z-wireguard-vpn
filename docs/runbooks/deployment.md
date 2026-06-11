@@ -81,8 +81,9 @@ export DZ_ENV=mainnet-beta
 export HS_WEB_ORIGIN="https://$HS_WEB_HOST"
 export HS_API_ORIGIN="https://$HS_API_HOST"
 
-# Keep apt-based bootstrap copy/pasteable over SSH. Ubuntu's needrestart can
-# otherwise open an interactive whiptail dialog after package installs.
+# Keep apt-based bootstrap copy/pasteable over SSH. This is only a prompt
+# guard; every host must still pass the host freshness preflight below before
+# deployment continues.
 export DEBIAN_FRONTEND=noninteractive
 export APT_LISTCHANGES_FRONTEND=none
 export NEEDRESTART_MODE=a
@@ -151,6 +152,50 @@ systemctl disable --now docker docker.socket containerd 2>/dev/null || true
 iptables -P FORWARD ACCEPT 2>/dev/null || true
 iptables -F DOCKER-USER 2>/dev/null || true
 ```
+
+## Host Freshness Preflight
+
+Start from clean, fully updated Ubuntu hosts. Do not continue deployment on a
+host with a pending kernel upgrade, pending reboot, or interactive
+`needrestart` prompt. Reboot first, reconnect, then rerun this preflight.
+
+Run this on every control-plane, web, gate, and validation host before
+installing Hyperspace components:
+
+```bash
+export DEBIAN_FRONTEND=noninteractive
+export APT_LISTCHANGES_FRONTEND=none
+export NEEDRESTART_MODE=a
+
+apt-get update
+apt-get full-upgrade -y
+
+if [ -f /var/run/reboot-required ]; then
+  cat /var/run/reboot-required
+  echo "reboot this host, reconnect, and rerun the host freshness preflight" >&2
+  exit 1
+fi
+
+running_kernel="$(uname -r)"
+latest_kernel="$(
+  find /boot -maxdepth 1 -type f -name 'vmlinuz-*' -printf '%f\n' \
+    | sed 's/^vmlinuz-//' \
+    | sort -V \
+    | tail -n1
+)"
+
+printf 'running kernel: %s\n' "$running_kernel"
+printf 'latest installed kernel: %s\n' "${latest_kernel:-unknown}"
+
+if [ -n "$latest_kernel" ] && [ "$running_kernel" != "$latest_kernel" ]; then
+  echo "running kernel is not the latest installed kernel; reboot before continuing" >&2
+  exit 1
+fi
+```
+
+After reboot, rerun the same block. It should finish without asking for input,
+without `/var/run/reboot-required`, and with the running kernel matching the
+latest installed kernel.
 
 ## SSH Host Key Verification
 
