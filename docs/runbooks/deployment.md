@@ -970,10 +970,27 @@ gate agents are reporting `ready=true` and `schedulable=true`; see
 ## Gate Catalog
 
 Create your own gate inventory from the example in `infra/gates.example.json`.
-On the control-plane host, create the real seed file, edit it, and replace all
-example values:
+Run this on the control-plane host as root, after the `hyperspace` system user
+has been created. Do not run it from your operator workstation. Create the real
+seed file, edit it, and replace all example values:
 
 ```bash
+test "$(id -u)" -eq 0 || {
+  echo "STOP: run this on the control-plane host as root, not on your operator workstation" >&2
+  exit 1
+}
+
+: "${HS_REPO_DIR:?set HS_REPO_DIR to the control-plane checkout path, for example /opt/2z-wireguard-vpn}"
+test -f "$HS_REPO_DIR/infra/gates.example.json" || {
+  echo "STOP: HS_REPO_DIR does not point to the cloned checkout on this host" >&2
+  exit 1
+}
+
+getent group hyperspace >/dev/null || {
+  echo "STOP: hyperspace group is missing; finish the control-plane user setup before creating the gate catalog" >&2
+  exit 1
+}
+
 cd "$HS_REPO_DIR"
 install -d -o root -g hyperspace -m 0750 /etc/hyperspace
 install -o root -g hyperspace -m 0640 infra/gates.example.json /etc/hyperspace/gates.json
