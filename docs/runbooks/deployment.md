@@ -30,7 +30,6 @@ Minimum production-like layout:
 | Control plane | 1 | Runs API and worker systemd services. |
 | PostgreSQL | 1 | Transaction source of truth. Keep private. |
 | Gate | 2 | Minimum for a route that uses distinct ingress and egress roles. Gates are universal; each gate must expose HTTPS probes. |
-| Observability | 0-1 | Recommended for Prometheus, Grafana, and exporters. |
 
 For small test deployments, web, control-plane, and PostgreSQL can be collapsed
 onto one host. Gate hosts should remain separate from the control plane.
@@ -1445,59 +1444,10 @@ Expected result:
 - A user-provided WireGuard public key works only with its matching private key.
 - Temporary sessions are revoked and deleted in cleanup.
 
-For long-running placement and performance measurements, use
-`docs/runbooks/long-running-measurement-matrix.md`. That workflow requires
-separate testnode servers and is not part of routine deployment.
+Additional workflows:
 
-For API automation, first request a client-config download token, then fetch the
-raw WireGuard config with either `downloadConfigUrl` or `?format=conf`:
-
-```bash
-export HS_PUBLIC_API_BASE="https://${HS_WEB_HOST}/api"
-# If calling the API host directly, use:
-# export HS_PUBLIC_API_BASE="https://${HS_API_HOST}"
-
-token_response="$(
-  curl -fsS -X POST \
-    -H "authorization: Bearer $HS_ACCESS_TOKEN" \
-    "$HS_PUBLIC_API_BASE/v1/public/sessions/$SESSION_ID/artifacts/client-config/download-token"
-)"
-
-curl -fsSL \
-  "$HS_PUBLIC_API_BASE$(jq -r '.downloadConfigUrl' <<<"$token_response")" \
-  > hyperspace.conf
-```
-
-`downloadUrl` without `?format=conf` intentionally returns the JSON artifact
-envelope used by the web UI:
-
-```json
-{
-  "payload": {
-    "fileName": "hyperspace-xxxxxxxx.conf",
-    "configText": "[Interface]\n..."
-  }
-}
-```
-
-If you intentionally use the JSON endpoint in shell automation, extract the
-config text before starting WireGuard:
-
-```bash
-curl -fsSL "$HS_PUBLIC_API_BASE$(jq -r '.downloadUrl' <<<"$token_response")" \
-  | jq -r '.payload.configText' \
-  > hyperspace.conf
-```
-
-## Observability
-
-Recommended components:
-
-- Prometheus for metrics.
-- Grafana for dashboards.
-- node_exporter on every host.
-- postgres_exporter on the database host.
-
-Track at minimum: gate readiness, gate heartbeat age, provisioning latency,
-revocation latency, reconciliation retries, dead jobs, active sessions, address
-lease counts, and artifact issuance/download events.
+- For API automation, use [API Automation](api-automation.md).
+- For long-running placement and performance measurements, use
+  [Long-Running Measurement Matrix](long-running-measurement-matrix.md). That
+  workflow requires separate testnode servers and is not part of routine
+  deployment.

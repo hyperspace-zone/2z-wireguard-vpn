@@ -27,10 +27,8 @@ You need infrastructure before this repository can become useful:
 - Server 1: web UI, control-plane API, control-plane worker, and PostgreSQL.
 - Server 2: ingress gate.
 - Server 3: egress gate.
-- Optional production split: separate web, control-plane, PostgreSQL, and
-  observability hosts.
+- Optional production split: separate web, control-plane, and PostgreSQL hosts.
 - One public HTTPS endpoint for the web UI.
-- Optional but recommended: one observability host for Prometheus and Grafana.
 - At least two gate hosts, because the current routing model uses one ingress
   gate and one distinct egress gate for every VPN config.
 
@@ -165,7 +163,6 @@ infra/
   caddy/                  Caddy entrypoint templates
   systemd/                bare-metal service units
   postgres/               PostgreSQL deployment notes
-  observability/          metrics and logging deployment notes
 docs/
   architecture/           target architecture documentation
   api/                    API surface documentation
@@ -205,7 +202,6 @@ Deployment is intentionally package-and-systemd oriented:
 - API and worker run as separate systemd services from the same codebase.
 - Gate agent runs as a Go binary under systemd.
 - Caddy terminates TLS and routes API/web traffic.
-- Observability is provided by Prometheus, Grafana, and exporters.
 
 Start with [Deployment Guide](docs/runbooks/deployment.md).
 
