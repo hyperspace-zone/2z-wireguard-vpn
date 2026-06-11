@@ -226,26 +226,52 @@ systemctl enable --now caddy
 systemctl reload caddy
 ```
 
-Request an IP address certificate:
+Set the certificate name for the current host. Use the public routable IPv4
+address for an IP-only bootstrap, or the DNS name if you already have stable DNS
+pointing at this host. Do not use a private/local address.
+
+```bash
+export TLS_CERT_NAME=<public-ip-or-dns-name-for-this-host>
+```
+
+For the combined web/control-plane host this is usually `HS_WEB_HOST`. For a
+gate, this is the gate's public IP or DNS name, for example
+`gate-eu-fra-01.example.net`.
+
+For an IP address certificate, run:
 
 ```bash
 /opt/certbot-venv/bin/certbot certonly \
   --webroot \
   --webroot-path /var/www/acme-challenges \
-  --ip-address <public-ip> \
+  --ip-address "$TLS_CERT_NAME" \
   --preferred-profile shortlived \
   --agree-tos \
   --email "$OPS_EMAIL" \
   --non-interactive
 ```
 
-For a DNS name, replace `--ip-address <public-ip>` with
-`-d <public-domain-name>`. Keep HTTPS mandatory either way.
+For a DNS name certificate, run:
+
+```bash
+/opt/certbot-venv/bin/certbot certonly \
+  --webroot \
+  --webroot-path /var/www/acme-challenges \
+  -d "$TLS_CERT_NAME" \
+  --agree-tos \
+  --email "$OPS_EMAIL" \
+  --non-interactive
+```
+
+Keep HTTPS mandatory either way.
 
 Certbot stores certificates under `/etc/letsencrypt/live/<name>/`. Copy them to
 a Caddy-readable location and keep private keys group-readable only by Caddy:
 
 ```bash
+install -d -o root -g root -m 0755 /etc/hyperspace
+printf '%s\n' "$TLS_CERT_NAME" >/etc/hyperspace/tls-cert-name
+
 cat >/usr/local/sbin/hyperspace-sync-ip-cert <<'SCRIPT'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -255,7 +281,7 @@ install -o root -g caddy -m 0640 "/etc/letsencrypt/live/${name}/fullchain.pem" "
 install -o root -g caddy -m 0640 "/etc/letsencrypt/live/${name}/privkey.pem" "/etc/caddy/certs/${name}/privkey.pem"
 SCRIPT
 chmod 0755 /usr/local/sbin/hyperspace-sync-ip-cert
-/usr/local/sbin/hyperspace-sync-ip-cert <public-ip-or-cert-name>
+/usr/local/sbin/hyperspace-sync-ip-cert "$TLS_CERT_NAME"
 ```
 
 Create a deploy hook for renewal:
@@ -264,7 +290,8 @@ Create a deploy hook for renewal:
 cat >/usr/local/sbin/hyperspace-sync-certs-and-reload <<'SCRIPT'
 #!/usr/bin/env bash
 set -euo pipefail
-/usr/local/sbin/hyperspace-sync-ip-cert <public-ip-or-cert-name>
+name="$(cat /etc/hyperspace/tls-cert-name)"
+/usr/local/sbin/hyperspace-sync-ip-cert "$name"
 systemctl reload caddy
 SCRIPT
 chmod 0755 /usr/local/sbin/hyperspace-sync-certs-and-reload
