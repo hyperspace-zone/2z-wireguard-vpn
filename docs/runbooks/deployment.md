@@ -526,7 +526,19 @@ address, so a new `access-pass` must be issued for the new address and this
 gate public IP.
 
 ```bash
+export DZ_ENV=mainnet-beta
+# or:
+# export DZ_ENV=testnet
+
 check_doublezero_access_pass() {
+  case "$DZ_ENV" in
+    mainnet-beta|testnet) ;;
+    *)
+      echo "unsupported DZ_ENV=$DZ_ENV; set DZ_ENV to mainnet-beta or testnet" >&2
+      return 1
+      ;;
+  esac
+
   install -d -m 0700 ~/.config/doublezero
   if ! test -s ~/.config/doublezero/id.json; then
     echo "missing DoubleZero keypair: ~/.config/doublezero/id.json" >&2
@@ -564,11 +576,15 @@ there. Send the printed address and this gate's public IP to the DoubleZero team
 and wait for a matching `access-pass` before continuing deployment:
 
 ```bash
+export DZ_ENV=mainnet-beta
+# or:
+# export DZ_ENV=testnet
+
 install -d -m 0700 ~/.config/doublezero
 doublezero keygen --outfile ~/.config/doublezero/id.json
 chmod 0600 ~/.config/doublezero/id.json
 doublezero --env "$DZ_ENV" --keypair ~/.config/doublezero/id.json address </dev/null
-curl -4 ifconfig.me
+curl -4 ifconfig.me; echo
 ```
 
 Do not run `doublezero connect` until `doublezero access-pass list` shows an
