@@ -9,7 +9,7 @@ export async function listPublicGates(db: Queryable): Promise<GateSummary[]> {
     desiredState: GateSummary["desiredState"];
     city: string;
     country: string;
-    publicEndpoint: string;
+    publicIpv4: string;
     probeUrl: string | null;
     lastSeenAt: string | null;
     doubleZero: Record<string, unknown> | null;
@@ -27,7 +27,7 @@ export async function listPublicGates(db: Queryable): Promise<GateSummary[]> {
         gates.desired_state::text AS "desiredState",
         gates.city,
         gates.country,
-        gates.public_endpoint AS "publicEndpoint",
+        gates.public_ipv4 AS "publicIpv4",
         NULLIF(gates.spec->>'probeUrl', '') AS "probeUrl",
         gate_status.last_seen_at AS "lastSeenAt",
         gate_status.doublezero_status AS "doubleZero",
@@ -62,7 +62,7 @@ export async function listPublicGates(db: Queryable): Promise<GateSummary[]> {
       desiredState: row.desiredState,
       ...(row.city ? { city: row.city } : {}),
       ...(row.country ? { country: row.country } : {}),
-      publicEndpoint: row.publicEndpoint,
+      publicIpv4: row.publicIpv4,
       ...(row.probeUrl ? { probeUrl: row.probeUrl } : {}),
       ...(row.lastSeenAt ? { lastSeenAt: row.lastSeenAt } : {}),
       ...(doubleZero ? { doubleZero } : {}),

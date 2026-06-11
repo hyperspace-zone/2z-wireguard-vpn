@@ -13,7 +13,7 @@ export interface GateRuntimeIdentity {
   name: string;
   generation: number;
   desiredState: GateDesiredState;
-  publicEndpoint: string;
+  publicIpv4: string;
   spec: Record<string, unknown>;
 }
 
@@ -43,7 +43,7 @@ export async function recordGateHeartbeat(
   const readiness = evaluateGateReadiness({
     capabilities: report.capabilities,
     doubleZero: report.doubleZero,
-    publicEndpoint: gate.publicEndpoint,
+    publicIpv4: gate.publicIpv4,
     doubleZeroEnv: readGateDoubleZeroEnv(gate.spec),
     hostReady
   });

@@ -17,7 +17,7 @@ export interface SessionAssignmentMaterialRow {
   role: "Ingress" | "Egress";
   externalHandle: string;
   gateName: string;
-  publicEndpoint: string;
+  publicIpv4: string;
   localMaterial: Record<string, unknown>;
 }
 
@@ -123,7 +123,7 @@ export async function listSessionAssignmentMaterials(
         gate_assignments.role::text AS role,
         gate_assignments.external_handle AS "externalHandle",
         gates.name AS "gateName",
-        gates.public_endpoint AS "publicEndpoint",
+        gates.public_ipv4 AS "publicIpv4",
         gate_assignment_status.local_material AS "localMaterial"
       FROM gate_assignments
       JOIN gates ON gates.id = gate_assignments.gate_id

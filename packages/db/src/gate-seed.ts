@@ -10,7 +10,7 @@ export interface GateSeed {
   identity: string;
   city: string;
   country: string;
-  publicEndpoint: string;
+  publicIpv4: string;
   probeUrl?: string;
   doubleZeroEnv?: "testnet" | "mainnet-beta";
 }
@@ -26,7 +26,7 @@ export function normalizeGateSeeds(input: unknown): NormalizedGateSeed[] {
 
   const names = new Set<string>();
   const identities = new Set<string>();
-  const publicEndpoints = new Set<string>();
+  const publicIpv4s = new Set<string>();
   const probeUrls = new Set<string>();
   return input.map((value, index) => {
     if (typeof value !== "object" || value === null) {
@@ -38,10 +38,10 @@ export function normalizeGateSeeds(input: unknown): NormalizedGateSeed[] {
     const identity = readRequiredToken(seed.identity, `${label}.identity`);
     const city = readRequiredText(seed.city, `${label}.city`);
     const country = readRequiredText(seed.country, `${label}.country`);
-    const publicEndpoint = readRequiredToken(seed.publicEndpoint, `${label}.publicEndpoint`);
+    const publicIpv4 = readRequiredToken(seed.publicIpv4, `${label}.publicIpv4`);
     const probeUrl = seed.probeUrl ? readHttpsUrl(seed.probeUrl, `${label}.probeUrl`) : "";
-    if (isIP(publicEndpoint) !== 4) {
-      throw new Error(`${label}.publicEndpoint must be a public IPv4 address`);
+    if (isIP(publicIpv4) !== 4) {
+      throw new Error(`${label}.publicIpv4 must be a public IPv4 address`);
     }
     if (seed.doubleZeroEnv && seed.doubleZeroEnv !== "testnet" && seed.doubleZeroEnv !== "mainnet-beta") {
       throw new Error(`${label}.doubleZeroEnv must be testnet or mainnet-beta`);
@@ -52,15 +52,15 @@ export function normalizeGateSeeds(input: unknown): NormalizedGateSeed[] {
     if (identities.has(identity)) {
       throw new Error(`duplicate gate identity ${identity}`);
     }
-    if (publicEndpoints.has(publicEndpoint)) {
-      throw new Error(`duplicate gate publicEndpoint ${publicEndpoint}`);
+    if (publicIpv4s.has(publicIpv4)) {
+      throw new Error(`duplicate gate publicIpv4 ${publicIpv4}`);
     }
     if (probeUrl && probeUrls.has(probeUrl)) {
       throw new Error(`duplicate gate probeUrl ${probeUrl}`);
     }
     names.add(name);
     identities.add(identity);
-    publicEndpoints.add(publicEndpoint);
+    publicIpv4s.add(publicIpv4);
     if (probeUrl) {
       probeUrls.add(probeUrl);
     }
@@ -70,7 +70,7 @@ export function normalizeGateSeeds(input: unknown): NormalizedGateSeed[] {
       identity,
       city,
       country,
-      publicEndpoint,
+      publicIpv4,
       ...(probeUrl ? { probeUrl } : {}),
       doubleZeroEnv: seed.doubleZeroEnv ?? "testnet"
     };

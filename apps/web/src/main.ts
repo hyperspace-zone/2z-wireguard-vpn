@@ -10,7 +10,7 @@ interface Gate {
   name: string;
   city?: string;
   country?: string;
-  publicEndpoint: string;
+  publicIpv4: string;
   probeUrl?: string;
   doubleZero?: GateDoubleZeroStatus;
   ready: boolean;
@@ -357,7 +357,7 @@ function gatesPanel(gates: Gate[]): string {
           <th>Name</th>
           <th>City</th>
           <th>Country</th>
-          <th>Endpoint</th>
+          <th>Public IPv4</th>
           <th>Ready</th>
           <th aria-sort="${gateBrowserRttSortDirection === "desc" ? "descending" : "ascending"}">
             <button class="table-sort" type="button" data-sort-gates="browser-rtt">Browser RTT ${sortArrow}</button>
@@ -374,7 +374,7 @@ function gatesPanel(gates: Gate[]): string {
                 <td>${escapeHtml(gate.name)}</td>
                 <td>${escapeHtml(gate.city || "unknown")}</td>
                 <td>${escapeHtml(gate.country || "unknown")}</td>
-                <td><small class="mono">${escapeHtml(gate.publicEndpoint)}</small></td>
+                <td><small class="mono">${escapeHtml(gate.publicIpv4)}</small></td>
                 <td>${statusDot(gate.ready)}</td>
                 <td class="latency-cell">${latencyCell(gate)}</td>
                 <td>${statusDot(gate.schedulable)}</td>
@@ -811,7 +811,7 @@ function gateSummary(gateName: string, gates: Gate[]): { value: string; subvalue
   }
   return {
     value: gate.name,
-    subvalue: `${gateLocationLabel(gate)}, ${gate.publicEndpoint}`
+    subvalue: `${gateLocationLabel(gate)}, ${gate.publicIpv4}`
   };
 }
 

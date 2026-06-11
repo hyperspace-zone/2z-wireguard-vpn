@@ -24,7 +24,7 @@ export interface RenderedPlanArtifactRow {
 export interface AssignmentArtifactMaterialRow {
   role: string;
   gateName: string;
-  publicEndpoint: string;
+  publicIpv4: string;
   localMaterial: unknown;
 }
 
@@ -58,7 +58,7 @@ export async function listAssignmentMaterialsForArtifact(
       SELECT
         gate_assignments.role::text AS role,
         gates.name AS "gateName",
-        gates.public_endpoint AS "publicEndpoint",
+        gates.public_ipv4 AS "publicIpv4",
         gate_assignment_status.local_material AS "localMaterial"
       FROM gate_assignments
       JOIN gates ON gates.id = gate_assignments.gate_id

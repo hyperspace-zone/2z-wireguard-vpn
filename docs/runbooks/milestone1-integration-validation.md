@@ -71,11 +71,11 @@ Create an inventory file on the operator workstation:
   "gates": [
     {
       "name": "gate-eu-fra-01",
-      "publicEndpoint": "203.0.113.10"
+      "publicIpv4": "203.0.113.10"
     },
     {
       "name": "gate-na-chi-01",
-      "publicEndpoint": "203.0.113.20"
+      "publicIpv4": "203.0.113.20"
     }
   ]
 }

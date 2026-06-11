@@ -4,10 +4,10 @@ import { selectSchedulableGate } from "../resources/gates/repository.js";
 export interface PathChoice {
   ingressGateId: string;
   ingressGateName: string;
-  ingressPublicEndpoint: string;
+  ingressPublicIpv4: string;
   egressGateId: string;
   egressGateName: string;
-  egressPublicEndpoint: string;
+  egressPublicIpv4: string;
 }
 
 export async function choosePath(client: Queryable, spec: Record<string, unknown>): Promise<PathChoice | null> {
@@ -35,10 +35,10 @@ export async function choosePath(client: Queryable, spec: Record<string, unknown
   return {
     ingressGateId: ingress.id,
     ingressGateName: ingress.name,
-    ingressPublicEndpoint: ingress.publicEndpoint,
+    ingressPublicIpv4: ingress.publicIpv4,
     egressGateId: egress.id,
     egressGateName: egress.name,
-    egressPublicEndpoint: egress.publicEndpoint
+    egressPublicIpv4: egress.publicIpv4
   };
 }
 

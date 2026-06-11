@@ -114,10 +114,10 @@ export async function scheduleRequestedSessions(
       const selectedPath = {
         ingressGateId: path.ingressGateId,
         ingressGateName: path.ingressGateName,
-        ingressPublicEndpoint: path.ingressPublicEndpoint,
+        ingressPublicIpv4: path.ingressPublicIpv4,
         egressGateId: path.egressGateId,
         egressGateName: path.egressGateName,
-        egressPublicEndpoint: path.egressPublicEndpoint
+        egressPublicIpv4: path.egressPublicIpv4
       };
       await markSessionProvisioning(client, session.id, provisioningTransition(session.generation, selectedPath), selectedPath);
       await setSessionCondition(

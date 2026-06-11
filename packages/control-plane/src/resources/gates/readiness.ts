@@ -10,7 +10,7 @@ export interface GateReadiness {
 export function evaluateGateReadiness(input: {
   capabilities: string[];
   doubleZero: Record<string, unknown>;
-  publicEndpoint: string;
+  publicIpv4: string;
   doubleZeroEnv: string;
   hostReady: boolean;
 }): GateReadiness {
@@ -57,14 +57,14 @@ export function evaluateGateReadiness(input: {
     };
   }
   const tunnelSrc = readString(input.doubleZero, "tunnelSrc");
-  if (tunnelSrc !== input.publicEndpoint) {
+  if (tunnelSrc !== input.publicIpv4) {
     return {
       ready: true,
       reason: "HostReady",
       message: "Gate agent heartbeat is fresh and required host tools are present",
       doubleZeroReady: false,
       doubleZeroReason: "DoubleZeroTunnelSourceMismatch",
-      doubleZeroMessage: `DoubleZero tunnel source ${tunnelSrc || "unknown"} does not match gate public endpoint ${input.publicEndpoint}`
+      doubleZeroMessage: `DoubleZero tunnel source ${tunnelSrc || "unknown"} does not match gate public IPv4 ${input.publicIpv4}`
     };
   }
   return {

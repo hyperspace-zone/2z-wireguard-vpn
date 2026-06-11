@@ -7,7 +7,7 @@ export interface AuthenticatedGate {
   name: string;
   generation: number;
   desiredState: GateDesiredState;
-  publicEndpoint: string;
+  publicIpv4: string;
   spec: Record<string, unknown>;
 }
 
@@ -29,7 +29,7 @@ export async function authenticateGateToken(
         gates.name,
         gates.generation::int AS generation,
         gates.desired_state::text AS "desiredState",
-        gates.public_endpoint AS "publicEndpoint",
+        gates.public_ipv4 AS "publicIpv4",
         gates.spec
       FROM gates
       JOIN gate_auth_tokens ON gate_auth_tokens.gate_id = gates.id

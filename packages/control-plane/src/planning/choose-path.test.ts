@@ -10,14 +10,14 @@ interface QueryCall {
 const ingressGate = {
   id: "00000000-0000-4000-8000-000000000001",
   name: "gate-eu-fra-01",
-  publicEndpoint: "203.0.113.10",
+  publicIpv4: "203.0.113.10",
   doubleZeroEnv: "mainnet-beta"
 };
 
 const egressGate = {
   id: "00000000-0000-4000-8000-000000000002",
   name: "gate-na-chi-01",
-  publicEndpoint: "203.0.113.20",
+  publicIpv4: "203.0.113.20",
   doubleZeroEnv: "mainnet-beta"
 };
 
@@ -49,10 +49,10 @@ test("choosePath schedules an explicit mainnet-beta gate pair using gate_status 
   assert.deepEqual(path, {
     ingressGateId: ingressGate.id,
     ingressGateName: ingressGate.name,
-    ingressPublicEndpoint: ingressGate.publicEndpoint,
+    ingressPublicIpv4: ingressGate.publicIpv4,
     egressGateId: egressGate.id,
     egressGateName: egressGate.name,
-    egressPublicEndpoint: egressGate.publicEndpoint
+    egressPublicIpv4: egressGate.publicIpv4
   });
   assert.equal(calls.length, 2);
 });
@@ -76,6 +76,6 @@ function assertSchedulableGateQuery(sql: string): void {
     sql,
     /gate_status\.doublezero_status->>'network'\s+=\s+COALESCE\(NULLIF\(gates\.spec->>'doubleZeroEnv',\s+''\),\s+'testnet'\)/i
   );
-  assert.match(sql, /gate_status\.doublezero_status->>'tunnelSrc'\s+=\s+gates\.public_endpoint/i);
+  assert.match(sql, /gate_status\.doublezero_status->>'tunnelSrc'\s+=\s+gates\.public_ipv4/i);
   assert.match(sql, /gate_leases\.lease_expires_at\s+>\s+now\(\)/i);
 }

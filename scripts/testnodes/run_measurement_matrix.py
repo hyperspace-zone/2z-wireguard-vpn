@@ -70,7 +70,7 @@ def load_inventory(path: Path) -> tuple[list[TestNode], list[Gate]]:
     gates = [
         Gate(
             name=str(item["name"]),
-            public_ip=str(item.get("publicIp") or item.get("public_ip") or item.get("publicEndpoint")),
+            public_ip=str(item.get("publicIp") or item.get("public_ip") or item.get("publicIpv4")),
         )
         for item in data.get("gates", [])
     ]

@@ -102,7 +102,7 @@ CREATE TABLE gates (
   identity text NOT NULL UNIQUE,
   city text NOT NULL DEFAULT '',
   country text NOT NULL DEFAULT '',
-  public_endpoint text NOT NULL,
+  public_ipv4 text NOT NULL,
   doublezero_interface text NOT NULL DEFAULT 'doublezero0',
   allowed_modes session_mode[] NOT NULL DEFAULT ARRAY['IpToIp', 'FullTunnel']::session_mode[],
   scheduling_weight integer NOT NULL DEFAULT 100,

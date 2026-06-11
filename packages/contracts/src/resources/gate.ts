@@ -33,14 +33,14 @@ export type GateDoubleZeroStatus = FromSchema<typeof gateDoubleZeroStatusSchema>
 export const gateSummarySchema = {
   type: "object",
   additionalProperties: false,
-  required: ["id", "name", "desiredState", "publicEndpoint", "ready", "schedulable"],
+  required: ["id", "name", "desiredState", "publicIpv4", "ready", "schedulable"],
   properties: {
     id: { type: "string" },
     name: { type: "string" },
     desiredState: { enum: gateDesiredStateValues },
     city: { type: "string" },
     country: { type: "string" },
-    publicEndpoint: { type: "string" },
+    publicIpv4: { type: "string" },
     probeUrl: { type: "string" },
     lastSeenAt: { type: "string", format: "date-time" },
     doubleZero: gateDoubleZeroStatusSchema,

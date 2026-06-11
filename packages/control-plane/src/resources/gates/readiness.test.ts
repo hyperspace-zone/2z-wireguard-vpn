@@ -20,7 +20,7 @@ test("gate is ready when host tools are present", () => {
   const readiness = evaluateGateReadiness({
     capabilities: readyCapabilities,
     doubleZero: readyDoubleZero,
-    publicEndpoint: "203.0.113.10",
+    publicIpv4: "203.0.113.10",
     doubleZeroEnv: "testnet",
     hostReady: true
   });
@@ -33,7 +33,7 @@ test("gate is ready but not DoubleZero-ready when doublezero0 is not up", () => 
   const readiness = evaluateGateReadiness({
     capabilities: readyCapabilities.filter((capability) => capability !== "doublezero0:up"),
     doubleZero: readyDoubleZero,
-    publicEndpoint: "203.0.113.10",
+    publicIpv4: "203.0.113.10",
     doubleZeroEnv: "testnet",
     hostReady: true
   });
@@ -46,7 +46,7 @@ test("gate is ready but not DoubleZero-ready when DoubleZero BGP session is down
   const readiness = evaluateGateReadiness({
     capabilities: readyCapabilities,
     doubleZero: { ...readyDoubleZero, tunnelStatus: "Connecting" },
-    publicEndpoint: "203.0.113.10",
+    publicIpv4: "203.0.113.10",
     doubleZeroEnv: "testnet",
     hostReady: true
   });
@@ -59,7 +59,7 @@ test("gate is ready but not DoubleZero-ready when DoubleZero environment mismatc
   const readiness = evaluateGateReadiness({
     capabilities: readyCapabilities,
     doubleZero: { ...readyDoubleZero, network: "mainnet-beta" },
-    publicEndpoint: "203.0.113.10",
+    publicIpv4: "203.0.113.10",
     doubleZeroEnv: "testnet",
     hostReady: true
   });
@@ -68,11 +68,11 @@ test("gate is ready but not DoubleZero-ready when DoubleZero environment mismatc
   assert.equal(readiness.doubleZeroReason, "DoubleZeroEnvMismatch");
 });
 
-test("gate is ready but not DoubleZero-ready when tunnel source mismatches public endpoint", () => {
+test("gate is ready but not DoubleZero-ready when tunnel source mismatches public IPv4", () => {
   const readiness = evaluateGateReadiness({
     capabilities: readyCapabilities,
     doubleZero: { ...readyDoubleZero, tunnelSrc: "203.0.113.11" },
-    publicEndpoint: "203.0.113.10",
+    publicIpv4: "203.0.113.10",
     doubleZeroEnv: "testnet",
     hostReady: true
   });

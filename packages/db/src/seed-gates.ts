@@ -34,18 +34,18 @@ try {
             identity,
             city,
             country,
-            public_endpoint,
+            public_ipv4,
             scheduling_weight,
             capacity_limit,
             spec
           )
-          VALUES ($1, 'Enabled', $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb)
+          VALUES ($1, 'Enabled', $2, $3, $4, $5, $6, $7, $8::jsonb)
           ON CONFLICT (name) DO UPDATE
           SET
             identity = EXCLUDED.identity,
             city = EXCLUDED.city,
             country = EXCLUDED.country,
-            public_endpoint = EXCLUDED.public_endpoint,
+            public_ipv4 = EXCLUDED.public_ipv4,
             scheduling_weight = EXCLUDED.scheduling_weight,
             capacity_limit = EXCLUDED.capacity_limit,
             desired_state = 'Enabled',
@@ -58,7 +58,7 @@ try {
           seed.identity,
           seed.city,
           seed.country,
-          seed.publicEndpoint,
+          seed.publicIpv4,
           100,
           0,
           JSON.stringify({

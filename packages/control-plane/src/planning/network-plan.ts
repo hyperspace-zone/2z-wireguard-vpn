@@ -9,7 +9,7 @@ export interface AssignmentNetworkMaterialInput {
   role: "Ingress" | "Egress";
   externalHandle: string;
   gateName: string;
-  publicEndpoint: string;
+  publicIpv4: string;
   localMaterial: Record<string, unknown>;
 }
 
@@ -28,7 +28,7 @@ export function assignmentNetworkMaterial(input: AssignmentNetworkMaterialInput)
     role: input.role,
     handle: input.externalHandle,
     gateName: input.gateName,
-    publicEndpoint: input.publicEndpoint,
+    publicIpv4: input.publicIpv4,
     localMaterial: input.localMaterial
   };
 }

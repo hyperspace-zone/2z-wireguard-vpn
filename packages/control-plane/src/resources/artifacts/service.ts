@@ -59,7 +59,7 @@ export async function prepareClientConfigArtifact(
     clientKeyMode,
     address: clientAddress,
     serverPublicKey,
-    endpoint: `${String(ingress.publicEndpoint)}:${listenPort}`,
+    endpoint: `${String(ingress.publicIpv4)}:${listenPort}`,
     allowedIps: destinationCidrs,
     persistentKeepaliveSeconds: 25
   });

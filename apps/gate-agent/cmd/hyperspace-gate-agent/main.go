@@ -201,12 +201,12 @@ type publicMaterial struct {
 }
 
 type assignmentEndpoint struct {
-	AssignmentID   string        `json:"assignmentId"`
-	Role           string        `json:"role"`
-	Handle         string        `json:"handle"`
-	GateName       string        `json:"gateName"`
-	PublicEndpoint string        `json:"publicEndpoint"`
-	LocalMaterial  localMaterial `json:"localMaterial"`
+	AssignmentID  string        `json:"assignmentId"`
+	Role          string        `json:"role"`
+	Handle        string        `json:"handle"`
+	GateName      string        `json:"gateName"`
+	PublicIPv4    string        `json:"publicIpv4"`
+	LocalMaterial localMaterial `json:"localMaterial"`
 }
 
 type localMaterial struct {
@@ -429,7 +429,7 @@ func commitIngress(state assignmentState, plan networkPlan) error {
 		return errors.New("client public key is required for ingress commit")
 	}
 	egress := plan.Egress.LocalMaterial
-	if egress.WireGuard.TransitPublicKey == "" || plan.Egress.PublicEndpoint == "" || egress.WireGuard.TransitListenPort == 0 {
+	if egress.WireGuard.TransitPublicKey == "" || plan.Egress.PublicIPv4 == "" || egress.WireGuard.TransitListenPort == 0 {
 		return errors.New("egress transit material is incomplete")
 	}
 	mtu := pm.MTU
@@ -466,7 +466,7 @@ func commitIngress(state assignmentState, plan networkPlan) error {
 		Peers: []wgPeer{{
 			PublicKey:           egress.WireGuard.TransitPublicKey,
 			AllowedIPs:          pm.DestinationCidrs,
-			Endpoint:            net.JoinHostPort(plan.Egress.PublicEndpoint, strconv.Itoa(egress.WireGuard.TransitListenPort)),
+			Endpoint:            net.JoinHostPort(plan.Egress.PublicIPv4, strconv.Itoa(egress.WireGuard.TransitListenPort)),
 			PersistentKeepalive: keepalive,
 		}},
 	}); err != nil {
@@ -493,7 +493,7 @@ func commitIngress(state assignmentState, plan networkPlan) error {
 func commitEgress(state assignmentState, plan networkPlan) error {
 	pm := plan.PublicMaterial
 	ingress := plan.Ingress.LocalMaterial
-	if ingress.WireGuard.TransitPublicKey == "" || plan.Ingress.PublicEndpoint == "" || ingress.WireGuard.TransitListenPort == 0 {
+	if ingress.WireGuard.TransitPublicKey == "" || plan.Ingress.PublicIPv4 == "" || ingress.WireGuard.TransitListenPort == 0 {
 		return errors.New("ingress transit material is incomplete")
 	}
 	defaultIface, err := defaultRouteInterface()
@@ -516,7 +516,7 @@ func commitEgress(state assignmentState, plan networkPlan) error {
 		Peers: []wgPeer{{
 			PublicKey:           ingress.WireGuard.TransitPublicKey,
 			AllowedIPs:          []string{pm.ClientAddress},
-			Endpoint:            net.JoinHostPort(plan.Ingress.PublicEndpoint, strconv.Itoa(ingress.WireGuard.TransitListenPort)),
+			Endpoint:            net.JoinHostPort(plan.Ingress.PublicIPv4, strconv.Itoa(ingress.WireGuard.TransitListenPort)),
 			PersistentKeepalive: keepalive,
 		}},
 	}); err != nil {

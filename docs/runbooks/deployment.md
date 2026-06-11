@@ -990,7 +990,7 @@ The file should look like this after replacing values:
     "identity": "7pFRA2uV4q2Jr7mN8pQ9sT3wX5yZ7aB9cD2eF4gH6",
     "city": "Frankfurt",
     "country": "Germany",
-    "publicEndpoint": "203.0.113.10",
+    "publicIpv4": "203.0.113.10",
     "probeUrl": "https://gate-eu-fra-01.example.net/.well-known/hyperspace-probe",
     "doubleZeroEnv": "mainnet-beta"
   },
@@ -999,7 +999,7 @@ The file should look like this after replacing values:
     "identity": "8qCH3vT5wX7yZ9aB2cD4eF6gH8jK9mN2pQ4rS6tU8V",
     "city": "Chicago",
     "country": "United States",
-    "publicEndpoint": "203.0.113.20",
+    "publicIpv4": "203.0.113.20",
     "probeUrl": "https://203.0.113.20/.well-known/hyperspace-probe",
     "doubleZeroEnv": "mainnet-beta"
   }
@@ -1017,13 +1017,13 @@ renaming whenever the host IP changes.
 
 `identity` is the DoubleZero `user_payer` identity for the gate. It is not a
 hostname and not a Hyperspace name. Use the exact output of `doublezero address`
-on that gate host. The same identity and public endpoint must be authorized by
+on that gate host. The same identity and public IPv4 must be authorized by
 the gate's DoubleZero `access-pass`. The value above is only a Solana-style
 example; replace it with the real address for this gate.
 
-`publicEndpoint` is the gate public IPv4 address used for DoubleZero tunnel
+`publicIpv4` is the gate public IPv4 address used for DoubleZero tunnel
 source validation and WireGuard endpoint generation. Hostnames are not accepted
-in this field. `publicEndpoint` must be unique in the catalog.
+in this field. `publicIpv4` must be unique in the catalog.
 
 `probeUrl` is the HTTPS browser probe endpoint. It may use either a DNS name or
 an IP address, as long as clients can validate the HTTPS certificate for that
@@ -1045,7 +1045,7 @@ and does not provide separate scheduling pools for mixed environments.
 
 The seed file must contain at least two gates because the current platform
 requires distinct ingress and egress gates for a session. The seed command also
-rejects duplicate `name`, `identity`, `publicEndpoint`, and duplicate
+rejects duplicate `name`, `identity`, `publicIpv4`, and duplicate
 `probeUrl` values.
 
 Use `city` and `country` as operator-facing location fields. The control plane
@@ -1079,8 +1079,8 @@ sudo -u hyperspace env DATABASE_URL="$DATABASE_URL" scripts/seed-gates-json /etc
 
 The seed command validates the gate catalog before writing to PostgreSQL:
 the file must contain at least two gates, `name`, `identity`, and
-`publicEndpoint` must be unique, `probeUrl` must be unique when present,
-`publicEndpoint` must be a public IPv4 address, and `doubleZeroEnv` must be `testnet` or
+`publicIpv4` must be unique, `probeUrl` must be unique when present,
+`publicIpv4` must be a public IPv4 address, and `doubleZeroEnv` must be `testnet` or
 `mainnet-beta`.
 
 ## Gate Agents
@@ -1160,7 +1160,7 @@ Enable a gate for scheduling only after:
 2. `wg`, `ip`, and `nft` are present.
 3. `doublezero status` reports `BGP Session Up`.
 4. `doublezero status` network matches the gate catalog `doubleZeroEnv`.
-5. `doublezero status` tunnel source matches the gate catalog `publicEndpoint`.
+5. `doublezero status` tunnel source matches the gate catalog `publicIpv4`.
 6. The gate heartbeat is visible in the control plane.
 7. Actual-state reporting works.
 8. The gate can reach at least one other gate through DoubleZero.
@@ -1170,7 +1170,7 @@ and the required host tools are present. It marks a gate `schedulable` only
 when the gate is ready, desired state is `Enabled`, `doublezero0` is up,
 `doublezero status` reports `BGP Session Up`, the DoubleZero network matches
 the gate catalog `doubleZeroEnv`, and the tunnel source matches the gate
-catalog `publicEndpoint`.
+catalog `publicIpv4`.
 
 In the web UI, the Gates table labels API `ready` as `Ready` and API
 `schedulable` as `Schedulable`. If DoubleZero is disconnected, misconfigured,

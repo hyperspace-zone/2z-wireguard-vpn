@@ -28,14 +28,14 @@ export interface GateHeartbeatPersistenceInput {
 export interface SchedulableGateRow {
   id: string;
   name: string;
-  publicEndpoint: string;
+  publicIpv4: string;
 }
 
 const doubleZeroGateSqlPredicate = `
   AND 'doublezero0:up' = ANY(gate_status.observed_capabilities)
   AND gate_status.doublezero_status->>'tunnelStatus' = 'BGP Session Up'
   AND gate_status.doublezero_status->>'network' = COALESCE(NULLIF(gates.spec->>'doubleZeroEnv', ''), 'testnet')
-  AND gate_status.doublezero_status->>'tunnelSrc' = gates.public_endpoint
+  AND gate_status.doublezero_status->>'tunnelSrc' = gates.public_ipv4
   AND ${freshGateLeaseSqlPredicate}
 `;
 
@@ -49,7 +49,7 @@ export async function selectSchedulableGate(
 ): Promise<SchedulableGateRow | null> {
   const result = await db.query<SchedulableGateRow>(
     `
-      SELECT gates.id, gates.name, gates.public_endpoint AS "publicEndpoint"
+      SELECT gates.id, gates.name, gates.public_ipv4 AS "publicIpv4"
       FROM gates
       LEFT JOIN gate_status ON gate_status.gate_id = gates.id
       LEFT JOIN gate_leases ON gate_leases.gate_id = gates.id
