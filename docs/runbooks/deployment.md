@@ -954,17 +954,18 @@ rsync -a --delete "$HS_REPO_DIR/apps/web/dist/" "root@${HS_WEB_HOST}:/var/www/hy
 ssh "root@${HS_WEB_HOST}" 'chown -R caddy:caddy /var/www/hyperspace-web && systemctl reload caddy'
 ```
 
-Validate the public entrypoint after every upgrade:
+Validate the public entrypoint after every upgrade. These checks do not require
+gate catalog records or running gate agents:
 
 ```bash
 curl --retry 30 --retry-delay 1 --retry-all-errors -fsS "https://${HS_WEB_HOST}/api/health" | jq .
 curl --retry 30 --retry-delay 1 --retry-all-errors -fsS "https://${HS_WEB_HOST}/api/openapi.json" \
   | jq -e '.paths["/health"] and .paths["/v1/public/health"] and .paths["/v1/public/auth/me"]'
-
-HS_WEB_BASE="https://${HS_WEB_HOST}" \
-HS_API_BASE="https://${HS_WEB_HOST}/api" \
-npm run test:live:ui
 ```
+
+Run the live UI/API smoke only after the gate catalog is seeded and at least two
+gate agents are reporting `ready=true` and `schedulable=true`; see
+`Automated UI/API smoke`.
 
 ## Gate Catalog
 
@@ -1235,8 +1236,9 @@ user path.
 ### Automated UI/API smoke
 
 Run this from an operator workstation, CI runner, or the control-plane host
-after the web/API endpoint is reachable over HTTPS. The script uses
-`playwright-core`, so provide a local Chromium/Chrome executable:
+after the web/API endpoint is reachable over HTTPS, the gate catalog is seeded,
+and at least two gates are reporting `ready=true` and `schedulable=true`. The
+script uses `playwright-core`, so provide a local Chromium/Chrome executable:
 
 ```bash
 cd "$HS_REPO_DIR"
@@ -1252,6 +1254,9 @@ export HS_TEST_TARGET_IP=<reachable-ipv4-target>
 export HS_TEST_OUTPUT_DIR=m1-results/live-cluster
 export HS_HEADLESS=true
 export PLAYWRIGHT_CHROMIUM_EXECUTABLE=/path/to/chromium-or-chrome
+
+curl -fsS "${HS_API_BASE}/v1/public/gates" \
+  | jq -e '[.gates[]? | select(.ready == true and .schedulable == true)] | length >= 2'
 
 npm run test:live:ui
 ```
