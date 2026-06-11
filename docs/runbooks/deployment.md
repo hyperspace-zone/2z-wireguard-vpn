@@ -1086,14 +1086,15 @@ the file must contain at least two gates, `name`, `identity`, and
 
 ## Gate Agents
 
-Build the `hyperspace-gate-agent` binary once on the control-plane host or on
-another Linux builder with the same CPU architecture as the gates. The agent
-requires Go 1.23 or newer. Ubuntu 24.04 `apt` can provide Go 1.22, which is too
-old for `apps/gate-agent/go.mod`.
+This section starts on the control-plane host or another Linux builder, not on
+the gate hosts. Build the `hyperspace-gate-agent` binary once, then copy it to
+each gate. The builder must have the same CPU architecture as the gates. The
+agent requires Go 1.23 or newer. Ubuntu 24.04 `apt` can provide Go 1.22, which
+is too old for `apps/gate-agent/go.mod`.
 
-Install Go outside Docker. This example uses a Go tarball; replace
-`GO_VERSION` with the current supported Go release from https://go.dev/dl/ if
-needed:
+On the control-plane or builder host, install Go outside Docker. This example
+uses a Go tarball; replace `GO_VERSION` with the current supported Go release
+from https://go.dev/dl/ if needed:
 
 ```bash
 export GO_VERSION=1.23.12
@@ -1104,7 +1105,8 @@ export PATH=/usr/local/go/bin:$PATH
 go version
 ```
 
-Build and test the gate-agent binary:
+On the same control-plane or builder host, build and test the gate-agent
+binary:
 
 ```bash
 cd "$HS_REPO_DIR/apps/gate-agent"
@@ -1118,7 +1120,8 @@ owned by `hyperspace` can fail with Git dubious ownership or VCS stamping
 errors. `-buildvcs=false` keeps the binary build independent from local Git
 ownership metadata.
 
-Copy the binary and systemd unit to each gate:
+From the control-plane or builder host, copy the binary and systemd unit to
+each gate:
 
 ```bash
 scp /tmp/hyperspace-gate-agent root@<gate-public-ip>:/usr/local/bin/hyperspace-gate-agent
@@ -1126,7 +1129,7 @@ scp "$HS_REPO_DIR/infra/systemd/hyperspace-gate-agent.service" root@<gate-public
 ssh root@<gate-public-ip> 'chown root:root /usr/local/bin/hyperspace-gate-agent /etc/systemd/system/hyperspace-gate-agent.service && chmod 0755 /usr/local/bin/hyperspace-gate-agent && chmod 0644 /etc/systemd/system/hyperspace-gate-agent.service'
 ```
 
-Create `/etc/hyperspace/gate-agent.env` on each gate:
+On each gate host, create `/etc/hyperspace/gate-agent.env`:
 
 ```bash
 install -d -o root -g root -m 0750 /etc/hyperspace
