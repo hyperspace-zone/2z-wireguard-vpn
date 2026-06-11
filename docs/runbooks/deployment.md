@@ -1369,6 +1369,9 @@ Expected result:
 
 Run this after preparing validation clients with `wireguard-tools`,
 `wg-quick`, SSH access, and the one-way probe from `scripts/testnodes`.
+Run it from the control-plane host, an operator workstation, or CI runner that
+has the repository checkout, Node dependencies, HTTPS access to the API, and
+SSH access to the validation clients. Do not run this on gate hosts.
 
 ```bash
 cd "$HS_REPO_DIR"
