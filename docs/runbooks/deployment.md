@@ -300,18 +300,17 @@ chmod 0755 /usr/local/sbin/hyperspace-sync-certs-and-reload
 Install renewal checks. Short-lived IP certificates expire in about six days, so
 run renewal checks at least twice per day:
 
-```ini
-# /etc/systemd/system/hyperspace-certbot-renew.service
+```bash
+cat >/etc/systemd/system/hyperspace-certbot-renew.service <<'EOF'
 [Unit]
 Description=Renew Hyperspace short-lived certificates
 
 [Service]
 Type=oneshot
 ExecStart=/opt/certbot-venv/bin/certbot renew --quiet --no-random-sleep-on-renew --deploy-hook /usr/local/sbin/hyperspace-sync-certs-and-reload
-```
+EOF
 
-```ini
-# /etc/systemd/system/hyperspace-certbot-renew.timer
+cat >/etc/systemd/system/hyperspace-certbot-renew.timer <<'EOF'
 [Unit]
 Description=Run Hyperspace certificate renewal checks
 
@@ -323,11 +322,9 @@ Persistent=true
 
 [Install]
 WantedBy=timers.target
-```
 
-After writing both unit files, enable the renewal timer:
+EOF
 
-```bash
 systemctl daemon-reload
 systemctl enable --now hyperspace-certbot-renew.timer
 systemctl list-timers --all | grep hyperspace-certbot-renew
