@@ -66,9 +66,12 @@ same values across the control-plane and gate hosts where applicable:
 ```bash
 export HS_REPO_URL=https://github.com/hyperspace-zone/2z-wireguard-vpn.git
 export HS_REPO_DIR=/opt/2z-wireguard-vpn
-export HS_WEB_HOST=<web-public-ip-or-domain>
-export HS_API_HOST=<control-plane-public-ip-or-domain>
-export OPS_EMAIL=<ops-email-for-letsencrypt>
+export HS_WEB_HOST="${HS_WEB_HOST:-}"
+export HS_API_HOST="${HS_API_HOST:-}"
+export OPS_EMAIL="${OPS_EMAIL:-}"
+: "${HS_WEB_HOST:?set HS_WEB_HOST to the web public IP or DNS name}"
+: "${HS_API_HOST:?set HS_API_HOST to the control-plane public IP or DNS name}"
+: "${OPS_EMAIL:?set OPS_EMAIL to the Let's Encrypt operations email}"
 
 export DZ_ENV=mainnet-beta
 # or:
@@ -153,7 +156,7 @@ From the operator workstation, collect the expected fingerprint and compare it
 with the provider console or another trusted out-of-band source:
 
 ```bash
-export BOOTSTRAP_HOST=<public-ip-or-domain>
+: "${BOOTSTRAP_HOST:?set BOOTSTRAP_HOST to the public IP or DNS name to verify}"
 ssh-keyscan -t ed25519 "$BOOTSTRAP_HOST" >"/tmp/${BOOTSTRAP_HOST}.ed25519"
 ssh-keygen -lf "/tmp/${BOOTSTRAP_HOST}.ed25519"
 ```
@@ -231,7 +234,7 @@ address for an IP-only bootstrap, or the DNS name if you already have stable DNS
 pointing at this host. Do not use a private/local address.
 
 ```bash
-export TLS_CERT_NAME=<public-ip-or-dns-name-for-this-host>
+: "${TLS_CERT_NAME:?set TLS_CERT_NAME to this host's public IP or DNS name}"
 ```
 
 For the combined web/control-plane host this is usually `HS_WEB_HOST`. For a
@@ -349,15 +352,9 @@ reload Caddy. Validate renewal before accepting users:
   --deploy-hook /usr/local/sbin/hyperspace-sync-certs-and-reload
 ```
 
-After the final Caddyfile is installed and Caddy is serving HTTPS on `:443`,
-verify that clients receive the expected certificate. Do not run this check
-while the temporary port-80-only Caddyfile is still installed:
-
-```bash
-TLS_CERT_NAME="$(cat /etc/hyperspace/tls-cert-name)"
-echo | openssl s_client -connect "${TLS_CERT_NAME}:443" -servername "${TLS_CERT_NAME}" 2>/dev/null \
-  | openssl x509 -noout -issuer -dates -ext subjectAltName
-```
+Do not run a network `:443` certificate check yet. The temporary bootstrap
+Caddyfile only serves port 80. Network HTTPS validation appears later, after
+the final web/API or gate Caddyfile is installed.
 
 ## Gate Prerequisites
 
@@ -708,16 +705,24 @@ systemctl enable --now caddy
 systemctl reload caddy
 ```
 
+Verify that clients receive the expected certificate from the combined web/API
+host:
+
+```bash
+echo | openssl s_client -connect "${HS_WEB_HOST}:443" -servername "${HS_WEB_HOST}" 2>/dev/null \
+  | openssl x509 -noout -issuer -dates -ext subjectAltName
+```
+
 Health check paths depend on which host you call:
 
 ```bash
 # API origin directly:
-curl --retry 30 --retry-delay 1 --retry-all-errors -fsS https://<api-host>/health
-curl --retry 30 --retry-delay 1 --retry-all-errors -fsS https://<api-host>/v1/public/health
+curl --retry 30 --retry-delay 1 --retry-all-errors -fsS "https://${HS_API_HOST}/health"
+curl --retry 30 --retry-delay 1 --retry-all-errors -fsS "https://${HS_API_HOST}/v1/public/health"
 
 # Web/API host where /api/* is proxied to the API:
-curl --retry 30 --retry-delay 1 --retry-all-errors -fsS https://<web-host>/api/health
-curl --retry 30 --retry-delay 1 --retry-all-errors -fsS https://<web-host>/api/v1/public/health
+curl --retry 30 --retry-delay 1 --retry-all-errors -fsS "https://${HS_WEB_HOST}/api/health"
+curl --retry 30 --retry-delay 1 --retry-all-errors -fsS "https://${HS_WEB_HOST}/api/v1/public/health"
 ```
 
 The API process exposes OpenAPI at `/openapi.json` on a direct API origin. In
@@ -727,10 +732,10 @@ the root and proxies API traffic only under `/api/*`, so use
 
 ```bash
 # Direct API origin or dedicated API vhost:
-curl -fsS https://<api-host>/openapi.json | jq '.paths["/health"]'
+curl -fsS "https://${HS_API_HOST}/openapi.json" | jq '.paths["/health"]'
 
 # Combined web/API public host:
-curl -fsS https://<web-host>/api/openapi.json | jq '.paths["/v1/public/health"]'
+curl -fsS "https://${HS_WEB_HOST}/api/openapi.json" | jq '.paths["/v1/public/health"]'
 ```
 
 Every registered route, including health routes, should have a runtime schema
@@ -790,19 +795,19 @@ If the web UI is served from a separate web host, copy the same
 host and reload its reverse proxy:
 
 ```bash
-rsync -a --delete "$HS_REPO_DIR/apps/web/dist/" root@<web-host>:/var/www/hyperspace-web/
-ssh root@<web-host> 'chown -R caddy:caddy /var/www/hyperspace-web && systemctl reload caddy'
+rsync -a --delete "$HS_REPO_DIR/apps/web/dist/" "root@${HS_WEB_HOST}:/var/www/hyperspace-web/"
+ssh "root@${HS_WEB_HOST}" 'chown -R caddy:caddy /var/www/hyperspace-web && systemctl reload caddy'
 ```
 
 Validate the public entrypoint after every upgrade:
 
 ```bash
-curl --retry 30 --retry-delay 1 --retry-all-errors -fsS https://<web-host>/api/health | jq .
-curl --retry 30 --retry-delay 1 --retry-all-errors -fsS https://<web-host>/api/openapi.json \
+curl --retry 30 --retry-delay 1 --retry-all-errors -fsS "https://${HS_WEB_HOST}/api/health" | jq .
+curl --retry 30 --retry-delay 1 --retry-all-errors -fsS "https://${HS_WEB_HOST}/api/openapi.json" \
   | jq -e '.paths["/health"] and .paths["/v1/public/health"] and .paths["/v1/public/auth/me"]'
 
-HS_WEB_BASE=https://<web-host> \
-HS_API_BASE=https://<web-host>/api \
+HS_WEB_BASE="https://${HS_WEB_HOST}" \
+HS_API_BASE="https://${HS_WEB_HOST}/api" \
 npm run test:live:ui
 ```
 
@@ -1024,6 +1029,13 @@ If the gate does not have a repository checkout, copy
 and set `GATE_CADDYFILE_TEMPLATE` to that copied path, for example
 `/tmp/Caddyfile.gate-probe.example`.
 
+Verify that clients receive the expected certificate from the gate:
+
+```bash
+echo | openssl s_client -connect "${GATE_HOST}:443" -servername "${GATE_HOST}" 2>/dev/null \
+  | openssl x509 -noout -issuer -dates -ext subjectAltName
+```
+
 Validate the probe:
 
 ```bash
@@ -1074,10 +1086,10 @@ after the web/API endpoint is reachable over HTTPS. The script uses
 ```bash
 cd "$HS_REPO_DIR"
 
-export HS_WEB_BASE=https://<web-host>
-export HS_API_BASE=https://<web-host>/api
+export HS_WEB_BASE="https://${HS_WEB_HOST}"
+export HS_API_BASE="https://${HS_WEB_HOST}/api"
 # If calling a split API host directly from automation, use:
-# export HS_API_BASE=https://<api-host>
+# export HS_API_BASE="https://${HS_API_HOST}"
 
 export HS_TEST_INGRESS=<schedulable-ingress-gate-name>
 export HS_TEST_EGRESS=<different-schedulable-egress-gate-name>
@@ -1106,7 +1118,7 @@ Run this after preparing validation clients with `wireguard-tools`,
 ```bash
 cd "$HS_REPO_DIR"
 
-export HS_API_BASE=https://<web-host>/api
+export HS_API_BASE="https://${HS_WEB_HOST}/api"
 export HS_TEST_OUTPUT_DIR=m1-results/live-cluster
 export HS_TESTNODE_SSH_KEY=/path/to/testnode-ssh-key
 
@@ -1189,9 +1201,9 @@ For API automation, first request a client-config download token, then fetch the
 raw WireGuard config with either `downloadConfigUrl` or `?format=conf`:
 
 ```bash
-export HS_PUBLIC_API_BASE=https://<web-host>/api
+export HS_PUBLIC_API_BASE="https://${HS_WEB_HOST}/api"
 # If calling the API host directly, use:
-# export HS_PUBLIC_API_BASE=https://<api-host>
+# export HS_PUBLIC_API_BASE="https://${HS_API_HOST}"
 
 token_response="$(
   curl -fsS -X POST \
