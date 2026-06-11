@@ -1313,15 +1313,30 @@ export HS_API_BASE="https://${HS_WEB_HOST}/api"
 # If calling a split API host directly from automation, use:
 # export HS_API_BASE="https://${HS_API_HOST}"
 
-export HS_TEST_INGRESS=<schedulable-ingress-gate-name>
-export HS_TEST_EGRESS=<different-schedulable-egress-gate-name>
-export HS_TEST_TARGET_IP=<reachable-ipv4-target>
+mapfile -t HS_TEST_GATES < <(
+  curl -fsS "${HS_API_BASE}/v1/public/gates" \
+    | jq -r '.gates[]? | select(.ready == true and .schedulable == true) | .name'
+)
+test "${#HS_TEST_GATES[@]}" -ge 2 || {
+  echo "expected at least two ready/schedulable gates" >&2
+  exit 1
+}
+export HS_TEST_INGRESS="${HS_TEST_GATES[0]}"
+export HS_TEST_EGRESS="${HS_TEST_GATES[1]}"
+export HS_TEST_TARGET_IP=1.1.1.1
 export HS_TEST_OUTPUT_DIR=m1-results/live-cluster
 export HS_HEADLESS=true
-export PLAYWRIGHT_CHROMIUM_EXECUTABLE=/path/to/chromium-or-chrome
 
-curl -fsS "${HS_API_BASE}/v1/public/gates" \
-  | jq -e '[.gates[]? | select(.ready == true and .schedulable == true)] | length >= 2'
+for browser in google-chrome chromium chromium-browser /snap/bin/chromium; do
+  if PLAYWRIGHT_CHROMIUM_EXECUTABLE="$(command -v "$browser" 2>/dev/null)" && [ -x "$PLAYWRIGHT_CHROMIUM_EXECUTABLE" ]; then
+    export PLAYWRIGHT_CHROMIUM_EXECUTABLE
+    break
+  fi
+done
+test -n "${PLAYWRIGHT_CHROMIUM_EXECUTABLE:-}" || {
+  echo "install Chromium or Chrome, then rerun this block" >&2
+  exit 1
+}
 
 npm run test:live:ui
 ```
