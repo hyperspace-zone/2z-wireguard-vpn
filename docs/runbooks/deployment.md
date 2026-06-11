@@ -970,7 +970,18 @@ gate agents are reporting `ready=true` and `schedulable=true`; see
 ## Gate Catalog
 
 Create your own gate inventory from the example in `infra/gates.example.json`.
-Use real values:
+On the control-plane host, create the real seed file, edit it, and replace all
+example values:
+
+```bash
+cd "$HS_REPO_DIR"
+install -d -o root -g hyperspace -m 0750 /etc/hyperspace
+install -o root -g hyperspace -m 0640 infra/gates.example.json /etc/hyperspace/gates.json
+nano /etc/hyperspace/gates.json
+jq empty /etc/hyperspace/gates.json
+```
+
+The file should look like this after replacing values:
 
 ```json
 [
@@ -1052,7 +1063,6 @@ Seed gates into PostgreSQL for an interactive operator flow:
 
 ```bash
 cd "$HS_REPO_DIR"
-install -o root -g hyperspace -m 0640 /path/to/your-gates.json /etc/hyperspace/gates.json
 sudo -u hyperspace env DATABASE_URL="$DATABASE_URL" npm --silent run db:seed:gates -- /etc/hyperspace/gates.json
 ```
 
@@ -1064,7 +1074,6 @@ writes machine-readable JSON only to stdout:
 
 ```bash
 cd "$HS_REPO_DIR"
-install -o root -g hyperspace -m 0640 /path/to/your-gates.json /etc/hyperspace/gates.json
 sudo -u hyperspace env DATABASE_URL="$DATABASE_URL" scripts/seed-gates-json /etc/hyperspace/gates.json | jq .
 ```
 
