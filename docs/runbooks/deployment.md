@@ -1228,12 +1228,8 @@ GET /.well-known/hyperspace-probe -> 204 No Content
 Copy the Caddy probe template from the control-plane host to each gate:
 
 ```bash
-export SSH_KEY=/root/.ssh/hyperspace_mainnet_gatekeeper_20260526
-
 jq -r '.[].publicIpv4' /etc/hyperspace/gates.json | while IFS= read -r GATE_PUBLIC_IPV4; do
-  scp -i "$SSH_KEY" -o IdentitiesOnly=yes \
-    "$HS_REPO_DIR/infra/caddy/Caddyfile.gate-probe.example" \
-    "root@${GATE_PUBLIC_IPV4}:/tmp/Caddyfile.gate-probe.example"
+  scp "$HS_REPO_DIR/infra/caddy/Caddyfile.gate-probe.example" "root@${GATE_PUBLIC_IPV4}:/tmp/Caddyfile.gate-probe.example"
 done
 ```
 
