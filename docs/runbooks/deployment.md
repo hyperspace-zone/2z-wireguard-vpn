@@ -644,13 +644,14 @@ contact the DoubleZero team through the official New Tenant contact form:
 
 https://docs.malbeclabs.com/New%20Tenant/
 
-Enable IPv4 forwarding on each gate:
+On each gate, run only the following shell block to enable IPv4 forwarding:
 
 ```bash
 cat >/etc/sysctl.d/99-hyperspace-gate.conf <<'EOF'
 net.ipv4.ip_forward=1
 EOF
 sysctl --system
+sysctl net.ipv4.ip_forward
 ```
 
 Open the required firewall/security-group paths:
