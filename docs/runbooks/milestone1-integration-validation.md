@@ -138,17 +138,17 @@ Run the validation-client WireGuard policy smoke:
 ```bash
 HS_API_BASE="$HS_PUBLIC_API_BASE" \
 HS_TEST_OUTPUT_DIR=./m1-results/live \
-HS_TESTNODE_SSH_KEY=~/.ssh/<validation-key> \
-HS_TEST_INGRESS=<schedulable-ingress-gate-name> \
-HS_TEST_EGRESS=<different-schedulable-egress-gate-name> \
-HS_ALLOWED_SOURCE_HOST=<allowed-source-testnode-host> \
-HS_ALLOWED_SOURCE_IP=<allowed-source-public-ip> \
-HS_DENIED_SOURCE_HOST=<denied-source-testnode-host> \
-HS_DENIED_SOURCE_IP=<denied-source-public-ip> \
-HS_TARGET_HOST=<target-testnode-host> \
-HS_TARGET_IP=<target-public-ip> \
-HS_NON_TARGET_HOST=<non-target-testnode-host> \
-HS_NON_TARGET_IP=<non-target-public-ip> \
+HS_TESTNODE_SSH_KEY="$HS_TESTNODE_SSH_KEY" \
+HS_TEST_INGRESS="$HS_TEST_INGRESS" \
+HS_TEST_EGRESS="$HS_TEST_EGRESS" \
+HS_ALLOWED_SOURCE_HOST="$HS_ALLOWED_SOURCE_HOST" \
+HS_ALLOWED_SOURCE_IP="$HS_ALLOWED_SOURCE_IP" \
+HS_DENIED_SOURCE_HOST="$HS_DENIED_SOURCE_HOST" \
+HS_DENIED_SOURCE_IP="$HS_DENIED_SOURCE_IP" \
+HS_TARGET_HOST="$HS_TARGET_HOST" \
+HS_TARGET_IP="$HS_TARGET_IP" \
+HS_NON_TARGET_HOST="$HS_NON_TARGET_HOST" \
+HS_NON_TARGET_IP="$HS_NON_TARGET_IP" \
 npm run test:live:policy
 ```
 

@@ -136,9 +136,19 @@ it from the dashboard, and writes screenshots plus a JSON result file.
 Run the validation-client policy smoke after the UI smoke:
 
 ```bash
-HS_API_BASE=https://app.testnet.hyperspace.zone/api \
-HS_TEST_OUTPUT_DIR=m1-results/live-testnet \
-HS_TESTNODE_SSH_KEY=/path/to/testnode-ssh-key \
+HS_API_BASE="$HS_PUBLIC_API_BASE" \
+HS_TEST_OUTPUT_DIR=m1-results/live \
+HS_TESTNODE_SSH_KEY="$HS_TESTNODE_SSH_KEY" \
+HS_TEST_INGRESS="$HS_TEST_INGRESS" \
+HS_TEST_EGRESS="$HS_TEST_EGRESS" \
+HS_ALLOWED_SOURCE_HOST="$HS_ALLOWED_SOURCE_HOST" \
+HS_ALLOWED_SOURCE_IP="$HS_ALLOWED_SOURCE_IP" \
+HS_DENIED_SOURCE_HOST="$HS_DENIED_SOURCE_HOST" \
+HS_DENIED_SOURCE_IP="$HS_DENIED_SOURCE_IP" \
+HS_TARGET_HOST="$HS_TARGET_HOST" \
+HS_TARGET_IP="$HS_TARGET_IP" \
+HS_NON_TARGET_HOST="$HS_NON_TARGET_HOST" \
+HS_NON_TARGET_IP="$HS_NON_TARGET_IP" \
 npm run test:live:policy
 ```
 

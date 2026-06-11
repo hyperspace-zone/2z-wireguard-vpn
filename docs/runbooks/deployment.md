@@ -1374,25 +1374,53 @@ has the repository checkout, Node dependencies, HTTPS access to the API, and
 SSH access to the validation clients. Do not run this on gate hosts.
 
 ```bash
+export HS_REPO_DIR="${HS_REPO_DIR:-/opt/2z-wireguard-vpn}"
+export HS_WEB_HOST="${HS_WEB_HOST:-$(cat /etc/hyperspace/tls-cert-name 2>/dev/null || true)}"
+
 cd "$HS_REPO_DIR"
 
 export HS_API_BASE="https://${HS_WEB_HOST}/api"
 export HS_TEST_OUTPUT_DIR=m1-results/live-cluster
-export HS_TESTNODE_SSH_KEY=/path/to/testnode-ssh-key
+export HS_TESTNODE_SSH_KEY="${HS_TESTNODE_SSH_KEY:-}"
 
-export HS_TEST_INGRESS=<schedulable-ingress-gate-name>
-export HS_TEST_EGRESS=<different-schedulable-egress-gate-name>
+mapfile -t HS_TEST_GATES < <(
+  curl -fsS "${HS_API_BASE}/v1/public/gates" \
+    | jq -r '.gates[]? | select(.ready == true and .schedulable == true) | .name'
+)
+export HS_TEST_INGRESS="${HS_TEST_INGRESS:-${HS_TEST_GATES[0]:-}}"
+export HS_TEST_EGRESS="${HS_TEST_EGRESS:-${HS_TEST_GATES[1]:-}}"
 
-export HS_ALLOWED_SOURCE_HOST=<allowed-source-testnode-host>
-export HS_ALLOWED_SOURCE_IP=<allowed-source-public-ip>
-export HS_DENIED_SOURCE_HOST=<denied-source-testnode-host>
-export HS_DENIED_SOURCE_IP=<denied-source-public-ip>
-export HS_TARGET_HOST=<target-testnode-host>
-export HS_TARGET_IP=<target-public-ip>
-export HS_NON_TARGET_HOST=<non-target-testnode-host>
-export HS_NON_TARGET_IP=<non-target-public-ip>
+export HS_ALLOWED_SOURCE_HOST="${HS_ALLOWED_SOURCE_HOST:-}"
+export HS_ALLOWED_SOURCE_IP="${HS_ALLOWED_SOURCE_IP:-}"
+export HS_DENIED_SOURCE_HOST="${HS_DENIED_SOURCE_HOST:-}"
+export HS_DENIED_SOURCE_IP="${HS_DENIED_SOURCE_IP:-}"
+export HS_TARGET_HOST="${HS_TARGET_HOST:-}"
+export HS_TARGET_IP="${HS_TARGET_IP:-}"
+export HS_NON_TARGET_HOST="${HS_NON_TARGET_HOST:-}"
+export HS_NON_TARGET_IP="${HS_NON_TARGET_IP:-}"
 
-npm run test:live:policy
+missing=0
+for name in \
+  HS_TESTNODE_SSH_KEY \
+  HS_TEST_INGRESS \
+  HS_TEST_EGRESS \
+  HS_ALLOWED_SOURCE_HOST \
+  HS_ALLOWED_SOURCE_IP \
+  HS_DENIED_SOURCE_HOST \
+  HS_DENIED_SOURCE_IP \
+  HS_TARGET_HOST \
+  HS_TARGET_IP \
+  HS_NON_TARGET_HOST \
+  HS_NON_TARGET_IP; do
+  if [ -z "${!name}" ]; then
+    echo "set $name before running policy smoke" >&2
+    missing=1
+  fi
+done
+
+if [ "$missing" -eq 0 ]; then
+  npm run test:live:policy
+fi
 ```
 
 Expected result:

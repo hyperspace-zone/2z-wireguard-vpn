@@ -3,32 +3,32 @@ import { spawn } from "node:child_process";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-const apiBase = stripTrailingSlash(process.env.HS_API_BASE || "https://app.testnet.hyperspace.zone/api");
+const apiBase = stripTrailingSlash(requiredEnv("HS_API_BASE"));
 const outputDir = process.env.HS_TEST_OUTPUT_DIR || "m1-results/live-testnet";
-const sshKey = process.env.HS_TESTNODE_SSH_KEY || "/root/hyperspace/hyperspace_testnet_gatekeeper_20260526";
+const sshKey = requiredEnv("HS_TESTNODE_SSH_KEY");
 const probePath = process.env.HS_TEST_PROBE_PATH || "/opt/hyperspace-testnodes/one_way_probe.py";
 const probePort = Number(process.env.HS_TEST_PROBE_PORT || "19191");
-const ingressGateName = process.env.HS_TEST_INGRESS || "gate-eu-ams-01";
-const egressGateName = process.env.HS_TEST_EGRESS || "gate-eu-lon-01";
+const ingressGateName = requiredEnv("HS_TEST_INGRESS");
+const egressGateName = requiredEnv("HS_TEST_EGRESS");
 const allowedSource = {
-  key: process.env.HS_ALLOWED_SOURCE_KEY || "eu-sto",
-  host: process.env.HS_ALLOWED_SOURCE_HOST || "testnode-eu-sto-01.testnet.hyperspace.zone",
-  publicIp: process.env.HS_ALLOWED_SOURCE_IP || "212.147.245.233"
+  key: process.env.HS_ALLOWED_SOURCE_KEY || "allowed-source",
+  host: requiredEnv("HS_ALLOWED_SOURCE_HOST"),
+  publicIp: requiredEnv("HS_ALLOWED_SOURCE_IP")
 };
 const deniedSource = {
-  key: process.env.HS_DENIED_SOURCE_KEY || "na-chi",
-  host: process.env.HS_DENIED_SOURCE_HOST || "testnode-na-chi-01.testnet.hyperspace.zone",
-  publicIp: process.env.HS_DENIED_SOURCE_IP || "209.50.49.117"
+  key: process.env.HS_DENIED_SOURCE_KEY || "denied-source",
+  host: requiredEnv("HS_DENIED_SOURCE_HOST"),
+  publicIp: requiredEnv("HS_DENIED_SOURCE_IP")
 };
 const target = {
-  key: process.env.HS_TARGET_KEY || "eu-mad",
-  host: process.env.HS_TARGET_HOST || "testnode-eu-mad-01.testnet.hyperspace.zone",
-  publicIp: process.env.HS_TARGET_IP || "5.22.218.206"
+  key: process.env.HS_TARGET_KEY || "target",
+  host: requiredEnv("HS_TARGET_HOST"),
+  publicIp: requiredEnv("HS_TARGET_IP")
 };
 const nonTarget = {
-  key: process.env.HS_NON_TARGET_KEY || "ap-syd",
-  host: process.env.HS_NON_TARGET_HOST || "testnode-ap-syd-01.testnet.hyperspace.zone",
-  publicIp: process.env.HS_NON_TARGET_IP || "212.147.252.52"
+  key: process.env.HS_NON_TARGET_KEY || "non-target",
+  host: requiredEnv("HS_NON_TARGET_HOST"),
+  publicIp: requiredEnv("HS_NON_TARGET_IP")
 };
 
 const runId = new Date().toISOString().replace(/[:.]/g, "-");
@@ -453,6 +453,14 @@ function resolveApiUrl(base, apiPath) {
 
 function stripTrailingSlash(value) {
   return value.replace(/\/+$/, "");
+}
+
+function requiredEnv(name) {
+  const value = process.env[name]?.trim();
+  if (!value) {
+    throw new Error(`missing required environment variable ${name}`);
+  }
+  return value;
 }
 
 function shellQuote(value) {
