@@ -1303,7 +1303,18 @@ user path.
 Run this from an operator workstation, CI runner, or the control-plane host
 after the web/API endpoint is reachable over HTTPS, the gate catalog is seeded,
 and at least two gates are reporting `ready=true` and `schedulable=true`. The
-script uses `playwright-core`, so provide a local Chromium/Chrome executable:
+script uses `playwright-core`, so the host running the smoke needs a local
+Chromium/Chrome executable.
+
+On Ubuntu, install Chrome if no browser is already available:
+
+```bash
+if ! command -v google-chrome >/dev/null && ! command -v chromium >/dev/null && ! command -v chromium-browser >/dev/null; then
+  curl -fsSL -o /tmp/google-chrome-stable_current_amd64.deb https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
+  apt-get update
+  apt-get install -y /tmp/google-chrome-stable_current_amd64.deb
+fi
+```
 
 ```bash
 cd "$HS_REPO_DIR"
@@ -1317,12 +1328,6 @@ mapfile -t HS_TEST_GATES < <(
   curl -fsS "${HS_API_BASE}/v1/public/gates" \
     | jq -r '.gates[]? | select(.ready == true and .schedulable == true) | .name'
 )
-test "${#HS_TEST_GATES[@]}" -ge 2 || {
-  echo "expected at least two ready/schedulable gates" >&2
-  exit 1
-}
-export HS_TEST_INGRESS="${HS_TEST_GATES[0]}"
-export HS_TEST_EGRESS="${HS_TEST_GATES[1]}"
 export HS_TEST_TARGET_IP=1.1.1.1
 export HS_TEST_OUTPUT_DIR=m1-results/live-cluster
 export HS_HEADLESS=true
@@ -1333,12 +1338,18 @@ for browser in google-chrome chromium chromium-browser /snap/bin/chromium; do
     break
   fi
 done
-test -n "${PLAYWRIGHT_CHROMIUM_EXECUTABLE:-}" || {
-  echo "install Chromium or Chrome, then rerun this block" >&2
-  exit 1
-}
 
-npm run test:live:ui
+if [ "${#HS_TEST_GATES[@]}" -lt 2 ]; then
+  echo "expected at least two ready/schedulable gates" >&2
+elif [ -z "${PLAYWRIGHT_CHROMIUM_EXECUTABLE:-}" ]; then
+  echo "install Chromium or Chrome, then rerun this block" >&2
+else
+  export HS_TEST_INGRESS="${HS_TEST_GATES[0]}"
+  export HS_TEST_EGRESS="${HS_TEST_GATES[1]}"
+  echo "route: ${HS_TEST_INGRESS} -> ${HS_TEST_EGRESS}"
+  echo "browser: ${PLAYWRIGHT_CHROMIUM_EXECUTABLE}"
+  npm run test:live:ui
+fi
 ```
 
 Expected result:
