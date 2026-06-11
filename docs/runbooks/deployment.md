@@ -284,6 +284,15 @@ chmod 0755 /usr/local/sbin/hyperspace-sync-ip-cert
 /usr/local/sbin/hyperspace-sync-ip-cert "$TLS_CERT_NAME"
 ```
 
+Verify the copied certificate on disk. This check works while the temporary
+port-80-only Caddyfile is still installed:
+
+```bash
+TLS_CERT_NAME="$(cat /etc/hyperspace/tls-cert-name)"
+openssl x509 -in "/etc/caddy/certs/${TLS_CERT_NAME}/fullchain.pem" \
+  -noout -issuer -dates -ext subjectAltName
+```
+
 Create a deploy hook for renewal:
 
 ```bash
@@ -340,8 +349,9 @@ reload Caddy. Validate renewal before accepting users:
   --deploy-hook /usr/local/sbin/hyperspace-sync-certs-and-reload
 ```
 
-After Caddy is serving HTTPS, verify the certificate contains the expected
-domain or IP subject alternative name:
+After the final Caddyfile is installed and Caddy is serving HTTPS on `:443`,
+verify that clients receive the expected certificate. Do not run this check
+while the temporary port-80-only Caddyfile is still installed:
 
 ```bash
 TLS_CERT_NAME="$(cat /etc/hyperspace/tls-cert-name)"
