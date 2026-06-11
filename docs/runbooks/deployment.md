@@ -1124,9 +1124,11 @@ From the control-plane or builder host, copy the binary and systemd unit to
 each gate:
 
 ```bash
-scp /tmp/hyperspace-gate-agent root@<gate-public-ip>:/usr/local/bin/hyperspace-gate-agent
-scp "$HS_REPO_DIR/infra/systemd/hyperspace-gate-agent.service" root@<gate-public-ip>:/etc/systemd/system/hyperspace-gate-agent.service
-ssh root@<gate-public-ip> 'chown root:root /usr/local/bin/hyperspace-gate-agent /etc/systemd/system/hyperspace-gate-agent.service && chmod 0755 /usr/local/bin/hyperspace-gate-agent && chmod 0644 /etc/systemd/system/hyperspace-gate-agent.service'
+export GATE_PUBLIC_IPV4=203.0.113.10
+
+scp /tmp/hyperspace-gate-agent "root@${GATE_PUBLIC_IPV4}:/usr/local/bin/hyperspace-gate-agent"
+scp "$HS_REPO_DIR/infra/systemd/hyperspace-gate-agent.service" "root@${GATE_PUBLIC_IPV4}:/etc/systemd/system/hyperspace-gate-agent.service"
+ssh "root@${GATE_PUBLIC_IPV4}" 'chown root:root /usr/local/bin/hyperspace-gate-agent /etc/systemd/system/hyperspace-gate-agent.service && chmod 0755 /usr/local/bin/hyperspace-gate-agent && chmod 0644 /etc/systemd/system/hyperspace-gate-agent.service'
 ```
 
 On each gate host, create `/etc/hyperspace/gate-agent.env`:
