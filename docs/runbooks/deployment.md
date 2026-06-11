@@ -170,8 +170,6 @@ cat "/tmp/${BOOTSTRAP_HOST}.ed25519" >> ~/.ssh/known_hosts
 
 Do not run browser, automation, or gate-agent traffic over plain HTTP. The web
 UI, public API, gate-agent API, and browser gate probes must all use HTTPS.
-Run the role-specific package installation sections before applying Caddy
-configuration; the control-plane and gate package lists both install Caddy.
 
 Use normal Let's Encrypt domain certificates when stable DNS names are
 available. If a bootstrap or disposable cluster only has public IP addresses,
@@ -179,19 +177,22 @@ use Let's Encrypt IP address certificates. IP address certificates require
 Certbot 5.4 or newer, the `--ip-address` option, and the Let's Encrypt
 `shortlived` profile.
 
-Install Certbot outside Docker:
+Install Caddy and Certbot outside Docker on every host that needs a public
+HTTPS endpoint:
 
 ```bash
 apt-get update
-apt-get install -y python3-venv
+apt-get install -y caddy python3-venv
 python3 -m venv /opt/certbot-venv
 /opt/certbot-venv/bin/pip install --upgrade pip certbot
+caddy version
 /opt/certbot-venv/bin/certbot --version
 ```
 
 Prepare a webroot for HTTP-01 challenges:
 
 ```bash
+install -d -o root -g root -m 0755 /etc/caddy
 install -d -o root -g root -m 0755 /var/www/acme-challenges
 ```
 
