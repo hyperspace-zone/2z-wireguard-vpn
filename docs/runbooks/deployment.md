@@ -755,19 +755,30 @@ apt-get update
 apt-get install -y postgresql postgresql-contrib
 ```
 
-Create the application database and least-privilege user:
+Create the application database and least-privilege user. Generate a real
+password on the host; do not use a placeholder string as the database password.
+This block is safe to rerun: it creates the role/database if missing and rotates
+the role password to the generated value.
 
 ```bash
-sudo -u postgres psql <<'SQL'
-CREATE ROLE hyperspace LOGIN PASSWORD '<replace-with-strong-db-password>';
-CREATE DATABASE hyperspace OWNER hyperspace;
+DB_PASSWORD="$(openssl rand -base64 36 | tr -d '\n')"
+
+sudo -u postgres psql -v db_password="$DB_PASSWORD" <<'SQL'
+SELECT format('CREATE ROLE hyperspace LOGIN PASSWORD %L', :'db_password')
+WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'hyperspace')\gexec
+ALTER ROLE hyperspace LOGIN PASSWORD :'db_password';
+
+SELECT 'CREATE DATABASE hyperspace OWNER hyperspace'
+WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'hyperspace')\gexec
+ALTER DATABASE hyperspace OWNER TO hyperspace;
 SQL
 ```
 
 Use this connection string in the API, worker, seed, and migration commands:
 
 ```bash
-export DATABASE_URL='postgres://hyperspace:<replace-with-strong-db-password>@127.0.0.1:5432/hyperspace'
+DB_PASSWORD_URLENCODED="$(node -e 'process.stdout.write(encodeURIComponent(process.argv[1]))' "$DB_PASSWORD")"
+export DATABASE_URL="postgres://hyperspace:${DB_PASSWORD_URLENCODED}@127.0.0.1:5432/hyperspace"
 ```
 
 Run migrations from the control-plane checkout after `npm ci` and build:
