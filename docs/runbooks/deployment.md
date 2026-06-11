@@ -161,10 +161,12 @@ installing Hyperspace components:
 apt-get update
 apt-get full-upgrade -y
 
+preflight_reboot_required=0
+
 if [ -f /var/run/reboot-required ]; then
   cat /var/run/reboot-required
   echo "reboot this host, reconnect, and rerun the host freshness preflight" >&2
-  exit 1
+  preflight_reboot_required=1
 fi
 
 running_kernel="$(uname -r)"
@@ -180,7 +182,13 @@ printf 'latest installed kernel: %s\n' "${latest_kernel:-unknown}"
 
 if [ -n "$latest_kernel" ] && [ "$running_kernel" != "$latest_kernel" ]; then
   echo "running kernel is not the latest installed kernel; reboot before continuing" >&2
-  exit 1
+  preflight_reboot_required=1
+fi
+
+if [ "$preflight_reboot_required" -eq 1 ]; then
+  echo "STOP: run reboot now, then reconnect and rerun this preflight" >&2
+else
+  echo "host freshness preflight passed"
 fi
 ```
 
