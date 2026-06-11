@@ -107,7 +107,8 @@ For each gate, prepare:
 - DoubleZero environment: `testnet` or `mainnet-beta`.
 - Gate public IPv4 address.
 - Output of `doublezero address` from that gate.
-- Intended gate role: ingress, egress, or both.
+- Intended placement/use case. Deployed gates are universal; ingress and egress
+  are per-session path roles, not fixed host roles.
 - Intended city/metro and provider.
 - Short description of the WireGuard VPN use case.
 

@@ -70,11 +70,11 @@ Create an inventory file on the operator workstation:
   ],
   "gates": [
     {
-      "name": "gate-ingress-01",
+      "name": "gate-eu-fra-01",
       "publicEndpoint": "203.0.113.10"
     },
     {
-      "name": "gate-egress-01",
+      "name": "gate-na-chi-01",
       "publicEndpoint": "203.0.113.20"
     }
   ]
@@ -82,7 +82,8 @@ Create an inventory file on the operator workstation:
 ```
 
 Replace every host and IP with real validation nodes and deployed gates. The
-`gates[].name` values must match the control-plane gate catalog.
+`gates[].name` values must match the control-plane gate catalog. Gate names are
+inventory identities, not fixed ingress/egress roles.
 
 ## Control-Plane Health
 

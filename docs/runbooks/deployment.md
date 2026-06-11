@@ -16,8 +16,8 @@ Absolute minimum for a first deployment is three servers:
 | Server | Role |
 | --- | --- |
 | 1 | Web UI, control-plane API, control-plane worker, and PostgreSQL |
-| 2 | Ingress gate |
-| 3 | Egress gate |
+| 2 | Universal gate |
+| 3 | Universal gate |
 
 The two gate servers must be separate hosts and each must have its own
 DoubleZero `access-pass`.
@@ -29,7 +29,7 @@ Minimum production-like layout:
 | Web | 1 | Static UI behind HTTPS. Can share the control-plane host for small deployments. |
 | Control plane | 1 | Runs API and worker systemd services. |
 | PostgreSQL | 1 | Transaction source of truth. Keep private. |
-| Gate | 2 | Minimum for distinct ingress and egress routing. Each gate must expose HTTPS probes. |
+| Gate | 2 | Minimum for a route that uses distinct ingress and egress roles. Gates are universal; each gate must expose HTTPS probes. |
 | Observability | 0-1 | Recommended for Prometheus, Grafana, and exporters. |
 
 For small test deployments, web, control-plane, and PostgreSQL can be collapsed
@@ -975,20 +975,24 @@ Use real values:
 ```json
 [
   {
-    "name": "gate-ingress-01",
-    "identity": "replace-with-doublezero-address-ingress",
-    "region": "example-ingress",
-    "city": "Example City",
-    "country": "Example Country",
-    "countryCode": "EX",
+    "name": "gate-eu-fra-01",
+    "identity": "replace-with-doublezero-address-gate-01",
+    "region": "eu-central",
+    "city": "Frankfurt",
+    "country": "Germany",
+    "countryCode": "DE",
     "publicEndpoint": "203.0.113.10",
-    "probeUrl": "https://gate-ingress-01.example.net/.well-known/hyperspace-probe",
+    "probeUrl": "https://gate-eu-fra-01.example.net/.well-known/hyperspace-probe",
     "doubleZeroEnv": "mainnet-beta",
     "schedulingWeight": 100,
     "capacityLimit": 128
   }
 ]
 ```
+
+Gate names should describe location or inventory identity, not fixed traffic
+direction. The same deployed gate can be selected as ingress for one session
+and egress for another session.
 
 `identity` is the DoubleZero `user_payer` identity for the gate. Use the exact
 output of `doublezero address` on that gate host. The same identity and public

@@ -17,8 +17,12 @@ WireGuard configs to this repository.
 
 | Gate name | DNS / IP | City | Country | DoubleZero env | `access-pass` verified | Notes |
 | --- | --- | --- | --- | --- | --- | --- |
-| `<gate-ingress-01>` | `<public-ip-or-dns>` | `<city>` | `<country>` | `testnet` or `mainnet-beta` | `no` | Candidate ingress |
-| `<gate-egress-01>` | `<public-ip-or-dns>` | `<city>` | `<country>` | `testnet` or `mainnet-beta` | `no` | Candidate egress |
+| `<gate-eu-fra-01>` | `<public-ip-or-dns>` | `<city>` | `<country>` | `testnet` or `mainnet-beta` | `no` | Universal gate |
+| `<gate-na-chi-01>` | `<public-ip-or-dns>` | `<city>` | `<country>` | `testnet` or `mainnet-beta` | `no` | Universal gate |
+
+Gate names should identify location or inventory identity. Do not encode a
+fixed ingress/egress role in the name; the same gate can serve either role for
+different sessions.
 
 ## Required Gate Checks
 
