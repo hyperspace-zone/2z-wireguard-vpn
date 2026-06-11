@@ -80,13 +80,6 @@ export DZ_ENV=mainnet-beta
 # Derived values; normally do not edit.
 export HS_WEB_ORIGIN="https://$HS_WEB_HOST"
 export HS_API_ORIGIN="https://$HS_API_HOST"
-
-# Keep apt-based bootstrap copy/pasteable over SSH. This is only a prompt
-# guard; every host must still pass the host freshness preflight below before
-# deployment continues.
-export DEBIAN_FRONTEND=noninteractive
-export APT_LISTCHANGES_FRONTEND=none
-export NEEDRESTART_MODE=a
 ```
 
 For the minimum combined-host deployment, set `HS_WEB_HOST` and `HS_API_HOST`
@@ -163,10 +156,6 @@ Run this on every control-plane, web, gate, and validation host before
 installing Hyperspace components:
 
 ```bash
-export DEBIAN_FRONTEND=noninteractive
-export APT_LISTCHANGES_FRONTEND=none
-export NEEDRESTART_MODE=a
-
 apt-get update
 apt-get full-upgrade -y
 
@@ -196,6 +185,15 @@ fi
 After reboot, rerun the same block. It should finish without asking for input,
 without `/var/run/reboot-required`, and with the running kernel matching the
 latest installed kernel.
+
+The `full-upgrade` step is required before platform installation because these
+hosts carry kernel networking, WireGuard, nftables, Caddy, PostgreSQL, Node.js,
+and DoubleZero daemon workloads. Starting from a fully upgraded and rebooted
+host avoids half-applied security updates, old running kernels, stale system
+libraries, and interactive `needrestart` dialogs during later package
+installation. If `full-upgrade` installs a newer kernel, reboot before
+continuing so dataplane tests run on the same kernel that the package manager
+considers current.
 
 ## SSH Host Key Verification
 
