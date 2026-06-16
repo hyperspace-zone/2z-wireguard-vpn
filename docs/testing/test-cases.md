@@ -16,8 +16,8 @@ run.
 | Local unit/build | Type safety, state-machine policies, route planning, gate readiness logic. |
 | Public web/API | Self-service user flow, API contract, gate catalog visibility. |
 | Validation testnodes | Real WireGuard traffic and source/target restriction tests. |
-| Gate benchmark route table | Continuous gate-to-gate public-vs-DoubleZero RTT, jitter, loss, and one-way estimates. |
-| Measurement testnodes | Long-running user-path public-vs-Hyperspace RTT and one-way matrices. |
+| Gate benchmark route table | Continuous gate-to-gate Internet-vs-DoubleZero RTT, jitter, loss, and one-way estimates. |
+| Measurement testnodes | Long-running user-path Internet-vs-Hyperspace RTT and one-way matrices. |
 | Gate hosts | Reconciliation, job execution, WireGuard/nftables cleanup, DoubleZero readiness. |
 
 ## Command Taxonomy
@@ -78,7 +78,7 @@ Do not include them in routine `npm test` or live smoke runs.
 | UI-013 | Dashboard config table | After config create. | Table shows Created, Mode, Config, Source IP, Target IP, Ingress gate, Egress gate, Status, Actions. Source `Any` and target `Internet`/IP render compactly. | `scripts/testnet/live-ui-smoke.mjs` |
 | UI-014 | Action buttons state | While requested/provisioning/failed/revoking/active. | Download and Revoke are enabled only when active; Delete revokes first when needed and then hides the config. | `scripts/testnet/live-ui-smoke.mjs` |
 | UI-015 | Console cleanliness | Run happy path in Chromium/Brave. | No uncaught promise errors such as `AbortError: signal is aborted without reason`. | `scripts/testnet/live-ui-smoke.mjs` |
-| UI-016 | Gate benchmark dashboard | Open dashboard after benchmark jobs have reported. | Dashboard shows `Gate benchmark routes` with the `DZ vs Public Internet` route table, sortable columns, City filter, and green/yellow/pink legend. Rows show DoubleZero, public, delta-derived advantage, jitter, loss, and one-way values. | Live dashboard/manual screenshot |
+| UI-016 | Gate benchmark dashboard | Open dashboard after benchmark jobs have reported. | Dashboard shows `Gate benchmark routes` with the `DZ vs Internet` route table, sortable columns, City filter, and green/yellow/pink legend. Rows show DoubleZero, Internet, delta-derived advantage, jitter, loss, and forward one-way values. | Live dashboard/manual screenshot |
 
 ## WireGuard Traffic Policy
 
@@ -97,12 +97,12 @@ Do not include them in routine `npm test` or live smoke runs.
 
 | ID | Case | Steps | Expected | Coverage |
 | --- | --- | --- | --- | --- |
-| PERF-001 | Gate public-vs-DoubleZero measurements | Let the worker schedule gate `probe` jobs and call `/v1/public/benchmarks/gate-matrix`. | The API returns every directed gate pair with latest `public` and `doublezero` measurements once jobs complete. | `docs/runbooks/gate-benchmarking.md` |
-| PERF-002 | Gate RTT/jitter/loss comparison | Inspect dashboard route table or API response. | Each completed row shows DoubleZero RTT p50, public RTT p50, DZ advantage, jitter, and loss. Positive DZ advantage means DoubleZero is faster. | Gate benchmark route table |
-| PERF-003 | Gate one-way estimates | Inspect dashboard route table. | Forward/reverse one-way estimates are present when chrony clock sync is good; RTT remains primary when clocks are noisy. | Gate benchmark route table |
+| PERF-001 | Gate Internet-vs-DoubleZero measurements | Let the worker schedule gate `probe` jobs and call `/v1/public/benchmarks/gate-matrix`. | The API returns every directed gate pair with latest Internet and DoubleZero measurements once jobs complete. | `docs/runbooks/gate-benchmarking.md` |
+| PERF-002 | Gate RTT/jitter/loss comparison | Inspect dashboard route table or API response. | Each completed row shows DoubleZero RTT p50, Internet RTT p50, DZ advantage, jitter, and loss. Positive DZ advantage means DoubleZero is faster. | Gate benchmark route table |
+| PERF-003 | Gate one-way estimates | Inspect dashboard route table. | Directed forward one-way estimates are present in separate `DZ One-Way` and `Internet One-Way` columns when chrony clock sync is good; RTT remains primary when clocks are noisy. | Gate benchmark route table |
 | PERF-004 | Public testnode RTT/one-way matrix | Run `npm run measure:matrix -- --mode public`. | `public.json` contains every directed testnode pair with low packet loss. | Measurement-only |
 | PERF-005 | Hyperspace testnode RTT/one-way matrix | Run `npm run measure:matrix -- --mode hyperspace`. | `hyperspace.json` contains selected ingress/egress path per pair and successful probes. | Measurement-only |
-| PERF-006 | Public vs Hyperspace comparison | Run `npm run measure:compare -- ...`. | Markdown report shows RTT p50 delta and forward/reverse one-way deltas sorted for review. | Measurement-only |
+| PERF-006 | Internet vs Hyperspace comparison | Run `npm run measure:compare -- ...`. | Markdown report shows RTT p50 delta and forward/reverse one-way deltas sorted for review. | Measurement-only |
 | PERF-007 | Gate selection heuristic | Inspect matrix path selection. | Ingress is chosen near source testnode; egress is chosen near destination testnode based on public ping ranking. | Testnode matrix |
 
 ## Regression Unit Tests

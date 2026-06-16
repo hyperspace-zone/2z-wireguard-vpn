@@ -3,7 +3,7 @@ type AppView = "dashboard" | "create-config" | "login" | "register";
 type CreateConfigStep = "configure" | "confirm";
 type SortDirection = "desc" | "asc";
 type KeyInstructionPlatform = "linux" | "macos" | "windows";
-type BenchmarkSortField = "route" | "city" | "doublezeroRtt" | "publicRtt" | "advantage" | "rttSaved" | "doublezeroJitter" | "publicJitter" | "loss";
+type BenchmarkSortField = "route" | "city" | "doublezeroRtt" | "internetRtt" | "advantage" | "rttSaved" | "doublezeroJitter" | "internetJitter" | "doublezeroOneWay" | "internetOneWay" | "loss";
 type SessionValidationErrors = Partial<Record<"sourceIp" | "targetIp" | "ingressGateName" | "egressGateName" | "clientPublicKey", string>>;
 
 interface Gate {
@@ -88,6 +88,8 @@ interface BenchmarkRouteRow {
   doublezeroRttMs: number | undefined;
   publicJitterMs: number | undefined;
   doublezeroJitterMs: number | undefined;
+  publicOneWayMs: number | undefined;
+  doublezeroOneWayMs: number | undefined;
   publicLossPercent: number | undefined;
   doublezeroLossPercent: number | undefined;
   rttSavedMs: number | undefined;
@@ -333,11 +335,13 @@ function isBenchmarkSortField(value: string | undefined): value is BenchmarkSort
   return value === "route" ||
     value === "city" ||
     value === "doublezeroRtt" ||
-    value === "publicRtt" ||
+    value === "internetRtt" ||
     value === "advantage" ||
     value === "rttSaved" ||
     value === "doublezeroJitter" ||
-    value === "publicJitter" ||
+    value === "internetJitter" ||
+    value === "doublezeroOneWay" ||
+    value === "internetOneWay" ||
     value === "loss";
 }
 
@@ -501,12 +505,12 @@ function benchmarkMatrixPanel(gates: Gate[], matrix: BenchmarkMatrix | null): st
     <div class="benchmark-routes">
       <div class="benchmark-routes-heading">
         <div>
-          <h3>DZ vs Public Internet</h3>
+          <h3>DZ vs Internet</h3>
           <p>Directed gate-to-gate latency comparison for the same source and target cities.</p>
         </div>
         <div class="benchmark-summary" aria-label="Benchmark summary">
           <span><strong>${filteredRows.length}</strong> routes</span>
-          <span><strong>${summary.publicSucceeded}</strong> public ok</span>
+          <span><strong>${summary.publicSucceeded}</strong> internet ok</span>
           <span><strong>${summary.doublezeroSucceeded}</strong> DZ ok</span>
           <span><strong>${formatSignedPercent(summary.averageAdvantagePercent)}</strong> avg DZ advantage</span>
         </div>
@@ -539,13 +543,14 @@ function benchmarkRoutesTable(rows: BenchmarkRouteRow[]): string {
             ${benchmarkSortableHeader("Route", "route", "left")}
             ${benchmarkSortableHeader("Cities", "city", "left")}
             ${benchmarkSortableHeader("DZ RTT", "doublezeroRtt", "right")}
-            ${benchmarkSortableHeader("Public RTT", "publicRtt", "right")}
+            ${benchmarkSortableHeader("Internet RTT", "internetRtt", "right")}
             ${benchmarkSortableHeader("DZ Advantage", "advantage", "right")}
             ${benchmarkSortableHeader("RTT Saved", "rttSaved", "right")}
             ${benchmarkSortableHeader("DZ Jitter", "doublezeroJitter", "right")}
-            ${benchmarkSortableHeader("Public Jitter", "publicJitter", "right")}
+            ${benchmarkSortableHeader("Internet Jitter", "internetJitter", "right")}
+            ${benchmarkSortableHeader("DZ One-Way", "doublezeroOneWay", "right")}
+            ${benchmarkSortableHeader("Internet One-Way", "internetOneWay", "right")}
             ${benchmarkSortableHeader("Loss", "loss", "right")}
-            <th>One-way</th>
           </tr>
         </thead>
         <tbody>
@@ -578,8 +583,9 @@ function benchmarkRouteRow(row: BenchmarkRouteRow): string {
       <td class="numeric-cell">${formatSavedMetricMs(row.rttSavedMs)}</td>
       <td class="numeric-cell">${benchmarkValueCell(route.doublezero, formatMetricMs(row.doublezeroJitterMs))}</td>
       <td class="numeric-cell">${benchmarkValueCell(route.public, formatMetricMs(row.publicJitterMs))}</td>
+      <td class="numeric-cell">${benchmarkValueCell(route.doublezero, formatMetricMs(row.doublezeroOneWayMs))}</td>
+      <td class="numeric-cell">${benchmarkValueCell(route.public, formatMetricMs(row.publicOneWayMs))}</td>
       <td class="numeric-cell">${benchmarkLossCell(row)}</td>
-      <td>${benchmarkOneWayCell(route)}</td>
     </tr>
   `;
 }
@@ -615,6 +621,8 @@ function benchmarkRouteRows(gates: Gate[], matrix: BenchmarkMatrix | null): Benc
     const doublezeroRttMs = finiteNumber(route.doublezero?.rttMs?.p50);
     const publicJitterMs = finiteNumber(route.public?.jitterMs);
     const doublezeroJitterMs = finiteNumber(route.doublezero?.jitterMs);
+    const publicOneWayMs = finiteNumber(route.public?.forwardOneWayMs?.p50);
+    const doublezeroOneWayMs = finiteNumber(route.doublezero?.forwardOneWayMs?.p50);
     const publicLossPercent = finiteNumber(route.public?.lossPercent);
     const doublezeroLossPercent = finiteNumber(route.doublezero?.lossPercent);
     const rttSavedMs = typeof publicRttMs === "number" && typeof doublezeroRttMs === "number"
@@ -637,6 +645,8 @@ function benchmarkRouteRows(gates: Gate[], matrix: BenchmarkMatrix | null): Benc
       doublezeroRttMs,
       publicJitterMs,
       doublezeroJitterMs,
+      publicOneWayMs,
+      doublezeroOneWayMs,
       publicLossPercent,
       doublezeroLossPercent,
       rttSavedMs,
@@ -666,7 +676,7 @@ function sortBenchmarkRows(rows: BenchmarkRouteRow[]): BenchmarkRouteRow[] {
       case "doublezeroRtt":
         cmp = compareOptionalNumber(a.doublezeroRttMs, b.doublezeroRttMs, benchmarkSortDirection);
         break;
-      case "publicRtt":
+      case "internetRtt":
         cmp = compareOptionalNumber(a.publicRttMs, b.publicRttMs, benchmarkSortDirection);
         break;
       case "advantage":
@@ -678,8 +688,14 @@ function sortBenchmarkRows(rows: BenchmarkRouteRow[]): BenchmarkRouteRow[] {
       case "doublezeroJitter":
         cmp = compareOptionalNumber(a.doublezeroJitterMs, b.doublezeroJitterMs, benchmarkSortDirection);
         break;
-      case "publicJitter":
+      case "internetJitter":
         cmp = compareOptionalNumber(a.publicJitterMs, b.publicJitterMs, benchmarkSortDirection);
+        break;
+      case "doublezeroOneWay":
+        cmp = compareOptionalNumber(a.doublezeroOneWayMs, b.doublezeroOneWayMs, benchmarkSortDirection);
+        break;
+      case "internetOneWay":
+        cmp = compareOptionalNumber(a.publicOneWayMs, b.publicOneWayMs, benchmarkSortDirection);
         break;
       case "loss":
         cmp = compareOptionalNumber(totalLossPercent(a), totalLossPercent(b), benchmarkSortDirection);
@@ -759,24 +775,13 @@ function benchmarkAdvantageClass(value: number): string {
   if (value >= -10) {
     return "benchmark-advantage-similar";
   }
-  return "benchmark-advantage-public";
+  return "benchmark-advantage-internet";
 }
 
 function benchmarkLossCell(row: BenchmarkRouteRow): string {
   return `
     <span>DZ ${formatPercent(row.doublezeroLossPercent)}</span>
-    <small>Public ${formatPercent(row.publicLossPercent)}</small>
-  `;
-}
-
-function benchmarkOneWayCell(route: BenchmarkRoute): string {
-  const dzForward = route.doublezero?.forwardOneWayMs?.p50;
-  const dzReverse = route.doublezero?.reverseOneWayMs?.p50;
-  const publicForward = route.public?.forwardOneWayMs?.p50;
-  const publicReverse = route.public?.reverseOneWayMs?.p50;
-  return `
-    <span>DZ F ${formatMetricMs(dzForward)} / R ${formatMetricMs(dzReverse)}</span>
-    <small>Public F ${formatMetricMs(publicForward)} / R ${formatMetricMs(publicReverse)}</small>
+    <small>Internet ${formatPercent(row.publicLossPercent)}</small>
   `;
 }
 
@@ -786,7 +791,7 @@ function benchmarkLegend(): string {
       <span>Legend:</span>
       <span><i class="legend-swatch benchmark-advantage-good"></i>DZ faster</span>
       <span><i class="legend-swatch benchmark-advantage-similar"></i>Similar (0 to -10%)</span>
-      <span><i class="legend-swatch benchmark-advantage-public"></i>Public Internet faster (&lt; -10%)</span>
+      <span><i class="legend-swatch benchmark-advantage-internet"></i>Internet faster (&lt; -10%)</span>
     </div>
   `;
 }

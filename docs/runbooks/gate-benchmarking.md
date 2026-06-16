@@ -1,7 +1,7 @@
 # Gate Benchmarking
 
 Use this runbook for Milestone 2 gate-to-gate benchmarking. The benchmark runs
-on gate hosts and compares the public Internet path with the DoubleZero path for
+on gate hosts and compares the Internet path with the DoubleZero path for
 every directed gate pair.
 
 This does not replace validation clients for user dataplane tests. Gate
@@ -40,10 +40,12 @@ The API stores latest and historical rows in `gate_benchmark_results`. The web
 dashboard renders a route table:
 
 - one directed gate pair per row
-- sortable columns for DoubleZero RTT, public RTT, DZ advantage, RTT saved,
+- sortable columns for DoubleZero RTT, Internet RTT, DZ advantage, RTT saved,
   jitter, loss, and one-way values
 - a City filter for narrowing routes by source or target location
-- a green/yellow/pink legend for DZ faster, similar, and public Internet faster
+- separate sortable `DZ One-Way` and `Internet One-Way` columns using the
+  forward one-way estimate for each directed row
+- a green/yellow/pink legend for DZ faster, similar, and Internet faster
   routes
 
 One-way values depend on synchronized clocks. Install and run chrony on all gate
@@ -147,7 +149,7 @@ Expected dashboard sections:
 - `VPN configs`
 - `Gates`
 - `Gate benchmark routes`
-- `DZ vs Public Internet`
+- `DZ vs Internet`
 
 Capture screenshots after the route table has first samples:
 

@@ -91,9 +91,11 @@ try {
   await expectText(page, "DoubleZero node");
   await expectText(page, "Browser RTT");
   await expectText(page, "Gate benchmark routes");
-  await expectText(page, "DZ vs Public Internet");
+  await expectText(page, "DZ vs Internet");
   await expectText(page, "City filter");
   await expectText(page, "RTT Saved");
+  await expectText(page, "DZ One-Way");
+  await expectText(page, "Internet One-Way");
   await expectText(page, "Legend:");
   await page.getByRole("button", { name: /Measure browser RTT|Measuring/ }).click().catch(() => undefined);
   await page.waitForTimeout(5000);
