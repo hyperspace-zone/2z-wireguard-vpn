@@ -18,9 +18,11 @@ export interface ClaimedGateJob {
 export interface LockedJobForReport {
   id: string;
   type: string;
+  gateId: string | null;
   assignmentId: string | null;
   retryCount: number;
   maxRetries: number;
+  payload: Record<string, unknown>;
 }
 
 export interface GateJobReportPersistenceInput {
@@ -141,9 +143,11 @@ export async function findJobForReportForUpdate(
       SELECT
         id,
         type::text,
+        gate_id AS "gateId",
         assignment_id AS "assignmentId",
         retry_count AS "retryCount",
-        max_retries AS "maxRetries"
+        max_retries AS "maxRetries",
+        payload
       FROM jobs
       WHERE id = $1 AND gate_id = $2
       FOR UPDATE

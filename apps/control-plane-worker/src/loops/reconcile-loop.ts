@@ -10,6 +10,7 @@ import {
   reconcileExpiry,
   enqueueCommitJobsForPreparedAssignments,
   enqueueRevocationJobsForAssignments,
+  scheduleGateBenchmarkProbes,
   scheduleSessionsForProvisioning
 } from "@hyperspace-zone/control-plane";
 import type { Database } from "@hyperspace-zone/db";
@@ -19,6 +20,12 @@ export interface ReconcileLoopRuntimeConfig {
   gateHeartbeatStaleSeconds: number;
   provisioningTimeoutSeconds: number;
   artifactEncryptionKey: Buffer;
+  benchmarkProbesEnabled: boolean;
+  benchmarkIntervalSeconds: number;
+  benchmarkProbePort: number;
+  benchmarkProbeCount: number;
+  benchmarkProbeIntervalMs: number;
+  benchmarkProbeTimeoutMs: number;
 }
 
 export interface ReconcileLoop {
@@ -52,6 +59,14 @@ export function createReconcileLoop(input: CreateReconcileLoopInput): ReconcileL
       await completeRevokedSessions(input.db);
       await reconcileExpiry(input.db);
       await reconcileDrift(input.db);
+      await scheduleGateBenchmarkProbes(input.db, {
+        enabled: input.config.benchmarkProbesEnabled,
+        intervalSeconds: input.config.benchmarkIntervalSeconds,
+        probePort: input.config.benchmarkProbePort,
+        probeCount: input.config.benchmarkProbeCount,
+        probeIntervalMs: input.config.benchmarkProbeIntervalMs,
+        probeTimeoutMs: input.config.benchmarkProbeTimeoutMs
+      });
     }
   };
 }

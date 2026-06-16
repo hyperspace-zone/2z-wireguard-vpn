@@ -1,4 +1,5 @@
 import type { FromSchema } from "json-schema-to-ts";
+import { gateBenchmarkRouteSchema } from "../resources/benchmark.js";
 import { gateSummarySchema } from "../resources/gate.js";
 import { sessionSummarySchema, sessionSpecSchema } from "../resources/session.js";
 
@@ -105,6 +106,19 @@ export const publicGatesResponseSchema = {
     gates: { type: "array", items: gateSummarySchema }
   }
 } as const;
+
+export const publicGateBenchmarkMatrixResponseSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["generatedAt", "gates", "routes"],
+  properties: {
+    generatedAt: { type: "string", format: "date-time" },
+    gates: { type: "array", items: gateSummarySchema },
+    routes: { type: "array", items: gateBenchmarkRouteSchema }
+  }
+} as const;
+
+export type PublicGateBenchmarkMatrixResponse = FromSchema<typeof publicGateBenchmarkMatrixResponseSchema>;
 
 export const publicNetworkMeResponseSchema = {
   type: "object",

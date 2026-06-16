@@ -1,6 +1,9 @@
 package main
 
-import "testing"
+import (
+	"encoding/json"
+	"testing"
+)
 
 func TestParseDoubleZeroStatus(t *testing.T) {
 	output := " Tunnel Status  | Last Session Update     | Tunnel Name | Tunnel Src   | Tunnel Dst     | Doublezero IP | User Type | Reconciler | Tenant | Current Device | Lowest Latency Device | Metro     | Network | Multicast Groups\n" +
@@ -68,6 +71,71 @@ func TestParseDoubleZeroStatusParsesLatencyDeviceStatus(t *testing.T) {
 				assertMissing(t, status, "lowestLatencyDeviceWarning")
 			}
 		})
+	}
+}
+
+func TestDecodeProbePayloadDefaults(t *testing.T) {
+	payload := map[string]any{
+		"kind":             "gate_benchmark_v1",
+		"targetGateId":     "target-1",
+		"targetGateName":   "gate-eu-ams-01",
+		"targetPublicIpv4": "203.0.113.10",
+	}
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	decoded, err := decodeProbePayload(job{Payload: encoded})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decoded.TargetProbePort != 19192 {
+		t.Fatalf("TargetProbePort = %d, expected 19192", decoded.TargetProbePort)
+	}
+	if decoded.Count != 10 {
+		t.Fatalf("Count = %d, expected 10", decoded.Count)
+	}
+	if len(decoded.Transports) != 2 {
+		t.Fatalf("Transports = %d, expected 2", len(decoded.Transports))
+	}
+	if decoded.Transports[0].Name != "public" || decoded.Transports[1].Name != "doublezero" {
+		t.Fatalf("unexpected transports: %#v", decoded.Transports)
+	}
+}
+
+func TestProbePacketHMAC(t *testing.T) {
+	packet := probePacket{
+		Magic:                probeMagic,
+		SourceGate:           "gate-a",
+		TargetGate:           "gate-b",
+		Nonce:                "nonce",
+		Seq:                  1,
+		ClientTxWallUnixNano: 100,
+	}
+	signProbePacket(&packet, "shared-secret")
+
+	if packet.HMAC == "" {
+		t.Fatal("expected HMAC")
+	}
+	if !verifyProbePacket(packet, "shared-secret") {
+		t.Fatal("expected HMAC to verify")
+	}
+	packet.Seq = 2
+	if verifyProbePacket(packet, "shared-secret") {
+		t.Fatal("tampered packet should not verify")
+	}
+}
+
+func TestSummarizeProbeSamples(t *testing.T) {
+	summary := summarizeProbeSamples([]probeSample{
+		{RTTMs: 10},
+		{RTTMs: 20},
+		{RTTMs: 30},
+	}, func(sample probeSample) float64 { return sample.RTTMs })
+
+	if summary.Min != 10 || summary.P50 != 20 || summary.P95 != 29 || summary.Max != 30 {
+		t.Fatalf("unexpected summary: %#v", summary)
 	}
 }
 

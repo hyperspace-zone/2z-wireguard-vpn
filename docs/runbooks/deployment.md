@@ -637,6 +637,7 @@ Open the required firewall/security-group paths:
 | Internet to each gate | TCP 80, 443 | ACME challenge and browser RTT probe. |
 | Each gate to control-plane | TCP 443 | Gate heartbeat and reconciliation jobs. |
 | Between DoubleZero clients | UDP 44880 | DoubleZero route-liveness traffic. |
+| Gates to gates | UDP 19192 by default | Milestone 2 public-vs-DoubleZero benchmark probes. Restrict to known gate IPs and keep `GATE_PROBE_SHARED_SECRET` enabled. |
 | WireGuard clients to ingress gates | UDP listen ports assigned by Hyperspace | Client tunnel traffic. Keep the assigned/dynamic UDP range open, or open the intended WireGuard UDP ports until the range is constrained in deployment config. |
 | Egress gates to targets | As required by policy | User traffic exiting through the selected egress gate. |
 
@@ -1135,6 +1136,7 @@ On each gate host, create `/etc/hyperspace/gate-agent.env`:
 ```bash
 export CONTROL_PLANE_URL="${HS_API_ORIGIN}"
 export GATE_NAME=gate-eu-fra-01
+: "${GATE_PROBE_SHARED_SECRET:?set the same benchmark probe shared secret on every gate}"
 read -rsp "Issued gate token for ${GATE_NAME}: " GATE_TOKEN
 echo
 
@@ -1147,6 +1149,9 @@ POLL_INTERVAL=2s
 HEARTBEAT_INTERVAL=10s
 GATE_AGENT_EXECUTION_MODE=apply
 GATE_AGENT_STATE_DIR=/var/lib/hyperspace-gate
+GATE_PROBE_LISTEN_ADDRESS=0.0.0.0
+GATE_PROBE_PORT=19192
+GATE_PROBE_SHARED_SECRET=${GATE_PROBE_SHARED_SECRET}
 EOF
 chown root:root /etc/hyperspace/gate-agent.env
 chmod 0600 /etc/hyperspace/gate-agent.env
@@ -1156,6 +1161,11 @@ unset GATE_TOKEN
 `CONTROL_PLANE_URL` must point to the API origin that exposes `/v1/gate/*`.
 For a combined host it can equal `HS_WEB_ORIGIN`; for a split deployment it
 should be `HS_API_ORIGIN`.
+
+Use one identical `GATE_PROBE_SHARED_SECRET` across all gates in the same
+benchmarking cluster. This signs UDP benchmark probes. See
+[Gate Benchmarking](gate-benchmarking.md) for probe firewall and verification
+steps.
 
 Start the agent:
 
@@ -1314,5 +1324,6 @@ user path.
 Related runbooks:
 
 - [Live Smoke Tests](live-smoke-tests.md)
+- [Gate Benchmarking](gate-benchmarking.md)
 - [Long-Running Measurement Matrix](long-running-measurement-matrix.md)
 - [API Automation](api-automation.md)

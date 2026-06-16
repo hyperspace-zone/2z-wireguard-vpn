@@ -3,33 +3,41 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 )
 
 const version = "0.1.0"
 
 type config struct {
-	ControlPlaneURL   string
-	GateName          string
-	GateToken         string
-	PollInterval      time.Duration
-	HeartbeatInterval time.Duration
-	ExecutionMode     string
-	StateDir          string
+	ControlPlaneURL    string
+	GateName           string
+	GateToken          string
+	PollInterval       time.Duration
+	HeartbeatInterval  time.Duration
+	ExecutionMode      string
+	StateDir           string
+	ProbeListenAddress string
+	ProbePort          int
+	ProbeSharedSecret  string
 }
 
 type claimResponse struct {
@@ -50,6 +58,11 @@ func main() {
 	if err != nil {
 		fatal(err)
 	}
+	if cfg.ProbePort > 0 {
+		if err := startProbeServer(cfg); err != nil {
+			logJSON("probe_server_failed", map[string]any{"error": err.Error()})
+		}
+	}
 
 	client := &http.Client{Timeout: 20 * time.Second}
 	logJSON("agent_started", map[string]any{
@@ -57,6 +70,7 @@ func main() {
 		"version":       version,
 		"executionMode": cfg.ExecutionMode,
 		"stateDir":      cfg.StateDir,
+		"probePort":     cfg.ProbePort,
 	})
 
 	lastHeartbeat := time.Time{}
@@ -108,6 +122,8 @@ func executeJob(cfg config, item job) jobResult {
 	})
 
 	switch item.Type {
+	case "probe":
+		return executeProbeJob(cfg, item)
 	case "apply_assignment":
 		if cfg.ExecutionMode == "ack" {
 			return jobResult{
@@ -302,6 +318,479 @@ func executeRevokeAssignment(cfg config, item job) jobResult {
 			"assignmentId":  payload.AssignmentID,
 		},
 	}
+}
+
+const probeMagic = "hyperspace-gate-probe-v1"
+
+type probeJobPayload struct {
+	Kind             string                 `json:"kind"`
+	SourceGateID     string                 `json:"sourceGateId"`
+	SourceGateName   string                 `json:"sourceGateName"`
+	TargetGateID     string                 `json:"targetGateId"`
+	TargetGateName   string                 `json:"targetGateName"`
+	TargetPublicIPv4 string                 `json:"targetPublicIpv4"`
+	TargetProbePort  int                    `json:"targetProbePort"`
+	Count            int                    `json:"count"`
+	IntervalMs       int                    `json:"intervalMs"`
+	TimeoutMs        int                    `json:"timeoutMs"`
+	Transports       []probeTransportConfig `json:"transports"`
+}
+
+type probeTransportConfig struct {
+	Name      string `json:"name"`
+	Interface string `json:"interface"`
+}
+
+type probePacket struct {
+	Magic                string `json:"magic"`
+	SourceGate           string `json:"sourceGate"`
+	TargetGate           string `json:"targetGate,omitempty"`
+	Nonce                string `json:"nonce"`
+	Seq                  int    `json:"seq"`
+	ClientTxWallUnixNano int64  `json:"clientTxWallUnixNano"`
+	ServerRxWallUnixNano int64  `json:"serverRxWallUnixNano,omitempty"`
+	ServerTxWallUnixNano int64  `json:"serverTxWallUnixNano,omitempty"`
+	ServerObservedRemote string `json:"serverObservedRemote,omitempty"`
+	HMAC                 string `json:"hmac,omitempty"`
+}
+
+type probeSample struct {
+	Seq             int     `json:"seq"`
+	RTTMs           float64 `json:"rttMs"`
+	ForwardOneWayMs float64 `json:"forwardOneWayMs"`
+	ReverseOneWayMs float64 `json:"reverseOneWayMs"`
+}
+
+type probeMetricSummary struct {
+	Min float64 `json:"min,omitempty"`
+	P50 float64 `json:"p50,omitempty"`
+	P95 float64 `json:"p95,omitempty"`
+	Max float64 `json:"max,omitempty"`
+}
+
+type probeTransportResult struct {
+	Transport       string             `json:"transport"`
+	Status          string             `json:"status"`
+	SourceInterface string             `json:"sourceInterface,omitempty"`
+	TargetEndpoint  string             `json:"targetEndpoint,omitempty"`
+	PacketCount     int                `json:"packetCount"`
+	PacketsReceived int                `json:"packetsReceived"`
+	LossPercent     float64            `json:"lossPercent"`
+	RTTMs           probeMetricSummary `json:"rttMs,omitempty"`
+	JitterMs        float64            `json:"jitterMs,omitempty"`
+	ForwardOneWayMs probeMetricSummary `json:"forwardOneWayMs,omitempty"`
+	ReverseOneWayMs probeMetricSummary `json:"reverseOneWayMs,omitempty"`
+	Samples         []probeSample      `json:"samples,omitempty"`
+	Chrony          map[string]any     `json:"chrony,omitempty"`
+	MeasuredAt      string             `json:"measuredAt"`
+	ErrorCode       string             `json:"errorCode,omitempty"`
+	ErrorMessage    string             `json:"errorMessage,omitempty"`
+}
+
+func executeProbeJob(cfg config, item job) jobResult {
+	payload, err := decodeProbePayload(item)
+	if err != nil {
+		return failed("invalid_probe_payload", err)
+	}
+	results := make([]probeTransportResult, 0, len(payload.Transports))
+	for _, transport := range payload.Transports {
+		result := runProbeTransport(cfg, payload, transport)
+		results = append(results, result)
+	}
+	return jobResult{
+		Status:          "succeeded",
+		ActualStateHash: actualStateHash(),
+		ResultSummary: map[string]any{
+			"kind":           "gate_benchmark_v1",
+			"sourceGateId":   payload.SourceGateID,
+			"sourceGateName": payload.SourceGateName,
+			"targetGateId":   payload.TargetGateID,
+			"targetGateName": payload.TargetGateName,
+			"results":        results,
+		},
+	}
+}
+
+func decodeProbePayload(item job) (probeJobPayload, error) {
+	var payload probeJobPayload
+	if err := json.Unmarshal(item.Payload, &payload); err != nil {
+		return payload, err
+	}
+	if payload.Kind != "gate_benchmark_v1" {
+		return payload, fmt.Errorf("unsupported probe kind %q", payload.Kind)
+	}
+	if payload.TargetGateID == "" || payload.TargetGateName == "" || payload.TargetPublicIPv4 == "" {
+		return payload, errors.New("target gate fields are required")
+	}
+	if payload.TargetProbePort == 0 {
+		payload.TargetProbePort = cfgDefaultProbePort()
+	}
+	if payload.Count <= 0 {
+		payload.Count = 10
+	}
+	if payload.IntervalMs <= 0 {
+		payload.IntervalMs = 100
+	}
+	if payload.TimeoutMs <= 0 {
+		payload.TimeoutMs = 1000
+	}
+	if len(payload.Transports) == 0 {
+		payload.Transports = []probeTransportConfig{
+			{Name: "public", Interface: "public"},
+			{Name: "doublezero", Interface: "doublezero0"},
+		}
+	}
+	return payload, nil
+}
+
+func cfgDefaultProbePort() int {
+	return 19192
+}
+
+func runProbeTransport(cfg config, payload probeJobPayload, transport probeTransportConfig) probeTransportResult {
+	measuredAt := time.Now().UTC().Format(time.RFC3339Nano)
+	result := probeTransportResult{
+		Transport:      transport.Name,
+		Status:         "failed",
+		PacketCount:    payload.Count,
+		TargetEndpoint: net.JoinHostPort(payload.TargetPublicIPv4, strconv.Itoa(payload.TargetProbePort)),
+		Chrony:         chronyTrackingSummary(),
+		MeasuredAt:     measuredAt,
+	}
+	if transport.Name != "public" && transport.Name != "doublezero" {
+		result.ErrorCode = "unsupported_transport"
+		result.ErrorMessage = fmt.Sprintf("unsupported transport %q", transport.Name)
+		return result
+	}
+	iface, err := resolveProbeInterface(transport.Interface)
+	if err != nil {
+		result.ErrorCode = "interface_unavailable"
+		result.ErrorMessage = err.Error()
+		return result
+	}
+	result.SourceInterface = iface
+
+	target, err := net.ResolveUDPAddr("udp4", result.TargetEndpoint)
+	if err != nil {
+		result.ErrorCode = "invalid_target"
+		result.ErrorMessage = err.Error()
+		return result
+	}
+	conn, err := listenUDPOnInterface(iface)
+	if err != nil {
+		result.ErrorCode = "socket_bind_failed"
+		result.ErrorMessage = err.Error()
+		return result
+	}
+	defer conn.Close()
+
+	samples := make([]probeSample, 0, payload.Count)
+	for seq := 1; seq <= payload.Count; seq++ {
+		sample, err := runProbeSample(conn, cfg, payload, target, seq, time.Duration(payload.TimeoutMs)*time.Millisecond)
+		if err == nil {
+			samples = append(samples, sample)
+		}
+		if seq < payload.Count {
+			time.Sleep(time.Duration(payload.IntervalMs) * time.Millisecond)
+		}
+	}
+
+	result.Samples = samples
+	result.PacketsReceived = len(samples)
+	result.LossPercent = compactFloat((float64(payload.Count-len(samples)) / float64(payload.Count)) * 100)
+	if len(samples) == 0 {
+		result.ErrorCode = "no_probe_responses"
+		result.ErrorMessage = "target gate did not return UDP probe responses"
+		return result
+	}
+	result.Status = "succeeded"
+	result.RTTMs = summarizeProbeSamples(samples, func(sample probeSample) float64 { return sample.RTTMs })
+	result.ForwardOneWayMs = summarizeProbeSamples(samples, func(sample probeSample) float64 { return sample.ForwardOneWayMs })
+	result.ReverseOneWayMs = summarizeProbeSamples(samples, func(sample probeSample) float64 { return sample.ReverseOneWayMs })
+	result.JitterMs = compactFloat(result.RTTMs.P95 - result.RTTMs.P50)
+	return result
+}
+
+func resolveProbeInterface(value string) (string, error) {
+	if value == "" || value == "public" {
+		return defaultRouteInterface()
+	}
+	if linkState(value) == "missing" {
+		return "", fmt.Errorf("interface %s is missing", value)
+	}
+	return value, nil
+}
+
+func listenUDPOnInterface(interfaceName string) (net.PacketConn, error) {
+	listenConfig := net.ListenConfig{}
+	if interfaceName != "" {
+		listenConfig.Control = func(network string, address string, conn syscall.RawConn) error {
+			var controlErr error
+			err := conn.Control(func(fd uintptr) {
+				controlErr = syscall.SetsockoptString(int(fd), syscall.SOL_SOCKET, syscall.SO_BINDTODEVICE, interfaceName)
+			})
+			if err != nil {
+				return err
+			}
+			return controlErr
+		}
+	}
+	return listenConfig.ListenPacket(context.Background(), "udp4", "0.0.0.0:0")
+}
+
+func runProbeSample(
+	conn net.PacketConn,
+	cfg config,
+	payload probeJobPayload,
+	target *net.UDPAddr,
+	seq int,
+	timeout time.Duration,
+) (probeSample, error) {
+	nonce, err := randomHex(16)
+	if err != nil {
+		return probeSample{}, err
+	}
+	clientTx := time.Now()
+	request := probePacket{
+		Magic:                probeMagic,
+		SourceGate:           cfg.GateName,
+		TargetGate:           payload.TargetGateName,
+		Nonce:                nonce,
+		Seq:                  seq,
+		ClientTxWallUnixNano: clientTx.UnixNano(),
+	}
+	signProbePacket(&request, cfg.ProbeSharedSecret)
+	encoded, err := json.Marshal(request)
+	if err != nil {
+		return probeSample{}, err
+	}
+	if err := conn.SetDeadline(time.Now().Add(timeout)); err != nil {
+		return probeSample{}, err
+	}
+	start := time.Now()
+	if _, err := conn.WriteTo(encoded, target); err != nil {
+		return probeSample{}, err
+	}
+	buffer := make([]byte, 4096)
+	for {
+		n, _, err := conn.ReadFrom(buffer)
+		if err != nil {
+			return probeSample{}, err
+		}
+		clientRx := time.Now()
+		var response probePacket
+		if err := json.Unmarshal(buffer[:n], &response); err != nil {
+			continue
+		}
+		if response.Magic != probeMagic || response.Nonce != nonce || response.Seq != seq {
+			continue
+		}
+		if !verifyProbePacket(response, cfg.ProbeSharedSecret) {
+			continue
+		}
+		return probeSample{
+			Seq:             seq,
+			RTTMs:           compactFloat(float64(clientRx.Sub(start).Microseconds()) / 1000),
+			ForwardOneWayMs: compactFloat(nsToMs(response.ServerRxWallUnixNano - request.ClientTxWallUnixNano)),
+			ReverseOneWayMs: compactFloat(nsToMs(clientRx.UnixNano() - response.ServerTxWallUnixNano)),
+		}, nil
+	}
+}
+
+func startProbeServer(cfg config) error {
+	addr := net.JoinHostPort(cfg.ProbeListenAddress, strconv.Itoa(cfg.ProbePort))
+	conn, err := net.ListenPacket("udp4", addr)
+	if err != nil {
+		return err
+	}
+	go func() {
+		defer conn.Close()
+		logJSON("probe_server_started", map[string]any{
+			"listenAddress": cfg.ProbeListenAddress,
+			"port":          cfg.ProbePort,
+			"hmac":          hmacState(cfg),
+		})
+		buffer := make([]byte, 4096)
+		for {
+			n, remote, err := conn.ReadFrom(buffer)
+			if err != nil {
+				logJSON("probe_server_read_failed", map[string]any{"error": err.Error()})
+				return
+			}
+			serverRx := time.Now()
+			var request probePacket
+			if err := json.Unmarshal(buffer[:n], &request); err != nil {
+				continue
+			}
+			if request.Magic != probeMagic {
+				continue
+			}
+			if !verifyProbePacket(request, cfg.ProbeSharedSecret) {
+				continue
+			}
+			response := probePacket{
+				Magic:                probeMagic,
+				SourceGate:           request.SourceGate,
+				TargetGate:           cfg.GateName,
+				Nonce:                request.Nonce,
+				Seq:                  request.Seq,
+				ClientTxWallUnixNano: request.ClientTxWallUnixNano,
+				ServerRxWallUnixNano: serverRx.UnixNano(),
+				ServerObservedRemote: remote.String(),
+			}
+			response.ServerTxWallUnixNano = time.Now().UnixNano()
+			signProbePacket(&response, cfg.ProbeSharedSecret)
+			encoded, err := json.Marshal(response)
+			if err != nil {
+				continue
+			}
+			_, _ = conn.WriteTo(encoded, remote)
+		}
+	}()
+	return nil
+}
+
+func signProbePacket(packet *probePacket, secret string) {
+	if secret == "" {
+		return
+	}
+	packet.HMAC = ""
+	packet.HMAC = probePacketHMAC(*packet, secret)
+}
+
+func verifyProbePacket(packet probePacket, secret string) bool {
+	if secret == "" {
+		return true
+	}
+	if packet.HMAC == "" {
+		return false
+	}
+	expected := probePacketHMAC(packet, secret)
+	return hmac.Equal([]byte(packet.HMAC), []byte(expected))
+}
+
+func probePacketHMAC(packet probePacket, secret string) string {
+	packet.HMAC = ""
+	encoded, _ := json.Marshal(packet)
+	mac := hmac.New(sha256.New, []byte(secret))
+	_, _ = mac.Write(encoded)
+	return hex.EncodeToString(mac.Sum(nil))
+}
+
+func randomHex(byteCount int) (string, error) {
+	buffer := make([]byte, byteCount)
+	if _, err := rand.Read(buffer); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(buffer), nil
+}
+
+func summarizeProbeSamples(samples []probeSample, selectValue func(probeSample) float64) probeMetricSummary {
+	values := make([]float64, 0, len(samples))
+	for _, sample := range samples {
+		value := selectValue(sample)
+		if !isFiniteFloat(value) {
+			continue
+		}
+		values = append(values, value)
+	}
+	if len(values) == 0 {
+		return probeMetricSummary{}
+	}
+	sort.Float64s(values)
+	return probeMetricSummary{
+		Min: compactFloat(values[0]),
+		P50: compactFloat(percentile(values, 50)),
+		P95: compactFloat(percentile(values, 95)),
+		Max: compactFloat(values[len(values)-1]),
+	}
+}
+
+func percentile(sorted []float64, pct float64) float64 {
+	if len(sorted) == 0 {
+		return 0
+	}
+	if len(sorted) == 1 {
+		return sorted[0]
+	}
+	position := (pct / 100) * float64(len(sorted)-1)
+	lower := int(position)
+	upper := lower + 1
+	if upper >= len(sorted) {
+		return sorted[len(sorted)-1]
+	}
+	weight := position - float64(lower)
+	return sorted[lower]*(1-weight) + sorted[upper]*weight
+}
+
+func nsToMs(ns int64) float64 {
+	return float64(ns) / 1_000_000
+}
+
+func compactFloat(value float64) float64 {
+	if !isFiniteFloat(value) {
+		return 0
+	}
+	return math.Round(value*1000) / 1000
+}
+
+func isFiniteFloat(value float64) bool {
+	return !math.IsNaN(value) && !math.IsInf(value, 0)
+}
+
+func probeState(cfg config) string {
+	if cfg.ProbePort <= 0 {
+		return "disabled"
+	}
+	return "enabled"
+}
+
+func hmacState(cfg config) string {
+	if cfg.ProbeSharedSecret == "" {
+		return "disabled"
+	}
+	return "enabled"
+}
+
+func chronyState() string {
+	output := commandOutput("chronyc", "tracking")
+	if output == "" {
+		return "unknown"
+	}
+	if strings.Contains(output, "Leap status") && strings.Contains(output, "Normal") {
+		return "sync"
+	}
+	return "reported"
+}
+
+func chronyTrackingSummary() map[string]any {
+	output, err := commandOutputTimeout(2*time.Second, "chronyc", "tracking")
+	if err != nil {
+		return map[string]any{"status": "unavailable", "error": err.Error()}
+	}
+	summary := map[string]any{"status": "reported"}
+	for _, line := range strings.Split(output, "\n") {
+		parts := strings.SplitN(line, ":", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		key := strings.TrimSpace(parts[0])
+		value := strings.TrimSpace(parts[1])
+		switch key {
+		case "Leap status":
+			summary["leapStatus"] = value
+			if value == "Normal" {
+				summary["status"] = "sync"
+			}
+		case "System time":
+			summary["systemTime"] = value
+		case "Last offset":
+			summary["lastOffset"] = value
+		case "RMS offset":
+			summary["rmsOffset"] = value
+		}
+	}
+	return summary
 }
 
 func decodeAssignmentPayload(item job) (assignmentPayload, error) {
@@ -551,6 +1040,9 @@ func sendHeartbeat(client *http.Client, cfg config) error {
 			"iproute2:" + commandState("ip"),
 			"nft:" + commandState("nft"),
 			"doublezero0:" + linkState("doublezero0"),
+			"udp-probe:" + probeState(cfg),
+			"udp-probe-hmac:" + hmacState(cfg),
+			"chrony:" + chronyState(),
 		},
 		"reportedAt": time.Now().UTC().Format(time.RFC3339),
 	}
@@ -623,13 +1115,16 @@ func readConfig() (config, error) {
 		return config{}, errors.New("CONTROL_PLANE_URL, GATE_NAME, and GATE_TOKEN are required")
 	}
 	return config{
-		ControlPlaneURL:   controlPlaneURL,
-		GateName:          gateName,
-		GateToken:         gateToken,
-		PollInterval:      durationEnv("POLL_INTERVAL", 2*time.Second),
-		HeartbeatInterval: durationEnv("HEARTBEAT_INTERVAL", 10*time.Second),
-		ExecutionMode:     stringEnv("GATE_AGENT_EXECUTION_MODE", "observe"),
-		StateDir:          stringEnv("GATE_AGENT_STATE_DIR", "/var/lib/hyperspace-gate"),
+		ControlPlaneURL:    controlPlaneURL,
+		GateName:           gateName,
+		GateToken:          gateToken,
+		PollInterval:       durationEnv("POLL_INTERVAL", 2*time.Second),
+		HeartbeatInterval:  durationEnv("HEARTBEAT_INTERVAL", 10*time.Second),
+		ExecutionMode:      stringEnv("GATE_AGENT_EXECUTION_MODE", "observe"),
+		StateDir:           stringEnv("GATE_AGENT_STATE_DIR", "/var/lib/hyperspace-gate"),
+		ProbeListenAddress: stringEnv("GATE_PROBE_LISTEN_ADDRESS", "0.0.0.0"),
+		ProbePort:          intEnv("GATE_PROBE_PORT", 19192),
+		ProbeSharedSecret:  os.Getenv("GATE_PROBE_SHARED_SECRET"),
 	}, nil
 }
 
@@ -651,6 +1146,18 @@ func stringEnv(name string, fallback string) string {
 		return fallback
 	}
 	return value
+}
+
+func intEnv(name string, fallback int) int {
+	raw := os.Getenv(name)
+	if raw == "" {
+		return fallback
+	}
+	parsed, err := strconv.Atoi(raw)
+	if err != nil {
+		return fallback
+	}
+	return parsed
 }
 
 func actualStateHash() string {

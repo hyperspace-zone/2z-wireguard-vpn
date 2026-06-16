@@ -29,6 +29,7 @@ export {
 export { deleteHiddenSession } from "./application/sessions/delete-session.scenario.js";
 export { revokeSession } from "./application/sessions/revoke-session.scenario.js";
 export { type Principal } from "./authz/principals.js";
+export { readPublicGateBenchmarkMatrix } from "./read-models/public-benchmarks.query.js";
 export { listPublicGates } from "./read-models/public-gates.query.js";
 export { listPublicSessions, readOwnSession } from "./read-models/public-sessions.query.js";
 export { listAdminJobs } from "./read-models/admin-jobs.query.js";
@@ -70,3 +71,4 @@ export {
 export { isJobReportStatus, type JobReportStatus } from "./resources/jobs/transitions.js";
 export { authenticateGateToken, type AuthenticatedGate } from "./security/gate-auth.js";
 export { authenticatePublicAuthSession } from "./resources/users/service.js";
+export { scheduleGateBenchmarkProbes } from "./resources/benchmarks/service.js";

@@ -16,7 +16,8 @@ run.
 | Local unit/build | Type safety, state-machine policies, route planning, gate readiness logic. |
 | Public web/API | Self-service user flow, API contract, gate catalog visibility. |
 | Validation testnodes | Real WireGuard traffic and source/target restriction tests. |
-| Measurement testnodes | Long-running public-vs-Hyperspace RTT and one-way matrices. |
+| Gate benchmark matrix | Continuous gate-to-gate public-vs-DoubleZero RTT, jitter, loss, and one-way estimates. |
+| Measurement testnodes | Long-running user-path public-vs-Hyperspace RTT and one-way matrices. |
 | Gate hosts | Reconciliation, job execution, WireGuard/nftables cleanup, DoubleZero readiness. |
 
 ## Command Taxonomy
@@ -28,6 +29,7 @@ Keep tests and measurements separate:
 | `npm test` or `npm run test:unit` | Local workspace regression tests. | Short. | No |
 | `npm run test:live:ui` | Browser/API smoke against a deployed HTTPS cluster. | Short to moderate. | No |
 | `npm run test:live:policy` | Real WireGuard policy smoke on a small fixed set of validation clients. | Moderate. | No |
+| Gate benchmark scheduler | Continuous `probe` jobs from the control-plane worker to gate agents. | Continuous. | Gate-to-gate only |
 | `npm run measure:matrix -- ...` | Full directed public/Hyperspace RTT and one-way matrix. | Long. | Yes |
 | `npm run measure:compare -- ...` | Compare already captured measurement JSON files. | Short. | Reads matrix outputs |
 
@@ -76,6 +78,7 @@ Do not include them in routine `npm test` or live smoke runs.
 | UI-013 | Dashboard config table | After config create. | Table shows Created, Mode, Config, Source IP, Target IP, Ingress gate, Egress gate, Status, Actions. Source `Any` and target `Internet`/IP render compactly. | `scripts/testnet/live-ui-smoke.mjs` |
 | UI-014 | Action buttons state | While requested/provisioning/failed/revoking/active. | Download and Revoke are enabled only when active; Delete revokes first when needed and then hides the config. | `scripts/testnet/live-ui-smoke.mjs` |
 | UI-015 | Console cleanliness | Run happy path in Chromium/Brave. | No uncaught promise errors such as `AbortError: signal is aborted without reason`. | `scripts/testnet/live-ui-smoke.mjs` |
+| UI-016 | Gate benchmark dashboard | Open dashboard after benchmark jobs have reported. | Dashboard shows `Gate benchmark matrix` with RTT comparison and one-way probe matrices. Cells show DoubleZero, public, delta, and loss values or `pending` before first samples. | Live dashboard/manual screenshot |
 
 ## WireGuard Traffic Policy
 
@@ -94,10 +97,13 @@ Do not include them in routine `npm test` or live smoke runs.
 
 | ID | Case | Steps | Expected | Coverage |
 | --- | --- | --- | --- | --- |
-| PERF-001 | Public RTT/one-way matrix | Run `npm run measure:matrix -- --mode public`. | `public.json` contains every directed testnode pair with low packet loss. | Measurement-only |
-| PERF-002 | Hyperspace RTT/one-way matrix | Run `npm run measure:matrix -- --mode hyperspace`. | `hyperspace.json` contains selected ingress/egress path per pair and successful probes. | Measurement-only |
-| PERF-003 | Public vs Hyperspace comparison | Run `npm run measure:compare -- ...`. | Markdown report shows RTT p50 delta and forward/reverse one-way deltas sorted for review. | Measurement-only |
-| PERF-004 | Gate selection heuristic | Inspect matrix path selection. | Ingress is chosen near source testnode; egress is chosen near destination testnode based on public ping ranking. | Testnode matrix |
+| PERF-001 | Gate public-vs-DoubleZero matrix | Let the worker schedule gate `probe` jobs and call `/v1/public/benchmarks/gate-matrix`. | The API returns every directed gate pair with latest `public` and `doublezero` measurements once jobs complete. | `docs/runbooks/gate-benchmarking.md` |
+| PERF-002 | Gate RTT/jitter/loss comparison | Inspect dashboard or API matrix. | Each completed cell shows DoubleZero RTT p50, public RTT p50, delta, jitter, and loss. Negative RTT delta means DoubleZero is faster. | Gate benchmark matrix |
+| PERF-003 | Gate one-way estimates | Inspect dashboard one-way matrix. | Forward/reverse one-way estimates are present when chrony clock sync is good; RTT remains primary when clocks are noisy. | Gate benchmark matrix |
+| PERF-004 | Public testnode RTT/one-way matrix | Run `npm run measure:matrix -- --mode public`. | `public.json` contains every directed testnode pair with low packet loss. | Measurement-only |
+| PERF-005 | Hyperspace testnode RTT/one-way matrix | Run `npm run measure:matrix -- --mode hyperspace`. | `hyperspace.json` contains selected ingress/egress path per pair and successful probes. | Measurement-only |
+| PERF-006 | Public vs Hyperspace comparison | Run `npm run measure:compare -- ...`. | Markdown report shows RTT p50 delta and forward/reverse one-way deltas sorted for review. | Measurement-only |
+| PERF-007 | Gate selection heuristic | Inspect matrix path selection. | Ingress is chosen near source testnode; egress is chosen near destination testnode based on public ping ranking. | Testnode matrix |
 
 ## Regression Unit Tests
 

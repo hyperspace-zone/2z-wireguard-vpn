@@ -29,6 +29,52 @@ interface GateDoubleZeroStatus {
   error?: string;
 }
 
+interface BenchmarkMetricSummary {
+  min?: number;
+  p50?: number;
+  p95?: number;
+  max?: number;
+}
+
+interface BenchmarkMetric {
+  transport: "public" | "doublezero";
+  status: "succeeded" | "failed";
+  sourceInterface?: string;
+  targetEndpoint?: string;
+  packetCount?: number;
+  packetsReceived?: number;
+  lossPercent?: number;
+  rttMs?: BenchmarkMetricSummary;
+  jitterMs?: number;
+  forwardOneWayMs?: BenchmarkMetricSummary;
+  reverseOneWayMs?: BenchmarkMetricSummary;
+  errorCode?: string;
+  errorMessage?: string;
+  measuredAt: string;
+}
+
+interface BenchmarkRoute {
+  sourceGateId: string;
+  sourceGateName: string;
+  targetGateId: string;
+  targetGateName: string;
+  public?: BenchmarkMetric;
+  doublezero?: BenchmarkMetric;
+  delta?: {
+    rttP50Ms?: number;
+    jitterMs?: number;
+    lossPercent?: number;
+    forwardOneWayP50Ms?: number;
+    reverseOneWayP50Ms?: number;
+  };
+}
+
+interface BenchmarkMatrix {
+  generatedAt: string;
+  gates: Gate[];
+  routes: BenchmarkRoute[];
+}
+
 interface Session {
   id: string;
   mode: SessionMode;
@@ -54,6 +100,7 @@ let token = localStorage.getItem("hyperspaceAccessToken") ?? "";
 let latestGates: Gate[] = [];
 let latestSessions: Session[] = [];
 let latestMe: { email: string } | null = null;
+let latestBenchmarkMatrix: BenchmarkMatrix | null = null;
 const gateLatencyById = new Map<string, { medianMs: number | null; minMs: number | null; maxMs: number | null; sampleCount: number }>();
 const gateLatencyInProgressIds = new Set<string>();
 const revokingConfigIds = new Set<string>();
@@ -119,24 +166,27 @@ function renderLoading(): void {
 }
 
 async function refresh(options: { skipAutoMeasure?: boolean } = {}): Promise<void> {
-  const [gates, sessions, me] = await Promise.all([
+  const [gates, sessions, me, benchmarkMatrix] = await Promise.all([
     getGates().catch(() => [] as Gate[]),
     token ? getSessions().catch(() => [] as Session[]) : Promise.resolve([]),
-    token ? getMe().catch(() => null) : Promise.resolve(null)
+    token ? getMe().catch(() => null) : Promise.resolve(null),
+    getBenchmarkMatrix().catch(() => null)
   ]);
   latestGates = gates;
   latestSessions = sessions;
   latestMe = me;
-  render({ gates: decorateGates(gates), sessions, me });
+  latestBenchmarkMatrix = benchmarkMatrix;
+  render({ gates: decorateGates(gates), sessions, me, benchmarkMatrix });
   if (!options.skipAutoMeasure && me) {
     maybeMeasureGatesAutomatically();
   }
 }
 
-function render(state: { gates?: Gate[]; sessions?: Session[]; me?: { email: string } | null } = {}): void {
+function render(state: { gates?: Gate[]; sessions?: Session[]; me?: { email: string } | null; benchmarkMatrix?: BenchmarkMatrix | null } = {}): void {
   const gates = state.gates ?? [];
   const sessions = state.sessions ?? [];
   const me = state.me ?? null;
+  const benchmarkMatrix = state.benchmarkMatrix ?? latestBenchmarkMatrix;
   const view = resolveViewForAuth(me);
   appRoot.innerHTML = `
     <main class="shell">
@@ -151,7 +201,7 @@ function render(state: { gates?: Gate[]; sessions?: Session[]; me?: { email: str
       </section>
 
       ${me ? appNav(view) : authNav(view)}
-      ${renderView({ view, gates, sessions })}
+      ${renderView({ view, gates, sessions, benchmarkMatrix })}
 
       ${shouldShowEventLog(view) ? `<pre id="event-log" class="event-log">${escapeHtml(eventLogLines.join("\n"))}</pre>` : ""}
     </main>
@@ -232,7 +282,7 @@ function resolveViewForAuth(me: { email: string } | null): AppView {
   return view;
 }
 
-function renderView(state: { view: AppView; gates: Gate[]; sessions: Session[] }): string {
+function renderView(state: { view: AppView; gates: Gate[]; sessions: Session[]; benchmarkMatrix: BenchmarkMatrix | null }): string {
   if (state.view === "login") {
     return loginView();
   }
@@ -242,7 +292,7 @@ function renderView(state: { view: AppView; gates: Gate[]; sessions: Session[] }
   if (state.view === "create-config") {
     return createConfigView(state.gates);
   }
-  return dashboardView({ gates: state.gates, sessions: state.sessions });
+  return dashboardView({ gates: state.gates, sessions: state.sessions, benchmarkMatrix: state.benchmarkMatrix });
 }
 
 function shouldShowEventLog(view: AppView): boolean {
@@ -275,7 +325,7 @@ function authNav(view: AppView): string {
   `;
 }
 
-function dashboardView(state: { gates: Gate[]; sessions: Session[] }): string {
+function dashboardView(state: { gates: Gate[]; sessions: Session[]; benchmarkMatrix: BenchmarkMatrix | null }): string {
   return `
     <section class="panel primary-panel">
       <div class="panel-heading">
@@ -290,6 +340,14 @@ function dashboardView(state: { gates: Gate[]; sessions: Session[] }): string {
         <h2>Gates</h2>
       </div>
       ${gatesPanel(state.gates)}
+    </section>
+
+    <section class="panel secondary-panel">
+      <div class="panel-heading">
+        <h2>Gate benchmark matrix</h2>
+        <small>${benchmarkFreshness(state.benchmarkMatrix)}</small>
+      </div>
+      ${benchmarkMatrixPanel(state.gates, state.benchmarkMatrix)}
     </section>
   `;
 }
@@ -390,6 +448,164 @@ function gatesPanel(gates: Gate[]): string {
       <small>Sorted by Browser RTT, ${sortLabel}.</small>
     </div>
   `;
+}
+
+function benchmarkMatrixPanel(gates: Gate[], matrix: BenchmarkMatrix | null): string {
+  const matrixGates = benchmarkGates(gates, matrix);
+  if (matrixGates.length < 2) {
+    return "<p>No benchmark matrix available yet.</p>";
+  }
+  return `
+    <div class="benchmark-panels">
+      <div>
+        <h3>RTT comparison</h3>
+        ${benchmarkRttMatrix(matrixGates, matrix)}
+      </div>
+      <div>
+        <h3>One-way probes</h3>
+        ${benchmarkOneWayMatrix(matrixGates, matrix)}
+      </div>
+    </div>
+  `;
+}
+
+function benchmarkRttMatrix(gates: Gate[], matrix: BenchmarkMatrix | null): string {
+  return benchmarkTable(gates, (source, target) => {
+    if (source.id === target.id) {
+      return '<span class="empty-marker">self</span>';
+    }
+    const route = findBenchmarkRoute(matrix, source.id, target.id);
+    if (!route?.public && !route?.doublezero) {
+      return '<span class="empty-marker">pending</span>';
+    }
+    const publicRtt = route.public?.rttMs?.p50;
+    const doublezeroRtt = route.doublezero?.rttMs?.p50;
+    const publicLoss = route.public?.lossPercent;
+    const doublezeroLoss = route.doublezero?.lossPercent;
+    return `
+      <div class="benchmark-cell">
+        <strong>DZ ${formatMetricMs(doublezeroRtt)}</strong>
+        <small>Public ${formatMetricMs(publicRtt)}</small>
+        <small class="${deltaClass(route.delta?.rttP50Ms)}">Delta ${formatSignedMetricMs(route.delta?.rttP50Ms)}</small>
+        <small>Loss ${formatPercent(doublezeroLoss)} / ${formatPercent(publicLoss)}</small>
+      </div>
+    `;
+  });
+}
+
+function benchmarkOneWayMatrix(gates: Gate[], matrix: BenchmarkMatrix | null): string {
+  return benchmarkTable(gates, (source, target) => {
+    if (source.id === target.id) {
+      return '<span class="empty-marker">self</span>';
+    }
+    const route = findBenchmarkRoute(matrix, source.id, target.id);
+    if (!route?.public && !route?.doublezero) {
+      return '<span class="empty-marker">pending</span>';
+    }
+    return `
+      <div class="benchmark-cell">
+        <strong>F ${formatMetricMs(route.doublezero?.forwardOneWayMs?.p50)} / R ${formatMetricMs(route.doublezero?.reverseOneWayMs?.p50)}</strong>
+        <small>Public F ${formatMetricMs(route.public?.forwardOneWayMs?.p50)} / R ${formatMetricMs(route.public?.reverseOneWayMs?.p50)}</small>
+        <small class="${deltaClass(route.delta?.forwardOneWayP50Ms)}">F delta ${formatSignedMetricMs(route.delta?.forwardOneWayP50Ms)}</small>
+        <small class="${deltaClass(route.delta?.reverseOneWayP50Ms)}">R delta ${formatSignedMetricMs(route.delta?.reverseOneWayP50Ms)}</small>
+      </div>
+    `;
+  });
+}
+
+function benchmarkTable(gates: Gate[], cell: (source: Gate, target: Gate) => string): string {
+  return `
+    <div class="table-scroll">
+      <table class="benchmark-table">
+        <thead>
+          <tr>
+            <th>From \\ To</th>
+            ${gates.map((gate) => `<th title="${escapeHtml(gate.name)}">${escapeHtml(shortGateName(gate.name))}</th>`).join("")}
+          </tr>
+        </thead>
+        <tbody>
+          ${gates.map((source) => `
+            <tr>
+              <th title="${escapeHtml(source.name)}">${escapeHtml(shortGateName(source.name))}</th>
+              ${gates.map((target) => `<td>${cell(source, target)}</td>`).join("")}
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function benchmarkGates(gates: Gate[], matrix: BenchmarkMatrix | null): Gate[] {
+  const source = matrix?.gates?.length ? matrix.gates : gates;
+  return [...source].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function findBenchmarkRoute(matrix: BenchmarkMatrix | null, sourceGateId: string, targetGateId: string): BenchmarkRoute | null {
+  return matrix?.routes.find((route) => route.sourceGateId === sourceGateId && route.targetGateId === targetGateId) ?? null;
+}
+
+function benchmarkFreshness(matrix: BenchmarkMatrix | null): string {
+  if (!matrix) {
+    return "waiting for matrix";
+  }
+  const latest = latestBenchmarkMeasuredAt(matrix);
+  return latest ? `Latest sample ${relativeTime(latest)}` : "waiting for first samples";
+}
+
+function latestBenchmarkMeasuredAt(matrix: BenchmarkMatrix): string {
+  const values = matrix.routes.flatMap((route) => [
+    route.public?.measuredAt,
+    route.doublezero?.measuredAt
+  ]).filter((value): value is string => Boolean(value));
+  if (values.length === 0) {
+    return "";
+  }
+  const sorted = values.sort();
+  return sorted[sorted.length - 1] ?? "";
+}
+
+function shortGateName(value: string): string {
+  return value.replace(/^gate-/, "").replace(/\.testnet\.hyperspace\.zone$/, "");
+}
+
+function formatMetricMs(value: number | undefined): string {
+  return typeof value === "number" && Number.isFinite(value) ? `${formatLatency(value)} ms` : "n/a";
+}
+
+function formatSignedMetricMs(value: number | undefined): string {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return "n/a";
+  }
+  const sign = value > 0 ? "+" : "";
+  return `${sign}${formatLatency(value)} ms`;
+}
+
+function formatPercent(value: number | undefined): string {
+  return typeof value === "number" && Number.isFinite(value) ? `${formatLatency(value)}%` : "n/a";
+}
+
+function deltaClass(value: number | undefined): string {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return "muted";
+  }
+  return value <= 0 ? "ok" : "bad";
+}
+
+function relativeTime(value: string): string {
+  const timestamp = Date.parse(value);
+  if (Number.isNaN(timestamp)) {
+    return "recently";
+  }
+  const seconds = Math.max(0, Math.round((Date.now() - timestamp) / 1000));
+  if (seconds < 60) {
+    return `${seconds}s ago`;
+  }
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) {
+    return `${minutes}m ago`;
+  }
+  return `${Math.round(minutes / 60)}h ago`;
 }
 
 function createSessionPanel(gates: Gate[]): string {
@@ -1248,6 +1464,10 @@ async function getMe(): Promise<{ email: string }> {
 async function getGates(): Promise<Gate[]> {
   const response = await api("/v1/public/gates", { method: "GET" });
   return response.gates;
+}
+
+async function getBenchmarkMatrix(): Promise<BenchmarkMatrix> {
+  return api("/v1/public/benchmarks/gate-matrix", { method: "GET" });
 }
 
 async function getSessions(): Promise<Session[]> {

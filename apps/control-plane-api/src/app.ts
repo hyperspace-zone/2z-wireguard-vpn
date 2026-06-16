@@ -14,6 +14,7 @@ import { registerGateJobRoutes } from "./surfaces/gate/jobs.routes.js";
 import { registerHealthRoutes } from "./surfaces/health.routes.js";
 import { registerPublicArtifactRoutes } from "./surfaces/public/artifacts.routes.js";
 import { registerPublicAuthRoutes } from "./surfaces/public/auth.routes.js";
+import { registerPublicBenchmarkRoutes } from "./surfaces/public/benchmarks.routes.js";
 import { registerPublicGatesRoutes } from "./surfaces/public/gates.routes.js";
 import { registerPublicNetworkRoutes } from "./surfaces/public/network.routes.js";
 import { registerPublicSessionsRoutes } from "./surfaces/public/sessions.routes.js";
@@ -45,6 +46,7 @@ export function createApp(input: CreateControlPlaneApiAppInput): FastifyInstance
     authSessionTtlSeconds: config.authSessionTtlSeconds,
     requireUser: auth.requireUser
   });
+  registerPublicBenchmarkRoutes(app, { db });
   registerPublicGatesRoutes(app, { db });
   registerPublicNetworkRoutes(app, { requireUser: auth.requireUser });
   registerPublicSessionsRoutes(app, { db, requireUser: auth.requireUser });

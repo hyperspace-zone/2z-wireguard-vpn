@@ -210,6 +210,57 @@ tbody td {
   line-height: 16px;
 }
 
+.benchmark-panels {
+  display: grid;
+  gap: 18px;
+}
+
+.benchmark-panels h3 {
+  font-size: 15px;
+  margin: 0 0 10px;
+}
+
+.benchmark-table {
+  table-layout: fixed;
+  min-width: 920px;
+}
+
+.benchmark-table th,
+.benchmark-table td {
+  min-width: 132px;
+  padding: 8px;
+}
+
+.benchmark-table thead th,
+.benchmark-table tbody th {
+  background: #f6f8fa;
+  font-size: 12px;
+  position: sticky;
+  z-index: 1;
+}
+
+.benchmark-table tbody th {
+  left: 0;
+  text-align: left;
+}
+
+.benchmark-cell {
+  display: grid;
+  gap: 2px;
+  min-height: 78px;
+}
+
+.benchmark-cell strong {
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.benchmark-cell small {
+  font-size: 11px;
+  line-height: 14px;
+  margin: 0;
+}
+
 small {
   display: block;
   color: #57606a;
