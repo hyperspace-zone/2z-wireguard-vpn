@@ -1,0 +1,14 @@
+- targets:
+    - app.example.net:443
+    - control-plane.example.net:443
+  labels:
+    component: tls-entrypoint
+    role: public-edge
+
+- targets:
+    - gate-eu-fra-01.example.net:443
+    - gate-eu-lon-01.example.net:443
+  labels:
+    component: gate-tls
+    role: gate
+

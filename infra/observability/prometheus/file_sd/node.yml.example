@@ -1,0 +1,19 @@
+- targets:
+    - control-plane.example.net:9100
+  labels:
+    role: control-plane
+    node: control-plane-01
+
+- targets:
+    - db.example.net:9100
+  labels:
+    role: postgres
+    node: db-01
+
+- targets:
+    - gate-eu-fra-01.example.net:9100
+    - gate-eu-lon-01.example.net:9100
+  labels:
+    role: gate
+    node_group: gates
+

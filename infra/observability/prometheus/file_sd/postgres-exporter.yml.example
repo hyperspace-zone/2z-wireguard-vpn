@@ -1,0 +1,6 @@
+- targets:
+    - db.example.net:9187
+  labels:
+    role: postgres
+    database: hyperspace
+

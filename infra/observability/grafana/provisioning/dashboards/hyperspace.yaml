@@ -1,0 +1,15 @@
+apiVersion: 1
+
+providers:
+  - name: hyperspace
+    orgId: 1
+    folder: Hyperspace
+    folderUid: hyperspace
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: false
+    options:
+      path: /var/lib/grafana/dashboards/hyperspace
+      foldersFromFilesStructure: false
+

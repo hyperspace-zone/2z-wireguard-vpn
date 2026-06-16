@@ -1,0 +1,99 @@
+hyperspace_sessions_by_phase:
+  query: |
+    SELECT phase::text AS phase, count(*)::float AS count
+    FROM session_status
+    GROUP BY phase
+  metrics:
+    - phase:
+        usage: "LABEL"
+        description: "Session lifecycle phase."
+    - count:
+        usage: "GAUGE"
+        description: "Number of sessions by lifecycle phase."
+
+hyperspace_gate_assignments_by_phase:
+  query: |
+    SELECT phase::text AS phase, count(*)::float AS count
+    FROM gate_assignment_status
+    GROUP BY phase
+  metrics:
+    - phase:
+        usage: "LABEL"
+        description: "Gate assignment lifecycle phase."
+    - count:
+        usage: "GAUGE"
+        description: "Number of gate assignments by lifecycle phase."
+
+hyperspace_jobs_by_phase:
+  query: |
+    SELECT phase::text AS phase, count(*)::float AS count
+    FROM jobs
+    GROUP BY phase
+  metrics:
+    - phase:
+        usage: "LABEL"
+        description: "Job lifecycle phase."
+    - count:
+        usage: "GAUGE"
+        description: "Number of jobs by lifecycle phase."
+
+hyperspace_gate_conditions:
+  query: |
+    SELECT type, status, count(*)::float AS count
+    FROM gate_conditions
+    GROUP BY type, status
+  metrics:
+    - type:
+        usage: "LABEL"
+        description: "Gate condition type."
+    - status:
+        usage: "LABEL"
+        description: "Gate condition status."
+    - count:
+        usage: "GAUGE"
+        description: "Number of gates by condition type and status."
+
+hyperspace_gate_lease_stale:
+  query: |
+    SELECT count(*)::float AS count
+    FROM gates
+    LEFT JOIN gate_leases ON gate_leases.gate_id = gates.id
+    WHERE gates.desired_state = 'Enabled'
+      AND (
+        gate_leases.lease_expires_at IS NULL
+        OR gate_leases.lease_expires_at <= now()
+        OR gate_leases.heartbeat_at < now() - interval '45 seconds'
+      )
+  metrics:
+    - count:
+        usage: "GAUGE"
+        description: "Enabled gates with stale or missing leases."
+
+hyperspace_artifact_download_tokens_open:
+  query: |
+    SELECT count(*)::float AS count
+    FROM artifact_download_tokens
+    WHERE revoked_at IS NULL
+      AND used_at IS NULL
+      AND expires_at > now()
+  metrics:
+    - count:
+        usage: "GAUGE"
+        description: "Active artifact download tokens that are not used or revoked."
+
+hyperspace_gate_benchmark_failures:
+  query: |
+    WITH latest AS (
+      SELECT DISTINCT ON (source_gate_id, target_gate_id, transport)
+        status
+      FROM gate_benchmark_results
+      ORDER BY source_gate_id, target_gate_id, transport, measured_at DESC
+    )
+    SELECT count(*)::float AS count
+    FROM latest
+    WHERE status = 'failed'
+  metrics:
+    - count:
+        usage: "GAUGE"
+        description: "Latest gate benchmark route/transport cells that are failed."
+

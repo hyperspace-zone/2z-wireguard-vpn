@@ -1,0 +1,19 @@
+- targets:
+    - https://app.example.net/api/health
+  labels:
+    component: api
+    role: public-api
+
+- targets:
+    - https://control-plane.example.net/health
+  labels:
+    component: api
+    role: control-plane-api
+
+- targets:
+    - https://gate-eu-fra-01.example.net/.well-known/hyperspace-probe
+    - https://gate-eu-lon-01.example.net/.well-known/hyperspace-probe
+  labels:
+    component: gate-probe
+    role: gate
+

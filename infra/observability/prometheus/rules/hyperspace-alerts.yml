@@ -1,0 +1,124 @@
+groups:
+  - name: hyperspace.baseline
+    interval: 30s
+    rules:
+      - alert: HyperspaceAPIHealthDown
+        expr: max_over_time(probe_success{job="blackbox-http",component="api"}[5m]) == 0
+        for: 2m
+        labels:
+          severity: critical
+          service: control-plane-api
+          team: hyperspace
+        annotations:
+          summary: "Hyperspace API health check is down"
+          description: "The HTTP health probe for {{ $labels.target }} has failed for more than 2 minutes."
+          runbook_url: "docs/runbooks/telemetry-grafana-alerting.md#api-health-down"
+
+      - alert: HyperspaceGateProbeDown
+        expr: max_over_time(probe_success{job="blackbox-http",component="gate-probe"}[10m]) == 0
+        for: 5m
+        labels:
+          severity: warning
+          service: gate-probe
+          team: hyperspace
+        annotations:
+          summary: "Gate HTTPS probe is down"
+          description: "The gate probe endpoint {{ $labels.target }} has failed for more than 5 minutes."
+          runbook_url: "docs/runbooks/telemetry-grafana-alerting.md#gate-probe-down"
+
+      - alert: HyperspaceHostExporterDown
+        expr: up{job="node"} == 0
+        for: 5m
+        labels:
+          severity: critical
+          service: node-exporter
+          team: hyperspace
+        annotations:
+          summary: "Host exporter is down"
+          description: "Prometheus cannot scrape node_exporter on {{ $labels.instance }}."
+          runbook_url: "docs/runbooks/telemetry-grafana-alerting.md#host-exporter-down"
+
+      - alert: HyperspacePostgresExporterDown
+        expr: up{job="postgres-exporter"} == 0
+        for: 5m
+        labels:
+          severity: critical
+          service: postgres-exporter
+          team: hyperspace
+        annotations:
+          summary: "PostgreSQL exporter is down"
+          description: "Prometheus cannot scrape postgres_exporter on {{ $labels.instance }}."
+          runbook_url: "docs/runbooks/telemetry-grafana-alerting.md#postgres-exporter-down"
+
+      - alert: HyperspacePostgresDown
+        expr: pg_up{job="postgres-exporter"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          service: postgres
+          team: hyperspace
+        annotations:
+          summary: "PostgreSQL is not reachable"
+          description: "postgres_exporter reports pg_up=0 for {{ $labels.instance }}."
+          runbook_url: "docs/runbooks/telemetry-grafana-alerting.md#postgres-down"
+
+      - alert: HyperspaceSystemdServiceDown
+        expr: node_systemd_unit_state{state="active",name=~"hyperspace-control-plane-api.service|hyperspace-control-plane-worker.service|hyperspace-gate-agent.service|caddy.service|postgresql.service"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          service: systemd
+          team: hyperspace
+        annotations:
+          summary: "Required systemd service is not active"
+          description: "{{ $labels.name }} is not active on {{ $labels.instance }}."
+          runbook_url: "docs/runbooks/telemetry-grafana-alerting.md#systemd-service-down"
+
+      - alert: HyperspaceDeadJobsPresent
+        expr: sum(hyperspace_jobs_by_phase_count{phase="dead"}) > 0
+        for: 2m
+        labels:
+          severity: warning
+          service: control-plane-worker
+          team: hyperspace
+        annotations:
+          summary: "Dead control-plane jobs are present"
+          description: "There are {{ $value }} dead jobs. Inspect /v1/admin/jobs and gate assignment status."
+          runbook_url: "docs/runbooks/telemetry-grafana-alerting.md#dead-jobs-present"
+
+      - alert: HyperspaceJobBacklogHigh
+        expr: sum(hyperspace_jobs_by_phase_count{phase=~"queued|retryable_failed"}) > 100
+        for: 10m
+        labels:
+          severity: warning
+          service: control-plane-worker
+          team: hyperspace
+        annotations:
+          summary: "Control-plane job backlog is high"
+          description: "Queued plus retryable jobs stayed above 100 for more than 10 minutes."
+          runbook_url: "docs/runbooks/telemetry-grafana-alerting.md#job-backlog-high"
+
+      - alert: HyperspaceFailedSessionsPresent
+        expr: sum(hyperspace_sessions_by_phase_count{phase="failed"}) > 0
+        for: 5m
+        labels:
+          severity: warning
+          service: sessions
+          team: hyperspace
+        annotations:
+          summary: "Failed VPN sessions are present"
+          description: "At least one session is in failed phase. Inspect session conditions and audit events."
+          runbook_url: "docs/runbooks/telemetry-grafana-alerting.md#failed-sessions-present"
+
+      - alert: HyperspaceGateAgentDisconnected
+        expr: sum(hyperspace_gate_conditions_count{type="AgentConnected",status!="True"}) > 0
+        for: 2m
+        labels:
+          severity: critical
+          service: gate-agent
+          team: hyperspace
+        annotations:
+          summary: "One or more gates are disconnected"
+          description: "Gate AgentConnected condition is not True for at least one gate."
+          runbook_url: "docs/runbooks/telemetry-grafana-alerting.md#gate-agent-disconnected"
+

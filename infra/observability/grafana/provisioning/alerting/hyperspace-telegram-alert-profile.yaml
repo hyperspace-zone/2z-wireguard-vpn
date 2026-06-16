@@ -1,0 +1,408 @@
+apiVersion: 1
+
+templates:
+  - orgId: 1
+    name: hyperspace_telegram
+    template: |
+      {{ define "hyperspace.telegram.message" -}}
+      {{ range .Alerts -}}
+      [{{ .Status }}] {{ .Labels.alertname }}
+      severity={{ .Labels.severity }} service={{ .Labels.service }}
+      {{ if .Labels.instance }}instance={{ .Labels.instance }}{{ end }}
+      {{ if .Labels.target }}target={{ .Labels.target }}{{ end }}
+      {{ if .Annotations.summary }}summary={{ .Annotations.summary }}{{ end }}
+      {{ if .Annotations.description }}description={{ .Annotations.description }}{{ end }}
+      {{ if .Annotations.runbook_url }}runbook={{ .Annotations.runbook_url }}{{ end }}
+      {{ "\n" }}
+      {{ end -}}
+      {{ end }}
+
+contactPoints:
+  - orgId: 1
+    name: telegram-critical
+    receivers:
+      - uid: telegram_critical
+        type: telegram
+        disableResolveMessage: false
+        settings:
+          bottoken: $GRAFANA_TELEGRAM_BOT_TOKEN
+          chatid: $GRAFANA_TELEGRAM_CHAT_ID
+          message: '{{ template "hyperspace.telegram.message" . }}'
+
+policies:
+  - orgId: 1
+    receiver: telegram-critical
+    group_by:
+      - alertname
+      - severity
+      - service
+    group_wait: 30s
+    group_interval: 5m
+    repeat_interval: 4h
+
+groups:
+  - orgId: 1
+    name: hyperspace-core
+    folder: Hyperspace Alerts
+    interval: 1m
+    rules:
+      - uid: hs_api_health_down
+        title: Hyperspace API health down
+        condition: C
+        data:
+          - refId: A
+            datasourceUid: prometheus
+            relativeTimeRange:
+              from: 600
+              to: 0
+            model:
+              datasource:
+                type: prometheus
+                uid: prometheus
+              editorMode: code
+              expr: 1 - max(max_over_time(probe_success{job="blackbox-http",component="api"}[5m]))
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              range: false
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            relativeTimeRange:
+              from: 0
+              to: 0
+            model:
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              reducer: last
+              refId: B
+              type: reduce
+          - refId: C
+            datasourceUid: __expr__
+            relativeTimeRange:
+              from: 0
+              to: 0
+            model:
+              conditions:
+                - evaluator:
+                    params:
+                      - 0
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params:
+                      - C
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: B
+              refId: C
+              type: threshold
+        noDataState: Alerting
+        execErrState: Alerting
+        for: 2m
+        annotations:
+          summary: Hyperspace API health probe is failing
+          description: Blackbox HTTP probes for API health have failed.
+          runbook_url: docs/runbooks/telemetry-grafana-alerting.md#api-health-down
+        labels:
+          severity: critical
+          service: control-plane-api
+          team: hyperspace
+        isPaused: false
+
+      - uid: hs_host_exporter_down
+        title: Hyperspace host exporter down
+        condition: C
+        data:
+          - refId: A
+            datasourceUid: prometheus
+            relativeTimeRange:
+              from: 600
+              to: 0
+            model:
+              datasource:
+                type: prometheus
+                uid: prometheus
+              editorMode: code
+              expr: count(up{job="node"} == 0)
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              range: false
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            relativeTimeRange:
+              from: 0
+              to: 0
+            model:
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              reducer: last
+              refId: B
+              type: reduce
+          - refId: C
+            datasourceUid: __expr__
+            relativeTimeRange:
+              from: 0
+              to: 0
+            model:
+              conditions:
+                - evaluator:
+                    params:
+                      - 0
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params:
+                      - C
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: B
+              refId: C
+              type: threshold
+        noDataState: Alerting
+        execErrState: Alerting
+        for: 5m
+        annotations:
+          summary: One or more node_exporter targets are down
+          description: Prometheus cannot scrape at least one host exporter.
+          runbook_url: docs/runbooks/telemetry-grafana-alerting.md#host-exporter-down
+        labels:
+          severity: critical
+          service: node-exporter
+          team: hyperspace
+        isPaused: false
+
+      - uid: hs_postgres_down
+        title: Hyperspace PostgreSQL down
+        condition: C
+        data:
+          - refId: A
+            datasourceUid: prometheus
+            relativeTimeRange:
+              from: 600
+              to: 0
+            model:
+              datasource:
+                type: prometheus
+                uid: prometheus
+              editorMode: code
+              expr: count(pg_up{job="postgres-exporter"} == 0)
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              range: false
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            relativeTimeRange:
+              from: 0
+              to: 0
+            model:
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              reducer: last
+              refId: B
+              type: reduce
+          - refId: C
+            datasourceUid: __expr__
+            relativeTimeRange:
+              from: 0
+              to: 0
+            model:
+              conditions:
+                - evaluator:
+                    params:
+                      - 0
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params:
+                      - C
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: B
+              refId: C
+              type: threshold
+        noDataState: Alerting
+        execErrState: Alerting
+        for: 2m
+        annotations:
+          summary: PostgreSQL is not reachable
+          description: postgres_exporter reports pg_up=0.
+          runbook_url: docs/runbooks/telemetry-grafana-alerting.md#postgres-down
+        labels:
+          severity: critical
+          service: postgres
+          team: hyperspace
+        isPaused: false
+
+      - uid: hs_dead_jobs_present
+        title: Hyperspace dead jobs present
+        condition: C
+        data:
+          - refId: A
+            datasourceUid: prometheus
+            relativeTimeRange:
+              from: 600
+              to: 0
+            model:
+              datasource:
+                type: prometheus
+                uid: prometheus
+              editorMode: code
+              expr: sum(hyperspace_jobs_by_phase_count{phase="dead"})
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              range: false
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            relativeTimeRange:
+              from: 0
+              to: 0
+            model:
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              reducer: last
+              refId: B
+              type: reduce
+          - refId: C
+            datasourceUid: __expr__
+            relativeTimeRange:
+              from: 0
+              to: 0
+            model:
+              conditions:
+                - evaluator:
+                    params:
+                      - 0
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params:
+                      - C
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: B
+              refId: C
+              type: threshold
+        noDataState: OK
+        execErrState: Alerting
+        for: 2m
+        annotations:
+          summary: Dead control-plane jobs are present
+          description: Inspect /v1/admin/jobs and gate assignment status.
+          runbook_url: docs/runbooks/telemetry-grafana-alerting.md#dead-jobs-present
+        labels:
+          severity: warning
+          service: control-plane-worker
+          team: hyperspace
+        isPaused: false
+
+      - uid: hs_gate_agent_disconnected
+        title: Hyperspace gate agent disconnected
+        condition: C
+        data:
+          - refId: A
+            datasourceUid: prometheus
+            relativeTimeRange:
+              from: 600
+              to: 0
+            model:
+              datasource:
+                type: prometheus
+                uid: prometheus
+              editorMode: code
+              expr: sum(hyperspace_gate_conditions_count{type="AgentConnected",status!="True"})
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              range: false
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            relativeTimeRange:
+              from: 0
+              to: 0
+            model:
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              reducer: last
+              refId: B
+              type: reduce
+          - refId: C
+            datasourceUid: __expr__
+            relativeTimeRange:
+              from: 0
+              to: 0
+            model:
+              conditions:
+                - evaluator:
+                    params:
+                      - 0
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params:
+                      - C
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: B
+              refId: C
+              type: threshold
+        noDataState: OK
+        execErrState: Alerting
+        for: 2m
+        annotations:
+          summary: One or more gates are disconnected
+          description: AgentConnected condition is not True for at least one gate.
+          runbook_url: docs/runbooks/telemetry-grafana-alerting.md#gate-agent-disconnected
+        labels:
+          severity: critical
+          service: gate-agent
+          team: hyperspace
+        isPaused: false
+
