@@ -92,15 +92,16 @@ chmod 0600 /etc/grafana/grafana-server.env
 chown root:root /etc/grafana/grafana-server.env
 ```
 
-The provisioned alert profile reads those environment variables from:
+The provisioned alert profile reads the bot token from:
 
 ```text
 infra/observability/grafana/provisioning/alerting/hyperspace-telegram-alert-profile.yaml
 ```
 
-Keep `chatid` in that file as a YAML block scalar. Grafana expands
-environment variables before validating the Telegram contact point; a numeric
-chat ID can otherwise be parsed as a YAML number and rejected at startup.
+The chat ID is rendered into the installed profile as a quoted literal during
+the install step. Do not leave `chatid` as a Grafana environment variable in the
+installed alerting file: Grafana can expand numeric environment values as YAML
+numbers and reject the Telegram contact point during startup.
 
 ## Install Exporters
 
@@ -266,6 +267,23 @@ install -m 0644 infra/observability/grafana/provisioning/alerting/hyperspace-tel
   /etc/grafana/provisioning/alerting/hyperspace-telegram-alert-profile.yaml
 install -m 0644 infra/observability/grafana/dashboards/hyperspace-overview.json \
   /var/lib/grafana/dashboards/hyperspace/hyperspace-overview.json
+
+set -a
+. /etc/grafana/grafana-server.env
+set +a
+python3 - <<'PY'
+import os
+from pathlib import Path
+
+chat_id = os.environ.get("GRAFANA_TELEGRAM_CHAT_ID", "").strip()
+if not chat_id:
+    raise SystemExit("GRAFANA_TELEGRAM_CHAT_ID is not set")
+
+profile = Path("/etc/grafana/provisioning/alerting/hyperspace-telegram-alert-profile.yaml")
+contents = profile.read_text()
+contents = contents.replace("__GRAFANA_TELEGRAM_CHAT_ID__", chat_id)
+profile.write_text(contents)
+PY
 
 chown -R grafana:grafana /var/lib/grafana/dashboards/hyperspace
 ```
@@ -460,7 +478,8 @@ If Grafana exits before binding `:3000` and logs:
 failed to unmarshal settings: json: cannot unmarshal number into Go struct field Config.chatid of type string
 ```
 
-confirm the installed alert profile keeps `chatid` as a block scalar:
+confirm the installed alert profile contains a quoted literal chat ID and not
+an environment variable:
 
 ```bash
 grep -nA2 -B1 'chatid' \
@@ -470,8 +489,7 @@ grep -nA2 -B1 'chatid' \
 Expected shape:
 
 ```yaml
-          chatid: |-
-            ${GRAFANA_TELEGRAM_CHAT_ID}
+          chatid: "-4266674385"
 ```
 
 Then restart Grafana:
