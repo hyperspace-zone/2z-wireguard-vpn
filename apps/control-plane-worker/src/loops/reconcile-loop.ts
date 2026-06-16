@@ -1,5 +1,7 @@
 import {
+  advanceProbedSessionsToScheduling,
   beginSessionRevocation,
+  beginRequestedSessionProbing,
   completeProvisionedSessions,
   completeRevokedSessions,
   failTimedOutProvisioningSessions,
@@ -8,7 +10,7 @@ import {
   reconcileExpiry,
   enqueueCommitJobsForPreparedAssignments,
   enqueueRevocationJobsForAssignments,
-  scheduleRequestedSessions
+  scheduleSessionsForProvisioning
 } from "@hyperspace-zone/control-plane";
 import type { Database } from "@hyperspace-zone/db";
 import { log } from "../support/runtime.js";
@@ -34,7 +36,9 @@ export function createReconcileLoop(input: CreateReconcileLoopInput): ReconcileL
       await markStaleGates(input.db, input.config.gateHeartbeatStaleSeconds);
       await beginSessionRevocation(input.db);
       await enqueueRevocationJobsForAssignments(input.db);
-      await scheduleRequestedSessions(input.db, {
+      await beginRequestedSessionProbing(input.db);
+      await advanceProbedSessionsToScheduling(input.db);
+      await scheduleSessionsForProvisioning(input.db, {
         artifactEncryptionKey: input.config.artifactEncryptionKey,
         log
       });

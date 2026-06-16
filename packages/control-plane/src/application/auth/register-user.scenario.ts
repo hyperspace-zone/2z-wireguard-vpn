@@ -11,19 +11,29 @@ export interface AuthSessionResult {
   expiresAt: string;
 }
 
+export type RegisterUserError = "invalid_email" | "weak_password" | "email_already_registered";
+
 export async function registerUser(
   db: TransactionalQueryable,
   input: {
     email: string;
     password: string;
-    displayName: string;
+    displayName?: string;
     authSessionTtlSeconds: number;
   }
-): Promise<AuthSessionResult | "email_already_registered"> {
+): Promise<AuthSessionResult | RegisterUserError> {
+  const email = normalizeEmail(input.email);
+  if (!email || !email.includes("@")) {
+    return "invalid_email";
+  }
+  if (!input.password || input.password.length < 12) {
+    return "weak_password";
+  }
+
   return db.transaction(async (client) => {
     const createdUser = await insertRegisteredUser(client, {
-      email: input.email,
-      displayName: input.displayName,
+      email,
+      displayName: input.displayName?.trim() || email,
       passwordHash: hashPassword(input.password)
     });
     const session = await createAuthSession(createdUser.id, input.authSessionTtlSeconds, client);
@@ -34,4 +44,8 @@ export async function registerUser(
     }
     throw error;
   });
+}
+
+function normalizeEmail(value: string): string {
+  return value.trim().toLowerCase();
 }

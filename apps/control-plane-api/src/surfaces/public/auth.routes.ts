@@ -31,23 +31,18 @@ export function registerPublicAuthRoutes(
     }
   }, async (request, reply) => {
     const body = asRecord(request.body);
-    const email = normalizeEmail(readString(body, "email"));
-    const password = readString(body, "password");
-    const displayName = readString(body, "displayName") || email;
-
-    if (!email || !email.includes("@")) {
-      return sendApplicationError(reply, "invalid_email");
-    }
-    if (!password || password.length < 12) {
-      return sendApplicationError(reply, "weak_password", { message: "password must be at least 12 characters" });
-    }
-
     const result = await registerUser(deps.db, {
-      email,
-      password,
-      displayName,
+      email: readString(body, "email"),
+      password: readString(body, "password"),
+      displayName: readString(body, "displayName"),
       authSessionTtlSeconds: deps.authSessionTtlSeconds
     });
+    if (result === "invalid_email") {
+      return sendApplicationError(reply, "invalid_email");
+    }
+    if (result === "weak_password") {
+      return sendApplicationError(reply, "weak_password", { message: "password must be at least 12 characters" });
+    }
     if (result === "email_already_registered") {
       return sendApplicationError(reply, result);
     }
@@ -66,18 +61,14 @@ export function registerPublicAuthRoutes(
     }
   }, async (request, reply) => {
     const body = asRecord(request.body);
-    const email = normalizeEmail(readString(body, "email"));
-    const password = readString(body, "password");
-
-    if (!email || !password) {
-      return sendApplicationError(reply, "credentials_required");
-    }
-
     const result = await loginUser(deps.db, {
-      email,
-      password,
+      email: readString(body, "email"),
+      password: readString(body, "password"),
       authSessionTtlSeconds: deps.authSessionTtlSeconds
     });
+    if (result === "credentials_required") {
+      return sendApplicationError(reply, "credentials_required");
+    }
     if (result === "invalid_credentials") {
       return sendApplicationError(reply, "invalid_credentials");
     }
@@ -99,8 +90,4 @@ export function registerPublicAuthRoutes(
     }
     return reply.send({ user });
   });
-}
-
-function normalizeEmail(value: string): string {
-  return value.toLowerCase();
 }

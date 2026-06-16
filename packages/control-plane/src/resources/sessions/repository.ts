@@ -324,6 +324,18 @@ export async function insertSessionHiddenAudit(
 }
 
 export async function listRequestedSessionsForUpdate(db: Queryable): Promise<RequestedSessionRow[]> {
+  return listSessionRowsForPhaseForUpdate(db, "requested");
+}
+
+export async function listProbingSessionsForUpdate(db: Queryable): Promise<RequestedSessionRow[]> {
+  return listSessionRowsForPhaseForUpdate(db, "probing");
+}
+
+export async function listSchedulingSessionsForUpdate(db: Queryable): Promise<RequestedSessionRow[]> {
+  return listSessionRowsForPhaseForUpdate(db, "scheduling");
+}
+
+async function listSessionRowsForPhaseForUpdate(db: Queryable, phase: string): Promise<RequestedSessionRow[]> {
   const sessions = await db.query<RequestedSessionRow>(
     `
       SELECT
@@ -337,11 +349,12 @@ export async function listRequestedSessionsForUpdate(db: Queryable): Promise<Req
       FROM sessions
       JOIN session_status ON session_status.session_id = sessions.id
       WHERE sessions.desired_state = 'Active'
-        AND session_status.phase = 'requested'
+        AND session_status.phase = $1::session_phase
       ORDER BY sessions.created_at ASC
       FOR UPDATE SKIP LOCKED
       LIMIT 20
-    `
+    `,
+    [phase]
   );
   return sessions.rows;
 }

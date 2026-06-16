@@ -1,3 +1,6 @@
+import type { FromSchema } from "json-schema-to-ts";
+import { conditionSchema } from "../resources/condition.js";
+import { gateAssignmentSchema } from "../resources/gate-assignment.js";
 import { gateSummarySchema } from "../resources/gate.js";
 import { jobSchema } from "../resources/job.js";
 import { sessionSummarySchema } from "../resources/session.js";
@@ -11,12 +14,25 @@ export const adminGatesResponseSchema = {
   }
 } as const;
 
+export const adminSessionInspectionSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: [...sessionSummarySchema.required, "assignments", "conditions"],
+  properties: {
+    ...sessionSummarySchema.properties,
+    assignments: { type: "array", items: gateAssignmentSchema },
+    conditions: { type: "array", items: conditionSchema }
+  }
+} as const;
+
+export type AdminSessionInspection = FromSchema<typeof adminSessionInspectionSchema>;
+
 export const adminSessionsResponseSchema = {
   type: "object",
   additionalProperties: false,
   required: ["sessions"],
   properties: {
-    sessions: { type: "array", items: sessionSummarySchema }
+    sessions: { type: "array", items: adminSessionInspectionSchema }
   }
 } as const;
 

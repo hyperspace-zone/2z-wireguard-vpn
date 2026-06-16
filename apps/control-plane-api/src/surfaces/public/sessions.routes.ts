@@ -9,7 +9,6 @@ import {
   createSession,
   deleteHiddenSession,
   listPublicSessions,
-  parseSessionCreateBody,
   readOwnSession,
   revokeSession
 } from "@hyperspace-zone/control-plane";
@@ -54,13 +53,16 @@ export function registerPublicSessionsRoutes(
       return;
     }
 
-    const parsed = parseSessionCreateBody(asRecord(request.body));
-    if ("error" in parsed) {
-      return sendApplicationError(reply, parsed.error as ApplicationErrorCode, "message" in parsed ? { message: parsed.message } : {});
+    const created = await createSession(deps.db, user, asRecord(request.body));
+    if (created.status === "invalid") {
+      return sendApplicationError(
+        reply,
+        created.error as ApplicationErrorCode,
+        created.message ? { message: created.message } : {}
+      );
     }
 
-    const created = await createSession(deps.db, user, parsed);
-    const session = await readOwnSession(deps.db, user.accountId, created);
+    const session = await readOwnSession(deps.db, user.accountId, created.sessionId);
     return reply.code(201).send({ session });
   });
 

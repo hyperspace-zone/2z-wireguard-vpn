@@ -7,13 +7,16 @@ import { invalidateSessionArtifacts, prepareClientConfigArtifact } from "../reso
 import { listAssignmentPhasesForSession } from "../resources/gate-assignments/repository.js";
 import { createAssignment, markPendingAssignmentsDeadForSession } from "../resources/gate-assignments/service.js";
 import { enqueueApplyJob, markApplyJobsDeadForSession } from "../resources/jobs/service.js";
+import { recordProbeRun } from "../resources/probes/service.js";
 import { upsertRenderedPlan, writeRenderedPlanSecret } from "../resources/rendered-plans/service.js";
 import { setSessionCondition } from "../resources/sessions/conditions.js";
 import {
   hasActiveClientConfigArtifact,
   insertSessionAuditEvent,
+  listProbingSessionsForUpdate,
   listProvisionedSessionsForActivation,
   listRequestedSessionsForUpdate,
+  listSchedulingSessionsForUpdate,
   listSessionsReadyToMarkRevoked,
   listSessionsToBeginRevocation,
   listTimedOutProvisioningSessions,
@@ -21,13 +24,16 @@ import {
   markSessionFailed,
   markSessionProvisioning,
   markSessionRevoked,
-  markSessionRevoking
+  markSessionRevoking,
+  updateSessionStatusPhase
 } from "../resources/sessions/repository.js";
 import {
   activeTransition,
   beginRevokingTransition,
   failedTransition,
+  probingTransition,
   provisioningTransition,
+  schedulingTransition,
   revokedTransition,
   type SessionPhase
 } from "../resources/sessions/transitions.js";
@@ -38,12 +44,61 @@ export interface SessionReconcileConfig {
   log?: AddressAllocatorLogger;
 }
 
-export async function scheduleRequestedSessions(
+export async function beginRequestedSessionProbing(db: TransactionalQueryable): Promise<void> {
+  await db.transaction(async (client) => {
+    const sessions = await listRequestedSessionsForUpdate(client);
+
+    for (const session of sessions) {
+      await recordProbeRun(client, {
+        sessionId: session.id,
+        targetCidrs: session.destinationCidrs,
+        results: []
+      });
+      await updateSessionStatusPhase(client, {
+        sessionId: session.id,
+        ...probingTransition()
+      });
+      await setSessionCondition(
+        client,
+        session.id,
+        "Ready",
+        "False",
+        "Probing",
+        "Path probe inputs are being collected",
+        session.generation
+      );
+    }
+  });
+}
+
+export async function advanceProbedSessionsToScheduling(db: TransactionalQueryable): Promise<void> {
+  await db.transaction(async (client) => {
+    const sessions = await listProbingSessionsForUpdate(client);
+
+    for (const session of sessions) {
+      await updateSessionStatusPhase(client, {
+        sessionId: session.id,
+        ...schedulingTransition()
+      });
+      await setSessionCondition(
+        client,
+        session.id,
+        "Ready",
+        "False",
+        "Scheduling",
+        "Ingress and egress gate candidates are being selected",
+        session.generation
+      );
+    }
+  });
+}
+
+export async function scheduleSessionsForProvisioning(
   db: TransactionalQueryable,
   config: Pick<SessionReconcileConfig, "artifactEncryptionKey" | "log">
 ): Promise<void> {
   await db.transaction(async (client) => {
-    const sessions = await listRequestedSessionsForUpdate(client);
+    const sessions = await listSchedulingSessionsForUpdate(client);
 
     for (const session of sessions) {
       const path = await choosePath(client, session.spec);

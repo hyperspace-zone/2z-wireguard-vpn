@@ -29,6 +29,14 @@ export function requestedSessionInitialTransition(): SessionLifecycleTransition 
   return { phase: "requested" };
 }
 
+export function probingTransition(): SessionLifecycleTransition {
+  return { phase: "probing" };
+}
+
+export function schedulingTransition(): SessionLifecycleTransition {
+  return { phase: "scheduling" };
+}
+
 export function requestRevocationTransition(currentPhase: SessionPhase): {
   desiredState: SessionDesiredState;
   incrementGeneration: boolean;

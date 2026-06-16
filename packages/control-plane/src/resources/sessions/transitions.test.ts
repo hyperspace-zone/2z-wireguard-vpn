@@ -5,12 +5,16 @@ import {
   beginRevokingTransition,
   canHideSession,
   failedTransition,
+  probingTransition,
   provisioningTransition,
   requestRevocationTransition,
-  revokedTransition
+  revokedTransition,
+  schedulingTransition
 } from "./transitions.js";
 
 test("session transitions centralize requested lifecycle decisions", () => {
+  assert.deepEqual(probingTransition(), { phase: "probing" });
+  assert.deepEqual(schedulingTransition(), { phase: "scheduling" });
   assert.deepEqual(provisioningTransition(3, {}), {
     phase: "provisioning",
     observedGeneration: 3,

@@ -1,81 +1,72 @@
-export * from "./db/queryable.js";
-export * from "./application/agent/create-prepaid-session.scenario.js";
-export * from "./application/agent/top-up-entitlement.scenario.js";
-export * from "./application/auth/login-user.scenario.js";
-export * from "./application/auth/register-user.scenario.js";
-export * from "./application/artifacts/issue-download-token.scenario.js";
-export * from "./application/operator/drain-gate.scenario.js";
-export * from "./application/operator/force-reconcile.scenario.js";
-export * from "./application/operator/set-gate-desired-state.scenario.js";
-export * from "./application/sessions/create-session.scenario.js";
-export * from "./application/sessions/delete-session.scenario.js";
-export * from "./application/sessions/revoke-session.scenario.js";
-export * from "./authz/policies.js";
-export * from "./authz/principals.js";
-export * from "./planning/choose-path.js";
-export * from "./planning/network-plan.js";
-export * from "./planning/render-plan.js";
-export * from "./read-models/public-gates.query.js";
-export * from "./read-models/public-sessions.query.js";
-export * from "./read-models/admin-jobs.query.js";
-export * from "./read-models/admin-sessions.query.js";
-export * from "./read-models/audit-events.query.js";
-export * from "./reconciler/assignment-controller.js";
-export * from "./reconciler/cleanup-controller.js";
-export * from "./reconciler/drift-controller.js";
-export * from "./reconciler/expiry-controller.js";
-export * from "./reconciler/gate-controller.js";
-export * from "./reconciler/job-controller.js";
-export * from "./reconciler/session-controller.js";
-export * from "./resources/actual-state/drift-policy.js";
-export * from "./resources/actual-state/repository.js";
-export * from "./resources/actual-state/snapshots.js";
-export * from "./resources/addresses/allocator.js";
-export * from "./resources/addresses/repository.js";
-export * from "./resources/artifacts/repository.js";
-export * from "./resources/artifacts/client-config.js";
-export * from "./resources/artifacts/client-config-artifacts.js";
-export * from "./resources/artifacts/download-tokens.js";
-export * from "./resources/artifacts/service.js";
-export * from "./resources/artifacts/transitions.js";
-export * from "./resources/audit/repository.js";
-export * from "./resources/audit/service.js";
-export * from "./resources/entitlements/repository.js";
-export * from "./resources/entitlements/service.js";
-export * from "./resources/gate-assignments/conditions.js";
-export * from "./resources/gate-assignments/repository.js";
-export * from "./resources/gate-assignments/service.js";
-export * from "./resources/gate-assignments/transitions.js";
-export * from "./resources/gate-leases/policy.js";
-export * from "./resources/gate-leases/repository.js";
-export * from "./resources/gate-leases/service.js";
-export * from "./resources/gates/conditions.js";
-export * from "./resources/gates/readiness.js";
-export * from "./resources/gates/repository.js";
-export * from "./resources/gates/service.js";
-export * from "./resources/gates/transitions.js";
-export * from "./resources/jobs/attempts.js";
-export * from "./resources/jobs/leasing.js";
-export * from "./resources/jobs/repository.js";
-export * from "./resources/jobs/service.js";
-export * from "./resources/jobs/transitions.js";
-export * from "./resources/payments/repository.js";
-export * from "./resources/payments/service.js";
-export * from "./resources/probes/repository.js";
-export * from "./resources/probes/service.js";
-export * from "./resources/rendered-plans/repository.js";
-export * from "./resources/rendered-plans/service.js";
-export * from "./resources/sessions/conditions.js";
-export * from "./resources/sessions/repository.js";
-export * from "./resources/sessions/service.js";
-export * from "./resources/sessions/transitions.js";
-export * from "./resources/sessions/validation.js";
-export * from "./resources/users/repository.js";
-export * from "./resources/users/service.js";
-export * from "./security/gate-auth.js";
-export * from "./security/passwords.js";
-export * from "./security/tokens.js";
-export * from "./support/clock.js";
-export * from "./support/db.js";
-export * from "./support/errors.js";
-export * from "./support/ids.js";
+export {
+  createPrepaidSession,
+  type AgentSurfaceDisabledResult
+} from "./application/agent/create-prepaid-session.scenario.js";
+export { topUpEntitlement } from "./application/agent/top-up-entitlement.scenario.js";
+export {
+  loginUser,
+  type LoginUserError
+} from "./application/auth/login-user.scenario.js";
+export {
+  registerUser,
+  type AuthSessionResult,
+  type PublicUser,
+  type RegisterUserError
+} from "./application/auth/register-user.scenario.js";
+export { issueClientConfigDownloadToken } from "./application/artifacts/issue-download-token.scenario.js";
+export { drainGate } from "./application/operator/drain-gate.scenario.js";
+export { forceReconcile } from "./application/operator/force-reconcile.scenario.js";
+export {
+  setGateDesiredState,
+  type GateDesiredStateCommandStatus
+} from "./application/operator/set-gate-desired-state.scenario.js";
+export {
+  createSession,
+  type CreateSessionFailure,
+  type CreateSessionSuccess,
+  type PublicSessionActor
+} from "./application/sessions/create-session.scenario.js";
+export { deleteHiddenSession } from "./application/sessions/delete-session.scenario.js";
+export { revokeSession } from "./application/sessions/revoke-session.scenario.js";
+export { type Principal } from "./authz/principals.js";
+export { listPublicGates } from "./read-models/public-gates.query.js";
+export { listPublicSessions, readOwnSession } from "./read-models/public-sessions.query.js";
+export { listAdminJobs } from "./read-models/admin-jobs.query.js";
+export { listAdminSessions } from "./read-models/admin-sessions.query.js";
+export { listAuditEvents, type AuditEventSummary } from "./read-models/audit-events.query.js";
+export {
+  enqueueCommitJobsForPreparedAssignments,
+  enqueueRevocationJobsForAssignments
+} from "./reconciler/assignment-controller.js";
+export { runCleanupTasks, type CleanupResult } from "./reconciler/cleanup-controller.js";
+export { reconcileDrift } from "./reconciler/drift-controller.js";
+export { reconcileExpiry } from "./reconciler/expiry-controller.js";
+export { markStaleGates } from "./reconciler/gate-controller.js";
+export { requeueExpiredJobs } from "./reconciler/job-controller.js";
+export {
+  advanceProbedSessionsToScheduling,
+  beginRequestedSessionProbing,
+  beginSessionRevocation,
+  completeProvisionedSessions,
+  completeRevokedSessions,
+  failTimedOutProvisioningSessions,
+  scheduleSessionsForProvisioning,
+  type SessionReconcileConfig
+} from "./reconciler/session-controller.js";
+export { recordGateActualState, type GateActualStateReport } from "./resources/actual-state/snapshots.js";
+export {
+  attachmentFileName,
+  redeemArtifactDownloadToken,
+  type ArtifactDownloadPayload,
+  type ArtifactDownloadToken
+} from "./resources/artifacts/download-tokens.js";
+export { recordGateHeartbeat, type GateHeartbeatReport, type GateRuntimeIdentity } from "./resources/gates/service.js";
+export { recordGateJobReport, type GateJobReport } from "./resources/jobs/attempts.js";
+export {
+  claimGateJob,
+  type ClaimedGateJob,
+  type GateJobLeaseIdentity
+} from "./resources/jobs/leasing.js";
+export { isJobReportStatus, type JobReportStatus } from "./resources/jobs/transitions.js";
+export { authenticateGateToken, type AuthenticatedGate } from "./security/gate-auth.js";
+export { authenticatePublicAuthSession } from "./resources/users/service.js";

@@ -1,3 +1,5 @@
+import type { FromSchema } from "json-schema-to-ts";
+
 export const conditionStatusValues = ["True", "False", "Unknown"] as const;
 
 export const conditionSchema = {
@@ -13,3 +15,5 @@ export const conditionSchema = {
     lastTransitionAt: { type: "string", format: "date-time" }
   }
 } as const;
+
+export type Condition = FromSchema<typeof conditionSchema>;

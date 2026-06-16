@@ -2,9 +2,10 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import {
   adminGateCommandResponseSchema,
   adminGatesResponseSchema,
-  errorResponseSchema
+  errorResponseSchema,
+  type GateDesiredState
 } from "@hyperspace-zone/contracts";
-import { listPublicGates, setGateDesiredState, type GateDesiredState } from "@hyperspace-zone/control-plane";
+import { listPublicGates, setGateDesiredState } from "@hyperspace-zone/control-plane";
 import type { Database } from "@hyperspace-zone/db";
 import type { AdminAuthContext } from "../../http/auth.js";
 import { sendApplicationError } from "../../http/errors.js";
