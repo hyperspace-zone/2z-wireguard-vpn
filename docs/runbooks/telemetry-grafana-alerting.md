@@ -271,19 +271,12 @@ install -m 0644 infra/observability/grafana/dashboards/hyperspace-overview.json 
 set -a
 . /etc/grafana/grafana-server.env
 set +a
-python3 - <<'PY'
-import os
-from pathlib import Path
+: "${GRAFANA_TELEGRAM_CHAT_ID:?GRAFANA_TELEGRAM_CHAT_ID is not set}"
+sed -i "s|__GRAFANA_TELEGRAM_CHAT_ID__|${GRAFANA_TELEGRAM_CHAT_ID}|g" \
+  /etc/grafana/provisioning/alerting/hyperspace-telegram-alert-profile.yaml
 
-chat_id = os.environ.get("GRAFANA_TELEGRAM_CHAT_ID", "").strip()
-if not chat_id:
-    raise SystemExit("GRAFANA_TELEGRAM_CHAT_ID is not set")
-
-profile = Path("/etc/grafana/provisioning/alerting/hyperspace-telegram-alert-profile.yaml")
-contents = profile.read_text()
-contents = contents.replace("__GRAFANA_TELEGRAM_CHAT_ID__", chat_id)
-profile.write_text(contents)
-PY
+grep -nA2 -B1 'chatid' \
+  /etc/grafana/provisioning/alerting/hyperspace-telegram-alert-profile.yaml
 
 chown -R grafana:grafana /var/lib/grafana/dashboards/hyperspace
 ```
@@ -492,11 +485,40 @@ Expected shape:
           chatid: "-4266674385"
 ```
 
-Then restart Grafana:
+Bad shapes include either of these:
+
+```yaml
+          chatid: "${GRAFANA_TELEGRAM_CHAT_ID}"
+```
+
+```yaml
+          chatid: |-
+            ${GRAFANA_TELEGRAM_CHAT_ID}
+```
+
+To repair an already installed profile, stop Grafana and rewrite only the
+`chatid` setting:
 
 ```bash
+systemctl stop grafana-server
+
+set -a
+. /etc/grafana/grafana-server.env
+set +a
+: "${GRAFANA_TELEGRAM_CHAT_ID:?GRAFANA_TELEGRAM_CHAT_ID is not set}"
+
+cd /etc/grafana/provisioning/alerting || exit 1
+sed -i "s|^[[:space:]]*chatid:.*|          chatid: \"${GRAFANA_TELEGRAM_CHAT_ID}\"|" \
+  hyperspace-telegram-alert-profile.yaml
+sed -i '/^[[:space:]]*\${GRAFANA_TELEGRAM_CHAT_ID}[[:space:]]*$/d' \
+  hyperspace-telegram-alert-profile.yaml
+
+grep -nA2 -B1 'chatid' hyperspace-telegram-alert-profile.yaml
+
 systemctl reset-failed grafana-server
-systemctl restart grafana-server
+systemctl start grafana-server
+sleep 10
+curl -I http://127.0.0.1:3000
 ```
 
 ### Dead Jobs Present
