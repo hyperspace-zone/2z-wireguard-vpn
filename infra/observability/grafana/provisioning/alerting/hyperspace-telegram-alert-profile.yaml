@@ -26,7 +26,8 @@ contactPoints:
         disableResolveMessage: false
         settings:
           bottoken: "${GRAFANA_TELEGRAM_BOT_TOKEN}"
-          chatid: "${GRAFANA_TELEGRAM_CHAT_ID}"
+          chatid: |-
+            ${GRAFANA_TELEGRAM_CHAT_ID}
           message: '{{ template "hyperspace.telegram.message" . }}'
 
 policies:

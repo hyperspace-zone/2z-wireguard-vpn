@@ -98,6 +98,10 @@ The provisioned alert profile reads those environment variables from:
 infra/observability/grafana/provisioning/alerting/hyperspace-telegram-alert-profile.yaml
 ```
 
+Keep `chatid` in that file as a YAML block scalar. Grafana expands
+environment variables before validating the Telegram contact point; a numeric
+chat ID can otherwise be parsed as a YAML number and rejected at startup.
+
 ## Install Exporters
 
 ### node_exporter
@@ -447,6 +451,35 @@ journalctl -u <service-name> -n 200 --no-pager
 
 If this alert does not evaluate, confirm node_exporter was started with the
 systemd collector enabled.
+
+### Grafana Fails To Provision Telegram
+
+If Grafana exits before binding `:3000` and logs:
+
+```text
+failed to unmarshal settings: json: cannot unmarshal number into Go struct field Config.chatid of type string
+```
+
+confirm the installed alert profile keeps `chatid` as a block scalar:
+
+```bash
+grep -nA2 -B1 'chatid' \
+  /etc/grafana/provisioning/alerting/hyperspace-telegram-alert-profile.yaml
+```
+
+Expected shape:
+
+```yaml
+          chatid: |-
+            ${GRAFANA_TELEGRAM_CHAT_ID}
+```
+
+Then restart Grafana:
+
+```bash
+systemctl reset-failed grafana-server
+systemctl restart grafana-server
+```
 
 ### Dead Jobs Present
 
