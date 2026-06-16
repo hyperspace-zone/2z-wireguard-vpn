@@ -37,10 +37,14 @@ gate may receive a public probe on the underlay interface and then route the
 reply back through `doublezero0`.
 
 The API stores latest and historical rows in `gate_benchmark_results`. The web
-dashboard renders:
+dashboard renders a route table:
 
-- RTT comparison matrix: DoubleZero RTT, public RTT, delta, and loss.
-- One-way matrix: forward/reverse one-way estimates for DoubleZero and public.
+- one directed gate pair per row
+- sortable columns for DoubleZero RTT, public RTT, DZ advantage, RTT saved,
+  jitter, loss, and one-way values
+- a City filter for narrowing routes by source or target location
+- a green/yellow/pink legend for DZ faster, similar, and public Internet faster
+  routes
 
 One-way values depend on synchronized clocks. Install and run chrony on all gate
 hosts and treat RTT as the primary metric if clock quality is unknown.
@@ -142,9 +146,10 @@ Expected dashboard sections:
 
 - `VPN configs`
 - `Gates`
-- `Gate benchmark matrix`
+- `Gate benchmark routes`
+- `DZ vs Public Internet`
 
-Capture screenshots after the matrix has first samples:
+Capture screenshots after the route table has first samples:
 
 ```bash
 HS_WEB_BASE="https://${HS_WEB_HOST}" \
@@ -155,11 +160,11 @@ npm run test:live:ui
 ```
 
 The live UI smoke captures dashboard screenshots that include the benchmark
-matrix once samples are present.
+route table once samples are present.
 
 ## Troubleshooting
 
-If matrix cells stay `pending`:
+If route table rows stay missing or `pending`:
 
 - Confirm `hyperspace-control-plane-worker` is active.
 - Confirm at least two gates are `ready=true` and `schedulable=true`.

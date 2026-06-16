@@ -90,9 +90,11 @@ try {
   await expectText(page, "Schedulable");
   await expectText(page, "DoubleZero node");
   await expectText(page, "Browser RTT");
-  await expectText(page, "Gate benchmark matrix");
-  await expectText(page, "RTT comparison");
-  await expectText(page, "One-way probes");
+  await expectText(page, "Gate benchmark routes");
+  await expectText(page, "DZ vs Public Internet");
+  await expectText(page, "City filter");
+  await expectText(page, "RTT Saved");
+  await expectText(page, "Legend:");
   await page.getByRole("button", { name: /Measure browser RTT|Measuring/ }).click().catch(() => undefined);
   await page.waitForTimeout(5000);
   await screenshot(page, "02-dashboard-gates");

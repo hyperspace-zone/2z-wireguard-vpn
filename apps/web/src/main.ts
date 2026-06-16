@@ -3,6 +3,7 @@ type AppView = "dashboard" | "create-config" | "login" | "register";
 type CreateConfigStep = "configure" | "confirm";
 type SortDirection = "desc" | "asc";
 type KeyInstructionPlatform = "linux" | "macos" | "windows";
+type BenchmarkSortField = "route" | "city" | "doublezeroRtt" | "publicRtt" | "advantage" | "rttSaved" | "doublezeroJitter" | "publicJitter" | "loss";
 type SessionValidationErrors = Partial<Record<"sourceIp" | "targetIp" | "ingressGateName" | "egressGateName" | "clientPublicKey", string>>;
 
 interface Gate {
@@ -75,6 +76,24 @@ interface BenchmarkMatrix {
   routes: BenchmarkRoute[];
 }
 
+interface BenchmarkRouteRow {
+  route: BenchmarkRoute;
+  sourceGate: Gate;
+  targetGate: Gate;
+  routeLabel: string;
+  cityLabel: string;
+  sourceCity: string;
+  targetCity: string;
+  publicRttMs: number | undefined;
+  doublezeroRttMs: number | undefined;
+  publicJitterMs: number | undefined;
+  doublezeroJitterMs: number | undefined;
+  publicLossPercent: number | undefined;
+  doublezeroLossPercent: number | undefined;
+  rttSavedMs: number | undefined;
+  rttAdvantagePercent: number | undefined;
+}
+
 interface Session {
   id: string;
   mode: SessionMode;
@@ -114,6 +133,9 @@ let currentView: AppView = viewFromLocation();
 let createConfigStep: CreateConfigStep = "configure";
 let createConfigSubmitting = false;
 let gateBrowserRttSortDirection: SortDirection = "asc";
+let benchmarkSortField: BenchmarkSortField = "advantage";
+let benchmarkSortDirection: SortDirection = "desc";
+let benchmarkCityFilter = "";
 let sessionValidationErrors: SessionValidationErrors = {};
 let ingressGateManuallySelected = false;
 let keyInstructionPlatform: KeyInstructionPlatform = "linux";
@@ -307,6 +329,22 @@ function isKeyInstructionPlatform(value: string | undefined): value is KeyInstru
   return value === "linux" || value === "macos" || value === "windows";
 }
 
+function isBenchmarkSortField(value: string | undefined): value is BenchmarkSortField {
+  return value === "route" ||
+    value === "city" ||
+    value === "doublezeroRtt" ||
+    value === "publicRtt" ||
+    value === "advantage" ||
+    value === "rttSaved" ||
+    value === "doublezeroJitter" ||
+    value === "publicJitter" ||
+    value === "loss";
+}
+
+function benchmarkDefaultSortDirection(field: BenchmarkSortField): SortDirection {
+  return field === "advantage" || field === "rttSaved" ? "desc" : "asc";
+}
+
 function appNav(view: AppView): string {
   return `
     <nav class="app-nav" aria-label="Primary">
@@ -344,7 +382,7 @@ function dashboardView(state: { gates: Gate[]; sessions: Session[]; benchmarkMat
 
     <section class="panel secondary-panel">
       <div class="panel-heading">
-        <h2>Gate benchmark matrix</h2>
+        <h2>Gate benchmark routes</h2>
         <small>${benchmarkFreshness(state.benchmarkMatrix)}</small>
       </div>
       ${benchmarkMatrixPanel(state.gates, state.benchmarkMatrix)}
@@ -451,96 +489,314 @@ function gatesPanel(gates: Gate[]): string {
 }
 
 function benchmarkMatrixPanel(gates: Gate[], matrix: BenchmarkMatrix | null): string {
-  const matrixGates = benchmarkGates(gates, matrix);
-  if (matrixGates.length < 2) {
-    return "<p>No benchmark matrix available yet.</p>";
+  const rows = benchmarkRouteRows(gates, matrix);
+  if (rows.length === 0) {
+    return "<p>No benchmark route data available yet.</p>";
   }
+  const filteredRows = filterBenchmarkRows(rows);
+  const sortedRows = sortBenchmarkRows(filteredRows);
+  const cityOptions = benchmarkCityOptions(rows);
+  const summary = benchmarkSummary(rows, filteredRows);
   return `
-    <div class="benchmark-panels">
-      <div>
-        <h3>RTT comparison</h3>
-        ${benchmarkRttMatrix(matrixGates, matrix)}
+    <div class="benchmark-routes">
+      <div class="benchmark-routes-heading">
+        <div>
+          <h3>DZ vs Public Internet</h3>
+          <p>Directed gate-to-gate latency comparison for the same source and target cities.</p>
+        </div>
+        <div class="benchmark-summary" aria-label="Benchmark summary">
+          <span><strong>${filteredRows.length}</strong> routes</span>
+          <span><strong>${summary.publicSucceeded}</strong> public ok</span>
+          <span><strong>${summary.doublezeroSucceeded}</strong> DZ ok</span>
+          <span><strong>${formatSignedPercent(summary.averageAdvantagePercent)}</strong> avg DZ advantage</span>
+        </div>
       </div>
-      <div>
-        <h3>One-way probes</h3>
-        ${benchmarkOneWayMatrix(matrixGates, matrix)}
+      <div class="benchmark-controls">
+        <label class="benchmark-filter-label">
+          City filter
+          <select id="benchmark-city-filter">
+            <option value="" ${benchmarkCityFilter === "" ? "selected" : ""}>All cities</option>
+            ${cityOptions.map((city) => `<option value="${escapeHtml(city)}" ${benchmarkCityFilter === city ? "selected" : ""}>${escapeHtml(city)}</option>`).join("")}
+          </select>
+        </label>
+        <small>${benchmarkCityFilter ? `Showing routes touching ${escapeHtml(benchmarkCityFilter)}.` : "Showing all directed routes."}</small>
       </div>
+      ${benchmarkRoutesTable(sortedRows)}
+      ${benchmarkLegend()}
     </div>
   `;
 }
 
-function benchmarkRttMatrix(gates: Gate[], matrix: BenchmarkMatrix | null): string {
-  return benchmarkTable(gates, (source, target) => {
-    if (source.id === target.id) {
-      return '<span class="empty-marker">self</span>';
-    }
-    const route = findBenchmarkRoute(matrix, source.id, target.id);
-    if (!route?.public && !route?.doublezero) {
-      return '<span class="empty-marker">pending</span>';
-    }
-    const publicLoss = route.public?.lossPercent;
-    const doublezeroLoss = route.doublezero?.lossPercent;
-    return `
-      <div class="benchmark-cell">
-        ${benchmarkRttMetricLine("DZ", route.doublezero, true)}
-        ${benchmarkRttMetricLine("Public", route.public)}
-        <small class="${deltaClass(route.delta?.rttP50Ms)}">Delta ${formatSignedMetricMs(route.delta?.rttP50Ms)}</small>
-        <small>Loss ${formatPercent(doublezeroLoss)} / ${formatPercent(publicLoss)}</small>
-      </div>
-    `;
-  });
-}
-
-function benchmarkOneWayMatrix(gates: Gate[], matrix: BenchmarkMatrix | null): string {
-  return benchmarkTable(gates, (source, target) => {
-    if (source.id === target.id) {
-      return '<span class="empty-marker">self</span>';
-    }
-    const route = findBenchmarkRoute(matrix, source.id, target.id);
-    if (!route?.public && !route?.doublezero) {
-      return '<span class="empty-marker">pending</span>';
-    }
-    return `
-      <div class="benchmark-cell">
-        ${benchmarkOneWayMetricLine("DZ", route.doublezero, true)}
-        ${benchmarkOneWayMetricLine("Public", route.public)}
-        <small class="${deltaClass(route.delta?.forwardOneWayP50Ms)}">F delta ${formatSignedMetricMs(route.delta?.forwardOneWayP50Ms)}</small>
-        <small class="${deltaClass(route.delta?.reverseOneWayP50Ms)}">R delta ${formatSignedMetricMs(route.delta?.reverseOneWayP50Ms)}</small>
-      </div>
-    `;
-  });
-}
-
-function benchmarkTable(gates: Gate[], cell: (source: Gate, target: Gate) => string): string {
+function benchmarkRoutesTable(rows: BenchmarkRouteRow[]): string {
+  if (rows.length === 0) {
+    return '<p class="empty-state-text">No routes match the selected city filter.</p>';
+  }
   return `
     <div class="table-scroll">
-      <table class="benchmark-table">
+      <table class="benchmark-route-table">
         <thead>
           <tr>
-            <th>From \\ To</th>
-            ${gates.map((gate) => `<th title="${escapeHtml(gate.name)}">${escapeHtml(shortGateName(gate.name))}</th>`).join("")}
+            ${benchmarkSortableHeader("Route", "route", "left")}
+            ${benchmarkSortableHeader("Cities", "city", "left")}
+            ${benchmarkSortableHeader("DZ RTT", "doublezeroRtt", "right")}
+            ${benchmarkSortableHeader("Public RTT", "publicRtt", "right")}
+            ${benchmarkSortableHeader("DZ Advantage", "advantage", "right")}
+            ${benchmarkSortableHeader("RTT Saved", "rttSaved", "right")}
+            ${benchmarkSortableHeader("DZ Jitter", "doublezeroJitter", "right")}
+            ${benchmarkSortableHeader("Public Jitter", "publicJitter", "right")}
+            ${benchmarkSortableHeader("Loss", "loss", "right")}
+            <th>One-way</th>
           </tr>
         </thead>
         <tbody>
-          ${gates.map((source) => `
-            <tr>
-              <th title="${escapeHtml(source.name)}">${escapeHtml(shortGateName(source.name))}</th>
-              ${gates.map((target) => `<td>${cell(source, target)}</td>`).join("")}
-            </tr>
-          `).join("")}
+          ${rows.map(benchmarkRouteRow).join("")}
         </tbody>
       </table>
     </div>
   `;
 }
 
-function benchmarkGates(gates: Gate[], matrix: BenchmarkMatrix | null): Gate[] {
-  const source = matrix?.gates?.length ? matrix.gates : gates;
-  return [...source].sort((a, b) => a.name.localeCompare(b.name));
+function benchmarkRouteRow(row: BenchmarkRouteRow): string {
+  const route = row.route;
+  return `
+    <tr>
+      <td>
+        <div class="route-pair">
+          <strong>${escapeHtml(shortGateName(row.sourceGate.name))}</strong>
+          <span aria-hidden="true">→</span>
+          <strong>${escapeHtml(shortGateName(row.targetGate.name))}</strong>
+        </div>
+        <small>${escapeHtml(row.routeLabel)}</small>
+      </td>
+      <td>
+        <strong>${escapeHtml(row.sourceCity)}</strong>
+        <small>to ${escapeHtml(row.targetCity)}</small>
+      </td>
+      <td class="numeric-cell">${benchmarkValueCell(route.doublezero, formatMetricMs(row.doublezeroRttMs))}</td>
+      <td class="numeric-cell">${benchmarkValueCell(route.public, formatMetricMs(row.publicRttMs))}</td>
+      <td class="numeric-cell">${benchmarkAdvantageCell(row.rttAdvantagePercent)}</td>
+      <td class="numeric-cell">${formatSavedMetricMs(row.rttSavedMs)}</td>
+      <td class="numeric-cell">${benchmarkValueCell(route.doublezero, formatMetricMs(row.doublezeroJitterMs))}</td>
+      <td class="numeric-cell">${benchmarkValueCell(route.public, formatMetricMs(row.publicJitterMs))}</td>
+      <td class="numeric-cell">${benchmarkLossCell(row)}</td>
+      <td>${benchmarkOneWayCell(route)}</td>
+    </tr>
+  `;
 }
 
-function findBenchmarkRoute(matrix: BenchmarkMatrix | null, sourceGateId: string, targetGateId: string): BenchmarkRoute | null {
-  return matrix?.routes.find((route) => route.sourceGateId === sourceGateId && route.targetGateId === targetGateId) ?? null;
+function benchmarkSortableHeader(label: string, field: BenchmarkSortField, align: "left" | "right"): string {
+  const arrow = benchmarkSortField === field ? (benchmarkSortDirection === "desc" ? "↓" : "↑") : "";
+  return `
+    <th class="${align === "right" ? "numeric-cell" : ""}" aria-sort="${benchmarkAriaSort(field)}">
+      <button class="table-sort" type="button" data-sort-benchmark="${field}">
+        ${escapeHtml(label)} ${arrow}
+      </button>
+    </th>
+  `;
+}
+
+function benchmarkAriaSort(field: BenchmarkSortField): string {
+  if (benchmarkSortField !== field) {
+    return "none";
+  }
+  return benchmarkSortDirection === "desc" ? "descending" : "ascending";
+}
+
+function benchmarkRouteRows(gates: Gate[], matrix: BenchmarkMatrix | null): BenchmarkRouteRow[] {
+  const source = matrix?.gates?.length ? matrix.gates : gates;
+  const gateById = new Map(source.map((gate) => [gate.id, gate]));
+  return (matrix?.routes ?? []).flatMap((route) => {
+    const sourceGate = gateById.get(route.sourceGateId);
+    const targetGate = gateById.get(route.targetGateId);
+    if (!sourceGate || !targetGate || sourceGate.id === targetGate.id) {
+      return [];
+    }
+    const publicRttMs = finiteNumber(route.public?.rttMs?.p50);
+    const doublezeroRttMs = finiteNumber(route.doublezero?.rttMs?.p50);
+    const publicJitterMs = finiteNumber(route.public?.jitterMs);
+    const doublezeroJitterMs = finiteNumber(route.doublezero?.jitterMs);
+    const publicLossPercent = finiteNumber(route.public?.lossPercent);
+    const doublezeroLossPercent = finiteNumber(route.doublezero?.lossPercent);
+    const rttSavedMs = typeof publicRttMs === "number" && typeof doublezeroRttMs === "number"
+      ? compactMetric(publicRttMs - doublezeroRttMs)
+      : undefined;
+    const rttAdvantagePercent = typeof rttSavedMs === "number" && typeof publicRttMs === "number" && publicRttMs > 0
+      ? compactMetric((rttSavedMs / publicRttMs) * 100)
+      : undefined;
+    const sourceCity = benchmarkCity(sourceGate);
+    const targetCity = benchmarkCity(targetGate);
+    return [{
+      route,
+      sourceGate,
+      targetGate,
+      routeLabel: `${route.sourceGateName} -> ${route.targetGateName}`,
+      cityLabel: `${sourceCity} -> ${targetCity}`,
+      sourceCity,
+      targetCity,
+      publicRttMs,
+      doublezeroRttMs,
+      publicJitterMs,
+      doublezeroJitterMs,
+      publicLossPercent,
+      doublezeroLossPercent,
+      rttSavedMs,
+      rttAdvantagePercent
+    }];
+  });
+}
+
+function filterBenchmarkRows(rows: BenchmarkRouteRow[]): BenchmarkRouteRow[] {
+  if (!benchmarkCityFilter) {
+    return rows;
+  }
+  const filter = benchmarkCityFilter.toLowerCase();
+  return rows.filter((row) => row.sourceCity.toLowerCase() === filter || row.targetCity.toLowerCase() === filter);
+}
+
+function sortBenchmarkRows(rows: BenchmarkRouteRow[]): BenchmarkRouteRow[] {
+  return [...rows].sort((a, b) => {
+    let cmp = 0;
+    switch (benchmarkSortField) {
+      case "route":
+        cmp = a.routeLabel.localeCompare(b.routeLabel);
+        break;
+      case "city":
+        cmp = a.cityLabel.localeCompare(b.cityLabel);
+        break;
+      case "doublezeroRtt":
+        cmp = compareOptionalNumber(a.doublezeroRttMs, b.doublezeroRttMs, benchmarkSortDirection);
+        break;
+      case "publicRtt":
+        cmp = compareOptionalNumber(a.publicRttMs, b.publicRttMs, benchmarkSortDirection);
+        break;
+      case "advantage":
+        cmp = compareOptionalNumber(a.rttAdvantagePercent, b.rttAdvantagePercent, benchmarkSortDirection);
+        break;
+      case "rttSaved":
+        cmp = compareOptionalNumber(a.rttSavedMs, b.rttSavedMs, benchmarkSortDirection);
+        break;
+      case "doublezeroJitter":
+        cmp = compareOptionalNumber(a.doublezeroJitterMs, b.doublezeroJitterMs, benchmarkSortDirection);
+        break;
+      case "publicJitter":
+        cmp = compareOptionalNumber(a.publicJitterMs, b.publicJitterMs, benchmarkSortDirection);
+        break;
+      case "loss":
+        cmp = compareOptionalNumber(totalLossPercent(a), totalLossPercent(b), benchmarkSortDirection);
+        break;
+    }
+    if (cmp === 0) {
+      cmp = a.routeLabel.localeCompare(b.routeLabel);
+    }
+    if (benchmarkSortField === "route" || benchmarkSortField === "city") {
+      return benchmarkSortDirection === "asc" ? cmp : -cmp;
+    }
+    return cmp;
+  });
+}
+
+function compareOptionalNumber(a: number | undefined, b: number | undefined, direction: SortDirection): number {
+  if (a == null && b == null) {
+    return 0;
+  }
+  if (a == null) {
+    return 1;
+  }
+  if (b == null) {
+    return -1;
+  }
+  return direction === "asc" ? a - b : b - a;
+}
+
+function benchmarkCityOptions(rows: BenchmarkRouteRow[]): string[] {
+  return [...new Set(rows.flatMap((row) => [row.sourceCity, row.targetCity]))].sort((a, b) => a.localeCompare(b));
+}
+
+function benchmarkCity(gate: Gate): string {
+  return gate.city?.trim() || gate.doubleZero?.metro?.trim() || shortGateName(gate.name);
+}
+
+function benchmarkSummary(rows: BenchmarkRouteRow[], filteredRows: BenchmarkRouteRow[]): {
+  publicSucceeded: number;
+  doublezeroSucceeded: number;
+  averageAdvantagePercent: number | undefined;
+} {
+  const advantages = filteredRows
+    .map((row) => row.rttAdvantagePercent)
+    .filter((value): value is number => typeof value === "number" && Number.isFinite(value));
+  const averageAdvantagePercent = advantages.length > 0
+    ? compactMetric(advantages.reduce((sum, value) => sum + value, 0) / advantages.length)
+    : undefined;
+  return {
+    publicSucceeded: filteredRows.filter((row) => row.route.public?.status === "succeeded").length,
+    doublezeroSucceeded: filteredRows.filter((row) => row.route.doublezero?.status === "succeeded").length,
+    averageAdvantagePercent
+  };
+}
+
+function benchmarkValueCell(metric: BenchmarkMetric | undefined, value: string): string {
+  if (!metric) {
+    return '<span class="muted">pending</span>';
+  }
+  if (metric.status === "failed") {
+    const title = metric.errorMessage || metric.errorCode || "probe failed";
+    return `<span class="benchmark-failed" title="${escapeHtml(title)}">failed</span>`;
+  }
+  return escapeHtml(value);
+}
+
+function benchmarkAdvantageCell(value: number | undefined): string {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return '<span class="muted">n/a</span>';
+  }
+  return `<span class="benchmark-advantage ${benchmarkAdvantageClass(value)}">${escapeHtml(formatSignedPercent(value))}</span>`;
+}
+
+function benchmarkAdvantageClass(value: number): string {
+  if (value > 0) {
+    return "benchmark-advantage-good";
+  }
+  if (value >= -10) {
+    return "benchmark-advantage-similar";
+  }
+  return "benchmark-advantage-public";
+}
+
+function benchmarkLossCell(row: BenchmarkRouteRow): string {
+  return `
+    <span>DZ ${formatPercent(row.doublezeroLossPercent)}</span>
+    <small>Public ${formatPercent(row.publicLossPercent)}</small>
+  `;
+}
+
+function benchmarkOneWayCell(route: BenchmarkRoute): string {
+  const dzForward = route.doublezero?.forwardOneWayMs?.p50;
+  const dzReverse = route.doublezero?.reverseOneWayMs?.p50;
+  const publicForward = route.public?.forwardOneWayMs?.p50;
+  const publicReverse = route.public?.reverseOneWayMs?.p50;
+  return `
+    <span>DZ F ${formatMetricMs(dzForward)} / R ${formatMetricMs(dzReverse)}</span>
+    <small>Public F ${formatMetricMs(publicForward)} / R ${formatMetricMs(publicReverse)}</small>
+  `;
+}
+
+function benchmarkLegend(): string {
+  return `
+    <div class="benchmark-legend" aria-label="Benchmark legend">
+      <span>Legend:</span>
+      <span><i class="legend-swatch benchmark-advantage-good"></i>DZ faster</span>
+      <span><i class="legend-swatch benchmark-advantage-similar"></i>Similar (0 to -10%)</span>
+      <span><i class="legend-swatch benchmark-advantage-public"></i>Public Internet faster (&lt; -10%)</span>
+    </div>
+  `;
+}
+
+function totalLossPercent(row: BenchmarkRouteRow): number | undefined {
+  const values = [row.doublezeroLossPercent, row.publicLossPercent].filter((value): value is number => typeof value === "number" && Number.isFinite(value));
+  if (values.length === 0) {
+    return undefined;
+  }
+  return values.reduce((sum, value) => sum + value, 0);
 }
 
 function benchmarkFreshness(matrix: BenchmarkMatrix | null): string {
@@ -571,47 +827,6 @@ function formatMetricMs(value: number | undefined): string {
   return typeof value === "number" && Number.isFinite(value) ? `${formatLatency(value)} ms` : "n/a";
 }
 
-function benchmarkRttMetricLine(label: string, metric: BenchmarkMetric | undefined, strong = false): string {
-  return benchmarkMetricLine(label, metric, strong, (value) => formatMetricMs(value.rttMs?.p50));
-}
-
-function benchmarkOneWayMetricLine(label: string, metric: BenchmarkMetric | undefined, strong = false): string {
-  return benchmarkMetricLine(
-    label,
-    metric,
-    strong,
-    (value) => `F ${formatMetricMs(value.forwardOneWayMs?.p50)} / R ${formatMetricMs(value.reverseOneWayMs?.p50)}`
-  );
-}
-
-function benchmarkMetricLine(
-  label: string,
-  metric: BenchmarkMetric | undefined,
-  strong: boolean,
-  value: (metric: BenchmarkMetric) => string
-): string {
-  const tag = strong ? "strong" : "small";
-  if (!metric) {
-    return `<${tag} class="muted">${escapeHtml(label)} pending</${tag}>`;
-  }
-  if (metric.status === "failed") {
-    const title = metric.errorMessage || metric.errorCode || "probe failed";
-    const text = `${label} failed (${benchmarkFailureLabel(metric)})`;
-    return `<${tag} class="benchmark-failed" title="${escapeHtml(title)}">${escapeHtml(text)}</${tag}>`;
-  }
-  return `<${tag}>${escapeHtml(label)} ${escapeHtml(value(metric))}</${tag}>`;
-}
-
-function benchmarkFailureLabel(metric: BenchmarkMetric): string {
-  if (metric.errorCode === "no_probe_responses") {
-    return "no responses";
-  }
-  if (metric.errorCode) {
-    return metric.errorCode.replace(/_/g, " ");
-  }
-  return "probe failed";
-}
-
 function formatSignedMetricMs(value: number | undefined): string {
   if (typeof value !== "number" || !Number.isFinite(value)) {
     return "n/a";
@@ -620,15 +835,28 @@ function formatSignedMetricMs(value: number | undefined): string {
   return `${sign}${formatLatency(value)} ms`;
 }
 
+function formatSavedMetricMs(value: number | undefined): string {
+  return formatSignedMetricMs(value);
+}
+
+function formatSignedPercent(value: number | undefined): string {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return "n/a";
+  }
+  const sign = value > 0 ? "+" : "";
+  return `${sign}${formatLatency(value)}%`;
+}
+
 function formatPercent(value: number | undefined): string {
   return typeof value === "number" && Number.isFinite(value) ? `${formatLatency(value)}%` : "n/a";
 }
 
-function deltaClass(value: number | undefined): string {
-  if (typeof value !== "number" || !Number.isFinite(value)) {
-    return "muted";
-  }
-  return value <= 0 ? "ok" : "bad";
+function finiteNumber(value: number | undefined): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function compactMetric(value: number): number {
+  return Math.round(value * 1000) / 1000;
 }
 
 function relativeTime(value: string): string {
@@ -1303,6 +1531,25 @@ function bindHandlers(): void {
   });
   document.querySelector("[data-sort-gates='browser-rtt']")?.addEventListener("click", () => {
     gateBrowserRttSortDirection = gateBrowserRttSortDirection === "desc" ? "asc" : "desc";
+    render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
+  });
+  for (const button of document.querySelectorAll("[data-sort-benchmark]")) {
+    button.addEventListener("click", () => {
+      const field = (button as HTMLElement).dataset.sortBenchmark;
+      if (!isBenchmarkSortField(field)) {
+        return;
+      }
+      if (benchmarkSortField === field) {
+        benchmarkSortDirection = benchmarkSortDirection === "desc" ? "asc" : "desc";
+      } else {
+        benchmarkSortField = field;
+        benchmarkSortDirection = benchmarkDefaultSortDirection(field);
+      }
+      render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
+    });
+  }
+  document.getElementById("benchmark-city-filter")?.addEventListener("change", (event) => {
+    benchmarkCityFilter = String((event.target as HTMLSelectElement).value ?? "");
     render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
   });
 
