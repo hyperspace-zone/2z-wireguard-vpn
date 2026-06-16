@@ -88,8 +88,8 @@ cat >/etc/grafana/grafana-server.env <<'EOF'
 GRAFANA_TELEGRAM_BOT_TOKEN=<telegram-bot-token>
 GRAFANA_TELEGRAM_CHAT_ID=<telegram-chat-id>
 EOF
-chmod 0640 /etc/grafana/grafana-server.env
-chown root:grafana /etc/grafana/grafana-server.env
+chmod 0600 /etc/grafana/grafana-server.env
+chown root:root /etc/grafana/grafana-server.env
 ```
 
 The provisioned alert profile reads those environment variables from:
@@ -237,7 +237,15 @@ curl -fsS 'http://127.0.0.1:9090/api/v1/targets' | jq '.data.activeTargets[] | {
 ## Install Grafana
 
 Install Grafana OSS using the package method approved for your environment.
-After Grafana is installed, copy the profile:
+After Grafana is installed, verify that the package created the service user
+and unit:
+
+```bash
+getent passwd grafana
+systemctl list-unit-files | grep -E '^grafana-server\.service'
+```
+
+Copy the profile:
 
 ```bash
 install -d -m 0755 \
