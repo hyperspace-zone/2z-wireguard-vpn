@@ -261,6 +261,11 @@ tbody td {
   margin: 0;
 }
 
+.benchmark-cell .benchmark-failed {
+  color: #b42318;
+  font-weight: 700;
+}
+
 small {
   display: block;
   color: #57606a;

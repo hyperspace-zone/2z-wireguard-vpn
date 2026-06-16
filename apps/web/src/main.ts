@@ -478,14 +478,12 @@ function benchmarkRttMatrix(gates: Gate[], matrix: BenchmarkMatrix | null): stri
     if (!route?.public && !route?.doublezero) {
       return '<span class="empty-marker">pending</span>';
     }
-    const publicRtt = route.public?.rttMs?.p50;
-    const doublezeroRtt = route.doublezero?.rttMs?.p50;
     const publicLoss = route.public?.lossPercent;
     const doublezeroLoss = route.doublezero?.lossPercent;
     return `
       <div class="benchmark-cell">
-        <strong>DZ ${formatMetricMs(doublezeroRtt)}</strong>
-        <small>Public ${formatMetricMs(publicRtt)}</small>
+        ${benchmarkRttMetricLine("DZ", route.doublezero, true)}
+        ${benchmarkRttMetricLine("Public", route.public)}
         <small class="${deltaClass(route.delta?.rttP50Ms)}">Delta ${formatSignedMetricMs(route.delta?.rttP50Ms)}</small>
         <small>Loss ${formatPercent(doublezeroLoss)} / ${formatPercent(publicLoss)}</small>
       </div>
@@ -504,8 +502,8 @@ function benchmarkOneWayMatrix(gates: Gate[], matrix: BenchmarkMatrix | null): s
     }
     return `
       <div class="benchmark-cell">
-        <strong>F ${formatMetricMs(route.doublezero?.forwardOneWayMs?.p50)} / R ${formatMetricMs(route.doublezero?.reverseOneWayMs?.p50)}</strong>
-        <small>Public F ${formatMetricMs(route.public?.forwardOneWayMs?.p50)} / R ${formatMetricMs(route.public?.reverseOneWayMs?.p50)}</small>
+        ${benchmarkOneWayMetricLine("DZ", route.doublezero, true)}
+        ${benchmarkOneWayMetricLine("Public", route.public)}
         <small class="${deltaClass(route.delta?.forwardOneWayP50Ms)}">F delta ${formatSignedMetricMs(route.delta?.forwardOneWayP50Ms)}</small>
         <small class="${deltaClass(route.delta?.reverseOneWayP50Ms)}">R delta ${formatSignedMetricMs(route.delta?.reverseOneWayP50Ms)}</small>
       </div>
@@ -571,6 +569,47 @@ function shortGateName(value: string): string {
 
 function formatMetricMs(value: number | undefined): string {
   return typeof value === "number" && Number.isFinite(value) ? `${formatLatency(value)} ms` : "n/a";
+}
+
+function benchmarkRttMetricLine(label: string, metric: BenchmarkMetric | undefined, strong = false): string {
+  return benchmarkMetricLine(label, metric, strong, (value) => formatMetricMs(value.rttMs?.p50));
+}
+
+function benchmarkOneWayMetricLine(label: string, metric: BenchmarkMetric | undefined, strong = false): string {
+  return benchmarkMetricLine(
+    label,
+    metric,
+    strong,
+    (value) => `F ${formatMetricMs(value.forwardOneWayMs?.p50)} / R ${formatMetricMs(value.reverseOneWayMs?.p50)}`
+  );
+}
+
+function benchmarkMetricLine(
+  label: string,
+  metric: BenchmarkMetric | undefined,
+  strong: boolean,
+  value: (metric: BenchmarkMetric) => string
+): string {
+  const tag = strong ? "strong" : "small";
+  if (!metric) {
+    return `<${tag} class="muted">${escapeHtml(label)} pending</${tag}>`;
+  }
+  if (metric.status === "failed") {
+    const title = metric.errorMessage || metric.errorCode || "probe failed";
+    const text = `${label} failed (${benchmarkFailureLabel(metric)})`;
+    return `<${tag} class="benchmark-failed" title="${escapeHtml(title)}">${escapeHtml(text)}</${tag}>`;
+  }
+  return `<${tag}>${escapeHtml(label)} ${escapeHtml(value(metric))}</${tag}>`;
+}
+
+function benchmarkFailureLabel(metric: BenchmarkMetric): string {
+  if (metric.errorCode === "no_probe_responses") {
+    return "no responses";
+  }
+  if (metric.errorCode) {
+    return metric.errorCode.replace(/_/g, " ");
+  }
+  return "probe failed";
 }
 
 function formatSignedMetricMs(value: number | undefined): string {
