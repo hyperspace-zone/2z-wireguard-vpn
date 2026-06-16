@@ -25,8 +25,8 @@ contactPoints:
         type: telegram
         disableResolveMessage: false
         settings:
-          bottoken: $GRAFANA_TELEGRAM_BOT_TOKEN
-          chatid: $GRAFANA_TELEGRAM_CHAT_ID
+          bottoken: "${GRAFANA_TELEGRAM_BOT_TOKEN}"
+          chatid: "${GRAFANA_TELEGRAM_CHAT_ID}"
           message: '{{ template "hyperspace.telegram.message" . }}'
 
 policies:
@@ -405,4 +405,3 @@ groups:
           service: gate-agent
           team: hyperspace
         isPaused: false
-
