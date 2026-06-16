@@ -139,6 +139,25 @@ func TestSummarizeProbeSamples(t *testing.T) {
 	}
 }
 
+func TestDedupeProbeServerBindings(t *testing.T) {
+	bindings := dedupeProbeServerBindings([]probeServerBinding{
+		{Transport: "public", Interface: "eth0"},
+		{Transport: "doublezero", Interface: "doublezero0"},
+		{Transport: "duplicate", Interface: "eth0"},
+		{Transport: "empty"},
+	})
+
+	if len(bindings) != 2 {
+		t.Fatalf("bindings = %#v, expected 2 unique interface bindings", bindings)
+	}
+	if bindings[0].Transport != "public" || bindings[0].Interface != "eth0" {
+		t.Fatalf("unexpected first binding: %#v", bindings[0])
+	}
+	if bindings[1].Transport != "doublezero" || bindings[1].Interface != "doublezero0" {
+		t.Fatalf("unexpected second binding: %#v", bindings[1])
+	}
+}
+
 func assertString(t *testing.T, values map[string]any, key string, expected string) {
 	t.Helper()
 	actual, ok := values[key].(string)

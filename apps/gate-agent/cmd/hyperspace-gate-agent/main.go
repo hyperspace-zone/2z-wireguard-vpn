@@ -321,6 +321,12 @@ func executeRevokeAssignment(cfg config, item job) jobResult {
 }
 
 const probeMagic = "hyperspace-gate-probe-v1"
+const soReusePort = 0x0F
+
+type probeServerBinding struct {
+	Transport string
+	Interface string
+}
 
 type probeJobPayload struct {
 	Kind             string                 `json:"kind"`
@@ -522,20 +528,34 @@ func resolveProbeInterface(value string) (string, error) {
 }
 
 func listenUDPOnInterface(interfaceName string) (net.PacketConn, error) {
+	return listenUDPWithOptions("0.0.0.0:0", interfaceName, false)
+}
+
+func listenUDPWithOptions(addr string, interfaceName string, reusePort bool) (net.PacketConn, error) {
 	listenConfig := net.ListenConfig{}
-	if interfaceName != "" {
-		listenConfig.Control = func(network string, address string, conn syscall.RawConn) error {
-			var controlErr error
-			err := conn.Control(func(fd uintptr) {
-				controlErr = syscall.SetsockoptString(int(fd), syscall.SOL_SOCKET, syscall.SO_BINDTODEVICE, interfaceName)
-			})
-			if err != nil {
-				return err
+	listenConfig.Control = func(network string, address string, conn syscall.RawConn) error {
+		var controlErr error
+		err := conn.Control(func(fd uintptr) {
+			if reusePort {
+				if err := syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_REUSEADDR, 1); err != nil {
+					controlErr = err
+					return
+				}
+				if err := syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, soReusePort, 1); err != nil {
+					controlErr = err
+					return
+				}
 			}
-			return controlErr
+			if interfaceName != "" {
+				controlErr = syscall.SetsockoptString(int(fd), syscall.SOL_SOCKET, syscall.SO_BINDTODEVICE, interfaceName)
+			}
+		})
+		if err != nil {
+			return err
 		}
+		return controlErr
 	}
-	return listenConfig.ListenPacket(context.Background(), "udp4", "0.0.0.0:0")
+	return listenConfig.ListenPacket(context.Background(), "udp4", addr)
 }
 
 func runProbeSample(
@@ -599,15 +619,69 @@ func runProbeSample(
 
 func startProbeServer(cfg config) error {
 	addr := net.JoinHostPort(cfg.ProbeListenAddress, strconv.Itoa(cfg.ProbePort))
+	bindings := probeServerBindings()
+	started := 0
+	for _, binding := range bindings {
+		conn, err := listenUDPWithOptions(addr, binding.Interface, true)
+		if err != nil {
+			logJSON("probe_server_bind_failed", map[string]any{
+				"transport": binding.Transport,
+				"interface": binding.Interface,
+				"error":     err.Error(),
+			})
+			continue
+		}
+		startProbeServerLoop(cfg, conn, probeServerBinding{
+			Transport: binding.Transport,
+			Interface: binding.Interface,
+		})
+		started++
+	}
+
+	if started > 0 {
+		return nil
+	}
+
 	conn, err := net.ListenPacket("udp4", addr)
 	if err != nil {
 		return err
 	}
+	startProbeServerLoop(cfg, conn, probeServerBinding{Transport: "legacy", Interface: ""})
+	return nil
+}
+
+func probeServerBindings() []probeServerBinding {
+	candidates := make([]probeServerBinding, 0, 2)
+	if publicInterface, err := defaultRouteInterface(); err == nil && publicInterface != "" {
+		candidates = append(candidates, probeServerBinding{Transport: "public", Interface: publicInterface})
+	}
+	if linkState("doublezero0") != "missing" {
+		candidates = append(candidates, probeServerBinding{Transport: "doublezero", Interface: "doublezero0"})
+	}
+	return dedupeProbeServerBindings(candidates)
+}
+
+func dedupeProbeServerBindings(candidates []probeServerBinding) []probeServerBinding {
+	seen := map[string]bool{}
+	bindings := make([]probeServerBinding, 0, len(candidates))
+	for _, candidate := range candidates {
+		if candidate.Interface == "" || seen[candidate.Interface] {
+			continue
+		}
+		seen[candidate.Interface] = true
+		bindings = append(bindings, candidate)
+	}
+	return bindings
+}
+
+func startProbeServerLoop(cfg config, conn net.PacketConn, binding probeServerBinding) {
 	go func() {
 		defer conn.Close()
 		logJSON("probe_server_started", map[string]any{
 			"listenAddress": cfg.ProbeListenAddress,
 			"port":          cfg.ProbePort,
+			"transport":     binding.Transport,
+			"interface":     binding.Interface,
 			"hmac":          hmacState(cfg),
 		})
 		buffer := make([]byte, 4096)
@@ -647,7 +721,6 @@ func startProbeServer(cfg config) error {
 			_, _ = conn.WriteTo(encoded, remote)
 		}
 	}()
-	return nil
 }
 
 func signProbePacket(packet *probePacket, secret string) {
@@ -741,6 +814,16 @@ func isFiniteFloat(value float64) bool {
 func probeState(cfg config) string {
 	if cfg.ProbePort <= 0 {
 		return "disabled"
+	}
+	return "enabled"
+}
+
+func probeBindState(cfg config, interfaceValue string) string {
+	if cfg.ProbePort <= 0 {
+		return "disabled"
+	}
+	if _, err := resolveProbeInterface(interfaceValue); err != nil {
+		return "unavailable"
 	}
 	return "enabled"
 }
@@ -1041,6 +1124,8 @@ func sendHeartbeat(client *http.Client, cfg config) error {
 			"nft:" + commandState("nft"),
 			"doublezero0:" + linkState("doublezero0"),
 			"udp-probe:" + probeState(cfg),
+			"udp-probe-public-bind:" + probeBindState(cfg, "public"),
+			"udp-probe-doublezero-bind:" + probeBindState(cfg, "doublezero0"),
 			"udp-probe-hmac:" + hmacState(cfg),
 			"chrony:" + chronyState(),
 		},

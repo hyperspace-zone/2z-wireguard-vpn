@@ -21,10 +21,20 @@ Each probe job measures two transports:
 - `public`: source socket bound to the gate public underlay interface.
 - `doublezero`: source socket bound to `doublezero0`.
 
+The responder side is transport-aware as well. Each gate-agent opens
+interface-bound responder sockets on the same UDP port, one bound to the public
+underlay interface and one bound to `doublezero0`. Replies are sent from the
+same bound socket that received the request, so the measured path is symmetric:
+
+- `public`: public interface -> Internet -> public interface.
+- `doublezero`: `doublezero0` -> DoubleZero -> `doublezero0`.
+
 Do not use a simple `ping <peer-public-ip>` as benchmark evidence. DoubleZero can
 install routes to peer public IPs through `doublezero0`, so an unbound ping can
 already be using DoubleZero. The gate-agent uses `SO_BINDTODEVICE` to make the
-transport explicit.
+transport explicit. Binding only the source socket is not enough: the target
+gate may receive a public probe on the underlay interface and then route the
+reply back through `doublezero0`.
 
 The API stores latest and historical rows in `gate_benchmark_results`. The web
 dashboard renders:
@@ -65,6 +75,8 @@ journalctl -u hyperspace-gate-agent -n 50 --no-pager
 Expected heartbeat capabilities include:
 
 - `udp-probe:enabled`
+- `udp-probe-public-bind:enabled`
+- `udp-probe-doublezero-bind:enabled`
 - `udp-probe-hmac:enabled`
 - `chrony:sync` when chrony reports synchronized clocks
 
@@ -161,6 +173,8 @@ If public and DoubleZero values look identical or suspicious:
 - Confirm the source agent is reporting the expected `sourceInterface`.
 - Confirm public measurements bind to the underlay interface, not `doublezero0`.
 - Confirm DoubleZero measurements bind to `doublezero0`.
+- Confirm gate-agent logs show separate `probe_server_started` entries for the
+  public interface and `doublezero0`.
 - Use `ip route get <peer-public-ip>` only as diagnostic context, not as the
 benchmark itself.
 
