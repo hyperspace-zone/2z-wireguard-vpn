@@ -134,6 +134,7 @@ On the PostgreSQL host, install postgres_exporter:
 ```bash
 apt-get update
 apt-get install -y prometheus-postgres-exporter
+systemctl list-unit-files | grep -E 'postgres.*exporter'
 ```
 
 Create a monitoring role:
@@ -506,4 +507,3 @@ Common causes:
   URLs from this stack.
 - Use the `hyperspace-native.yml` target file only for private `/metrics`
   endpoints.
-
