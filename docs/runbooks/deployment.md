@@ -788,10 +788,50 @@ AUTH_SESSION_TTL_SECONDS=2592000
 ARTIFACT_DOWNLOAD_TTL_SECONDS=300
 ADMIN_TOKEN=${ADMIN_TOKEN}
 ARTIFACT_ENCRYPTION_KEY=${ARTIFACT_ENCRYPTION_KEY}
+ABUSE_CONTROLS_ENABLED=true
+ABUSE_AUTH_REGISTER_MAX_REQUESTS=5
+ABUSE_AUTH_REGISTER_WINDOW_SECONDS=3600
+ABUSE_AUTH_LOGIN_MAX_REQUESTS=20
+ABUSE_AUTH_LOGIN_WINDOW_SECONDS=900
+ABUSE_PUBLIC_MUTATION_MAX_REQUESTS=120
+ABUSE_PUBLIC_MUTATION_WINDOW_SECONDS=3600
+ABUSE_ARTIFACT_DOWNLOAD_MAX_REQUESTS=60
+ABUSE_ARTIFACT_DOWNLOAD_WINDOW_SECONDS=300
+ABUSE_GATE_MAX_REQUESTS=1200
+ABUSE_GATE_WINDOW_SECONDS=60
+ABUSE_ADMIN_MAX_REQUESTS=120
+ABUSE_ADMIN_WINDOW_SECONDS=60
 EOF
 chown root:hyperspace /etc/hyperspace/control-plane-api.env
 chmod 0640 /etc/hyperspace/control-plane-api.env
 ```
+
+### Basic Abuse Controls
+
+The control-plane API enables in-memory fixed-window abuse controls by default.
+This is a first line of defense for small deployments and testnet hosts; keep a
+reverse-proxy or edge firewall in front of the API for production-scale traffic.
+Each API process keeps its own counters, so limits are per process and reset on
+restart.
+
+Default protected surfaces:
+
+| Surface | Default |
+| --- | ---: |
+| Public registration | 5 requests per source IP per hour |
+| Public login | 20 requests per source IP per 15 minutes |
+| Public mutations after login, including session create and artifact-token issuance | 120 requests per bearer token per hour |
+| Artifact download redemption | 60 requests per source IP and token per 5 minutes |
+| Gate service endpoints | 1,200 requests per gate/source IP per minute |
+| Admin endpoints | 120 requests per source IP per minute |
+
+When a limit is exceeded, the API returns `429` with `Retry-After`,
+`X-RateLimit-Limit`, `X-RateLimit-Remaining`, and `X-RateLimit-Reset` headers.
+
+Tune the values in `/etc/hyperspace/control-plane-api.env` by editing the
+`ABUSE_*_MAX_REQUESTS` and `ABUSE_*_WINDOW_SECONDS` variables shown above. To
+temporarily disable the in-process controls on a private disposable test host,
+set `ABUSE_CONTROLS_ENABLED=false` and restart `hyperspace-control-plane-api`.
 
 Create `/etc/hyperspace/control-plane-worker.env` with the same
 `ARTIFACT_ENCRYPTION_KEY`:

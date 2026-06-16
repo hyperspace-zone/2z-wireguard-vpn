@@ -2,6 +2,13 @@
 
 All API contracts are versioned under `/v1`.
 
+The control-plane API applies basic in-process abuse controls to high-risk
+mutation and authentication surfaces. Limited requests receive `429` with
+`Retry-After`, `X-RateLimit-Limit`, `X-RateLimit-Remaining`, and
+`X-RateLimit-Reset` headers. Operators can tune or disable these controls with
+the `ABUSE_*` environment variables in the control-plane API service
+environment.
+
 ## `/v1/public/*`
 
 Human and web flows:

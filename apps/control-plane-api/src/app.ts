@@ -1,5 +1,6 @@
 import Fastify, { type FastifyInstance } from "fastify";
 import type { Database } from "@hyperspace-zone/db";
+import { registerAbuseControls, type AbuseControlsConfig } from "./http/abuse-controls.js";
 import { createHttpAuth } from "./http/auth.js";
 import { registerOpenApiRoute } from "./http/openapi.js";
 import { registerAdminAuditRoutes } from "./surfaces/admin/audit.routes.js";
@@ -23,6 +24,7 @@ export interface ControlPlaneApiRuntimeConfig {
   downloadTokenTtlSeconds: number;
   adminToken?: string;
   artifactEncryptionKey: Buffer | null;
+  abuseControls: AbuseControlsConfig;
 }
 
 export interface CreateControlPlaneApiAppInput {
@@ -38,6 +40,7 @@ export function createApp(input: CreateControlPlaneApiAppInput): FastifyInstance
     logger: true
   });
 
+  registerAbuseControls(app, config.abuseControls);
   registerOpenApiRoute(app);
   registerHealthRoutes(app);
   registerPublicAuthRoutes(app, {
