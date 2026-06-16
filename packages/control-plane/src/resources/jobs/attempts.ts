@@ -15,6 +15,7 @@ import {
   findJobForReportForUpdate,
   recordJobReportOutcome
 } from "./repository.js";
+import { recordGateBenchmarkJobReport } from "../benchmarks/service.js";
 import { resolveReportedJobTransition, type JobReportStatus } from "./transitions.js";
 
 export interface GateJobReport {
@@ -52,6 +53,15 @@ export async function recordGateJobReport(
         jobType: row.type,
         report,
         terminalFailure: transition.terminalFailure
+      });
+    }
+
+    if (row.type === "probe" && row.gateId) {
+      await recordGateBenchmarkJobReport(client, {
+        jobId: row.id,
+        sourceGateId: row.gateId,
+        payload: row.payload,
+        resultSummary: report.resultSummary
       });
     }
 

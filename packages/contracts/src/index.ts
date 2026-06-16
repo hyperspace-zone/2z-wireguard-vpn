@@ -14,6 +14,7 @@ export * from "./api/health.js";
 export * from "./api/public.js";
 export * from "./resources/actual-state.js";
 export * from "./resources/artifact.js";
+export * from "./resources/benchmark.js";
 export * from "./resources/condition.js";
 export * from "./resources/entitlement.js";
 export * from "./resources/gate-assignment.js";

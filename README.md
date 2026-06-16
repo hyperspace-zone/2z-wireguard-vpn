@@ -120,6 +120,8 @@ flowchart LR
   agentIn -->|"polls jobs, reports actual state"| api
   agentEg -->|"polls jobs, reports actual state"| api
   api -->|"stores gate status\nand job results"| db
+  worker -->|"schedules benchmark\nprobe jobs"| db
+  agentIn <-->|"UDP benchmark probes\npublic + doublezero0"| agentEg
 
   client -->|"WireGuard config"| ingress
   ingress -->|"pinned route"| dz
@@ -138,6 +140,8 @@ The control plane follows a declarative resource model:
 - `RenderedPlan` is immutable per session generation.
 - `Artifact` controls client config issuance and invalidation.
 - `Job` and `JobAttempt` provide row-level leased execution history.
+- `GateBenchmarkResult` stores public-vs-DoubleZero RTT, jitter, loss, and
+  one-way probe evidence for directed gate pairs.
 
 The main control-plane pattern is a reconciliation loop. API requests do not
 directly mutate gate hosts. Instead, the API validates user intent and writes
@@ -189,6 +193,9 @@ Long-running public-vs-Hyperspace connectivity matrices are explicit measurement
 `npm run measure:matrix -- ...` followed by `npm run measure:compare -- ...`.
 See [Long-Running Measurement Matrix](docs/runbooks/long-running-measurement-matrix.md)
 for prerequisites.
+
+Continuous gate-to-gate public-vs-DoubleZero benchmarks are documented in
+[Gate Benchmarking](docs/runbooks/gate-benchmarking.md).
 
 Gate agent checks:
 
