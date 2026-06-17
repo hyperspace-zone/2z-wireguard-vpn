@@ -547,7 +547,7 @@ function benchmarkMatrixPanel(gates: Gate[], matrix: BenchmarkMatrix | null): st
       <div class="benchmark-routes-heading">
         <div>
           <h3>DZ vs Internet</h3>
-          <p>Directed gate-to-gate latency comparison for the same source and target cities.</p>
+          <p>Directed gate-to-gate latency comparison over DZ and Internet for each city pair.</p>
         </div>
         <div class="benchmark-summary" aria-label="Benchmark summary">
           <span><strong>${filteredRows.length}</strong> routes</span>
