@@ -629,10 +629,10 @@ function benchmarkRttRouteRow(row: BenchmarkRouteRow): string {
       <td class="numeric-cell">${benchmarkValueCell(route.public, formatMetricMs(row.publicRttMs))}</td>
       <td class="numeric-cell">${benchmarkImprovementCell(row.rttImprovementPercent)}</td>
       <td class="numeric-cell">${formatSavedMetricMs(row.rttSavedMs)}</td>
-      <td class="numeric-cell">${benchmarkValueCell(route.doublezero, formatMetricMs(row.doublezeroJitterMs))}</td>
-      <td class="numeric-cell">${benchmarkValueCell(route.public, formatMetricMs(row.publicJitterMs))}</td>
+      <td class="numeric-cell">${benchmarkValueCell(route.doublezero, formatJitterMetricMs(row.doublezeroJitterMs))}</td>
+      <td class="numeric-cell">${benchmarkValueCell(route.public, formatJitterMetricMs(row.publicJitterMs))}</td>
       <td class="numeric-cell">${benchmarkImprovementCell(row.jitterImprovementPercent)}</td>
-      <td class="numeric-cell">${formatSavedMetricMs(row.jitterSavedMs)}</td>
+      <td class="numeric-cell">${formatSavedJitterMetricMs(row.jitterSavedMs)}</td>
       <td class="numeric-cell">${benchmarkEdgeRttCell(row.sourceGate, row.ingressDzRttMs)}</td>
       <td class="numeric-cell">${benchmarkEdgeRttCell(row.targetGate, row.egressDzRttMs)}</td>
     </tr>
@@ -988,6 +988,10 @@ function formatMetricMs(value: number | undefined): string {
   return typeof value === "number" && Number.isFinite(value) ? `${formatLatency(value)}ms` : "n/a";
 }
 
+function formatJitterMetricMs(value: number | undefined): string {
+  return typeof value === "number" && Number.isFinite(value) ? `${formatFixedLatency(value, 2)}ms` : "n/a";
+}
+
 function formatSignedMetricMs(value: number | undefined): string {
   if (typeof value !== "number" || !Number.isFinite(value)) {
     return "n/a";
@@ -1005,6 +1009,17 @@ function formatSavedMetricMs(value: number | undefined): string {
   }
   const sign = value > 0 ? "-" : "+";
   return `${sign}${formatLatency(Math.abs(value))}ms`;
+}
+
+function formatSavedJitterMetricMs(value: number | undefined): string {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return "n/a";
+  }
+  if (value === 0) {
+    return "0.00ms";
+  }
+  const sign = value > 0 ? "-" : "+";
+  return `${sign}${formatFixedLatency(Math.abs(value), 2)}ms`;
 }
 
 function formatSignedPercent(value: number | undefined): string {
@@ -2559,6 +2574,10 @@ function formatLatency(value: number | null): string {
 
 function roundLatency(value: number): number {
   return Math.round(value * 10) / 10;
+}
+
+function formatFixedLatency(value: number, fractionDigits: number): string {
+  return value.toFixed(fractionDigits);
 }
 
 function compact(value: unknown): unknown {
