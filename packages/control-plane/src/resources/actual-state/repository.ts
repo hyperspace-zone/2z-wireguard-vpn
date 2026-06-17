@@ -44,13 +44,12 @@ export async function updateGateActualState(
     `
       UPDATE gate_status
       SET actual_state_hash = $2,
-          observed_capabilities = CASE WHEN cardinality($3::text[]) > 0 THEN $3::text[] ELSE observed_capabilities END,
-          boot_id = COALESCE($4, boot_id),
-          agent_version = COALESCE($5, agent_version),
+          boot_id = COALESCE($3, boot_id),
+          agent_version = COALESCE($4, agent_version),
           updated_at = now()
       WHERE gate_id = $1
     `,
-    [gateId, input.stateHash || null, input.capabilities, input.bootId, input.agentVersion]
+    [gateId, input.stateHash || null, input.bootId, input.agentVersion]
   );
 }
 
