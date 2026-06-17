@@ -613,8 +613,8 @@ function benchmarkRttRoutesTable(rows: BenchmarkRouteRow[]): string {
             ${benchmarkRttSortableHeader("Internet RTT Jitter", "internetJitter", "right")}
             ${benchmarkRttSortableHeader("RTT Jitter Improvement", "jitterImprovement", "right")}
             ${benchmarkRttSortableHeader("RTT Jitter Saved", "jitterSaved", "right")}
-            ${benchmarkRttSortableHeader("Ingress gate -> DZ RTT", "ingressDzRtt", "right")}
-            ${benchmarkRttSortableHeader("Egress gate -> DZ RTT", "egressDzRtt", "right")}
+            ${benchmarkRttSortableHeader("Ingress gate ↔ DZ RTT", "ingressDzRtt", "right")}
+            ${benchmarkRttSortableHeader("Egress gate ↔ DZ RTT", "egressDzRtt", "right")}
           </tr>
         </thead>
         <tbody>
@@ -669,8 +669,8 @@ function benchmarkOneWayRoutesTable(rows: BenchmarkRouteRow[]): string {
             ${benchmarkOneWaySortableHeader("Internet Jitter", "internetOneWayJitter", "right")}
             ${benchmarkOneWaySortableHeader("Jitter Improvement", "oneWayJitterImprovement", "right")}
             ${benchmarkOneWaySortableHeader("Jitter Saved", "oneWayJitterSaved", "right")}
-            ${benchmarkOneWaySortableHeader("Ingress gate -> DZ", "ingressDzOneWay", "right", edgeOneWayEstimateTooltip())}
-            ${benchmarkOneWaySortableHeader("DZ -> Egress gate", "egressDzOneWay", "right", edgeOneWayEstimateTooltip())}
+            ${benchmarkOneWaySortableHeader("Ingress gate → DZ", "ingressDzOneWay", "right", edgeOneWayEstimateTooltip())}
+            ${benchmarkOneWaySortableHeader("DZ → Egress gate", "egressDzOneWay", "right", edgeOneWayEstimateTooltip())}
           </tr>
         </thead>
         <tbody>
@@ -701,8 +701,8 @@ function benchmarkOneWayRouteRow(row: BenchmarkRouteRow): string {
       <td class="numeric-cell">${benchmarkValueCell(route.public, formatJitterMetricMs(row.publicOneWayJitterMs))}</td>
       <td class="numeric-cell">${benchmarkImprovementCell(row.oneWayJitterImprovementPercent)}</td>
       <td class="numeric-cell">${formatSavedJitterMetricMs(row.oneWayJitterSavedMs)}</td>
-      <td class="numeric-cell">${benchmarkEdgeOneWayEstimateCell(row.sourceGate, row.ingressDzOneWayMs, "Ingress gate -> DZ")}</td>
-      <td class="numeric-cell">${benchmarkEdgeOneWayEstimateCell(row.targetGate, row.egressDzOneWayMs, "DZ -> Egress gate")}</td>
+      <td class="numeric-cell">${benchmarkEdgeOneWayEstimateCell(row.sourceGate, row.ingressDzOneWayMs, "Ingress gate → DZ")}</td>
+      <td class="numeric-cell">${benchmarkEdgeOneWayEstimateCell(row.targetGate, row.egressDzOneWayMs, "DZ → Egress gate")}</td>
     </tr>
   `;
 }
@@ -785,8 +785,8 @@ function benchmarkRouteRows(gates: Gate[], matrix: BenchmarkMatrix | null): Benc
       route,
       sourceGate,
       targetGate,
-      routeLabel: `${route.sourceGateName} -> ${route.targetGateName}`,
-      cityLabel: `${sourceCity} -> ${targetCity}`,
+      routeLabel: `${route.sourceGateName} → ${route.targetGateName}`,
+      cityLabel: `${sourceCity} → ${targetCity}`,
       sourceCity,
       targetCity,
       publicRttMs,
