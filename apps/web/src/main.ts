@@ -494,7 +494,7 @@ function gatesPanel(gates: Gate[]): string {
       <thead>
         <tr>
           <th>Name</th>
-          <th>City</th>
+          <th>Metro</th>
           <th>Country</th>
           <th>Public IPv4</th>
           <th>Ready</th>
@@ -511,7 +511,7 @@ function gatesPanel(gates: Gate[]): string {
             (gate) => `
               <tr>
                 <td>${escapeHtml(gate.name)}</td>
-                <td>${escapeHtml(gate.city || "unknown")}</td>
+                <td>${escapeHtml(gate.doubleZero?.metro?.trim() || gate.city || "unknown")}</td>
                 <td>${escapeHtml(gate.country || "unknown")}</td>
                 <td><small class="mono">${escapeHtml(gate.publicIpv4)}</small></td>
                 <td>${statusDot(gate.ready)}</td>
@@ -546,7 +546,7 @@ function benchmarkMatrixPanel(gates: Gate[], matrix: BenchmarkMatrix | null): st
       <div class="benchmark-routes-heading">
         <div>
           <h3>DZ vs Internet</h3>
-          <p>Directed gate-to-gate latency comparison for the same source and target cities.</p>
+          <p>Directed gate-to-gate latency comparison for the same source and target metros.</p>
         </div>
         <div class="benchmark-summary" aria-label="Benchmark summary">
           <span><strong>${filteredRows.length}</strong> routes</span>
@@ -557,9 +557,9 @@ function benchmarkMatrixPanel(gates: Gate[], matrix: BenchmarkMatrix | null): st
       </div>
       <div class="benchmark-controls">
         <label class="benchmark-filter-label">
-          City filter
+          Metro filter
           <select id="benchmark-city-filter">
-            <option value="" ${benchmarkCityFilter === "" ? "selected" : ""}>All cities</option>
+            <option value="" ${benchmarkCityFilter === "" ? "selected" : ""}>All metros</option>
             ${cityOptions.map((city) => `<option value="${escapeHtml(city)}" ${benchmarkCityFilter === city ? "selected" : ""}>${escapeHtml(city)}</option>`).join("")}
           </select>
         </label>
@@ -584,7 +584,7 @@ function benchmarkMatrixPanel(gates: Gate[], matrix: BenchmarkMatrix | null): st
 
 function benchmarkRttRoutesTable(rows: BenchmarkRouteRow[]): string {
   if (rows.length === 0) {
-    return '<p class="empty-state-text">No routes match the selected city filter.</p>';
+    return '<p class="empty-state-text">No routes match the selected metro filter.</p>';
   }
   return `
     <div class="table-scroll">
@@ -640,7 +640,7 @@ function benchmarkRttRouteRow(row: BenchmarkRouteRow): string {
 
 function benchmarkOneWayRoutesTable(rows: BenchmarkRouteRow[]): string {
   if (rows.length === 0) {
-    return '<p class="empty-state-text">No routes match the selected city filter.</p>';
+    return '<p class="empty-state-text">No routes match the selected metro filter.</p>';
   }
   return `
     <div class="table-scroll">
@@ -875,7 +875,7 @@ function benchmarkCityOptions(rows: BenchmarkRouteRow[]): string[] {
 }
 
 function benchmarkCity(gate: Gate): string {
-  return gate.city?.trim() || gate.doubleZero?.metro?.trim() || shortGateName(gate.name);
+  return gate.doubleZero?.metro?.trim() || gate.city?.trim() || shortGateName(gate.name);
 }
 
 function benchmarkSummary(rows: BenchmarkRouteRow[], filteredRows: BenchmarkRouteRow[]): {

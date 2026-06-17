@@ -386,26 +386,26 @@ tbody td {
 .benchmark-improvement {
   border-radius: 4px;
   display: inline-flex;
-  font-weight: 700;
+  font-weight: 400;
   padding: 2px 6px;
 }
 
 .benchmark-improvement-good {
   background: #DBFCE7;
   border-color: #86efac;
-  color: #166534;
+  color: #16a34a;
 }
 
 .benchmark-improvement-similar {
   background: #FEF9C2;
   border-color: #fde047;
-  color: #854d0e;
+  color: #ca8a04;
 }
 
 .benchmark-improvement-internet {
   background: #FFE2E2;
   border-color: #f9a8d4;
-  color: #9d174d;
+  color: #dc2626;
 }
 
 .benchmark-legend {
