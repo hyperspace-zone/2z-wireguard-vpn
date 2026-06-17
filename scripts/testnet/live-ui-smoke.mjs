@@ -95,7 +95,10 @@ try {
   await expectText(page, "City filter");
   await expectText(page, "RTT Improvement");
   await expectText(page, "RTT Saved");
-  await expectText(page, "Jitter");
+  await expectText(page, "DZ RTT Jitter");
+  await expectText(page, "Internet RTT Jitter");
+  await expectText(page, "RTT Jitter Improvement");
+  await expectText(page, "RTT Jitter Saved");
   await expectText(page, "DZ One-Way");
   await expectText(page, "Internet One-Way");
   await expectText(page, "fresh within 15m");

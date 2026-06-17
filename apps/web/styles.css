@@ -302,24 +302,27 @@ tbody td {
 }
 
 .benchmark-route-table th:nth-child(1) {
-  width: 22%;
+  width: 17%;
 }
 
 .benchmark-route-table th:nth-child(2),
 .benchmark-route-table th:nth-child(3),
 .benchmark-route-table th:nth-child(5),
+.benchmark-route-table th:nth-child(6),
+.benchmark-route-table th:nth-child(7),
 .benchmark-route-table th:nth-child(9) {
-  width: 8%;
+  width: 7%;
 }
 
 .benchmark-route-table th:nth-child(4),
-.benchmark-route-table th:nth-child(7),
-.benchmark-route-table th:nth-child(8) {
-  width: 10%;
+.benchmark-route-table th:nth-child(8),
+.benchmark-route-table th:nth-child(10),
+.benchmark-route-table th:nth-child(11) {
+  width: 8%;
 }
 
-.benchmark-route-table th:nth-child(6) {
-  width: 16%;
+.benchmark-route-table th:nth-child(12) {
+  width: 6%;
 }
 
 .benchmark-route-table .table-sort {

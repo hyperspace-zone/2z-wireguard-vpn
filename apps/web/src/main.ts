@@ -3,7 +3,7 @@ type AppView = "dashboard" | "create-config" | "login" | "register";
 type CreateConfigStep = "configure" | "confirm";
 type SortDirection = "desc" | "asc";
 type KeyInstructionPlatform = "linux" | "macos" | "windows";
-type BenchmarkSortField = "route" | "doublezeroRtt" | "internetRtt" | "improvement" | "rttSaved" | "jitter" | "doublezeroOneWay" | "internetOneWay" | "loss";
+type BenchmarkSortField = "route" | "doublezeroRtt" | "internetRtt" | "improvement" | "rttSaved" | "doublezeroJitter" | "internetJitter" | "jitterImprovement" | "jitterSaved" | "doublezeroOneWay" | "internetOneWay" | "loss";
 type SessionValidationErrors = Partial<Record<"sourceIp" | "targetIp" | "ingressGateName" | "egressGateName" | "clientPublicKey", string>>;
 
 interface Gate {
@@ -340,14 +340,17 @@ function isBenchmarkSortField(value: string | undefined): value is BenchmarkSort
     value === "internetRtt" ||
     value === "improvement" ||
     value === "rttSaved" ||
-    value === "jitter" ||
+    value === "doublezeroJitter" ||
+    value === "internetJitter" ||
+    value === "jitterImprovement" ||
+    value === "jitterSaved" ||
     value === "doublezeroOneWay" ||
     value === "internetOneWay" ||
     value === "loss";
 }
 
 function benchmarkDefaultSortDirection(field: BenchmarkSortField): SortDirection {
-  return field === "improvement" || field === "rttSaved" || field === "jitter" ? "desc" : "asc";
+  return field === "improvement" || field === "rttSaved" || field === "jitterImprovement" || field === "jitterSaved" ? "desc" : "asc";
 }
 
 function appNav(view: AppView): string {
@@ -546,7 +549,10 @@ function benchmarkRoutesTable(rows: BenchmarkRouteRow[]): string {
             ${benchmarkSortableHeader("Internet RTT", "internetRtt", "right")}
             ${benchmarkSortableHeader("RTT Improvement", "improvement", "right")}
             ${benchmarkSortableHeader("RTT Saved", "rttSaved", "right")}
-            ${benchmarkSortableHeader("Jitter", "jitter", "right")}
+            ${benchmarkSortableHeader("DZ RTT Jitter", "doublezeroJitter", "right")}
+            ${benchmarkSortableHeader("Internet RTT Jitter", "internetJitter", "right")}
+            ${benchmarkSortableHeader("RTT Jitter Improvement", "jitterImprovement", "right")}
+            ${benchmarkSortableHeader("RTT Jitter Saved", "jitterSaved", "right")}
             ${benchmarkSortableHeader("DZ One-Way", "doublezeroOneWay", "right")}
             ${benchmarkSortableHeader("Internet One-Way", "internetOneWay", "right")}
             ${benchmarkSortableHeader("Loss", "loss", "right")}
@@ -576,7 +582,10 @@ function benchmarkRouteRow(row: BenchmarkRouteRow): string {
       <td class="numeric-cell">${benchmarkValueCell(route.public, formatMetricMs(row.publicRttMs))}</td>
       <td class="numeric-cell">${benchmarkImprovementCell(row.rttImprovementPercent)}</td>
       <td class="numeric-cell">${formatSavedMetricMs(row.rttSavedMs)}</td>
-      <td class="numeric-cell">${benchmarkJitterCell(row)}</td>
+      <td class="numeric-cell">${benchmarkValueCell(route.doublezero, formatMetricMs(row.doublezeroJitterMs))}</td>
+      <td class="numeric-cell">${benchmarkValueCell(route.public, formatMetricMs(row.publicJitterMs))}</td>
+      <td class="numeric-cell">${benchmarkImprovementCell(row.jitterImprovementPercent)}</td>
+      <td class="numeric-cell">${formatSavedMetricMs(row.jitterSavedMs)}</td>
       <td class="numeric-cell">${benchmarkValueCell(route.doublezero, formatMetricMs(row.doublezeroOneWayMs))}</td>
       <td class="numeric-cell">${benchmarkValueCell(route.public, formatMetricMs(row.publicOneWayMs))}</td>
       <td class="numeric-cell">${benchmarkLossCell(row)}</td>
@@ -684,7 +693,16 @@ function sortBenchmarkRows(rows: BenchmarkRouteRow[]): BenchmarkRouteRow[] {
       case "rttSaved":
         cmp = compareOptionalNumber(a.rttSavedMs, b.rttSavedMs, benchmarkSortDirection);
         break;
-      case "jitter":
+      case "doublezeroJitter":
+        cmp = compareOptionalNumber(a.doublezeroJitterMs, b.doublezeroJitterMs, benchmarkSortDirection);
+        break;
+      case "internetJitter":
+        cmp = compareOptionalNumber(a.publicJitterMs, b.publicJitterMs, benchmarkSortDirection);
+        break;
+      case "jitterImprovement":
+        cmp = compareOptionalNumber(a.jitterImprovementPercent, b.jitterImprovementPercent, benchmarkSortDirection);
+        break;
+      case "jitterSaved":
         cmp = compareOptionalNumber(a.jitterSavedMs, b.jitterSavedMs, benchmarkSortDirection);
         break;
       case "doublezeroOneWay":
@@ -772,20 +790,6 @@ function benchmarkImprovementClass(value: number): string {
     return "benchmark-improvement-similar";
   }
   return "benchmark-improvement-internet";
-}
-
-function benchmarkJitterCell(row: BenchmarkRouteRow): string {
-  const jitterSummary = `
-    <span>DZ ${formatMetricMs(row.doublezeroJitterMs)}</span>
-    <small>Internet ${formatMetricMs(row.publicJitterMs)}</small>
-  `;
-  if (typeof row.jitterImprovementPercent !== "number" || !Number.isFinite(row.jitterImprovementPercent)) {
-    return jitterSummary;
-  }
-  return `
-    ${jitterSummary}
-    <small><span class="benchmark-improvement ${benchmarkImprovementClass(row.jitterImprovementPercent)}">${escapeHtml(formatSignedPercent(row.jitterImprovementPercent))} / ${escapeHtml(formatSavedMetricMs(row.jitterSavedMs))}</span></small>
-  `;
 }
 
 function benchmarkLossCell(row: BenchmarkRouteRow): string {

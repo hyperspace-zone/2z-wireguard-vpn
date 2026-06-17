@@ -41,7 +41,8 @@ dashboard renders a route table:
 
 - one directed gate pair per row
 - sortable columns for city-directed route, DoubleZero RTT, Internet RTT,
-  RTT improvement, RTT saved, jitter, loss, and one-way values
+  RTT improvement, RTT saved, DoubleZero RTT jitter, Internet RTT jitter,
+  RTT jitter improvement, RTT jitter saved, loss, and one-way values
 - a City filter for narrowing routes by source or target location
 - a freshness line with the latest sample time and transport coverage within
   the last 15 minutes
