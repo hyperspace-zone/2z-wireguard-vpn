@@ -43,8 +43,8 @@ Benchmarks page renders two route tables:
 - `Gate benchmark routes — RTT` with sortable columns for city-directed route,
   DoubleZero RTT, Internet RTT,
   RTT improvement, RTT saved, DoubleZero RTT jitter, Internet RTT jitter, RTT
-  jitter improvement, RTT jitter saved, DoubleZero loss, Internet loss, loss
-  improvement, loss saved, ingress gate ↔ DZ RTT, and egress gate ↔ DZ RTT
+  jitter improvement, RTT jitter saved, loss with DoubleZero and Internet
+  values, ingress gate ↔ DZ RTT, and egress gate ↔ DZ RTT
 - `Gate benchmark routes — One-Way` with sortable columns for city-directed
   route, DZ One-Way, Internet One-Way, One-Way improvement, and One-Way saved
 - a City filter for narrowing routes by source or target location
