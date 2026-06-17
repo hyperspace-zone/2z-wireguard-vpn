@@ -7,6 +7,8 @@ import {
   randomBytes
 } from "node:crypto";
 
+export * from "./observability.js";
+
 export type ResourceConditionStatus = "True" | "False" | "Unknown";
 
 export interface ResourceCondition {

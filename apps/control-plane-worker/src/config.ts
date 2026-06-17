@@ -5,6 +5,8 @@ export interface ControlPlaneWorkerConfig extends ReconcileLoopRuntimeConfig {
   databaseUrl: string;
   pollMs: number;
   workerId: string;
+  observabilityHost: string;
+  observabilityPort: number;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): ControlPlaneWorkerConfig {
@@ -22,6 +24,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ControlPlaneWo
     artifactEncryptionKey: parseAes256GcmKey(artifactEncryptionKeyRaw),
     pollMs: Number(env.WORKER_POLL_MS ?? 2000),
     workerId: env.WORKER_ID ?? `worker-${process.pid}`,
+    observabilityHost: env.WORKER_OBSERVABILITY_HOST ?? "0.0.0.0",
+    observabilityPort: Number(env.WORKER_OBSERVABILITY_PORT ?? 9091),
     gateHeartbeatStaleSeconds: Number(env.GATE_HEARTBEAT_STALE_SECONDS ?? 45),
     provisioningTimeoutSeconds: Number(env.PROVISIONING_TIMEOUT_SECONDS ?? 90),
     benchmarkProbesEnabled: env.BENCHMARK_PROBES_ENABLED !== "false",

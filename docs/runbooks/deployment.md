@@ -30,7 +30,7 @@ Minimum production-like layout:
 | Control plane | 1 | Runs API and worker systemd services. |
 | PostgreSQL | 1 | Transaction source of truth. Keep private. |
 | Gate | 2 | Minimum for a route that uses distinct ingress and egress roles. Gates are universal; each gate must expose HTTPS probes. |
-| Observability | 0-1 | Optional in this runbook. The repository currently documents the target shape in `infra/observability/README.md`, but does not ship a complete Prometheus/Grafana deployment bundle. |
+| Observability | 1 | Prometheus, Grafana, alert rules, and dashboard provisioning from `infra/observability`. |
 
 For small test deployments, web, control-plane, and PostgreSQL can be collapsed
 onto one host. Gate hosts should remain separate from the control plane.
@@ -891,6 +891,8 @@ cat >/etc/hyperspace/control-plane-worker.env <<EOF
 DATABASE_URL=${DATABASE_URL}
 WORKER_POLL_MS=2000
 WORKER_ID=control-plane-worker-01
+WORKER_OBSERVABILITY_HOST=0.0.0.0
+WORKER_OBSERVABILITY_PORT=9091
 ARTIFACT_ENCRYPTION_KEY=${ARTIFACT_ENCRYPTION_KEY}
 BENCHMARK_PROBES_ENABLED=true
 BENCHMARK_INTERVAL_SECONDS=300
@@ -919,6 +921,11 @@ systemctl enable --now hyperspace-control-plane-worker
 systemctl status --no-pager hyperspace-control-plane-api
 systemctl status --no-pager hyperspace-control-plane-worker
 ```
+
+The API exposes Prometheus metrics at `/metrics` on the public control-plane
+origin. The worker exposes `/health` and `/metrics` on
+`WORKER_OBSERVABILITY_HOST:WORKER_OBSERVABILITY_PORT`; restrict this port to the
+observability host in production firewalls.
 
 Install Caddy or another reverse proxy for the public control-plane API host.
 The API must be reachable by browsers, automation clients, and gate agents over
@@ -1061,6 +1068,80 @@ curl --retry 30 --retry-delay 1 --retry-all-errors -fsS "https://${HS_WEB_HOST}/
 Run the live UI/API smoke only after the gate catalog is seeded and at least two
 gate agents are reporting `ready=true` and `schedulable=true`; see
 [Live Smoke Tests](live-smoke-tests.md).
+
+## Observability
+
+Run this section on the observability host. Set `HS_CLUSTER` to either
+`testnet` or `mainnet`; set `OBSERVABILITY_DOMAIN` to the public Grafana host.
+
+```bash
+export HS_CLUSTER=testnet
+export OBSERVABILITY_DOMAIN=observability.testnet.hyperspace.zone
+export HS_REPO_DIR=/opt/2z-wireguard-vpn
+```
+
+Install Prometheus, Grafana, and Caddy:
+
+```bash
+apt-get update
+apt-get install -y prometheus caddy apt-transport-https software-properties-common wget gpg
+
+install -d -m 0755 /etc/apt/keyrings
+wget -q -O - https://apt.grafana.com/gpg.key | gpg --dearmor >/etc/apt/keyrings/grafana.gpg
+echo "deb [signed-by=/etc/apt/keyrings/grafana.gpg] https://apt.grafana.com stable main" \
+  >/etc/apt/sources.list.d/grafana.list
+apt-get update
+apt-get install -y grafana
+```
+
+Provision Prometheus rules, Grafana datasource, and dashboard:
+
+```bash
+install -d -m 0755 /etc/prometheus/rules
+install -m 0644 "$HS_REPO_DIR/infra/observability/prometheus/prometheus.${HS_CLUSTER}.yml" \
+  /etc/prometheus/prometheus.yml
+install -m 0644 "$HS_REPO_DIR/infra/observability/prometheus/rules/hyperspace-alerts.yml" \
+  /etc/prometheus/rules/hyperspace-alerts.yml
+
+install -d -m 0755 /etc/grafana/provisioning/datasources
+install -d -m 0755 /etc/grafana/provisioning/dashboards
+install -d -o grafana -g grafana -m 0755 /var/lib/grafana/dashboards/hyperspace
+install -m 0644 "$HS_REPO_DIR/infra/observability/grafana/provisioning/datasources/prometheus.yml" \
+  /etc/grafana/provisioning/datasources/prometheus.yml
+install -m 0644 "$HS_REPO_DIR/infra/observability/grafana/provisioning/dashboards/hyperspace.yml" \
+  /etc/grafana/provisioning/dashboards/hyperspace.yml
+install -o grafana -g grafana -m 0644 "$HS_REPO_DIR/infra/observability/grafana/dashboards/hyperspace-control-plane.json" \
+  /var/lib/grafana/dashboards/hyperspace/hyperspace-control-plane.json
+```
+
+Expose Grafana over HTTPS and Prometheus under `/prometheus/*`:
+
+```bash
+install -m 0644 "$HS_REPO_DIR/infra/observability/caddy/Caddyfile" /etc/caddy/Caddyfile
+cat >/etc/caddy/observability.env <<EOF
+OBSERVABILITY_DOMAIN=${OBSERVABILITY_DOMAIN}
+EOF
+install -d -m 0755 /etc/systemd/system/caddy.service.d
+cat >/etc/systemd/system/caddy.service.d/observability-env.conf <<EOF
+[Service]
+EnvironmentFile=/etc/caddy/observability.env
+EOF
+```
+
+Start services and validate:
+
+```bash
+systemctl daemon-reload
+systemctl enable --now prometheus grafana-server caddy
+systemctl restart prometheus grafana-server caddy
+
+promtool check config /etc/prometheus/prometheus.yml
+promtool check rules /etc/prometheus/rules/hyperspace-alerts.yml
+curl -fsS "http://127.0.0.1:9090/-/ready"
+curl -fsS "http://127.0.0.1:3000/api/health"
+curl -fsS "https://${OBSERVABILITY_DOMAIN}/api/health"
+curl -fsS "https://${OBSERVABILITY_DOMAIN}/prometheus/-/ready"
+```
 
 ## Gate Catalog
 

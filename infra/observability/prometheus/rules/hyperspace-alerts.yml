@@ -1,0 +1,74 @@
+groups:
+  - name: hyperspace-control-plane
+    rules:
+      - alert: HyperspaceControlPlaneApiDown
+        expr: up{job="hyperspace-control-plane-api"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: Hyperspace control-plane API metrics scrape is down
+          description: Prometheus cannot scrape the control-plane API metrics endpoint for 2 minutes.
+
+      - alert: HyperspaceControlPlaneWorkerDown
+        expr: up{job="hyperspace-control-plane-worker"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: Hyperspace control-plane worker metrics scrape is down
+          description: Prometheus cannot scrape the worker observability endpoint for 2 minutes.
+
+      - alert: HyperspaceTooFewSchedulableGates
+        expr: hyperspace_control_plane_gates_total{state="schedulable"} < 2
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: Too few schedulable Hyperspace gates
+          description: Fewer than two gates are schedulable, so new ingress/egress VPN paths cannot be safely provisioned.
+
+      - alert: HyperspaceDeadJobsPresent
+        expr: sum(hyperspace_control_plane_jobs_total{phase="dead"}) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Dead control-plane jobs are present
+          description: At least one control-plane job reached the dead terminal phase and needs operator review.
+
+      - alert: HyperspaceBenchmarkFailures
+        expr: sum(hyperspace_control_plane_benchmark_routes_total{status="failed"}) > 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Gate benchmark routes are failing
+          description: Latest gate benchmark results include failed Internet or DoubleZero route measurements.
+
+      - alert: HyperspaceBenchmarkDataStale
+        expr: max(hyperspace_control_plane_benchmark_max_age_seconds) > 900
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Gate benchmark data is stale
+          description: Latest gate benchmark samples are older than 15 minutes.
+
+      - alert: HyperspaceApiHighErrorRate
+        expr: sum(rate(hyperspace_api_http_requests_total{status=~"5.."}[5m])) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Control-plane API 5xx errors detected
+          description: The control-plane API is returning 5xx responses above the accepted threshold.
+
+      - alert: HyperspaceRateLimitRejections
+        expr: sum(rate(hyperspace_public_rate_limit_rejections_total[5m])) > 0.1
+        for: 5m
+        labels:
+          severity: info
+        annotations:
+          summary: Public API rate limiting is active
+          description: Public API requests are being rejected by basic abuse-control rate limits.

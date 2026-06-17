@@ -1,6 +1,8 @@
 import type { Database } from "@hyperspace-zone/db";
+import type { HealthRegistry, RuntimeMetrics } from "@hyperspace-zone/shared";
 import type { ControlPlaneWorkerConfig } from "../config.js";
 import { createCleanupLoop } from "../loops/cleanup-loop.js";
+import { collectControlPlaneSnapshotMetrics } from "../observability/control-plane-snapshot.js";
 import { createRetryLoop } from "../loops/retry-loop.js";
 import { createReconcileRunner } from "./reconcile-runner.js";
 import { log, sleep } from "../support/runtime.js";
@@ -13,6 +15,8 @@ export interface WorkerRunner {
 export function createWorkerRunner(input: {
   db: Database;
   config: ControlPlaneWorkerConfig;
+  health: HealthRegistry;
+  metrics: RuntimeMetrics;
 }): WorkerRunner {
   const reconcileRunner = createReconcileRunner({
     db: input.db,
@@ -25,18 +29,12 @@ export function createWorkerRunner(input: {
   return {
     async start(): Promise<void> {
       log({ event: "worker_started", workerId: input.config.workerId, pollMs: input.config.pollMs });
+      input.health.setComponent("worker-runner", { state: "ready", message: "Worker runner loop started." });
       while (!stopping) {
-        try {
-          await reconcileRunner.runOnce();
-          await retryLoop.runOnce();
-          await cleanupLoop.runOnce();
-        } catch (error) {
-          log({
-            event: "worker_reconcile_error",
-            workerId: input.config.workerId,
-            error: error instanceof Error ? error.message : String(error)
-          });
-        }
+        await runMeasuredLoop("reconcile", input, () => reconcileRunner.runOnce());
+        await runMeasuredLoop("retry", input, () => retryLoop.runOnce());
+        await runMeasuredLoop("cleanup", input, () => cleanupLoop.runOnce());
+        await runMeasuredLoop("snapshot", input, () => collectControlPlaneSnapshotMetrics(input));
         if (!stopping) {
           await sleep(input.config.pollMs);
         }
@@ -48,7 +46,57 @@ export function createWorkerRunner(input: {
       }
       stopping = true;
       log({ event: "worker_stopping", workerId: input.config.workerId });
+      input.health.setComponent("worker-runner", { state: "stopped", message: "Worker runner is stopping." });
       await input.db.close();
     }
   };
+}
+
+async function runMeasuredLoop(
+  loop: string,
+  input: {
+    config: ControlPlaneWorkerConfig;
+    health: HealthRegistry;
+    metrics: RuntimeMetrics;
+  },
+  fn: () => Promise<void>
+): Promise<void> {
+  const started = process.hrtime.bigint();
+  try {
+    await fn();
+    const durationSeconds = Number(process.hrtime.bigint() - started) / 1_000_000_000;
+    input.metrics.counter("worker_loop_runs_total", 1, {
+      help: "Total worker loop executions by loop and status.",
+      labels: { loop, status: "success" }
+    });
+    input.metrics.histogram("worker_loop_duration_seconds", durationSeconds, {
+      help: "Worker loop execution duration in seconds.",
+      labels: { loop }
+    });
+    input.metrics.gauge("worker_loop_last_success_timestamp_seconds", Date.now() / 1000, {
+      help: "Unix timestamp of the last successful worker loop execution.",
+      labels: { loop }
+    });
+    input.health.setComponent(`${loop}-loop`, {
+      state: "ready",
+      message: "Loop completed successfully.",
+      details: { durationSeconds }
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    input.metrics.counter("worker_loop_runs_total", 1, {
+      help: "Total worker loop executions by loop and status.",
+      labels: { loop, status: "error" }
+    });
+    input.health.setComponent(`${loop}-loop`, {
+      state: "degraded",
+      message
+    });
+    log({
+      event: "worker_loop_error",
+      workerId: input.config.workerId,
+      loop,
+      error: message
+    });
+  }
 }

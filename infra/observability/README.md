@@ -1,13 +1,30 @@
 # Observability
 
-Recommended target:
+This bundle keeps the three observability ontologies separate:
 
-- host: dedicated observability host or private monitoring stack
-- metrics: Prometheus
-- dashboards: Grafana
-- node metrics: node_exporter on every host
-- database metrics: postgres_exporter on the database host
+- Health is served by each runtime component as current component state.
+- Metrics are raw runtime events queued in-process and aggregated into
+  Prometheus exposition by a dedicated metrics sink.
+- Alerting is expressed as Prometheus rules and visualized in Grafana.
 
-The API, worker, and gate agent expose structured logs and metrics. Required
-dashboards cover gate health, provisioning latency, revocation latency, drift,
-retry rate, dead jobs, active sessions, and artifact issuance.
+Runtime endpoints:
+
+- control-plane API: `GET /health`, `GET /metrics`
+- control-plane worker: `GET /health`, `GET /metrics` on
+  `WORKER_OBSERVABILITY_HOST:WORKER_OBSERVABILITY_PORT`
+
+Deployment artifacts:
+
+- `prometheus/prometheus.testnet.yml`
+- `prometheus/prometheus.mainnet.yml`
+- `prometheus/rules/hyperspace-alerts.yml`
+- `grafana/provisioning/datasources/prometheus.yml`
+- `grafana/provisioning/dashboards/hyperspace.yml`
+- `grafana/dashboards/hyperspace-control-plane.json`
+- `caddy/Caddyfile`
+
+The dashboard covers service scrape health, schedulable gates, sessions, jobs,
+API request rate and p95 latency, worker loop duration, benchmark RTT, packet
+loss, and benchmark staleness. The alert rules cover API/worker scrape failure,
+too few schedulable gates, dead jobs, benchmark failures, stale benchmark data,
+API 5xx rate, and public API rate-limit activity.

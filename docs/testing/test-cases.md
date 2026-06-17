@@ -41,7 +41,7 @@ Do not include them in routine `npm test` or live smoke runs.
 
 | ID | Case | Steps | Expected | Coverage |
 | --- | --- | --- | --- | --- |
-| CP-001 | API health | `GET /api/health` from the public web host, or `GET /health` from a bare API host. | Returns `ok: true` and current server time. | `scripts/testnet/live-ui-smoke.mjs` |
+| CP-001 | API health | `GET /api/health` from the public web host, or `GET /health` from a bare API host. | Returns `ok: true`, current server time, overall state, and component states. | `scripts/testnet/live-ui-smoke.mjs` |
 | CP-002 | Public gate catalog | `GET /api/v1/public/gates`. | At least two gates are `ready=true`, `schedulable=true`; every gate has HTTPS `probeUrl`; every schedulable gate reports DoubleZero status. | `scripts/testnet/live-ui-smoke.mjs` |
 | CP-003 | DoubleZero required for schedulability | Stop or disconnect DoubleZero on one gate, wait for heartbeat. | Gate remains `ready=true` while the agent reports fresh host state, but `schedulable=false`; DoubleZero node is absent/stale; scheduler does not select it. | Unit tests plus manual outage test |
 | CP-004 | DoubleZero environment/source match | Run a gate with mismatched `doubleZeroEnv` or mismatched tunnel source. | Gate readiness remains tied to agent/host health, but schedulability is false and scheduler refuses it. | `packages/control-plane/src/resources/gates/readiness.test.ts` |
@@ -102,6 +102,16 @@ Do not include them in routine `npm test` or live smoke runs.
 | ABUSE-003 | Create burst quota | Exceed `SELF_SERVICE_MAX_SESSION_CREATES_PER_WINDOW` inside `SELF_SERVICE_SESSION_CREATE_WINDOW_SECONDS`. | Create request is rejected with `session_create_rate_limited`; audit records `session_rejected`. | Manual/API smoke |
 | ABUSE-004 | Public target guardrail | Try a self-service IP-to-IP config with a private, loopback, link-local, documentation, multicast, or broad destination CIDR. | API rejects the request with `destination_not_allowed` or `invalid_destination_cidr`. | `packages/control-plane/src/resources/sessions/abuse-controls.test.ts` |
 | ABUSE-005 | Full-tunnel source policy | Try a full-tunnel config without source restriction, with a broad source CIDR, and with an invalid source CIDR. | Full tunnel without source restriction is allowed; private or broad source CIDRs are allowed when explicitly supplied; malformed source CIDRs are rejected with `invalid_source_cidr`. | `packages/control-plane/src/resources/sessions/abuse-controls.test.ts` |
+
+## Monitoring And Alerting
+
+| ID | Case | Steps | Expected | Coverage |
+| --- | --- | --- | --- | --- |
+| OBS-001 | API health ontology | `GET /api/health` from the public web host or `GET /health` from the API host. | Response includes `ok`, `state`, `service`, `components`, and current component states; database state is reported independently from metrics. | API live smoke/manual |
+| OBS-002 | API metrics ontology | `GET /metrics` from the control-plane API host. | Prometheus text includes `hyperspace_api_http_requests_total`, `hyperspace_api_http_request_duration_seconds_bucket`, process gauges, and runtime metrics queue gauges. | API live smoke/manual |
+| OBS-003 | Worker observability endpoint | `GET /health` and `GET /metrics` on `WORKER_OBSERVABILITY_HOST:WORKER_OBSERVABILITY_PORT`. | Health reports worker loop components; metrics include worker loop counters/durations and control-plane DB snapshot gauges for gates, sessions, jobs, and benchmark results. | Worker live smoke/manual |
+| OBS-004 | Prometheus alert rules | Run `promtool check config` and `promtool check rules`, then inspect `/prometheus/alerts`. | Alert rules load without errors and include API down, worker down, too few schedulable gates, dead jobs, benchmark failures, benchmark staleness, API 5xx, and rate-limit activity. | `infra/observability/prometheus/rules/hyperspace-alerts.yml` |
+| OBS-005 | Grafana dashboard | Open `https://observability.../d/hyperspace-control-plane`. | Dashboard renders service scrape health, schedulable gates, sessions, jobs, API latency/errors, worker loop duration, benchmark RTT, and benchmark loss panels. | `infra/observability/grafana/dashboards/hyperspace-control-plane.json` |
 
 ## Performance Measurements
 

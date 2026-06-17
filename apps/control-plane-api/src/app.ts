@@ -1,6 +1,12 @@
 import Fastify, { type FastifyInstance } from "fastify";
 import type { SessionAbuseControlConfig } from "@hyperspace-zone/control-plane";
 import type { Database } from "@hyperspace-zone/db";
+import {
+  createHealthRegistry,
+  createRuntimeMetrics,
+  type HealthRegistry,
+  type RuntimeMetrics
+} from "@hyperspace-zone/shared";
 import { createHttpAuth } from "./http/auth.js";
 import { registerOpenApiRoute } from "./http/openapi.js";
 import { registerPublicRateLimits, type PublicRateLimitConfig } from "./http/rate-limit.js";
@@ -33,19 +39,29 @@ export interface ControlPlaneApiRuntimeConfig {
 export interface CreateControlPlaneApiAppInput {
   db: Database;
   config: ControlPlaneApiRuntimeConfig;
+  health?: HealthRegistry;
+  metrics?: RuntimeMetrics;
 }
 
 export function createApp(input: CreateControlPlaneApiAppInput): FastifyInstance {
   const { db, config } = input;
   const auth = createHttpAuth({ db, adminToken: config.adminToken });
+  const health = input.health ?? createHealthRegistry("control-plane-api");
+  const metrics = input.metrics ?? createRuntimeMetrics({ service: "control-plane-api" });
+  health.setComponent("process", { state: "starting", message: "Fastify app is being created." });
+  health.setComponent("configuration", { state: "ready", message: "Runtime configuration loaded." });
 
   const app = Fastify({
     logger: true
   });
+  app.addHook("onClose", async () => {
+    metrics.stop();
+  });
 
-  registerPublicRateLimits(app, config.publicRateLimit);
+  registerRuntimeMetricsHooks(app, metrics);
+  registerPublicRateLimits(app, config.publicRateLimit, metrics);
   registerOpenApiRoute(app);
-  registerHealthRoutes(app);
+  registerHealthRoutes(app, { db, health });
   registerPublicAuthRoutes(app, {
     db,
     authSessionTtlSeconds: config.authSessionTtlSeconds,
@@ -74,6 +90,48 @@ export function createApp(input: CreateControlPlaneApiAppInput): FastifyInstance
   registerGateActualStateRoutes(app, { db, requireGate: auth.requireGate });
   registerGateHeartbeatRoutes(app, { db, requireGate: auth.requireGate });
   registerGateJobRoutes(app, { db, requireGate: auth.requireGate });
+  registerMetricsRoute(app, metrics);
+  health.setComponent("process", { state: "ready", message: "Fastify app is ready." });
 
   return app;
+}
+
+function registerRuntimeMetricsHooks(app: FastifyInstance, metrics: RuntimeMetrics): void {
+  const startedAt = new WeakMap<object, bigint>();
+  app.addHook("onRequest", async (request) => {
+    startedAt.set(request, process.hrtime.bigint());
+  });
+  app.addHook("onResponse", async (request, reply) => {
+    const start = startedAt.get(request);
+    const durationSeconds = start ? Number(process.hrtime.bigint() - start) / 1_000_000_000 : 0;
+    const route = request.routeOptions.url ?? request.url.split("?")[0] ?? "unknown";
+    const labels = {
+      method: request.method,
+      route,
+      status: String(reply.statusCode)
+    };
+    metrics.counter("api_http_requests_total", 1, {
+      help: "Total API HTTP requests by route and status.",
+      labels
+    });
+    metrics.histogram("api_http_request_duration_seconds", durationSeconds, {
+      help: "API HTTP request duration in seconds.",
+      labels: {
+        method: request.method,
+        route
+      }
+    });
+  });
+}
+
+function registerMetricsRoute(app: FastifyInstance, metrics: RuntimeMetrics): void {
+  app.get("/metrics", {
+    schema: {
+      response: {
+        200: { type: "string" }
+      }
+    }
+  }, async (_request, reply) => reply
+    .type("text/plain; version=0.0.4; charset=utf-8")
+    .send(metrics.renderPrometheus()));
 }

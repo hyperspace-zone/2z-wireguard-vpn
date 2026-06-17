@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import type { RuntimeMetrics } from "@hyperspace-zone/shared";
 import { detectClientIpv4, headerValue } from "./request.js";
 
 export interface PublicRateLimitConfig {
@@ -38,7 +39,11 @@ export const defaultPublicRateLimitConfig: PublicRateLimitConfig = {
   downloadMax: 30
 };
 
-export function registerPublicRateLimits(app: FastifyInstance, config: PublicRateLimitConfig): void {
+export function registerPublicRateLimits(
+  app: FastifyInstance,
+  config: PublicRateLimitConfig,
+  metrics?: RuntimeMetrics
+): void {
   if (!config.enabled) {
     return;
   }
@@ -71,6 +76,10 @@ export function registerPublicRateLimits(app: FastifyInstance, config: PublicRat
     const remaining = Math.max(0, rule.max - bucket.count);
     setRateLimitHeaders(reply, rule, remaining, bucket.resetAtMs);
     if (bucket.count > rule.max) {
+      metrics?.counter("public_rate_limit_rejections_total", 1, {
+        help: "Total public API requests rejected by in-process rate limiting.",
+        labels: { category }
+      });
       return sendRateLimitExceeded(reply, rule, bucket.resetAtMs);
     }
   });
