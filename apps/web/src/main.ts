@@ -240,7 +240,7 @@ function render(state: { gates?: Gate[]; sessions?: Session[]; me?: { email: str
       ${me ? appNav(view) : authNav(view)}
       ${renderView({ view, gates, sessions, benchmarkMatrix })}
 
-      ${shouldShowEventLog(view) ? `<pre id="event-log" class="event-log">${escapeHtml(eventLogLines.join("\n"))}</pre>` : ""}
+      ${shouldShowEventLog(view, me) ? `<pre id="event-log" class="event-log">${escapeHtml(eventLogLines.join("\n"))}</pre>` : ""}
     </main>
   `;
   bindHandlers();
@@ -312,7 +312,7 @@ function viewPath(view: AppView): string {
 
 function resolveViewForAuth(me: { email: string } | null): AppView {
   let view = currentView;
-  if (!me && view !== "login" && view !== "register") {
+  if (!me && view !== "login" && view !== "register" && view !== "benchmarks") {
     view = "login";
   }
   if (me && (view === "login" || view === "register")) {
@@ -341,8 +341,8 @@ function renderView(state: { view: AppView; gates: Gate[]; sessions: Session[]; 
   return dashboardView({ gates: state.gates, sessions: state.sessions });
 }
 
-function shouldShowEventLog(view: AppView): boolean {
-  return view !== "login" && view !== "register";
+function shouldShowEventLog(view: AppView, me: { email: string } | null): boolean {
+  return Boolean(me) && view !== "login" && view !== "register";
 }
 
 function isAppView(value: string | undefined): value is AppView {
@@ -396,6 +396,7 @@ function appNav(view: AppView): string {
 function authNav(view: AppView): string {
   return `
     <nav class="app-nav" aria-label="Authentication">
+      <a href="/benchmarks" data-view="benchmarks" class="${view === "benchmarks" ? "active" : ""}">Benchmarks</a>
       <a href="/login" data-view="login" class="${view === "login" ? "active" : ""}">Log in</a>
       <a href="/register" data-view="register" class="${view === "register" ? "active" : ""}">Register</a>
     </nav>
