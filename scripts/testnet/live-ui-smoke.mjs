@@ -84,12 +84,21 @@ try {
   await page.getByRole("button", { name: "Log in" }).click();
   await page.waitForURL(`${webBase}/`, { timeout: 30000 });
   await expectText(page, "VPN configs");
+  await expectText(page, "Benchmarks");
   result.steps.push("logged_in");
 
   await expectText(page, "Ready");
   await expectText(page, "Schedulable");
   await expectText(page, "DoubleZero node");
   await expectText(page, "Browser RTT");
+  assert(await page.getByText("Gate benchmark routes").count() === 0, "benchmark table must not be rendered on dashboard");
+  await page.getByRole("button", { name: /Measure browser RTT|Measuring/ }).click().catch(() => undefined);
+  await page.waitForTimeout(5000);
+  await screenshot(page, "02-dashboard-gates");
+  result.steps.push("dashboard_gates_checked");
+
+  await page.getByRole("link", { name: "Benchmarks" }).click();
+  await page.waitForURL(`${webBase}/benchmarks`, { timeout: 30000 });
   await expectText(page, "Gate benchmark routes");
   await expectText(page, "DZ vs Internet");
   await expectText(page, "City filter");
@@ -103,10 +112,8 @@ try {
   await expectText(page, "Internet One-Way");
   await expectText(page, "fresh within 15m");
   await expectText(page, "Legend:");
-  await page.getByRole("button", { name: /Measure browser RTT|Measuring/ }).click().catch(() => undefined);
-  await page.waitForTimeout(5000);
-  await screenshot(page, "02-dashboard-gates");
-  result.steps.push("dashboard_gates_checked");
+  await screenshot(page, "03-benchmarks");
+  result.steps.push("benchmarks_checked");
 
   await page.getByRole("link", { name: "Create config" }).first().click();
   await page.waitForURL(`${webBase}/create-config`, { timeout: 30000 });

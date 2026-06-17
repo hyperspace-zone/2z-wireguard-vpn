@@ -1,5 +1,5 @@
 type SessionMode = "IpToIp" | "FullTunnel";
-type AppView = "dashboard" | "create-config" | "login" | "register";
+type AppView = "dashboard" | "create-config" | "benchmarks" | "login" | "register";
 type CreateConfigStep = "configure" | "confirm";
 type SortDirection = "desc" | "asc";
 type KeyInstructionPlatform = "linux" | "macos" | "windows";
@@ -272,6 +272,9 @@ function viewFromLocation(): AppView {
   if (window.location.pathname === "/create-config") {
     return "create-config";
   }
+  if (window.location.pathname === "/benchmarks") {
+    return "benchmarks";
+  }
   if (window.location.pathname === "/register") {
     return "register";
   }
@@ -284,6 +287,9 @@ function viewFromLocation(): AppView {
 function viewPath(view: AppView): string {
   if (view === "create-config") {
     return "/create-config";
+  }
+  if (view === "benchmarks") {
+    return "/benchmarks";
   }
   if (view === "login") {
     return "/login";
@@ -319,7 +325,10 @@ function renderView(state: { view: AppView; gates: Gate[]; sessions: Session[]; 
   if (state.view === "create-config") {
     return createConfigView(state.gates);
   }
-  return dashboardView({ gates: state.gates, sessions: state.sessions, benchmarkMatrix: state.benchmarkMatrix });
+  if (state.view === "benchmarks") {
+    return benchmarksView({ gates: state.gates, benchmarkMatrix: state.benchmarkMatrix });
+  }
+  return dashboardView({ gates: state.gates, sessions: state.sessions });
 }
 
 function shouldShowEventLog(view: AppView): boolean {
@@ -327,7 +336,7 @@ function shouldShowEventLog(view: AppView): boolean {
 }
 
 function isAppView(value: string | undefined): value is AppView {
-  return value === "dashboard" || value === "create-config" || value === "login" || value === "register";
+  return value === "dashboard" || value === "create-config" || value === "benchmarks" || value === "login" || value === "register";
 }
 
 function isKeyInstructionPlatform(value: string | undefined): value is KeyInstructionPlatform {
@@ -358,6 +367,7 @@ function appNav(view: AppView): string {
     <nav class="app-nav" aria-label="Primary">
       <a href="/" data-view="dashboard" class="${view === "dashboard" ? "active" : ""}">Dashboard</a>
       <a href="/create-config" data-view="create-config" class="${view === "create-config" ? "active" : ""}">Create config</a>
+      <a href="/benchmarks" data-view="benchmarks" class="${view === "benchmarks" ? "active" : ""}">Benchmarks</a>
     </nav>
   `;
 }
@@ -371,7 +381,7 @@ function authNav(view: AppView): string {
   `;
 }
 
-function dashboardView(state: { gates: Gate[]; sessions: Session[]; benchmarkMatrix: BenchmarkMatrix | null }): string {
+function dashboardView(state: { gates: Gate[]; sessions: Session[] }): string {
   return `
     <section class="panel primary-panel">
       <div class="panel-heading">
@@ -387,7 +397,11 @@ function dashboardView(state: { gates: Gate[]; sessions: Session[]; benchmarkMat
       </div>
       ${gatesPanel(state.gates)}
     </section>
+  `;
+}
 
+function benchmarksView(state: { gates: Gate[]; benchmarkMatrix: BenchmarkMatrix | null }): string {
+  return `
     <section class="panel secondary-panel">
       <div class="panel-heading">
         <h2>Gate benchmark routes</h2>

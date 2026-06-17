@@ -64,7 +64,7 @@ Do not include them in routine `npm test` or live smoke runs.
 | ID | Case | Steps | Expected | Coverage |
 | --- | --- | --- | --- | --- |
 | UI-001 | Separate auth pages | Open `/register` and `/login`. | Register and login are separate pages; event console is not shown on auth pages. | `scripts/testnet/live-ui-smoke.mjs` |
-| UI-002 | Dashboard layout | Log in with no configs. | Dashboard shows VPN configs area, Create config action, and Gates table as secondary information. | `scripts/testnet/live-ui-smoke.mjs` |
+| UI-002 | Dashboard layout | Log in with no configs. | Dashboard shows VPN configs area, Create config action, Gates table as secondary information, and a Benchmarks navigation item. Benchmark route table is not rendered on Dashboard. | `scripts/testnet/live-ui-smoke.mjs` |
 | UI-003 | Gates table columns | Open dashboard. | Columns include Name, City, Country, Public IPv4, Ready, Browser RTT, Schedulable, DoubleZero node. | `scripts/testnet/live-ui-smoke.mjs` |
 | UI-004 | Browser RTT measurement | Click Measure browser RTT. | Rows update per gate as measurements finish; sort is low-to-high by default; measured rows keep stable row height. | UI smoke plus visual/manual |
 | UI-005 | Create config Step 1 | Open `/create-config`. | Header says Step 1; ingress and egress selectors are aligned; no Ingress Auto/Egress Auto option exists. | `scripts/testnet/live-ui-smoke.mjs` |
@@ -78,7 +78,7 @@ Do not include them in routine `npm test` or live smoke runs.
 | UI-013 | Dashboard config table | After config create. | Table shows Created, Mode, Config, Source IP, Target IP, Ingress gate, Egress gate, Status, Actions. Source `Any` and target `Internet`/IP render compactly. | `scripts/testnet/live-ui-smoke.mjs` |
 | UI-014 | Action buttons state | While requested/provisioning/failed/revoking/active. | Download and Revoke are enabled only when active; Delete revokes first when needed and then hides the config. | `scripts/testnet/live-ui-smoke.mjs` |
 | UI-015 | Console cleanliness | Run happy path in Chromium/Brave. | No uncaught promise errors such as `AbortError: signal is aborted without reason`. | `scripts/testnet/live-ui-smoke.mjs` |
-| UI-016 | Gate benchmark dashboard | Open dashboard after benchmark jobs have reported. | Dashboard shows `Gate benchmark routes` with the `DZ vs Internet` route table, sortable columns, City filter, freshness coverage, and green/yellow/pink legend. Rows use a directed `City1 -> City2` route column and show DoubleZero, Internet, RTT improvement, split RTT jitter metrics, loss, and forward one-way values. | Live dashboard/manual screenshot |
+| UI-016 | Gate benchmark page | Open the `Benchmarks` navigation item after benchmark jobs have reported. | The page shows `Gate benchmark routes` with the `DZ vs Internet` route table, sortable columns, City filter, freshness coverage, and green/yellow/pink legend. Rows use a directed `City1 -> City2` route column and show DoubleZero, Internet, RTT improvement, split RTT jitter metrics, loss, and forward one-way values. | Live dashboard/manual screenshot |
 
 ## WireGuard Traffic Policy
 

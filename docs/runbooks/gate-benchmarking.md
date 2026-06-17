@@ -139,9 +139,9 @@ curl -fsS "https://${HS_WEB_HOST}/api/v1/public/benchmarks/gate-matrix" \
 `delta.rttP50Ms` is `doublezero - public`. Negative values mean DoubleZero is
 faster for that source/target pair.
 
-## Dashboard Verification
+## Web Verification
 
-Open the web dashboard and sign in:
+Open the web UI and sign in:
 
 ```bash
 printf 'Open: https://%s\n' "$HS_WEB_HOST"
@@ -151,6 +151,9 @@ Expected dashboard sections:
 
 - `VPN configs`
 - `Gates`
+
+Open the `Benchmarks` navigation item. Expected benchmark sections:
+
 - `Gate benchmark routes`
 - `DZ vs Internet`
 
