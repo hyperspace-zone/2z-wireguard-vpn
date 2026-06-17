@@ -982,7 +982,14 @@ function formatSignedMetricMs(value: number | undefined): string {
 }
 
 function formatSavedMetricMs(value: number | undefined): string {
-  return formatSignedMetricMs(value);
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return "n/a";
+  }
+  if (value === 0) {
+    return "0ms";
+  }
+  const sign = value > 0 ? "-" : "+";
+  return `${sign}${formatLatency(Math.abs(value))}ms`;
 }
 
 function formatSignedPercent(value: number | undefined): string {
