@@ -1074,10 +1074,34 @@ gate agents are reporting `ready=true` and `schedulable=true`; see
 Run this section on the observability host. Set `HS_CLUSTER` to either
 `testnet` or `mainnet`; set `OBSERVABILITY_DOMAIN` to the public Grafana host.
 
+Grafana 13 plus Prometheus should run on a host with at least 2 GB RAM. On
+1 GB disposable validation hosts, add a 2 GB swap file before starting Grafana;
+without swap, dashboard/API requests can hit Grafana handler timeouts under
+load.
+
 ```bash
 export HS_CLUSTER=testnet
 export OBSERVABILITY_DOMAIN=observability.testnet.hyperspace.zone
 export HS_REPO_DIR=/opt/2z-wireguard-vpn
+```
+
+For a small observability host, provision swap once:
+
+```bash
+if ! swapon --show=NAME --noheadings | grep -qx '/swapfile'; then
+  fallocate -l 2G /swapfile
+  chmod 600 /swapfile
+  mkswap /swapfile
+  swapon /swapfile
+fi
+
+grep -q '^/swapfile ' /etc/fstab || echo '/swapfile none swap sw 0 0' >> /etc/fstab
+
+cat >/etc/sysctl.d/99-hyperspace-observability.conf <<'EOF'
+vm.swappiness=10
+vm.vfs_cache_pressure=50
+EOF
+sysctl --system
 ```
 
 Install Prometheus, Grafana, and Caddy:
