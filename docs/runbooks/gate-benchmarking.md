@@ -40,9 +40,11 @@ The API stores latest and historical rows in `gate_benchmark_results`. The web
 dashboard renders a route table:
 
 - one directed gate pair per row
-- sortable columns for DoubleZero RTT, Internet RTT, DZ advantage, RTT saved,
-  jitter, loss, and one-way values
+- sortable columns for city-directed route, DoubleZero RTT, Internet RTT,
+  RTT improvement, RTT saved, jitter, loss, and one-way values
 - a City filter for narrowing routes by source or target location
+- a freshness line with the latest sample time and transport coverage within
+  the last 15 minutes
 - separate sortable `DZ One-Way` and `Internet One-Way` columns using the
   forward one-way estimate for each directed row
 - a green/yellow/pink legend for DZ faster, similar, and Internet faster

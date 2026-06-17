@@ -255,18 +255,27 @@ tbody td {
 }
 
 .benchmark-controls {
-  align-items: end;
+  align-items: center;
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
 }
 
 .benchmark-filter-label {
-  max-width: 220px;
+  align-items: center;
+  display: inline-flex;
+  gap: 8px;
+  max-width: none;
+  white-space: nowrap;
 }
 
 .benchmark-filter-label select {
-  min-width: 180px;
+  font-size: 12px;
+  line-height: 1.2;
+  min-height: 30px;
+  min-width: 128px;
+  padding: 4px 28px 4px 8px;
+  width: auto;
 }
 
 .benchmark-route-table {
@@ -293,29 +302,24 @@ tbody td {
 }
 
 .benchmark-route-table th:nth-child(1) {
-  width: 17%;
+  width: 22%;
 }
 
-.benchmark-route-table th:nth-child(2) {
-  width: 10%;
-}
-
+.benchmark-route-table th:nth-child(2),
 .benchmark-route-table th:nth-child(3),
-.benchmark-route-table th:nth-child(4),
-.benchmark-route-table th:nth-child(6),
-.benchmark-route-table th:nth-child(7),
-.benchmark-route-table th:nth-child(8) {
+.benchmark-route-table th:nth-child(5),
+.benchmark-route-table th:nth-child(9) {
   width: 8%;
 }
 
-.benchmark-route-table th:nth-child(5),
-.benchmark-route-table th:nth-child(9),
-.benchmark-route-table th:nth-child(10) {
-  width: 9%;
+.benchmark-route-table th:nth-child(4),
+.benchmark-route-table th:nth-child(7),
+.benchmark-route-table th:nth-child(8) {
+  width: 10%;
 }
 
-.benchmark-route-table th:nth-child(11) {
-  width: 6%;
+.benchmark-route-table th:nth-child(6) {
+  width: 16%;
 }
 
 .benchmark-route-table .table-sort {
@@ -343,26 +347,26 @@ tbody td {
   font-weight: 700;
 }
 
-.benchmark-advantage {
+.benchmark-improvement {
   border-radius: 4px;
   display: inline-flex;
   font-weight: 700;
   padding: 2px 6px;
 }
 
-.benchmark-advantage-good {
+.benchmark-improvement-good {
   background: #dcfce7;
   border-color: #86efac;
   color: #166534;
 }
 
-.benchmark-advantage-similar {
+.benchmark-improvement-similar {
   background: #fef9c3;
   border-color: #fde047;
   color: #854d0e;
 }
 
-.benchmark-advantage-internet {
+.benchmark-improvement-internet {
   background: #fce7f3;
   border-color: #f9a8d4;
   color: #9d174d;

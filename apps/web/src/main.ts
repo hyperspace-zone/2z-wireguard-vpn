@@ -3,7 +3,7 @@ type AppView = "dashboard" | "create-config" | "login" | "register";
 type CreateConfigStep = "configure" | "confirm";
 type SortDirection = "desc" | "asc";
 type KeyInstructionPlatform = "linux" | "macos" | "windows";
-type BenchmarkSortField = "route" | "city" | "doublezeroRtt" | "internetRtt" | "advantage" | "rttSaved" | "doublezeroJitter" | "internetJitter" | "doublezeroOneWay" | "internetOneWay" | "loss";
+type BenchmarkSortField = "route" | "doublezeroRtt" | "internetRtt" | "improvement" | "rttSaved" | "jitter" | "doublezeroOneWay" | "internetOneWay" | "loss";
 type SessionValidationErrors = Partial<Record<"sourceIp" | "targetIp" | "ingressGateName" | "egressGateName" | "clientPublicKey", string>>;
 
 interface Gate {
@@ -88,12 +88,14 @@ interface BenchmarkRouteRow {
   doublezeroRttMs: number | undefined;
   publicJitterMs: number | undefined;
   doublezeroJitterMs: number | undefined;
+  jitterSavedMs: number | undefined;
+  jitterImprovementPercent: number | undefined;
   publicOneWayMs: number | undefined;
   doublezeroOneWayMs: number | undefined;
   publicLossPercent: number | undefined;
   doublezeroLossPercent: number | undefined;
   rttSavedMs: number | undefined;
-  rttAdvantagePercent: number | undefined;
+  rttImprovementPercent: number | undefined;
 }
 
 interface Session {
@@ -117,6 +119,7 @@ interface Session {
 
 const apiBase = (window as unknown as { HYPERSPACE_API_BASE?: string }).HYPERSPACE_API_BASE ?? "/api";
 const wireGuardCanonicalBase64Pattern = /^[A-Za-z0-9+/]{42}[AEIMQUYcgkosw048]=$/;
+const benchmarkFreshWindowMs = 15 * 60 * 1000;
 let token = localStorage.getItem("hyperspaceAccessToken") ?? "";
 let latestGates: Gate[] = [];
 let latestSessions: Session[] = [];
@@ -135,7 +138,7 @@ let currentView: AppView = viewFromLocation();
 let createConfigStep: CreateConfigStep = "configure";
 let createConfigSubmitting = false;
 let gateBrowserRttSortDirection: SortDirection = "asc";
-let benchmarkSortField: BenchmarkSortField = "advantage";
+let benchmarkSortField: BenchmarkSortField = "improvement";
 let benchmarkSortDirection: SortDirection = "desc";
 let benchmarkCityFilter = "";
 let sessionValidationErrors: SessionValidationErrors = {};
@@ -333,20 +336,18 @@ function isKeyInstructionPlatform(value: string | undefined): value is KeyInstru
 
 function isBenchmarkSortField(value: string | undefined): value is BenchmarkSortField {
   return value === "route" ||
-    value === "city" ||
     value === "doublezeroRtt" ||
     value === "internetRtt" ||
-    value === "advantage" ||
+    value === "improvement" ||
     value === "rttSaved" ||
-    value === "doublezeroJitter" ||
-    value === "internetJitter" ||
+    value === "jitter" ||
     value === "doublezeroOneWay" ||
     value === "internetOneWay" ||
     value === "loss";
 }
 
 function benchmarkDefaultSortDirection(field: BenchmarkSortField): SortDirection {
-  return field === "advantage" || field === "rttSaved" ? "desc" : "asc";
+  return field === "improvement" || field === "rttSaved" || field === "jitter" ? "desc" : "asc";
 }
 
 function appNav(view: AppView): string {
@@ -512,7 +513,7 @@ function benchmarkMatrixPanel(gates: Gate[], matrix: BenchmarkMatrix | null): st
           <span><strong>${filteredRows.length}</strong> routes</span>
           <span><strong>${summary.publicSucceeded}</strong> internet ok</span>
           <span><strong>${summary.doublezeroSucceeded}</strong> DZ ok</span>
-          <span><strong>${formatSignedPercent(summary.averageAdvantagePercent)}</strong> avg DZ advantage</span>
+          <span><strong>${formatSignedPercent(summary.averageImprovementPercent)}</strong> avg improvement</span>
         </div>
       </div>
       <div class="benchmark-controls">
@@ -541,13 +542,11 @@ function benchmarkRoutesTable(rows: BenchmarkRouteRow[]): string {
         <thead>
           <tr>
             ${benchmarkSortableHeader("Route", "route", "left")}
-            ${benchmarkSortableHeader("Cities", "city", "left")}
             ${benchmarkSortableHeader("DZ RTT", "doublezeroRtt", "right")}
             ${benchmarkSortableHeader("Internet RTT", "internetRtt", "right")}
-            ${benchmarkSortableHeader("DZ Advantage", "advantage", "right")}
+            ${benchmarkSortableHeader("RTT Improvement", "improvement", "right")}
             ${benchmarkSortableHeader("RTT Saved", "rttSaved", "right")}
-            ${benchmarkSortableHeader("DZ Jitter", "doublezeroJitter", "right")}
-            ${benchmarkSortableHeader("Internet Jitter", "internetJitter", "right")}
+            ${benchmarkSortableHeader("Jitter", "jitter", "right")}
             ${benchmarkSortableHeader("DZ One-Way", "doublezeroOneWay", "right")}
             ${benchmarkSortableHeader("Internet One-Way", "internetOneWay", "right")}
             ${benchmarkSortableHeader("Loss", "loss", "right")}
@@ -567,22 +566,17 @@ function benchmarkRouteRow(row: BenchmarkRouteRow): string {
     <tr>
       <td>
         <div class="route-pair">
-          <strong>${escapeHtml(shortGateName(row.sourceGate.name))}</strong>
+          <strong>${escapeHtml(row.sourceCity)}</strong>
           <span aria-hidden="true">→</span>
-          <strong>${escapeHtml(shortGateName(row.targetGate.name))}</strong>
+          <strong>${escapeHtml(row.targetCity)}</strong>
         </div>
         <small>${escapeHtml(row.routeLabel)}</small>
       </td>
-      <td>
-        <strong>${escapeHtml(row.sourceCity)}</strong>
-        <small>to ${escapeHtml(row.targetCity)}</small>
-      </td>
       <td class="numeric-cell">${benchmarkValueCell(route.doublezero, formatMetricMs(row.doublezeroRttMs))}</td>
       <td class="numeric-cell">${benchmarkValueCell(route.public, formatMetricMs(row.publicRttMs))}</td>
-      <td class="numeric-cell">${benchmarkAdvantageCell(row.rttAdvantagePercent)}</td>
+      <td class="numeric-cell">${benchmarkImprovementCell(row.rttImprovementPercent)}</td>
       <td class="numeric-cell">${formatSavedMetricMs(row.rttSavedMs)}</td>
-      <td class="numeric-cell">${benchmarkValueCell(route.doublezero, formatMetricMs(row.doublezeroJitterMs))}</td>
-      <td class="numeric-cell">${benchmarkValueCell(route.public, formatMetricMs(row.publicJitterMs))}</td>
+      <td class="numeric-cell">${benchmarkJitterCell(row)}</td>
       <td class="numeric-cell">${benchmarkValueCell(route.doublezero, formatMetricMs(row.doublezeroOneWayMs))}</td>
       <td class="numeric-cell">${benchmarkValueCell(route.public, formatMetricMs(row.publicOneWayMs))}</td>
       <td class="numeric-cell">${benchmarkLossCell(row)}</td>
@@ -621,6 +615,12 @@ function benchmarkRouteRows(gates: Gate[], matrix: BenchmarkMatrix | null): Benc
     const doublezeroRttMs = finiteNumber(route.doublezero?.rttMs?.p50);
     const publicJitterMs = finiteNumber(route.public?.jitterMs);
     const doublezeroJitterMs = finiteNumber(route.doublezero?.jitterMs);
+    const jitterSavedMs = typeof publicJitterMs === "number" && typeof doublezeroJitterMs === "number"
+      ? compactMetric(publicJitterMs - doublezeroJitterMs)
+      : undefined;
+    const jitterImprovementPercent = typeof jitterSavedMs === "number" && typeof publicJitterMs === "number" && publicJitterMs > 0
+      ? compactMetric((jitterSavedMs / publicJitterMs) * 100)
+      : undefined;
     const publicOneWayMs = finiteNumber(route.public?.forwardOneWayMs?.p50);
     const doublezeroOneWayMs = finiteNumber(route.doublezero?.forwardOneWayMs?.p50);
     const publicLossPercent = finiteNumber(route.public?.lossPercent);
@@ -628,7 +628,7 @@ function benchmarkRouteRows(gates: Gate[], matrix: BenchmarkMatrix | null): Benc
     const rttSavedMs = typeof publicRttMs === "number" && typeof doublezeroRttMs === "number"
       ? compactMetric(publicRttMs - doublezeroRttMs)
       : undefined;
-    const rttAdvantagePercent = typeof rttSavedMs === "number" && typeof publicRttMs === "number" && publicRttMs > 0
+    const rttImprovementPercent = typeof rttSavedMs === "number" && typeof publicRttMs === "number" && publicRttMs > 0
       ? compactMetric((rttSavedMs / publicRttMs) * 100)
       : undefined;
     const sourceCity = benchmarkCity(sourceGate);
@@ -645,12 +645,14 @@ function benchmarkRouteRows(gates: Gate[], matrix: BenchmarkMatrix | null): Benc
       doublezeroRttMs,
       publicJitterMs,
       doublezeroJitterMs,
+      jitterSavedMs,
+      jitterImprovementPercent,
       publicOneWayMs,
       doublezeroOneWayMs,
       publicLossPercent,
       doublezeroLossPercent,
       rttSavedMs,
-      rttAdvantagePercent
+      rttImprovementPercent
     }];
   });
 }
@@ -668,9 +670,6 @@ function sortBenchmarkRows(rows: BenchmarkRouteRow[]): BenchmarkRouteRow[] {
     let cmp = 0;
     switch (benchmarkSortField) {
       case "route":
-        cmp = a.routeLabel.localeCompare(b.routeLabel);
-        break;
-      case "city":
         cmp = a.cityLabel.localeCompare(b.cityLabel);
         break;
       case "doublezeroRtt":
@@ -679,17 +678,14 @@ function sortBenchmarkRows(rows: BenchmarkRouteRow[]): BenchmarkRouteRow[] {
       case "internetRtt":
         cmp = compareOptionalNumber(a.publicRttMs, b.publicRttMs, benchmarkSortDirection);
         break;
-      case "advantage":
-        cmp = compareOptionalNumber(a.rttAdvantagePercent, b.rttAdvantagePercent, benchmarkSortDirection);
+      case "improvement":
+        cmp = compareOptionalNumber(a.rttImprovementPercent, b.rttImprovementPercent, benchmarkSortDirection);
         break;
       case "rttSaved":
         cmp = compareOptionalNumber(a.rttSavedMs, b.rttSavedMs, benchmarkSortDirection);
         break;
-      case "doublezeroJitter":
-        cmp = compareOptionalNumber(a.doublezeroJitterMs, b.doublezeroJitterMs, benchmarkSortDirection);
-        break;
-      case "internetJitter":
-        cmp = compareOptionalNumber(a.publicJitterMs, b.publicJitterMs, benchmarkSortDirection);
+      case "jitter":
+        cmp = compareOptionalNumber(a.jitterSavedMs, b.jitterSavedMs, benchmarkSortDirection);
         break;
       case "doublezeroOneWay":
         cmp = compareOptionalNumber(a.doublezeroOneWayMs, b.doublezeroOneWayMs, benchmarkSortDirection);
@@ -704,7 +700,7 @@ function sortBenchmarkRows(rows: BenchmarkRouteRow[]): BenchmarkRouteRow[] {
     if (cmp === 0) {
       cmp = a.routeLabel.localeCompare(b.routeLabel);
     }
-    if (benchmarkSortField === "route" || benchmarkSortField === "city") {
+    if (benchmarkSortField === "route") {
       return benchmarkSortDirection === "asc" ? cmp : -cmp;
     }
     return cmp;
@@ -735,18 +731,18 @@ function benchmarkCity(gate: Gate): string {
 function benchmarkSummary(rows: BenchmarkRouteRow[], filteredRows: BenchmarkRouteRow[]): {
   publicSucceeded: number;
   doublezeroSucceeded: number;
-  averageAdvantagePercent: number | undefined;
+  averageImprovementPercent: number | undefined;
 } {
-  const advantages = filteredRows
-    .map((row) => row.rttAdvantagePercent)
+  const improvements = filteredRows
+    .map((row) => row.rttImprovementPercent)
     .filter((value): value is number => typeof value === "number" && Number.isFinite(value));
-  const averageAdvantagePercent = advantages.length > 0
-    ? compactMetric(advantages.reduce((sum, value) => sum + value, 0) / advantages.length)
+  const averageImprovementPercent = improvements.length > 0
+    ? compactMetric(improvements.reduce((sum, value) => sum + value, 0) / improvements.length)
     : undefined;
   return {
     publicSucceeded: filteredRows.filter((row) => row.route.public?.status === "succeeded").length,
     doublezeroSucceeded: filteredRows.filter((row) => row.route.doublezero?.status === "succeeded").length,
-    averageAdvantagePercent
+    averageImprovementPercent
   };
 }
 
@@ -761,21 +757,35 @@ function benchmarkValueCell(metric: BenchmarkMetric | undefined, value: string):
   return escapeHtml(value);
 }
 
-function benchmarkAdvantageCell(value: number | undefined): string {
+function benchmarkImprovementCell(value: number | undefined): string {
   if (typeof value !== "number" || !Number.isFinite(value)) {
     return '<span class="muted">n/a</span>';
   }
-  return `<span class="benchmark-advantage ${benchmarkAdvantageClass(value)}">${escapeHtml(formatSignedPercent(value))}</span>`;
+  return `<span class="benchmark-improvement ${benchmarkImprovementClass(value)}">${escapeHtml(formatSignedPercent(value))}</span>`;
 }
 
-function benchmarkAdvantageClass(value: number): string {
+function benchmarkImprovementClass(value: number): string {
   if (value > 0) {
-    return "benchmark-advantage-good";
+    return "benchmark-improvement-good";
   }
   if (value >= -10) {
-    return "benchmark-advantage-similar";
+    return "benchmark-improvement-similar";
   }
-  return "benchmark-advantage-internet";
+  return "benchmark-improvement-internet";
+}
+
+function benchmarkJitterCell(row: BenchmarkRouteRow): string {
+  const jitterSummary = `
+    <span>DZ ${formatMetricMs(row.doublezeroJitterMs)}</span>
+    <small>Internet ${formatMetricMs(row.publicJitterMs)}</small>
+  `;
+  if (typeof row.jitterImprovementPercent !== "number" || !Number.isFinite(row.jitterImprovementPercent)) {
+    return jitterSummary;
+  }
+  return `
+    ${jitterSummary}
+    <small><span class="benchmark-improvement ${benchmarkImprovementClass(row.jitterImprovementPercent)}">${escapeHtml(formatSignedPercent(row.jitterImprovementPercent))} / ${escapeHtml(formatSavedMetricMs(row.jitterSavedMs))}</span></small>
+  `;
 }
 
 function benchmarkLossCell(row: BenchmarkRouteRow): string {
@@ -789,9 +799,9 @@ function benchmarkLegend(): string {
   return `
     <div class="benchmark-legend" aria-label="Benchmark legend">
       <span>Legend:</span>
-      <span><i class="legend-swatch benchmark-advantage-good"></i>DZ faster</span>
-      <span><i class="legend-swatch benchmark-advantage-similar"></i>Similar (0 to -10%)</span>
-      <span><i class="legend-swatch benchmark-advantage-internet"></i>Internet faster (&lt; -10%)</span>
+      <span><i class="legend-swatch benchmark-improvement-good"></i>DZ faster</span>
+      <span><i class="legend-swatch benchmark-improvement-similar"></i>Similar (0 to -10%)</span>
+      <span><i class="legend-swatch benchmark-improvement-internet"></i>Internet faster (&lt; -10%)</span>
     </div>
   `;
 }
@@ -808,20 +818,26 @@ function benchmarkFreshness(matrix: BenchmarkMatrix | null): string {
   if (!matrix) {
     return "waiting for matrix";
   }
-  const latest = latestBenchmarkMeasuredAt(matrix);
-  return latest ? `Latest sample ${relativeTime(latest)}` : "waiting for first samples";
+  const values = benchmarkMeasuredAtValues(matrix);
+  if (values.length === 0) {
+    return "waiting for first samples";
+  }
+  const latest = values[values.length - 1] ?? "";
+  const now = Date.now();
+  const freshCount = values.filter((value) => {
+    const timestamp = Date.parse(value);
+    return !Number.isNaN(timestamp) && now - timestamp <= benchmarkFreshWindowMs;
+  }).length;
+  const totalCount = matrix.routes.length * 2;
+  return `Latest sample ${relativeTime(latest)} · ${freshCount}/${totalCount} transports fresh within 15m`;
 }
 
-function latestBenchmarkMeasuredAt(matrix: BenchmarkMatrix): string {
+function benchmarkMeasuredAtValues(matrix: BenchmarkMatrix): string[] {
   const values = matrix.routes.flatMap((route) => [
     route.public?.measuredAt,
     route.doublezero?.measuredAt
   ]).filter((value): value is string => Boolean(value));
-  if (values.length === 0) {
-    return "";
-  }
-  const sorted = values.sort();
-  return sorted[sorted.length - 1] ?? "";
+  return values.sort();
 }
 
 function shortGateName(value: string): string {
