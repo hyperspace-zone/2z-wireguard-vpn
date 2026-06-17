@@ -1217,7 +1217,7 @@ function createSessionPanel(gates: Gate[]): string {
             <span>Restrict ingress to source IP</span>
           </label>
           <div class="input-action-row">
-            <input name="sourceIp" placeholder="203.0.113.10" value="${escapeHtml(sessionDraft.sourceIp)}" ${sessionDraft.restrictSource ? "" : "disabled"} ${sessionValidationErrors.sourceIp ? 'aria-invalid="true"' : ""} />
+            <input name="sourceIp" placeholder="8.8.8.8" value="${escapeHtml(sessionDraft.sourceIp)}" ${sessionDraft.restrictSource ? "" : "disabled"} ${sessionValidationErrors.sourceIp ? 'aria-invalid="true"' : ""} />
             <button id="use-browser-source-ip" type="button" ${sessionDraft.restrictSource ? "" : "disabled"}>Use browser IP</button>
           </div>
           ${fieldError("sourceIp")}
@@ -1228,7 +1228,7 @@ function createSessionPanel(gates: Gate[]): string {
             <input name="restrictTarget" type="checkbox" ${targetChecked ? "checked" : ""} />
             <span>Restrict destination to target IP</span>
           </label>
-          <input name="targetIp" placeholder="198.51.100.20" value="${escapeHtml(sessionDraft.targetIp)}" ${targetChecked ? "" : "disabled"} ${sessionValidationErrors.targetIp ? 'aria-invalid="true"' : ""} />
+          <input name="targetIp" placeholder="1.1.1.1" value="${escapeHtml(sessionDraft.targetIp)}" ${targetChecked ? "" : "disabled"} ${sessionValidationErrors.targetIp ? 'aria-invalid="true"' : ""} />
           <small id="target-mode-help">${escapeHtml(targetModeHelpText(targetChecked, sessionDraft.restrictSource))}</small>
           ${fieldError("targetIp")}
         </fieldset>
@@ -1951,7 +1951,9 @@ function validateSessionDraft(): SessionValidationErrors {
   const errors: SessionValidationErrors = {};
   const sourceIp = sessionDraft.sourceIp.trim();
   const targetIp = sessionDraft.targetIp.trim();
-  if (sessionDraft.restrictSource && !isIpv4(sourceIp)) {
+  if (sessionDraft.mode === "FullTunnel" && !sessionDraft.restrictSource) {
+    errors.sourceIp = "Full tunnel requires a source IP restriction.";
+  } else if (sessionDraft.restrictSource && !isIpv4(sourceIp)) {
     errors.sourceIp = "Enter a valid IPv4 source address.";
   }
   if (sessionDraft.mode === "IpToIp" && !isIpv4(targetIp)) {
@@ -2186,7 +2188,7 @@ async function api(path: string, options: { method: string; body?: unknown }): P
   const payload = text ? JSON.parse(text) : {};
   if (!response.ok) {
     log(JSON.stringify(payload, null, 2));
-    throw new Error(payload.error ?? response.statusText);
+    throw new Error(payload.message ?? payload.error ?? response.statusText);
   }
   return payload;
 }
@@ -2585,7 +2587,7 @@ function targetModeHelpText(restrictTarget: boolean, restrictSource: boolean): s
   if (restrictSource) {
     return "Full tunnel routes all IPv4 destinations, restricted to the selected source IP.";
   }
-  return "Full tunnel routes all IPv4 destinations, so target IP is not used.";
+  return "Full tunnel requires source IP restriction before creating a config.";
 }
 
 function latencyCell(gate: Gate): string {

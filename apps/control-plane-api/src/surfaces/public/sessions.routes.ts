@@ -10,7 +10,8 @@ import {
   deleteHiddenSession,
   listPublicSessions,
   readOwnSession,
-  revokeSession
+  revokeSession,
+  type SessionAbuseControlConfig
 } from "@hyperspace-zone/control-plane";
 import type { Database } from "@hyperspace-zone/db";
 import type { PublicAuthUser } from "../../http/auth.js";
@@ -22,6 +23,7 @@ export function registerPublicSessionsRoutes(
   deps: {
     db: Database;
     requireUser: (request: FastifyRequest, reply: FastifyReply) => Promise<PublicAuthUser | null>;
+    selfServiceAbuseControls: SessionAbuseControlConfig;
   }
 ): void {
   app.get("/v1/public/sessions", {
@@ -44,7 +46,10 @@ export function registerPublicSessionsRoutes(
       body: publicCreateSessionRequestSchema,
       response: {
         201: publicSessionResponseSchema,
-        400: errorResponseSchema
+        400: errorResponseSchema,
+        403: errorResponseSchema,
+        409: errorResponseSchema,
+        429: errorResponseSchema
       }
     }
   }, async (request, reply) => {
@@ -53,7 +58,7 @@ export function registerPublicSessionsRoutes(
       return;
     }
 
-    const created = await createSession(deps.db, user, asRecord(request.body));
+    const created = await createSession(deps.db, user, asRecord(request.body), deps.selfServiceAbuseControls);
     if (created.status === "invalid") {
       return sendApplicationError(
         reply,

@@ -17,6 +17,7 @@ export type ApplicationErrorCode =
   | "artifact_not_ready"
   | "auth_required"
   | "credentials_required"
+  | "destination_not_allowed"
   | "destination_required"
   | "download_token_not_found"
   | "distinct_gates_required"
@@ -29,14 +30,21 @@ export type ApplicationErrorCode =
   | "invalid_auth_session"
   | "invalid_client_public_key"
   | "invalid_credentials"
+  | "invalid_destination_cidr"
   | "invalid_email"
   | "invalid_gate_credentials"
   | "invalid_job_status"
   | "invalid_mode"
+  | "invalid_source_cidr"
   | "job_not_found"
   | "raw_config_not_available"
+  | "rate_limited"
+  | "session_create_rate_limited"
   | "session_not_found"
   | "session_not_revoked"
+  | "session_quota_exceeded"
+  | "source_not_allowed"
+  | "source_required"
   | "weak_password";
 
 export function sendApplicationError(
@@ -60,8 +68,12 @@ function applicationErrorStatus(code: ApplicationErrorCode): number {
       return 503;
     case "artifact_not_ready":
     case "email_already_registered":
+    case "session_quota_exceeded":
     case "session_not_revoked":
       return 409;
+    case "rate_limited":
+    case "session_create_rate_limited":
+      return 429;
     case "raw_config_not_available":
       return 406;
     case "auth_required":
@@ -72,6 +84,8 @@ function applicationErrorStatus(code: ApplicationErrorCode): number {
     case "invalid_gate_credentials":
       return 401;
     case "forbidden":
+    case "destination_not_allowed":
+    case "source_not_allowed":
       return 403;
     case "download_token_not_found":
     case "gate_not_found":
@@ -84,9 +98,12 @@ function applicationErrorStatus(code: ApplicationErrorCode): number {
     case "egress_gate_required":
     case "ingress_gate_required":
     case "invalid_client_public_key":
+    case "invalid_destination_cidr":
     case "invalid_email":
     case "invalid_job_status":
     case "invalid_mode":
+    case "invalid_source_cidr":
+    case "source_required":
     case "weak_password":
       return 400;
   }

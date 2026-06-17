@@ -857,10 +857,33 @@ AUTH_SESSION_TTL_SECONDS=2592000
 ARTIFACT_DOWNLOAD_TTL_SECONDS=300
 ADMIN_TOKEN=${ADMIN_TOKEN}
 ARTIFACT_ENCRYPTION_KEY=${ARTIFACT_ENCRYPTION_KEY}
+PUBLIC_RATE_LIMIT_ENABLED=true
+PUBLIC_RATE_LIMIT_READ_WINDOW_SECONDS=60
+PUBLIC_RATE_LIMIT_READ_MAX=300
+PUBLIC_RATE_LIMIT_AUTH_WINDOW_SECONDS=300
+PUBLIC_RATE_LIMIT_AUTH_MAX=30
+PUBLIC_RATE_LIMIT_MUTATION_WINDOW_SECONDS=60
+PUBLIC_RATE_LIMIT_MUTATION_MAX=60
+PUBLIC_RATE_LIMIT_DOWNLOAD_WINDOW_SECONDS=60
+PUBLIC_RATE_LIMIT_DOWNLOAD_MAX=30
+SELF_SERVICE_MAX_ACTIVE_SESSIONS_PER_ACCOUNT=5
+SELF_SERVICE_MAX_SESSION_CREATES_PER_WINDOW=20
+SELF_SERVICE_SESSION_CREATE_WINDOW_SECONDS=3600
+SELF_SERVICE_REQUIRE_SOURCE_FOR_FULL_TUNNEL=true
+SELF_SERVICE_ALLOW_PRIVATE_DESTINATIONS=false
+SELF_SERVICE_ALLOW_PRIVATE_SOURCES=false
 EOF
 chown root:hyperspace /etc/hyperspace/control-plane-api.env
 chmod 0640 /etc/hyperspace/control-plane-api.env
 ```
+
+The self-service API enables basic abuse controls by default. Public API rate
+limits are in-memory per API process and are intended to absorb accidental or
+low-effort abuse. Session create controls are enforced transactionally per
+account: active non-terminal VPN configs are capped, create bursts are capped
+per window, IP-to-IP targets must be public IPv4 `/32` destinations unless
+explicitly overridden, and full-tunnel configs require a public IPv4 `/32`
+source restriction.
 
 Create `/etc/hyperspace/control-plane-worker.env` with the same
 `ARTIFACT_ENCRYPTION_KEY`:

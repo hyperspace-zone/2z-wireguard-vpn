@@ -105,13 +105,13 @@ try {
   await expectText(page, "City filter");
   await expectText(page, "RTT Improvement");
   await expectText(page, "RTT Saved");
-  await expectText(page, "Ingress gate -> DZ RTT");
-  await expectText(page, "Egress gate -> DZ RTT");
+  await expectText(page, "Loss");
+  await expectText(page, "Ingress gate ↔ DZ RTT");
+  await expectText(page, "Egress gate ↔ DZ RTT");
   await expectText(page, "DZ RTT Jitter");
   await expectText(page, "Internet RTT Jitter");
   await expectText(page, "RTT Jitter Improvement");
   await expectText(page, "RTT Jitter Saved");
-  assert(await page.getByRole("button", { name: "Loss" }).count() === 0, "RTT table must not render a Loss column");
   await expectText(page, "DZ One-Way");
   await expectText(page, "Internet One-Way");
   await expectText(page, "One-Way Improvement");

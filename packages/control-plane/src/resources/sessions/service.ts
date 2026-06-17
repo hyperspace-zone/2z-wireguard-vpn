@@ -1,13 +1,19 @@
 import type { TransactionalQueryable } from "../../db/queryable.js";
+import type { SessionAbuseControlConfig } from "./abuse-controls.js";
 import {
+  countNonTerminalSessionsForAccount,
+  countRecentSessionCreatesForAccount,
   findSessionPhaseForUpdate,
   findOwnedSessionPhaseForUpdate,
   findOwnedSessionVisibilityForUpdate,
   hideOwnedSession,
   insertRequestedSession,
+  insertRequestedSessionInTransaction,
   insertSessionHiddenAudit,
+  insertUserSessionRejectedAudit,
   insertSystemSessionRevokeRequestedAudit,
   insertUserSessionRevokeRequestedAudit,
+  lockAccountForSessionCreate,
   updateSessionDesiredState,
   updateSessionStatusPhase,
   type SessionOwner
@@ -20,6 +26,17 @@ import {
 } from "./transitions.js";
 import type { SessionCreateParsed } from "./validation.js";
 
+export interface CreateRequestedSessionCreated {
+  status: "created";
+  sessionId: string;
+}
+
+export interface CreateRequestedSessionRejected {
+  status: "rejected";
+  error: string;
+  message: string;
+}
+
 export async function createRequestedSession(
   db: TransactionalQueryable,
   actor: SessionOwner,
@@ -27,6 +44,59 @@ export async function createRequestedSession(
 ): Promise<string> {
   return insertRequestedSession(db, actor, parsed, {
     initialPhase: requestedSessionInitialTransition().phase
+  });
+}
+
+export async function createRequestedSessionWithAbuseControls(
+  db: TransactionalQueryable,
+  actor: SessionOwner,
+  parsed: SessionCreateParsed,
+  config: SessionAbuseControlConfig
+): Promise<CreateRequestedSessionCreated | CreateRequestedSessionRejected> {
+  return db.transaction(async (client) => {
+    await lockAccountForSessionCreate(client, actor.accountId);
+
+    const activeCount = await countNonTerminalSessionsForAccount(client, actor.accountId);
+    if (activeCount >= config.maxActiveSessionsPerAccount) {
+      await insertUserSessionRejectedAudit(client, actor, {
+        error: "session_quota_exceeded",
+        reason: "max_active_sessions_per_account",
+        mode: parsed.mode,
+        limit: config.maxActiveSessionsPerAccount
+      });
+      return {
+        status: "rejected",
+        error: "session_quota_exceeded",
+        message: `Self-service account limit reached: ${config.maxActiveSessionsPerAccount} active VPN configs.`
+      };
+    }
+
+    const recentCreateCount = await countRecentSessionCreatesForAccount(
+      client,
+      actor.accountId,
+      config.sessionCreateWindowSeconds
+    );
+    if (recentCreateCount >= config.maxSessionCreatesPerWindow) {
+      await insertUserSessionRejectedAudit(client, actor, {
+        error: "session_create_rate_limited",
+        reason: "max_session_creates_per_window",
+        mode: parsed.mode,
+        limit: config.maxSessionCreatesPerWindow,
+        windowSeconds: config.sessionCreateWindowSeconds
+      });
+      return {
+        status: "rejected",
+        error: "session_create_rate_limited",
+        message: `Self-service account create limit reached: ${config.maxSessionCreatesPerWindow} VPN configs per ${config.sessionCreateWindowSeconds} seconds.`
+      };
+    }
+
+    return {
+      status: "created",
+      sessionId: await insertRequestedSessionInTransaction(client, actor, parsed, {
+        initialPhase: requestedSessionInitialTransition().phase
+      })
+    };
   });
 }
 

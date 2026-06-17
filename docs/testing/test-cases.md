@@ -78,7 +78,7 @@ Do not include them in routine `npm test` or live smoke runs.
 | UI-013 | Dashboard config table | After config create. | Table shows Created, Mode, Config, Source IP, Target IP, Ingress gate, Egress gate, Status, Actions. Source `Any` and target `Internet`/IP render compactly. | `scripts/testnet/live-ui-smoke.mjs` |
 | UI-014 | Action buttons state | While requested/provisioning/failed/revoking/active. | Download and Revoke are enabled only when active; Delete revokes first when needed and then hides the config. | `scripts/testnet/live-ui-smoke.mjs` |
 | UI-015 | Console cleanliness | Run happy path in Chromium/Brave. | No uncaught promise errors such as `AbortError: signal is aborted without reason`. | `scripts/testnet/live-ui-smoke.mjs` |
-| UI-016 | Gate benchmark page | Open the `Benchmarks` navigation item after benchmark jobs have reported. | The page shows `Gate benchmark routes — RTT` and `Gate benchmark routes — One-Way` under `DZ vs Internet`, with sortable columns, City filter, freshness coverage, and green/yellow/pink legend. Rows use a directed `City1 -> City2` route column and show RTT metrics separately from forward one-way metrics. | Live dashboard/manual screenshot |
+| UI-016 | Gate benchmark page | Open the `Benchmarks` navigation item after benchmark jobs have reported. | The page shows `Gate benchmark routes — RTT` and `Gate benchmark routes — One-Way` under `DZ vs Internet`, with sortable columns, City filter, freshness coverage, and green/yellow/pink legend. Rows use a directed `City1 → City2` route column and show RTT metrics separately from forward one-way metrics. | Live dashboard/manual screenshot |
 
 ## WireGuard Traffic Policy
 
@@ -92,6 +92,16 @@ Do not include them in routine `npm test` or live smoke runs.
 | WG-006 | Additive config safety | Keep config A active, create config B with different gate pair. | Existing traffic through config A is not interrupted. | Testnode/manual |
 | WG-007 | Revoke isolation | Keep config A active, revoke/delete config B. | Config A remains connected and traffic continues. | Testnode/manual |
 | WG-008 | Cleanup after revoke | Revoke/delete config and inspect gates. | No stale WireGuard interfaces, nftables rules, leases, or managed handles remain for the revoked config. | Testnode/manual |
+
+## Basic Abuse Controls
+
+| ID | Case | Steps | Expected | Coverage |
+| --- | --- | --- | --- | --- |
+| ABUSE-001 | Public API rate limit | Send more than `PUBLIC_RATE_LIMIT_READ_MAX` public read requests from the same client identity inside the configured window. | API returns `429` with `rate_limited`, `Retry-After`, and `X-RateLimit-*` headers. | `apps/control-plane-api/src/http/rate-limit.test.ts` |
+| ABUSE-002 | Active config quota | Configure a low `SELF_SERVICE_MAX_ACTIVE_SESSIONS_PER_ACCOUNT`, then create one more non-terminal VPN config for the same account. | Create request is rejected with `session_quota_exceeded`; no session row is inserted; audit records `session_rejected`. | `packages/control-plane/src/application/sessions/create-session.scenario.test.ts` |
+| ABUSE-003 | Create burst quota | Exceed `SELF_SERVICE_MAX_SESSION_CREATES_PER_WINDOW` inside `SELF_SERVICE_SESSION_CREATE_WINDOW_SECONDS`. | Create request is rejected with `session_create_rate_limited`; audit records `session_rejected`. | Manual/API smoke |
+| ABUSE-004 | Public target guardrail | Try a self-service IP-to-IP config with a private, loopback, link-local, documentation, multicast, or broad destination CIDR. | API rejects the request with `destination_not_allowed` or `invalid_destination_cidr`. | `packages/control-plane/src/resources/sessions/abuse-controls.test.ts` |
+| ABUSE-005 | Full-tunnel source guardrail | Try a full-tunnel config without source restriction, with a broad source CIDR, or with a private/reserved source. | UI blocks the missing-source case; API rejects invalid requests with `source_required`, `invalid_source_cidr`, or `source_not_allowed`. | Unit/manual |
 
 ## Performance Measurements
 

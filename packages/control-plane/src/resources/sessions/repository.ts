@@ -96,67 +96,150 @@ export async function insertRequestedSession(
     initialPhase: string;
   }
 ): Promise<string> {
-  return db.transaction(async (client) => {
-    const session = await client.query<{ id: string }>(
-      `
-        INSERT INTO sessions (
-          account_id,
-          mode,
-          destination_cidrs,
-          source_cidr,
-          client_public_key,
-          label,
-          spec,
-          path_policy,
-          artifact_policy
-        )
-        VALUES ($1, $2, $3::cidr[], $4::cidr, $5, $6, $7::jsonb, $8::jsonb, $9::jsonb)
-        RETURNING id
-      `,
-      [
-        actor.accountId,
-        parsed.mode,
-        parsed.destinationCidrs,
-        parsed.sourceCidr ?? null,
-        parsed.clientPublicKey ?? null,
-        parsed.label ?? null,
-        JSON.stringify(parsed.spec),
-        JSON.stringify(parsed.spec.pathPolicy ?? {}),
-        JSON.stringify(parsed.spec.artifactPolicy ?? {})
-      ]
-    );
-    const sessionId = mustRow(session).id;
+  return db.transaction((client) => insertRequestedSessionInTransaction(client, actor, parsed, input));
+}
 
-    await client.query(
-      `
-        INSERT INTO session_status (session_id, phase)
-        VALUES ($1, $2::session_phase)
-      `,
-      [sessionId, input.initialPhase]
-    );
-    await client.query(
-      `
-        INSERT INTO session_conditions (
-          session_id,
-          type,
-          status,
-          reason,
-          message,
-          observed_generation
-        )
-        VALUES ($1, 'Ready', 'False', 'Requested', 'Session accepted and waiting for reconciliation', 0)
-      `,
-      [sessionId]
-    );
-    await client.query(
-      `
-        INSERT INTO audit_events (event_type, actor_type, actor_id, account_id, session_id, details)
-        VALUES ('session_requested', 'user', $1, $2, $3, $4::jsonb)
-      `,
-      [actor.id, actor.accountId, sessionId, JSON.stringify({ mode: parsed.mode })]
-    );
-    return sessionId;
-  });
+export async function insertRequestedSessionInTransaction(
+  db: Queryable,
+  actor: SessionOwner,
+  parsed: SessionCreateParsed,
+  input: {
+    initialPhase: string;
+  }
+): Promise<string> {
+  const session = await db.query<{ id: string }>(
+    `
+      INSERT INTO sessions (
+        account_id,
+        mode,
+        destination_cidrs,
+        source_cidr,
+        client_public_key,
+        label,
+        spec,
+        path_policy,
+        artifact_policy
+      )
+      VALUES ($1, $2, $3::cidr[], $4::cidr, $5, $6, $7::jsonb, $8::jsonb, $9::jsonb)
+      RETURNING id
+    `,
+    [
+      actor.accountId,
+      parsed.mode,
+      parsed.destinationCidrs,
+      parsed.sourceCidr ?? null,
+      parsed.clientPublicKey ?? null,
+      parsed.label ?? null,
+      JSON.stringify(parsed.spec),
+      JSON.stringify(parsed.spec.pathPolicy ?? {}),
+      JSON.stringify(parsed.spec.artifactPolicy ?? {})
+    ]
+  );
+  const sessionId = mustRow(session).id;
+
+  await db.query(
+    `
+      INSERT INTO session_status (session_id, phase)
+      VALUES ($1, $2::session_phase)
+    `,
+    [sessionId, input.initialPhase]
+  );
+  await db.query(
+    `
+      INSERT INTO session_conditions (
+        session_id,
+        type,
+        status,
+        reason,
+        message,
+        observed_generation
+      )
+      VALUES ($1, 'Ready', 'False', 'Requested', 'Session accepted and waiting for reconciliation', 0)
+    `,
+    [sessionId]
+  );
+  await db.query(
+    `
+      INSERT INTO audit_events (event_type, actor_type, actor_id, account_id, session_id, details)
+      VALUES ('session_requested', 'user', $1, $2, $3, $4::jsonb)
+    `,
+    [actor.id, actor.accountId, sessionId, JSON.stringify({ mode: parsed.mode })]
+  );
+  return sessionId;
+}
+
+export async function lockAccountForSessionCreate(db: Queryable, accountId: string): Promise<void> {
+  await db.query(
+    `
+      SELECT id
+      FROM accounts
+      WHERE id = $1
+      FOR UPDATE
+    `,
+    [accountId]
+  );
+}
+
+export async function countNonTerminalSessionsForAccount(db: Queryable, accountId: string): Promise<number> {
+  const result = await db.query<{ count: number }>(
+    `
+      SELECT COUNT(*)::int AS count
+      FROM sessions
+      JOIN session_status ON session_status.session_id = sessions.id
+      WHERE sessions.account_id = $1
+        AND sessions.hidden_at IS NULL
+        AND session_status.phase NOT IN ('revoked', 'failed')
+    `,
+    [accountId]
+  );
+  return mustRow(result).count;
+}
+
+export async function countRecentSessionCreatesForAccount(
+  db: Queryable,
+  accountId: string,
+  windowSeconds: number
+): Promise<number> {
+  const result = await db.query<{ count: number }>(
+    `
+      SELECT COUNT(*)::int AS count
+      FROM sessions
+      WHERE account_id = $1
+        AND created_at >= now() - ($2::int * interval '1 second')
+    `,
+    [accountId, windowSeconds]
+  );
+  return mustRow(result).count;
+}
+
+export async function insertUserSessionRejectedAudit(
+  db: Queryable,
+  actor: SessionOwner,
+  input: {
+    error: string;
+    reason: string;
+    mode?: string;
+    limit?: number;
+    windowSeconds?: number;
+  }
+): Promise<void> {
+  await db.query(
+    `
+      INSERT INTO audit_events (event_type, actor_type, actor_id, account_id, details)
+      VALUES ('session_rejected', 'user', $1, $2, $3::jsonb)
+    `,
+    [
+      actor.id,
+      actor.accountId,
+      JSON.stringify({
+        error: input.error,
+        reason: input.reason,
+        ...(input.mode ? { mode: input.mode } : {}),
+        ...(input.limit !== undefined ? { limit: input.limit } : {}),
+        ...(input.windowSeconds !== undefined ? { windowSeconds: input.windowSeconds } : {})
+      })
+    ]
+  );
 }
 
 export async function findOwnedSessionPhaseForUpdate(

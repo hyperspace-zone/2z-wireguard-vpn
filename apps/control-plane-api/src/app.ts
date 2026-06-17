@@ -1,7 +1,9 @@
 import Fastify, { type FastifyInstance } from "fastify";
+import type { SessionAbuseControlConfig } from "@hyperspace-zone/control-plane";
 import type { Database } from "@hyperspace-zone/db";
 import { createHttpAuth } from "./http/auth.js";
 import { registerOpenApiRoute } from "./http/openapi.js";
+import { registerPublicRateLimits, type PublicRateLimitConfig } from "./http/rate-limit.js";
 import { registerAdminAuditRoutes } from "./surfaces/admin/audit.routes.js";
 import { registerAdminGatesRoutes } from "./surfaces/admin/gates.routes.js";
 import { registerAdminJobRoutes } from "./surfaces/admin/jobs.routes.js";
@@ -24,6 +26,8 @@ export interface ControlPlaneApiRuntimeConfig {
   downloadTokenTtlSeconds: number;
   adminToken?: string;
   artifactEncryptionKey: Buffer | null;
+  publicRateLimit: PublicRateLimitConfig;
+  selfServiceAbuseControls: SessionAbuseControlConfig;
 }
 
 export interface CreateControlPlaneApiAppInput {
@@ -39,6 +43,7 @@ export function createApp(input: CreateControlPlaneApiAppInput): FastifyInstance
     logger: true
   });
 
+  registerPublicRateLimits(app, config.publicRateLimit);
   registerOpenApiRoute(app);
   registerHealthRoutes(app);
   registerPublicAuthRoutes(app, {
@@ -49,7 +54,11 @@ export function createApp(input: CreateControlPlaneApiAppInput): FastifyInstance
   registerPublicBenchmarkRoutes(app, { db });
   registerPublicGatesRoutes(app, { db });
   registerPublicNetworkRoutes(app, { requireUser: auth.requireUser });
-  registerPublicSessionsRoutes(app, { db, requireUser: auth.requireUser });
+  registerPublicSessionsRoutes(app, {
+    db,
+    requireUser: auth.requireUser,
+    selfServiceAbuseControls: config.selfServiceAbuseControls
+  });
   registerPublicArtifactRoutes(app, {
     db,
     downloadTokenTtlSeconds: config.downloadTokenTtlSeconds,

@@ -62,6 +62,10 @@ export {
   type ArtifactDownloadToken
 } from "./resources/artifacts/download-tokens.js";
 export { recordGateHeartbeat, type GateHeartbeatReport, type GateRuntimeIdentity } from "./resources/gates/service.js";
+export {
+  defaultSessionAbuseControlConfig,
+  type SessionAbuseControlConfig
+} from "./resources/sessions/abuse-controls.js";
 export { recordGateJobReport, type GateJobReport } from "./resources/jobs/attempts.js";
 export {
   claimGateJob,
