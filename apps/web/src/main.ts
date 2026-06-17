@@ -718,10 +718,13 @@ function benchmarkOneWaySortableHeader(label: string, field: BenchmarkOneWaySort
 function benchmarkSortableHeader(label: string, field: string, align: "left" | "right", sortAttribute: string, activeField: string, activeDirection: SortDirection, infoTitle?: string): string {
   const arrow = activeField === field ? (activeDirection === "desc" ? "↓" : "↑") : "";
   const info = infoTitle ? benchmarkInfoIcon(infoTitle) : "";
+  const labelMarkup = infoTitle
+    ? `<span class="table-sort-label-nowrap">${escapeHtml(label)} ${info}</span>`
+    : escapeHtml(label);
   return `
     <th class="${align === "right" ? "numeric-cell" : ""}" aria-sort="${benchmarkAriaSort(field, activeField, activeDirection)}">
       <button class="table-sort" type="button" ${sortAttribute}="${field}">
-        ${escapeHtml(label)} ${info} ${arrow}
+        ${labelMarkup} ${arrow}
       </button>
     </th>
   `;

@@ -358,6 +358,10 @@ tbody td {
   white-space: normal;
 }
 
+.table-sort-label-nowrap {
+  white-space: nowrap;
+}
+
 .benchmark-table-section {
   display: grid;
   gap: 8px;
