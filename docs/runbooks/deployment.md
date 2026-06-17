@@ -30,6 +30,7 @@ Minimum production-like layout:
 | Control plane | 1 | Runs API and worker systemd services. |
 | PostgreSQL | 1 | Transaction source of truth. Keep private. |
 | Gate | 2 | Minimum for a route that uses distinct ingress and egress roles. Gates are universal; each gate must expose HTTPS probes. |
+| Observability | 0-1 | Optional in this runbook. The repository currently documents the target shape in `infra/observability/README.md`, but does not ship a complete Prometheus/Grafana deployment bundle. |
 
 For small test deployments, web, control-plane, and PostgreSQL can be collapsed
 onto one host. Gate hosts should remain separate from the control plane.
@@ -71,6 +72,7 @@ export HS_REPO_DIR=/opt/2z-wireguard-vpn
 # Example for a combined web/API/control-plane host. Replace with your values.
 export HS_WEB_HOST=<web-public-ip-or-dns>
 export HS_API_HOST=<control-plane-public-ip-or-dns>
+export HS_DB_HOST=127.0.0.1
 export OPS_EMAIL=<ops-email>
 
 export DZ_ENV=mainnet-beta
@@ -87,6 +89,9 @@ to the same public IP address or DNS name. For a split deployment, set
 `HS_WEB_HOST` to the web UI host and `HS_API_HOST` to the public control-plane
 API host. The web UI should call the API through `/api/*` on the web origin;
 gate agents and automation clients should call `HS_API_ORIGIN` directly.
+Set `HS_DB_HOST` to `127.0.0.1` only when PostgreSQL runs on the same host as
+the control plane. For a split deployment, set it to the private database DNS
+name or IP that is reachable only from the control-plane host.
 Override `HS_WEB_ORIGIN` or `HS_API_ORIGIN` manually only when the public origin
 is not `https://<host>`, for example when a non-standard public port or external
 reverse proxy is used.
@@ -412,6 +417,37 @@ Do not run a network `:443` certificate check yet. The temporary bootstrap
 Caddyfile only serves port 80. Network HTTPS validation appears later, after
 the final web/API or gate Caddyfile is installed.
 
+### Caddy-Managed ACME Alternative
+
+For DNS-based deployments, it is also acceptable to let Caddy manage Let's
+Encrypt certificates directly instead of provisioning Certbot certificates and
+copying them into `/etc/caddy/certs`. This is the shorter path for stable DNS
+names such as `app.example.net`, `control-plane.example.net`, and
+`gate-eu-fra-01.example.net`.
+
+Use this path only when:
+
+- public DNS already resolves to the host;
+- ports `80` and `443` are reachable from the Internet;
+- the host does not need Let's Encrypt IP address certificates.
+
+With Caddy-managed TLS, omit explicit `tls <fullchain> <privkey>` lines from
+the final Caddyfiles and include an operations email in the global options:
+
+```caddy
+{
+  email ops@example.net
+}
+
+example.net {
+  respond "ok" 200
+}
+```
+
+Run `caddy validate --config /etc/caddy/Caddyfile` before reloading. If Caddy
+cannot obtain a certificate, inspect `journalctl -u caddy --no-pager` and fix
+DNS/firewall problems before continuing.
+
 ## Gate Prerequisites
 
 Every gate host must have:
@@ -440,6 +476,15 @@ apt-get install -y \
   iproute2 \
   nftables \
   caddy
+```
+
+Verify the host tools before starting the agent. A gate can heartbeat while
+remaining `Ready=false` if `wg`, `ip`, or `nft` is missing:
+
+```bash
+command -v wg
+command -v ip
+command -v nft
 ```
 
 Install the DoubleZero CLI and daemon by following the official DoubleZero
@@ -754,7 +799,30 @@ Use this connection string in the API, worker, seed, and migration commands:
 
 ```bash
 DB_PASSWORD_URLENCODED="$(node -e 'process.stdout.write(encodeURIComponent(process.argv[1]))' "$DB_PASSWORD")"
-export DATABASE_URL="postgres://hyperspace:${DB_PASSWORD_URLENCODED}@127.0.0.1:5432/hyperspace"
+export DATABASE_URL="postgres://hyperspace:${DB_PASSWORD_URLENCODED}@${HS_DB_HOST:-127.0.0.1}:5432/hyperspace"
+```
+
+For a split database host, PostgreSQL must listen on the database network
+interface and accept only the control-plane host. On the DB host, replace
+`<control-plane-public-or-private-ip>` with the exact source IP used by the
+control-plane host:
+
+```bash
+sed -i "s/^#\\?listen_addresses = .*/listen_addresses = '*'/" /etc/postgresql/*/main/postgresql.conf
+
+cat >>/etc/postgresql/*/main/pg_hba.conf <<EOF
+host hyperspace hyperspace <control-plane-public-or-private-ip>/32 scram-sha-256
+EOF
+
+systemctl restart postgresql
+systemctl is-active postgresql
+```
+
+Verify the connection from the control-plane host before running migrations:
+
+```bash
+apt-get install -y postgresql-client
+psql "$DATABASE_URL" -c 'select 1;'
 ```
 
 Run migrations from the control-plane checkout after `npm ci` and build:
@@ -803,6 +871,12 @@ DATABASE_URL=${DATABASE_URL}
 WORKER_POLL_MS=2000
 WORKER_ID=control-plane-worker-01
 ARTIFACT_ENCRYPTION_KEY=${ARTIFACT_ENCRYPTION_KEY}
+BENCHMARK_PROBES_ENABLED=true
+BENCHMARK_INTERVAL_SECONDS=300
+BENCHMARK_PROBE_PORT=19192
+BENCHMARK_PROBE_COUNT=10
+BENCHMARK_PROBE_INTERVAL_MS=100
+BENCHMARK_PROBE_TIMEOUT_MS=1000
 EOF
 chown root:hyperspace /etc/hyperspace/control-plane-worker.env
 chmod 0640 /etc/hyperspace/control-plane-worker.env
@@ -1078,6 +1152,11 @@ cd "$HS_REPO_DIR"
 sudo -u hyperspace env DATABASE_URL="$DATABASE_URL" scripts/seed-gates-json /etc/hyperspace/gates.json | jq .
 ```
 
+Do not use `npm run db:seed:gates -- --quiet-json` in automation and pipe that
+directly into `jq`: npm lifecycle output and workspace build logs can be
+printed before the JSON payload. Use `scripts/seed-gates-json` whenever another
+script needs to parse issued gate tokens.
+
 The seed command validates the gate catalog before writing to PostgreSQL:
 the file must contain at least two gates, `name`, `identity`, and
 `publicIpv4` must be unique, `probeUrl` must be unique when present,
@@ -1226,6 +1305,39 @@ collapsed onto the same host, also expose `/v1/*` directly for gate agents and
 automation clients over the same HTTPS host. See
 `infra/caddy/Caddyfile.combined.example`.
 
+For a split web/control-plane deployment with Caddy-managed TLS, the web host
+can use this shape. The explicit `Host` header is important: without it, the
+upstream Caddy/API origin can return the wrong virtual host response.
+
+```caddy
+{
+  email ops@example.net
+}
+
+app.example.net {
+  handle /api/* {
+    uri strip_prefix /api
+    reverse_proxy https://control-plane.example.net {
+      header_up Host control-plane.example.net
+    }
+  }
+
+  handle {
+    root * /var/www/hyperspace-web
+    header Cache-Control "no-store, max-age=0"
+    try_files {path} /index.html
+    file_server
+  }
+}
+```
+
+Validate both the API proxy and the static app shell from outside the cluster:
+
+```bash
+curl -fsS "https://${HS_WEB_HOST}/api/health" | jq .
+curl -fsSI "https://${HS_WEB_HOST}/benchmarks"
+```
+
 ## Browser Gate Probes
 
 Browser RTT measurement requires each gate to expose an HTTPS probe endpoint:
@@ -1320,6 +1432,20 @@ Before giving the UI to users, validate:
 
 Keep validation clients separate from gate hosts so the results reflect the
 user path.
+
+For Milestone 2 benchmark validation, a route with `Internet` success and
+`DoubleZero` failure is not automatically a deployment failure. Verify the path
+from the source gate with interface-bound probes before changing application
+configuration:
+
+```bash
+ping -c 3 -I eth0 <peer-gate-public-ip>
+ping -c 3 -I doublezero0 <peer-gate-public-ip>
+```
+
+If the public interface succeeds and `doublezero0` has 100% loss, treat that as
+a DoubleZero route/device issue for that gate pair and record it with the
+benchmark evidence.
 
 Related runbooks:
 
