@@ -4,9 +4,7 @@ export interface SessionAbuseControlConfig {
   maxActiveSessionsPerAccount: number;
   maxSessionCreatesPerWindow: number;
   sessionCreateWindowSeconds: number;
-  requireSourceForFullTunnel: boolean;
   allowPrivateDestinations: boolean;
-  allowPrivateSources: boolean;
 }
 
 export interface SessionAbuseControlError {
@@ -24,9 +22,7 @@ export const defaultSessionAbuseControlConfig: SessionAbuseControlConfig = {
   maxActiveSessionsPerAccount: 5,
   maxSessionCreatesPerWindow: 20,
   sessionCreateWindowSeconds: 60 * 60,
-  requireSourceForFullTunnel: true,
-  allowPrivateDestinations: false,
-  allowPrivateSources: false
+  allowPrivateDestinations: false
 };
 
 const nonGlobalIpv4Ranges = [
@@ -94,13 +90,6 @@ export function validateSessionAbusePolicy(
     };
   }
 
-  if (parsed.mode === "FullTunnel" && config.requireSourceForFullTunnel && !parsed.sourceCidr) {
-    return {
-      error: "source_required",
-      message: "Full-tunnel self-service configs require a source IPv4 /32 restriction."
-    };
-  }
-
   if (!parsed.sourceCidr) {
     return null;
   }
@@ -110,18 +99,6 @@ export function validateSessionAbusePolicy(
     return {
       error: "invalid_source_cidr",
       message: "Source restriction must be a valid IPv4 CIDR."
-    };
-  }
-  if (source.prefixLength !== 32) {
-    return {
-      error: "invalid_source_cidr",
-      message: "Self-service source restrictions must be a single IPv4 /32 address."
-    };
-  }
-  if (!config.allowPrivateSources && !isGlobalIpv4Cidr(source)) {
-    return {
-      error: "source_not_allowed",
-      message: `Source ${source.text} is not a public IPv4 /32 address.`
     };
   }
 

@@ -1951,9 +1951,7 @@ function validateSessionDraft(): SessionValidationErrors {
   const errors: SessionValidationErrors = {};
   const sourceIp = sessionDraft.sourceIp.trim();
   const targetIp = sessionDraft.targetIp.trim();
-  if (sessionDraft.mode === "FullTunnel" && !sessionDraft.restrictSource) {
-    errors.sourceIp = "Full tunnel requires a source IP restriction.";
-  } else if (sessionDraft.restrictSource && !isIpv4(sourceIp)) {
+  if (sessionDraft.restrictSource && !isIpv4(sourceIp)) {
     errors.sourceIp = "Enter a valid IPv4 source address.";
   }
   if (sessionDraft.mode === "IpToIp" && !isIpv4(targetIp)) {
@@ -2587,7 +2585,7 @@ function targetModeHelpText(restrictTarget: boolean, restrictSource: boolean): s
   if (restrictSource) {
     return "Full tunnel routes all IPv4 destinations, restricted to the selected source IP.";
   }
-  return "Full tunnel requires source IP restriction before creating a config.";
+  return "Full tunnel routes all IPv4 destinations, so target IP is not used.";
 }
 
 function latencyCell(gate: Gate): string {

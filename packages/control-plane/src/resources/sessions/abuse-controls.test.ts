@@ -41,27 +41,37 @@ test("self-service IP-to-IP configs reject broad destination CIDRs", () => {
   assert.equal(error?.error, "invalid_destination_cidr");
 });
 
-test("full-tunnel self-service configs require a source restriction", () => {
+test("full-tunnel self-service configs allow unrestricted source access", () => {
   const parsed = parseValidSession({
     mode: "FullTunnel",
     ingressGateName: "gate-a",
     egressGateName: "gate-b"
   });
 
-  const error = validateSessionAbusePolicy(parsed, defaultSessionAbuseControlConfig);
-  assert.equal(error?.error, "source_required");
+  assert.equal(validateSessionAbusePolicy(parsed, defaultSessionAbuseControlConfig), null);
 });
 
-test("source restrictions must be public IPv4 /32 addresses", () => {
+test("source restrictions may be private or broad when explicitly requested", () => {
   const parsed = parseValidSession({
     mode: "FullTunnel",
-    sourceIp: "192.168.0.50",
+    sourceCidr: "192.168.0.0/16",
+    ingressGateName: "gate-a",
+    egressGateName: "gate-b"
+  });
+
+  assert.equal(validateSessionAbusePolicy(parsed, defaultSessionAbuseControlConfig), null);
+});
+
+test("source restrictions must still be valid IPv4 CIDRs", () => {
+  const parsed = parseValidSession({
+    mode: "FullTunnel",
+    sourceCidr: "999.0.0.1/32",
     ingressGateName: "gate-a",
     egressGateName: "gate-b"
   });
 
   const error = validateSessionAbusePolicy(parsed, defaultSessionAbuseControlConfig);
-  assert.equal(error?.error, "source_not_allowed");
+  assert.equal(error?.error, "invalid_source_cidr");
 });
 
 function parseValidSession(body: Record<string, unknown>): SessionCreateParsed {

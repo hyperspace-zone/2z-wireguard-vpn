@@ -75,20 +75,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ControlPlaneAp
         "SELF_SERVICE_SESSION_CREATE_WINDOW_SECONDS",
         defaultSessionAbuseControlConfig.sessionCreateWindowSeconds
       ),
-      requireSourceForFullTunnel: readBoolean(
-        env,
-        "SELF_SERVICE_REQUIRE_SOURCE_FOR_FULL_TUNNEL",
-        defaultSessionAbuseControlConfig.requireSourceForFullTunnel
-      ),
       allowPrivateDestinations: readBoolean(
         env,
         "SELF_SERVICE_ALLOW_PRIVATE_DESTINATIONS",
         defaultSessionAbuseControlConfig.allowPrivateDestinations
-      ),
-      allowPrivateSources: readBoolean(
-        env,
-        "SELF_SERVICE_ALLOW_PRIVATE_SOURCES",
-        defaultSessionAbuseControlConfig.allowPrivateSources
       )
     }
   };

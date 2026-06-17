@@ -43,8 +43,6 @@ export type ApplicationErrorCode =
   | "session_not_found"
   | "session_not_revoked"
   | "session_quota_exceeded"
-  | "source_not_allowed"
-  | "source_required"
   | "weak_password";
 
 export function sendApplicationError(
@@ -85,7 +83,6 @@ function applicationErrorStatus(code: ApplicationErrorCode): number {
       return 401;
     case "forbidden":
     case "destination_not_allowed":
-    case "source_not_allowed":
       return 403;
     case "download_token_not_found":
     case "gate_not_found":
@@ -103,7 +100,6 @@ function applicationErrorStatus(code: ApplicationErrorCode): number {
     case "invalid_job_status":
     case "invalid_mode":
     case "invalid_source_cidr":
-    case "source_required":
     case "weak_password":
       return 400;
   }
