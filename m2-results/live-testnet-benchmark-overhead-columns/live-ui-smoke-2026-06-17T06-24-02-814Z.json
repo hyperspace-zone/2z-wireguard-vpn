@@ -1,0 +1,140 @@
+{
+  "runId": "2026-06-17T06-24-02-814Z",
+  "webBase": "https://app.testnet.hyperspace.zone",
+  "apiBase": "https://app.testnet.hyperspace.zone/api",
+  "email": "codex-live-1781677442815@example.com",
+  "targetIp": "1.1.1.1",
+  "ingressGateName": "gate-eu-fra-01",
+  "egressGateName": "gate-eu-lon-01",
+  "gates": [
+    {
+      "name": "gate-eu-fra-01",
+      "ready": true,
+      "schedulable": true,
+      "doubleZero": {
+        "tunnelStatus": "BGP Session Up",
+        "lastSessionUpdate": "2026-06-09 16:06:38 UTC",
+        "tunnelName": "doublezero0",
+        "tunnelSrc": "212.147.230.200",
+        "tunnelDst": "195.219.220.58",
+        "doubleZeroIp": "212.147.230.200",
+        "userType": "IBRL",
+        "reconciler": "true",
+        "currentDevice": "fra-dz001",
+        "lowestLatencyDevice": "fra-dz001",
+        "lowestLatencyDeviceWarning": false,
+        "metro": "Frankfurt",
+        "network": "testnet",
+        "reportedAt": "2026-06-17T06:23:51Z"
+      }
+    },
+    {
+      "name": "gate-eu-ams-01",
+      "ready": true,
+      "schedulable": true,
+      "doubleZero": {
+        "tunnelStatus": "BGP Session Up",
+        "lastSessionUpdate": "2026-06-16 17:00:17 UTC",
+        "tunnelName": "doublezero0",
+        "tunnelSrc": "85.9.219.252",
+        "tunnelDst": "195.219.138.96",
+        "doubleZeroIp": "85.9.219.252",
+        "userType": "IBRL",
+        "reconciler": "true",
+        "currentDevice": "ams-dz001",
+        "lowestLatencyDevice": "ams-dz001",
+        "lowestLatencyDeviceWarning": false,
+        "metro": "Amsterdam",
+        "network": "testnet",
+        "reportedAt": "2026-06-17T06:23:55Z"
+      }
+    },
+    {
+      "name": "gate-ap-sin-01",
+      "ready": true,
+      "schedulable": true,
+      "doubleZero": {
+        "tunnelStatus": "BGP Session Up",
+        "lastSessionUpdate": "2026-06-13 09:42:18 UTC",
+        "tunnelName": "doublezero0",
+        "tunnelSrc": "213.163.192.30",
+        "tunnelDst": "180.87.102.98",
+        "doubleZeroIp": "213.163.192.30",
+        "userType": "IBRL",
+        "reconciler": "true",
+        "currentDevice": "sin-dz001",
+        "lowestLatencyDevice": "sin-dz001",
+        "lowestLatencyDeviceWarning": false,
+        "metro": "Singapore",
+        "network": "testnet",
+        "reportedAt": "2026-06-17T06:23:59Z"
+      }
+    },
+    {
+      "name": "gate-eu-lon-01",
+      "ready": true,
+      "schedulable": true,
+      "doubleZero": {
+        "tunnelStatus": "BGP Session Up",
+        "lastSessionUpdate": "2026-06-11 23:03:11 UTC",
+        "tunnelName": "doublezero0",
+        "tunnelSrc": "94.237.62.140",
+        "tunnelDst": "195.219.121.96",
+        "doubleZeroIp": "94.237.62.140",
+        "userType": "IBRL",
+        "reconciler": "true",
+        "currentDevice": "lon-dz001",
+        "lowestLatencyDevice": "lon-dz001",
+        "lowestLatencyDeviceWarning": false,
+        "metro": "London",
+        "network": "testnet",
+        "reportedAt": "2026-06-17T06:24:01Z"
+      }
+    },
+    {
+      "name": "gate-na-nyc-01",
+      "ready": true,
+      "schedulable": true,
+      "doubleZero": {
+        "tunnelStatus": "BGP Session Up",
+        "lastSessionUpdate": "2026-06-09 16:06:11 UTC",
+        "tunnelName": "doublezero0",
+        "tunnelSrc": "85.9.199.104",
+        "tunnelDst": "64.86.249.22",
+        "doubleZeroIp": "85.9.199.104",
+        "userType": "IBRL",
+        "reconciler": "true",
+        "currentDevice": "nyc-dz001",
+        "lowestLatencyDevice": "nyc-dz001",
+        "lowestLatencyDeviceWarning": false,
+        "metro": "New York",
+        "network": "testnet",
+        "reportedAt": "2026-06-17T06:23:57Z"
+      }
+    }
+  ],
+  "steps": [
+    "registered",
+    "logged_in",
+    "dashboard_gates_checked",
+    "benchmarks_checked",
+    "egress_validation_checked",
+    "config_requested",
+    "config_active",
+    "raw_config_validated",
+    "ui_download_clicked",
+    "config_revoked",
+    "config_deleted"
+  ],
+  "sessionId": "b03bbcac-46c2-448f-8ae2-9a31c47de3fb",
+  "rawConfig": {
+    "byteLength": 255,
+    "hasInterface": true,
+    "hasPeer": true,
+    "hasEndpoint": true,
+    "hasAllowedIps": true
+  },
+  "status": "passed",
+  "consoleErrors": [],
+  "pageErrors": []
+}

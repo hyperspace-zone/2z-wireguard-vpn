@@ -3,7 +3,7 @@ type AppView = "dashboard" | "create-config" | "benchmarks" | "login" | "registe
 type CreateConfigStep = "configure" | "confirm";
 type SortDirection = "desc" | "asc";
 type KeyInstructionPlatform = "linux" | "macos" | "windows";
-type BenchmarkRttSortField = "route" | "doublezeroRtt" | "internetRtt" | "improvement" | "rttSaved" | "doublezeroJitter" | "internetJitter" | "jitterImprovement" | "jitterSaved" | "loss";
+type BenchmarkRttSortField = "route" | "doublezeroRtt" | "internetRtt" | "improvement" | "rttSaved" | "ingressDzRtt" | "egressDzRtt" | "doublezeroJitter" | "internetJitter" | "jitterImprovement" | "jitterSaved";
 type BenchmarkOneWaySortField = "route" | "doublezeroOneWay" | "internetOneWay" | "oneWayImprovement" | "oneWaySaved";
 type SessionValidationErrors = Partial<Record<"sourceIp" | "targetIp" | "ingressGateName" | "egressGateName" | "clientPublicKey", string>>;
 
@@ -87,6 +87,8 @@ interface BenchmarkRouteRow {
   targetCity: string;
   publicRttMs: number | undefined;
   doublezeroRttMs: number | undefined;
+  ingressDzRttMs: number | undefined;
+  egressDzRttMs: number | undefined;
   publicJitterMs: number | undefined;
   doublezeroJitterMs: number | undefined;
   jitterSavedMs: number | undefined;
@@ -95,8 +97,6 @@ interface BenchmarkRouteRow {
   doublezeroOneWayMs: number | undefined;
   oneWaySavedMs: number | undefined;
   oneWayImprovementPercent: number | undefined;
-  publicLossPercent: number | undefined;
-  doublezeroLossPercent: number | undefined;
   rttSavedMs: number | undefined;
   rttImprovementPercent: number | undefined;
 }
@@ -354,11 +354,12 @@ function isBenchmarkRttSortField(value: string | undefined): value is BenchmarkR
     value === "internetRtt" ||
     value === "improvement" ||
     value === "rttSaved" ||
+    value === "ingressDzRtt" ||
+    value === "egressDzRtt" ||
     value === "doublezeroJitter" ||
     value === "internetJitter" ||
     value === "jitterImprovement" ||
-    value === "jitterSaved" ||
-    value === "loss";
+    value === "jitterSaved";
 }
 
 function isBenchmarkOneWaySortField(value: string | undefined): value is BenchmarkOneWaySortField {
@@ -590,11 +591,12 @@ function benchmarkRttRoutesTable(rows: BenchmarkRouteRow[]): string {
             ${benchmarkRttSortableHeader("Internet RTT", "internetRtt", "right")}
             ${benchmarkRttSortableHeader("RTT Improvement", "improvement", "right")}
             ${benchmarkRttSortableHeader("RTT Saved", "rttSaved", "right")}
+            ${benchmarkRttSortableHeader("Ingress gate -> DZ RTT", "ingressDzRtt", "right")}
+            ${benchmarkRttSortableHeader("Egress gate -> DZ RTT", "egressDzRtt", "right")}
             ${benchmarkRttSortableHeader("DZ RTT Jitter", "doublezeroJitter", "right")}
             ${benchmarkRttSortableHeader("Internet RTT Jitter", "internetJitter", "right")}
             ${benchmarkRttSortableHeader("RTT Jitter Improvement", "jitterImprovement", "right")}
             ${benchmarkRttSortableHeader("RTT Jitter Saved", "jitterSaved", "right")}
-            ${benchmarkRttSortableHeader("Loss", "loss", "right")}
           </tr>
         </thead>
         <tbody>
@@ -621,11 +623,12 @@ function benchmarkRttRouteRow(row: BenchmarkRouteRow): string {
       <td class="numeric-cell">${benchmarkValueCell(route.public, formatMetricMs(row.publicRttMs))}</td>
       <td class="numeric-cell">${benchmarkImprovementCell(row.rttImprovementPercent)}</td>
       <td class="numeric-cell">${formatSavedMetricMs(row.rttSavedMs)}</td>
+      <td class="numeric-cell">${benchmarkValueCell(route.doublezero, formatMetricMs(row.ingressDzRttMs))}</td>
+      <td class="numeric-cell">${benchmarkValueCell(route.doublezero, formatMetricMs(row.egressDzRttMs))}</td>
       <td class="numeric-cell">${benchmarkValueCell(route.doublezero, formatMetricMs(row.doublezeroJitterMs))}</td>
       <td class="numeric-cell">${benchmarkValueCell(route.public, formatMetricMs(row.publicJitterMs))}</td>
       <td class="numeric-cell">${benchmarkImprovementCell(row.jitterImprovementPercent)}</td>
       <td class="numeric-cell">${formatSavedMetricMs(row.jitterSavedMs)}</td>
-      <td class="numeric-cell">${benchmarkLossCell(row)}</td>
     </tr>
   `;
 }
@@ -711,6 +714,8 @@ function benchmarkRouteRows(gates: Gate[], matrix: BenchmarkMatrix | null): Benc
     }
     const publicRttMs = finiteNumber(route.public?.rttMs?.p50);
     const doublezeroRttMs = finiteNumber(route.doublezero?.rttMs?.p50);
+    const ingressDzRttMs = finiteNumber(route.doublezero?.forwardOneWayMs?.p50);
+    const egressDzRttMs = finiteNumber(route.doublezero?.reverseOneWayMs?.p50);
     const publicJitterMs = finiteNumber(route.public?.jitterMs);
     const doublezeroJitterMs = finiteNumber(route.doublezero?.jitterMs);
     const jitterSavedMs = typeof publicJitterMs === "number" && typeof doublezeroJitterMs === "number"
@@ -727,8 +732,6 @@ function benchmarkRouteRows(gates: Gate[], matrix: BenchmarkMatrix | null): Benc
     const oneWayImprovementPercent = typeof oneWaySavedMs === "number" && typeof publicOneWayMs === "number" && publicOneWayMs > 0
       ? compactMetric((oneWaySavedMs / publicOneWayMs) * 100)
       : undefined;
-    const publicLossPercent = finiteNumber(route.public?.lossPercent);
-    const doublezeroLossPercent = finiteNumber(route.doublezero?.lossPercent);
     const rttSavedMs = typeof publicRttMs === "number" && typeof doublezeroRttMs === "number"
       ? compactMetric(publicRttMs - doublezeroRttMs)
       : undefined;
@@ -747,6 +750,8 @@ function benchmarkRouteRows(gates: Gate[], matrix: BenchmarkMatrix | null): Benc
       targetCity,
       publicRttMs,
       doublezeroRttMs,
+      ingressDzRttMs,
+      egressDzRttMs,
       publicJitterMs,
       doublezeroJitterMs,
       jitterSavedMs,
@@ -755,8 +760,6 @@ function benchmarkRouteRows(gates: Gate[], matrix: BenchmarkMatrix | null): Benc
       doublezeroOneWayMs,
       oneWaySavedMs,
       oneWayImprovementPercent,
-      publicLossPercent,
-      doublezeroLossPercent,
       rttSavedMs,
       rttImprovementPercent
     }];
@@ -790,6 +793,12 @@ function sortBenchmarkRttRows(rows: BenchmarkRouteRow[]): BenchmarkRouteRow[] {
       case "rttSaved":
         cmp = compareOptionalNumber(a.rttSavedMs, b.rttSavedMs, benchmarkRttSortDirection);
         break;
+      case "ingressDzRtt":
+        cmp = compareOptionalNumber(a.ingressDzRttMs, b.ingressDzRttMs, benchmarkRttSortDirection);
+        break;
+      case "egressDzRtt":
+        cmp = compareOptionalNumber(a.egressDzRttMs, b.egressDzRttMs, benchmarkRttSortDirection);
+        break;
       case "doublezeroJitter":
         cmp = compareOptionalNumber(a.doublezeroJitterMs, b.doublezeroJitterMs, benchmarkRttSortDirection);
         break;
@@ -801,9 +810,6 @@ function sortBenchmarkRttRows(rows: BenchmarkRouteRow[]): BenchmarkRouteRow[] {
         break;
       case "jitterSaved":
         cmp = compareOptionalNumber(a.jitterSavedMs, b.jitterSavedMs, benchmarkRttSortDirection);
-        break;
-      case "loss":
-        cmp = compareOptionalNumber(totalLossPercent(a), totalLossPercent(b), benchmarkRttSortDirection);
         break;
     }
     if (cmp === 0) {
@@ -913,13 +919,6 @@ function benchmarkImprovementClass(value: number): string {
   return "benchmark-improvement-internet";
 }
 
-function benchmarkLossCell(row: BenchmarkRouteRow): string {
-  return `
-    <span>DZ ${formatPercent(row.doublezeroLossPercent)}</span>
-    <small>Internet ${formatPercent(row.publicLossPercent)}</small>
-  `;
-}
-
 function benchmarkLegend(): string {
   return `
     <div class="benchmark-legend" aria-label="Benchmark legend">
@@ -929,14 +928,6 @@ function benchmarkLegend(): string {
       <span><i class="legend-swatch benchmark-improvement-internet"></i>Internet faster (&lt; -10%)</span>
     </div>
   `;
-}
-
-function totalLossPercent(row: BenchmarkRouteRow): number | undefined {
-  const values = [row.doublezeroLossPercent, row.publicLossPercent].filter((value): value is number => typeof value === "number" && Number.isFinite(value));
-  if (values.length === 0) {
-    return undefined;
-  }
-  return values.reduce((sum, value) => sum + value, 0);
 }
 
 function benchmarkFreshness(matrix: BenchmarkMatrix | null): string {
@@ -998,10 +989,6 @@ function formatSignedPercent(value: number | undefined): string {
   }
   const sign = value > 0 ? "+" : "";
   return `${sign}${formatLatency(value)}%`;
-}
-
-function formatPercent(value: number | undefined): string {
-  return typeof value === "number" && Number.isFinite(value) ? `${formatLatency(value)}%` : "n/a";
 }
 
 function finiteNumber(value: number | undefined): number | undefined {
