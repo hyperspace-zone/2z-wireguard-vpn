@@ -40,14 +40,14 @@ The API stores latest and historical rows in `gate_benchmark_results`. The web
 Benchmarks page renders two route tables:
 
 - one directed gate pair per row
-- `Gate benchmark routes — RTT` with sortable columns for metro-directed route,
+- `Gate benchmark routes — RTT` with sortable columns for city-directed route,
   DoubleZero RTT, Internet RTT,
   RTT improvement, RTT saved, DoubleZero RTT jitter, Internet RTT jitter, RTT
   jitter improvement, RTT jitter saved, ingress gate -> DZ RTT, and egress gate
   -> DZ RTT
-- `Gate benchmark routes — One-Way` with sortable columns for metro-directed
+- `Gate benchmark routes — One-Way` with sortable columns for city-directed
   route, DZ One-Way, Internet One-Way, One-Way improvement, and One-Way saved
-- a Metro filter for narrowing routes by source or target location
+- a City filter for narrowing routes by source or target location
 - a freshness line with the latest sample time and transport coverage within
   the last 15 minutes
 - a green/yellow/pink legend for DZ faster, similar, and Internet faster

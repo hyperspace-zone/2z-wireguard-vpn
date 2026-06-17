@@ -102,7 +102,7 @@ try {
   await expectText(page, "Gate benchmark routes — RTT");
   await expectText(page, "Gate benchmark routes — One-Way");
   await expectText(page, "DZ vs Internet");
-  await expectText(page, "Metro filter");
+  await expectText(page, "City filter");
   await expectText(page, "RTT Improvement");
   await expectText(page, "RTT Saved");
   await expectText(page, "Ingress gate -> DZ RTT");
