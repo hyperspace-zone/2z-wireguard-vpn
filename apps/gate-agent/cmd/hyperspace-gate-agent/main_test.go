@@ -2,7 +2,9 @@ package main
 
 import (
 	"encoding/json"
+	"net"
 	"testing"
+	"time"
 )
 
 func TestParseDoubleZeroStatus(t *testing.T) {
@@ -187,6 +189,60 @@ func TestDedupeProbeServerBindings(t *testing.T) {
 		t.Fatalf("unexpected second binding: %#v", bindings[1])
 	}
 }
+
+func TestListenerNeedsRestartOnInterfaceIndexChange(t *testing.T) {
+	current := &managedProbeListener{
+		Binding: probeServerBinding{Transport: "doublezero", Interface: "doublezero0", IfIndex: 12},
+		Conn:    fakePacketConn{},
+		Ready:   true,
+	}
+
+	if listenerNeedsRestart(current, probeServerBinding{Transport: "doublezero", Interface: "doublezero0", IfIndex: 12}) {
+		t.Fatal("listener with same interface index should be reused")
+	}
+	if !listenerNeedsRestart(current, probeServerBinding{Transport: "doublezero", Interface: "doublezero0", IfIndex: 13}) {
+		t.Fatal("listener should restart when interface index changes")
+	}
+	if !listenerNeedsRestart(current, probeServerBinding{Transport: "doublezero", Interface: "dz-old", IfIndex: 12}) {
+		t.Fatal("listener should restart when interface name changes")
+	}
+}
+
+func TestProbeManagerBindStateReflectsLiveListener(t *testing.T) {
+	manager := &probeServerManager{
+		listeners: map[string]*managedProbeListener{
+			"doublezero": {
+				Binding: probeServerBinding{Transport: "doublezero", Interface: "doublezero0", IfIndex: 12},
+				Conn:    fakePacketConn{},
+				Ready:   true,
+			},
+			"public": {
+				Binding:   probeServerBinding{Transport: "public", Interface: "eth0", IfIndex: 2},
+				LastError: "bind failed",
+			},
+		},
+	}
+
+	if got := manager.bindState("doublezero"); got != "ready" {
+		t.Fatalf("doublezero bind state = %q, expected ready", got)
+	}
+	if got := manager.bindState("public"); got != "unavailable" {
+		t.Fatalf("public bind state = %q, expected unavailable", got)
+	}
+	if got := manager.bindState("missing"); got != "unavailable" {
+		t.Fatalf("missing bind state = %q, expected unavailable", got)
+	}
+}
+
+type fakePacketConn struct{}
+
+func (fakePacketConn) ReadFrom([]byte) (int, net.Addr, error) { return 0, nil, nil }
+func (fakePacketConn) WriteTo([]byte, net.Addr) (int, error)  { return 0, nil }
+func (fakePacketConn) Close() error                           { return nil }
+func (fakePacketConn) LocalAddr() net.Addr                    { return nil }
+func (fakePacketConn) SetDeadline(time.Time) error            { return nil }
+func (fakePacketConn) SetReadDeadline(time.Time) error        { return nil }
+func (fakePacketConn) SetWriteDeadline(time.Time) error       { return nil }
 
 func assertString(t *testing.T, values map[string]any, key string, expected string) {
 	t.Helper()

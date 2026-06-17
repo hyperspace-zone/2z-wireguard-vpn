@@ -21,11 +21,12 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 )
 
-const version = "0.1.0"
+const version = "0.1.1"
 
 type config struct {
 	ControlPlaneURL    string
@@ -58,10 +59,10 @@ func main() {
 	if err != nil {
 		fatal(err)
 	}
+	var probeManager *probeServerManager
 	if cfg.ProbePort > 0 {
-		if err := startProbeServer(cfg); err != nil {
-			logJSON("probe_server_failed", map[string]any{"error": err.Error()})
-		}
+		probeManager = newProbeServerManager(cfg)
+		probeManager.Start()
 	}
 
 	client := &http.Client{Timeout: 20 * time.Second}
@@ -76,7 +77,7 @@ func main() {
 	lastHeartbeat := time.Time{}
 	for {
 		if time.Since(lastHeartbeat) >= cfg.HeartbeatInterval {
-			if err := sendHeartbeat(client, cfg); err != nil {
+			if err := sendHeartbeat(client, cfg, probeManager); err != nil {
 				logJSON("heartbeat_failed", map[string]any{"error": err.Error()})
 			} else {
 				lastHeartbeat = time.Now()
@@ -322,10 +323,29 @@ func executeRevokeAssignment(cfg config, item job) jobResult {
 
 const probeMagic = "hyperspace-gate-probe-v1"
 const soReusePort = 0x0F
+const probeServerSyncInterval = 2 * time.Second
 
 type probeServerBinding struct {
 	Transport string
 	Interface string
+	IfIndex   int
+}
+
+type managedProbeListener struct {
+	Binding   probeServerBinding
+	Conn      net.PacketConn
+	Ready     bool
+	LastError string
+	StartedAt time.Time
+	UpdatedAt time.Time
+}
+
+type probeServerManager struct {
+	cfg       config
+	addr      string
+	interval  time.Duration
+	mu        sync.RWMutex
+	listeners map[string]*managedProbeListener
 }
 
 type probeJobPayload struct {
@@ -617,46 +637,149 @@ func runProbeSample(
 	}
 }
 
-func startProbeServer(cfg config) error {
-	addr := net.JoinHostPort(cfg.ProbeListenAddress, strconv.Itoa(cfg.ProbePort))
-	bindings := probeServerBindings()
-	started := 0
-	for _, binding := range bindings {
-		conn, err := listenUDPWithOptions(addr, binding.Interface, true)
-		if err != nil {
-			logJSON("probe_server_bind_failed", map[string]any{
-				"transport": binding.Transport,
-				"interface": binding.Interface,
-				"error":     err.Error(),
-			})
-			continue
+func newProbeServerManager(cfg config) *probeServerManager {
+	return &probeServerManager{
+		cfg:       cfg,
+		addr:      net.JoinHostPort(cfg.ProbeListenAddress, strconv.Itoa(cfg.ProbePort)),
+		interval:  probeServerSyncInterval,
+		listeners: map[string]*managedProbeListener{},
+	}
+}
+
+func (manager *probeServerManager) Start() {
+	manager.sync()
+	go func() {
+		ticker := time.NewTicker(manager.interval)
+		defer ticker.Stop()
+		for range ticker.C {
+			manager.sync()
 		}
-		startProbeServerLoop(cfg, conn, probeServerBinding{
-			Transport: binding.Transport,
-			Interface: binding.Interface,
-		})
-		started++
+	}()
+}
+
+func (manager *probeServerManager) sync() {
+	desired := probeServerBindings()
+	desiredByTransport := map[string]probeServerBinding{}
+	for _, binding := range desired {
+		desiredByTransport[binding.Transport] = binding
+		manager.ensureListener(binding)
 	}
 
-	if started > 0 {
-		return nil
+	manager.mu.Lock()
+	for transport, listener := range manager.listeners {
+		if _, ok := desiredByTransport[transport]; !ok {
+			if listener.Conn != nil {
+				_ = listener.Conn.Close()
+			}
+			delete(manager.listeners, transport)
+			logJSON("probe_server_stopped", map[string]any{
+				"transport": listener.Binding.Transport,
+				"interface": listener.Binding.Interface,
+				"ifIndex":   listener.Binding.IfIndex,
+				"reason":    "interface_unavailable",
+			})
+		}
+	}
+	manager.mu.Unlock()
+}
+
+func (manager *probeServerManager) ensureListener(binding probeServerBinding) {
+	manager.mu.RLock()
+	current := manager.listeners[binding.Transport]
+	restart := listenerNeedsRestart(current, binding)
+	manager.mu.RUnlock()
+	if !restart {
+		return
 	}
 
-	conn, err := net.ListenPacket("udp4", addr)
+	if current != nil && current.Conn != nil {
+		_ = current.Conn.Close()
+	}
+
+	conn, err := listenUDPWithOptions(manager.addr, binding.Interface, true)
 	if err != nil {
-		return err
+		manager.mu.Lock()
+		manager.listeners[binding.Transport] = &managedProbeListener{
+			Binding:   binding,
+			Ready:     false,
+			LastError: err.Error(),
+			UpdatedAt: time.Now(),
+		}
+		manager.mu.Unlock()
+		logJSON("probe_server_bind_failed", map[string]any{
+			"transport": binding.Transport,
+			"interface": binding.Interface,
+			"ifIndex":   binding.IfIndex,
+			"error":     err.Error(),
+		})
+		return
 	}
-	startProbeServerLoop(cfg, conn, probeServerBinding{Transport: "legacy", Interface: ""})
-	return nil
+
+	listener := &managedProbeListener{
+		Binding:   binding,
+		Conn:      conn,
+		Ready:     true,
+		StartedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+	manager.mu.Lock()
+	manager.listeners[binding.Transport] = listener
+	manager.mu.Unlock()
+
+	startProbeServerLoop(manager.cfg, conn, binding, func(err error) {
+		manager.markListenerExited(binding.Transport, conn, err)
+	})
+}
+
+func listenerNeedsRestart(current *managedProbeListener, desired probeServerBinding) bool {
+	if current == nil {
+		return true
+	}
+	if !current.Ready || current.Conn == nil {
+		return true
+	}
+	return current.Binding.Interface != desired.Interface || current.Binding.IfIndex != desired.IfIndex
+}
+
+func (manager *probeServerManager) markListenerExited(transport string, conn net.PacketConn, err error) {
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+	current := manager.listeners[transport]
+	if current == nil || current.Conn != conn {
+		return
+	}
+	current.Ready = false
+	current.Conn = nil
+	current.UpdatedAt = time.Now()
+	if err != nil {
+		current.LastError = err.Error()
+	}
+}
+
+func (manager *probeServerManager) bindState(transport string) string {
+	manager.mu.RLock()
+	listener := manager.listeners[transport]
+	manager.mu.RUnlock()
+	if listener == nil {
+		return "unavailable"
+	}
+	if listener.Ready && listener.Conn != nil {
+		return "ready"
+	}
+	return "unavailable"
 }
 
 func probeServerBindings() []probeServerBinding {
 	candidates := make([]probeServerBinding, 0, 2)
 	if publicInterface, err := defaultRouteInterface(); err == nil && publicInterface != "" {
-		candidates = append(candidates, probeServerBinding{Transport: "public", Interface: publicInterface})
+		if ifIndex, err := interfaceIndex(publicInterface); err == nil {
+			candidates = append(candidates, probeServerBinding{Transport: "public", Interface: publicInterface, IfIndex: ifIndex})
+		}
 	}
 	if linkState("doublezero0") != "missing" {
-		candidates = append(candidates, probeServerBinding{Transport: "doublezero", Interface: "doublezero0"})
+		if ifIndex, err := interfaceIndex("doublezero0"); err == nil {
+			candidates = append(candidates, probeServerBinding{Transport: "doublezero", Interface: "doublezero0", IfIndex: ifIndex})
+		}
 	}
 	return dedupeProbeServerBindings(candidates)
 }
@@ -674,7 +797,7 @@ func dedupeProbeServerBindings(candidates []probeServerBinding) []probeServerBin
 	return bindings
 }
 
-func startProbeServerLoop(cfg config, conn net.PacketConn, binding probeServerBinding) {
+func startProbeServerLoop(cfg config, conn net.PacketConn, binding probeServerBinding, onExit func(error)) {
 	go func() {
 		defer conn.Close()
 		logJSON("probe_server_started", map[string]any{
@@ -682,13 +805,24 @@ func startProbeServerLoop(cfg config, conn net.PacketConn, binding probeServerBi
 			"port":          cfg.ProbePort,
 			"transport":     binding.Transport,
 			"interface":     binding.Interface,
+			"ifIndex":       binding.IfIndex,
 			"hmac":          hmacState(cfg),
 		})
 		buffer := make([]byte, 4096)
 		for {
 			n, remote, err := conn.ReadFrom(buffer)
 			if err != nil {
-				logJSON("probe_server_read_failed", map[string]any{"error": err.Error()})
+				if !errors.Is(err, net.ErrClosed) && !strings.Contains(err.Error(), "use of closed network connection") {
+					logJSON("probe_server_read_failed", map[string]any{
+						"transport": binding.Transport,
+						"interface": binding.Interface,
+						"ifIndex":   binding.IfIndex,
+						"error":     err.Error(),
+					})
+				}
+				if onExit != nil {
+					onExit(err)
+				}
 				return
 			}
 			serverRx := time.Now()
@@ -818,14 +952,14 @@ func probeState(cfg config) string {
 	return "enabled"
 }
 
-func probeBindState(cfg config, interfaceValue string) string {
+func probeBindState(cfg config, manager *probeServerManager, transport string) string {
 	if cfg.ProbePort <= 0 {
 		return "disabled"
 	}
-	if _, err := resolveProbeInterface(interfaceValue); err != nil {
+	if manager == nil {
 		return "unavailable"
 	}
-	return "enabled"
+	return manager.bindState(transport)
 }
 
 func hmacState(cfg config) string {
@@ -874,6 +1008,29 @@ func chronyTrackingSummary() map[string]any {
 		}
 	}
 	return summary
+}
+
+func doubleZeroRouteState() string {
+	if linkState("doublezero0") != "up" {
+		return "unavailable"
+	}
+	output := commandOutput("ip", "route", "show", "dev", "doublezero0", "proto", "bgp")
+	if output == "" {
+		return "empty"
+	}
+	count := 0
+	for _, line := range strings.Split(output, "\n") {
+		if strings.TrimSpace(line) != "" {
+			count++
+		}
+	}
+	if count == 0 {
+		return "empty"
+	}
+	if count < 2 {
+		return "sparse"
+	}
+	return "ready"
 }
 
 func decodeAssignmentPayload(item job) (assignmentPayload, error) {
@@ -1106,7 +1263,7 @@ func commitEgress(state assignmentState, plan networkPlan) error {
 	return runCommand("nft", "add", "rule", "ip", "hyperspace_nat", "postrouting", "oifname", defaultIface, "ip", "saddr", pm.ClientAddress, "counter", "masquerade", "comment", state.Handle)
 }
 
-func sendHeartbeat(client *http.Client, cfg config) error {
+func sendHeartbeat(client *http.Client, cfg config, probeManager *probeServerManager) error {
 	doubleZero := doubleZeroStatus()
 	body := map[string]any{
 		"gateId":           cfg.GateName,
@@ -1123,9 +1280,10 @@ func sendHeartbeat(client *http.Client, cfg config) error {
 			"iproute2:" + commandState("ip"),
 			"nft:" + commandState("nft"),
 			"doublezero0:" + linkState("doublezero0"),
+			"doublezero-routes:" + doubleZeroRouteState(),
 			"udp-probe:" + probeState(cfg),
-			"udp-probe-public-bind:" + probeBindState(cfg, "public"),
-			"udp-probe-doublezero-bind:" + probeBindState(cfg, "doublezero0"),
+			"udp-probe-public-bind:" + probeBindState(cfg, probeManager, "public"),
+			"udp-probe-doublezero-bind:" + probeBindState(cfg, probeManager, "doublezero"),
 			"udp-probe-hmac:" + hmacState(cfg),
 			"chrony:" + chronyState(),
 		},
@@ -1681,6 +1839,14 @@ func defaultRouteInterface() (string, error) {
 		}
 	}
 	return "", errors.New("default route interface not found")
+}
+
+func interfaceIndex(name string) (int, error) {
+	iface, err := net.InterfaceByName(name)
+	if err != nil {
+		return 0, err
+	}
+	return iface.Index, nil
 }
 
 func readMapString(values map[string]any, key string) string {
