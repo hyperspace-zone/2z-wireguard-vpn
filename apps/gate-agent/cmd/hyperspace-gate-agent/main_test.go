@@ -74,6 +74,36 @@ func TestParseDoubleZeroStatusParsesLatencyDeviceStatus(t *testing.T) {
 	}
 }
 
+func TestParsePingAverageRTT(t *testing.T) {
+	tests := []struct {
+		name     string
+		output   string
+		expected float64
+	}{
+		{
+			name:     "linux iputils",
+			output:   "rtt min/avg/max/mdev = 0.566/0.575/0.590/0.009 ms",
+			expected: 0.575,
+		},
+		{
+			name:     "bsd ping",
+			output:   "round-trip min/avg/max/stddev = 1.720/1.744/1.764/0.016 ms",
+			expected: 1.744,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			actual, err := parsePingAverageRTT(tt.output)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if actual != tt.expected {
+				t.Fatalf("average RTT = %v, expected %v", actual, tt.expected)
+			}
+		})
+	}
+}
+
 func TestDecodeProbePayloadDefaults(t *testing.T) {
 	payload := map[string]any{
 		"kind":             "gate_benchmark_v1",

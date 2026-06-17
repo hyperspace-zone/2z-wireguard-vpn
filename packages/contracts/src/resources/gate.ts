@@ -22,6 +22,11 @@ export const gateDoubleZeroStatusSchema = {
     lowestLatencyDeviceWarning: { type: "boolean" },
     metro: { type: "string" },
     network: { type: "string" },
+    edgeRttMs: { type: "number" },
+    edgeRttTarget: { type: "string" },
+    edgeRttInterface: { type: "string" },
+    edgeRttMeasuredAt: { type: "string", format: "date-time" },
+    edgeRttError: { type: "string" },
     reportedAt: { type: "string", format: "date-time" },
     error: { type: "string" },
     raw: { type: "string" }

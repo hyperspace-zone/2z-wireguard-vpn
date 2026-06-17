@@ -42,9 +42,9 @@ Benchmarks page renders two route tables:
 - one directed gate pair per row
 - `Gate benchmark routes — RTT` with sortable columns for city-directed route,
   DoubleZero RTT, Internet RTT,
-  RTT improvement, RTT saved, ingress gate -> DZ RTT, egress gate -> DZ RTT,
-  DoubleZero RTT jitter, Internet RTT jitter, RTT jitter improvement, and RTT
-  jitter saved
+  RTT improvement, RTT saved, DoubleZero RTT jitter, Internet RTT jitter, RTT
+  jitter improvement, RTT jitter saved, ingress gate -> DZ RTT, and egress gate
+  -> DZ RTT
 - `Gate benchmark routes — One-Way` with sortable columns for city-directed
   route, DZ One-Way, Internet One-Way, One-Way improvement, and One-Way saved
 - a City filter for narrowing routes by source or target location
@@ -55,9 +55,11 @@ Benchmarks page renders two route tables:
 
 One-way values depend on synchronized clocks. Install and run chrony on all gate
 hosts and treat RTT as the primary metric if clock quality is unknown.
-The ingress/egress DZ RTT columns on the web page are timestamp-based route
-contribution estimates from the DZ forward and reverse probe legs; gate-agent
-does not yet report a separate RTT to the current DoubleZero device.
+
+The ingress/egress DZ RTT columns use the latest gate heartbeat field
+`doubleZero.edgeRttMs`. The gate-agent measures it by pinging DoubleZero
+`Tunnel Dst` through the gate public interface. This is the local edge overhead
+around each gate, not half of the full gate-to-gate route.
 
 ## Gate Configuration
 

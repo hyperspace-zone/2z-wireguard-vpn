@@ -27,6 +27,11 @@ interface GateDoubleZeroStatus {
   lowestLatencyDeviceWarning?: boolean;
   metro?: string;
   network?: string;
+  edgeRttMs?: number;
+  edgeRttTarget?: string;
+  edgeRttInterface?: string;
+  edgeRttMeasuredAt?: string;
+  edgeRttError?: string;
   reportedAt?: string;
   error?: string;
 }
@@ -591,12 +596,12 @@ function benchmarkRttRoutesTable(rows: BenchmarkRouteRow[]): string {
             ${benchmarkRttSortableHeader("Internet RTT", "internetRtt", "right")}
             ${benchmarkRttSortableHeader("RTT Improvement", "improvement", "right")}
             ${benchmarkRttSortableHeader("RTT Saved", "rttSaved", "right")}
-            ${benchmarkRttSortableHeader("Ingress gate -> DZ RTT", "ingressDzRtt", "right")}
-            ${benchmarkRttSortableHeader("Egress gate -> DZ RTT", "egressDzRtt", "right")}
             ${benchmarkRttSortableHeader("DZ RTT Jitter", "doublezeroJitter", "right")}
             ${benchmarkRttSortableHeader("Internet RTT Jitter", "internetJitter", "right")}
             ${benchmarkRttSortableHeader("RTT Jitter Improvement", "jitterImprovement", "right")}
             ${benchmarkRttSortableHeader("RTT Jitter Saved", "jitterSaved", "right")}
+            ${benchmarkRttSortableHeader("Ingress gate -> DZ RTT", "ingressDzRtt", "right")}
+            ${benchmarkRttSortableHeader("Egress gate -> DZ RTT", "egressDzRtt", "right")}
           </tr>
         </thead>
         <tbody>
@@ -623,12 +628,12 @@ function benchmarkRttRouteRow(row: BenchmarkRouteRow): string {
       <td class="numeric-cell">${benchmarkValueCell(route.public, formatMetricMs(row.publicRttMs))}</td>
       <td class="numeric-cell">${benchmarkImprovementCell(row.rttImprovementPercent)}</td>
       <td class="numeric-cell">${formatSavedMetricMs(row.rttSavedMs)}</td>
-      <td class="numeric-cell">${benchmarkValueCell(route.doublezero, formatMetricMs(row.ingressDzRttMs))}</td>
-      <td class="numeric-cell">${benchmarkValueCell(route.doublezero, formatMetricMs(row.egressDzRttMs))}</td>
       <td class="numeric-cell">${benchmarkValueCell(route.doublezero, formatMetricMs(row.doublezeroJitterMs))}</td>
       <td class="numeric-cell">${benchmarkValueCell(route.public, formatMetricMs(row.publicJitterMs))}</td>
       <td class="numeric-cell">${benchmarkImprovementCell(row.jitterImprovementPercent)}</td>
       <td class="numeric-cell">${formatSavedMetricMs(row.jitterSavedMs)}</td>
+      <td class="numeric-cell">${benchmarkEdgeRttCell(row.sourceGate, row.ingressDzRttMs)}</td>
+      <td class="numeric-cell">${benchmarkEdgeRttCell(row.targetGate, row.egressDzRttMs)}</td>
     </tr>
   `;
 }
@@ -714,8 +719,8 @@ function benchmarkRouteRows(gates: Gate[], matrix: BenchmarkMatrix | null): Benc
     }
     const publicRttMs = finiteNumber(route.public?.rttMs?.p50);
     const doublezeroRttMs = finiteNumber(route.doublezero?.rttMs?.p50);
-    const ingressDzRttMs = finiteNumber(route.doublezero?.forwardOneWayMs?.p50);
-    const egressDzRttMs = finiteNumber(route.doublezero?.reverseOneWayMs?.p50);
+    const ingressDzRttMs = finiteNumber(sourceGate.doubleZero?.edgeRttMs);
+    const egressDzRttMs = finiteNumber(targetGate.doubleZero?.edgeRttMs);
     const publicJitterMs = finiteNumber(route.public?.jitterMs);
     const doublezeroJitterMs = finiteNumber(route.doublezero?.jitterMs);
     const jitterSavedMs = typeof publicJitterMs === "number" && typeof doublezeroJitterMs === "number"
@@ -900,6 +905,24 @@ function benchmarkValueCell(metric: BenchmarkMetric | undefined, value: string):
     return `<span class="benchmark-failed" title="${escapeHtml(title)}">failed</span>`;
   }
   return escapeHtml(value);
+}
+
+function benchmarkEdgeRttCell(gate: Gate, value: number | undefined): string {
+  const status = gate.doubleZero;
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    if (status?.edgeRttError) {
+      return `<span class="status-error" title="${escapeHtml(status.edgeRttError)}">failed</span>`;
+    }
+    return '<span class="muted">n/a</span>';
+  }
+  const titleParts = [
+    status?.currentDevice ? `Current device: ${status.currentDevice}` : "",
+    status?.edgeRttTarget ? `Tunnel Dst: ${status.edgeRttTarget}` : "",
+    status?.edgeRttInterface ? `Interface: ${status.edgeRttInterface}` : "",
+    status?.edgeRttMeasuredAt ? `Measured: ${relativeTime(status.edgeRttMeasuredAt)}` : ""
+  ].filter(Boolean);
+  const title = titleParts.length ? ` title="${escapeHtml(titleParts.join(" / "))}"` : "";
+  return `<span${title}>${escapeHtml(formatMetricMs(value))}</span>`;
 }
 
 function benchmarkImprovementCell(value: number | undefined): string {

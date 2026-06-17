@@ -1325,7 +1325,51 @@ func doubleZeroStatus() map[string]any {
 	}
 	parsed := parseDoubleZeroStatus(output)
 	parsed["reportedAt"] = now
+	addDoubleZeroEdgeRTT(parsed, now)
 	return parsed
+}
+
+func addDoubleZeroEdgeRTT(status map[string]any, measuredAt string) {
+	target := readMapString(status, "tunnelDst")
+	if target == "" || net.ParseIP(target) == nil {
+		return
+	}
+	status["edgeRttTarget"] = target
+
+	interfaceName, err := defaultRouteInterface()
+	if err != nil {
+		status["edgeRttError"] = err.Error()
+		return
+	}
+	status["edgeRttInterface"] = interfaceName
+
+	rttMs, err := pingAverageRTT(interfaceName, target)
+	if err != nil {
+		status["edgeRttError"] = err.Error()
+		return
+	}
+	status["edgeRttMs"] = compactFloat(rttMs)
+	status["edgeRttMeasuredAt"] = measuredAt
+}
+
+func pingAverageRTT(interfaceName string, target string) (float64, error) {
+	output, err := commandOutputTimeout(4*time.Second, "ping", "-n", "-I", interfaceName, "-c", "3", "-i", "0.2", "-W", "1", target)
+	if err != nil {
+		return 0, fmt.Errorf("ping %s via %s failed: %w", target, interfaceName, err)
+	}
+	return parsePingAverageRTT(output)
+}
+
+func parsePingAverageRTT(output string) (float64, error) {
+	matches := regexp.MustCompile(`(?m)(?:rtt|round-trip)[^=]*=\s*([0-9.]+)/([0-9.]+)/`).FindStringSubmatch(output)
+	if len(matches) < 3 {
+		return 0, errors.New("ping output did not include an RTT summary")
+	}
+	avg, err := strconv.ParseFloat(matches[2], 64)
+	if err != nil {
+		return 0, fmt.Errorf("parse ping average RTT: %w", err)
+	}
+	return avg, nil
 }
 
 func parseDoubleZeroStatus(output string) map[string]any {
