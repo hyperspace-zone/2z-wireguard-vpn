@@ -1002,7 +1002,7 @@ function benchmarkEdgeOneWayEstimateCell(gate: Gate, value: number | undefined, 
     status?.edgeRttMeasuredAt ? `Measured: ${relativeTime(status.edgeRttMeasuredAt)}` : ""
   ].filter(Boolean);
   const title = titleParts.join(" / ");
-  return `<span class="estimated-metric" title="${escapeHtml(title)}"><span>${escapeHtml(formatEstimatedMetricMs(value))}</span>${benchmarkInfoIcon(title)}</span>`;
+  return `<span class="estimated-metric" title="${escapeHtml(title)}">${escapeHtml(formatEstimatedMetricMs(value))}</span>`;
 }
 
 function benchmarkInfoIcon(title: string): string {
