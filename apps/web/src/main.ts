@@ -233,7 +233,7 @@ function render(state: { gates?: Gate[]; sessions?: Session[]; me?: { email: str
           <p>DoubleZero-backed WireGuard configs across Hyperspace gates.</p>
         </div>
         <div class="identity">
-          ${me ? `<span>${escapeHtml(me.email)}</span><button id="logout">Log out</button>` : "<span>Signed out</span>"}
+          ${me ? `<span>${escapeHtml(me.email)}</span><button id="logout">Log out</button>` : '<a class="button-link secondary-button" href="/login" data-view="login">Log in</a>'}
         </div>
       </section>
 
@@ -985,7 +985,7 @@ function shortGateName(value: string): string {
 }
 
 function formatMetricMs(value: number | undefined): string {
-  return typeof value === "number" && Number.isFinite(value) ? `${formatLatency(value)} ms` : "n/a";
+  return typeof value === "number" && Number.isFinite(value) ? `${formatLatency(value)}ms` : "n/a";
 }
 
 function formatSignedMetricMs(value: number | undefined): string {
@@ -993,7 +993,7 @@ function formatSignedMetricMs(value: number | undefined): string {
     return "n/a";
   }
   const sign = value > 0 ? "+" : "";
-  return `${sign}${formatLatency(value)} ms`;
+  return `${sign}${formatLatency(value)}ms`;
 }
 
 function formatSavedMetricMs(value: number | undefined): string {
@@ -2455,7 +2455,7 @@ function latencyCell(gate: Gate): string {
   if (stats.medianMs === null) {
     return '<div class="latency-result"><strong class="muted">n/a</strong><small>probe unavailable</small></div>';
   }
-  return `<div class="latency-result"><strong>${formatLatency(stats.medianMs)} ms</strong><small>min ${formatLatency(stats.minMs)} / max ${formatLatency(stats.maxMs)} ms</small></div>`;
+  return `<div class="latency-result"><strong>${formatLatency(stats.medianMs)}ms</strong><small>min ${formatLatency(stats.minMs)}ms / max ${formatLatency(stats.maxMs)}ms</small></div>`;
 }
 
 function doubleZeroNodeCell(gate: Gate): string {
