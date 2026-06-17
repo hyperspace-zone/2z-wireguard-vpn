@@ -3,7 +3,8 @@ type AppView = "dashboard" | "create-config" | "benchmarks" | "login" | "registe
 type CreateConfigStep = "configure" | "confirm";
 type SortDirection = "desc" | "asc";
 type KeyInstructionPlatform = "linux" | "macos" | "windows";
-type BenchmarkSortField = "route" | "doublezeroRtt" | "internetRtt" | "improvement" | "rttSaved" | "doublezeroJitter" | "internetJitter" | "jitterImprovement" | "jitterSaved" | "doublezeroOneWay" | "internetOneWay" | "loss";
+type BenchmarkRttSortField = "route" | "doublezeroRtt" | "internetRtt" | "improvement" | "rttSaved" | "doublezeroJitter" | "internetJitter" | "jitterImprovement" | "jitterSaved" | "loss";
+type BenchmarkOneWaySortField = "route" | "doublezeroOneWay" | "internetOneWay" | "oneWayImprovement" | "oneWaySaved";
 type SessionValidationErrors = Partial<Record<"sourceIp" | "targetIp" | "ingressGateName" | "egressGateName" | "clientPublicKey", string>>;
 
 interface Gate {
@@ -92,6 +93,8 @@ interface BenchmarkRouteRow {
   jitterImprovementPercent: number | undefined;
   publicOneWayMs: number | undefined;
   doublezeroOneWayMs: number | undefined;
+  oneWaySavedMs: number | undefined;
+  oneWayImprovementPercent: number | undefined;
   publicLossPercent: number | undefined;
   doublezeroLossPercent: number | undefined;
   rttSavedMs: number | undefined;
@@ -138,8 +141,10 @@ let currentView: AppView = viewFromLocation();
 let createConfigStep: CreateConfigStep = "configure";
 let createConfigSubmitting = false;
 let gateBrowserRttSortDirection: SortDirection = "asc";
-let benchmarkSortField: BenchmarkSortField = "improvement";
-let benchmarkSortDirection: SortDirection = "desc";
+let benchmarkRttSortField: BenchmarkRttSortField = "improvement";
+let benchmarkRttSortDirection: SortDirection = "desc";
+let benchmarkOneWaySortField: BenchmarkOneWaySortField = "oneWayImprovement";
+let benchmarkOneWaySortDirection: SortDirection = "desc";
 let benchmarkCityFilter = "";
 let sessionValidationErrors: SessionValidationErrors = {};
 let ingressGateManuallySelected = false;
@@ -343,7 +348,7 @@ function isKeyInstructionPlatform(value: string | undefined): value is KeyInstru
   return value === "linux" || value === "macos" || value === "windows";
 }
 
-function isBenchmarkSortField(value: string | undefined): value is BenchmarkSortField {
+function isBenchmarkRttSortField(value: string | undefined): value is BenchmarkRttSortField {
   return value === "route" ||
     value === "doublezeroRtt" ||
     value === "internetRtt" ||
@@ -353,13 +358,23 @@ function isBenchmarkSortField(value: string | undefined): value is BenchmarkSort
     value === "internetJitter" ||
     value === "jitterImprovement" ||
     value === "jitterSaved" ||
-    value === "doublezeroOneWay" ||
-    value === "internetOneWay" ||
     value === "loss";
 }
 
-function benchmarkDefaultSortDirection(field: BenchmarkSortField): SortDirection {
+function isBenchmarkOneWaySortField(value: string | undefined): value is BenchmarkOneWaySortField {
+  return value === "route" ||
+    value === "doublezeroOneWay" ||
+    value === "internetOneWay" ||
+    value === "oneWayImprovement" ||
+    value === "oneWaySaved";
+}
+
+function benchmarkRttDefaultSortDirection(field: BenchmarkRttSortField): SortDirection {
   return field === "improvement" || field === "rttSaved" || field === "jitterImprovement" || field === "jitterSaved" ? "desc" : "asc";
+}
+
+function benchmarkOneWayDefaultSortDirection(field: BenchmarkOneWaySortField): SortDirection {
+  return field === "oneWayImprovement" || field === "oneWaySaved" ? "desc" : "asc";
 }
 
 function appNav(view: AppView): string {
@@ -404,7 +419,7 @@ function benchmarksView(state: { gates: Gate[]; benchmarkMatrix: BenchmarkMatrix
   return `
     <section class="panel secondary-panel">
       <div class="panel-heading">
-        <h2>Gate benchmark routes</h2>
+        <h2>Benchmarks</h2>
         <small>${benchmarkFreshness(state.benchmarkMatrix)}</small>
       </div>
       ${benchmarkMatrixPanel(state.gates, state.benchmarkMatrix)}
@@ -516,7 +531,8 @@ function benchmarkMatrixPanel(gates: Gate[], matrix: BenchmarkMatrix | null): st
     return "<p>No benchmark route data available yet.</p>";
   }
   const filteredRows = filterBenchmarkRows(rows);
-  const sortedRows = sortBenchmarkRows(filteredRows);
+  const sortedRttRows = sortBenchmarkRttRows(filteredRows);
+  const sortedOneWayRows = sortBenchmarkOneWayRows(filteredRows);
   const cityOptions = benchmarkCityOptions(rows);
   const summary = benchmarkSummary(rows, filteredRows);
   return `
@@ -543,44 +559,53 @@ function benchmarkMatrixPanel(gates: Gate[], matrix: BenchmarkMatrix | null): st
         </label>
         <small>${benchmarkCityFilter ? `Showing routes touching ${escapeHtml(benchmarkCityFilter)}.` : "Showing all directed routes."}</small>
       </div>
-      ${benchmarkRoutesTable(sortedRows)}
+      <section class="benchmark-table-section">
+        <div class="benchmark-table-heading">
+          <h3>Gate benchmark routes — RTT</h3>
+        </div>
+        ${benchmarkRttRoutesTable(sortedRttRows)}
+      </section>
+      <section class="benchmark-table-section">
+        <div class="benchmark-table-heading">
+          <h3>Gate benchmark routes — One-Way</h3>
+        </div>
+        ${benchmarkOneWayRoutesTable(sortedOneWayRows)}
+      </section>
       ${benchmarkLegend()}
     </div>
   `;
 }
 
-function benchmarkRoutesTable(rows: BenchmarkRouteRow[]): string {
+function benchmarkRttRoutesTable(rows: BenchmarkRouteRow[]): string {
   if (rows.length === 0) {
     return '<p class="empty-state-text">No routes match the selected city filter.</p>';
   }
   return `
     <div class="table-scroll">
-      <table class="benchmark-route-table">
+      <table class="benchmark-route-table benchmark-rtt-table">
         <thead>
           <tr>
-            ${benchmarkSortableHeader("Route", "route", "left")}
-            ${benchmarkSortableHeader("DZ RTT", "doublezeroRtt", "right")}
-            ${benchmarkSortableHeader("Internet RTT", "internetRtt", "right")}
-            ${benchmarkSortableHeader("RTT Improvement", "improvement", "right")}
-            ${benchmarkSortableHeader("RTT Saved", "rttSaved", "right")}
-            ${benchmarkSortableHeader("DZ RTT Jitter", "doublezeroJitter", "right")}
-            ${benchmarkSortableHeader("Internet RTT Jitter", "internetJitter", "right")}
-            ${benchmarkSortableHeader("RTT Jitter Improvement", "jitterImprovement", "right")}
-            ${benchmarkSortableHeader("RTT Jitter Saved", "jitterSaved", "right")}
-            ${benchmarkSortableHeader("DZ One-Way", "doublezeroOneWay", "right")}
-            ${benchmarkSortableHeader("Internet One-Way", "internetOneWay", "right")}
-            ${benchmarkSortableHeader("Loss", "loss", "right")}
+            ${benchmarkRttSortableHeader("Route", "route", "left")}
+            ${benchmarkRttSortableHeader("DZ RTT", "doublezeroRtt", "right")}
+            ${benchmarkRttSortableHeader("Internet RTT", "internetRtt", "right")}
+            ${benchmarkRttSortableHeader("RTT Improvement", "improvement", "right")}
+            ${benchmarkRttSortableHeader("RTT Saved", "rttSaved", "right")}
+            ${benchmarkRttSortableHeader("DZ RTT Jitter", "doublezeroJitter", "right")}
+            ${benchmarkRttSortableHeader("Internet RTT Jitter", "internetJitter", "right")}
+            ${benchmarkRttSortableHeader("RTT Jitter Improvement", "jitterImprovement", "right")}
+            ${benchmarkRttSortableHeader("RTT Jitter Saved", "jitterSaved", "right")}
+            ${benchmarkRttSortableHeader("Loss", "loss", "right")}
           </tr>
         </thead>
         <tbody>
-          ${rows.map(benchmarkRouteRow).join("")}
+          ${rows.map(benchmarkRttRouteRow).join("")}
         </tbody>
       </table>
     </div>
   `;
 }
 
-function benchmarkRouteRow(row: BenchmarkRouteRow): string {
+function benchmarkRttRouteRow(row: BenchmarkRouteRow): string {
   const route = row.route;
   return `
     <tr>
@@ -600,29 +625,79 @@ function benchmarkRouteRow(row: BenchmarkRouteRow): string {
       <td class="numeric-cell">${benchmarkValueCell(route.public, formatMetricMs(row.publicJitterMs))}</td>
       <td class="numeric-cell">${benchmarkImprovementCell(row.jitterImprovementPercent)}</td>
       <td class="numeric-cell">${formatSavedMetricMs(row.jitterSavedMs)}</td>
-      <td class="numeric-cell">${benchmarkValueCell(route.doublezero, formatMetricMs(row.doublezeroOneWayMs))}</td>
-      <td class="numeric-cell">${benchmarkValueCell(route.public, formatMetricMs(row.publicOneWayMs))}</td>
       <td class="numeric-cell">${benchmarkLossCell(row)}</td>
     </tr>
   `;
 }
 
-function benchmarkSortableHeader(label: string, field: BenchmarkSortField, align: "left" | "right"): string {
-  const arrow = benchmarkSortField === field ? (benchmarkSortDirection === "desc" ? "↓" : "↑") : "";
+function benchmarkOneWayRoutesTable(rows: BenchmarkRouteRow[]): string {
+  if (rows.length === 0) {
+    return '<p class="empty-state-text">No routes match the selected city filter.</p>';
+  }
   return `
-    <th class="${align === "right" ? "numeric-cell" : ""}" aria-sort="${benchmarkAriaSort(field)}">
-      <button class="table-sort" type="button" data-sort-benchmark="${field}">
+    <div class="table-scroll">
+      <table class="benchmark-route-table benchmark-one-way-table">
+        <thead>
+          <tr>
+            ${benchmarkOneWaySortableHeader("Route", "route", "left")}
+            ${benchmarkOneWaySortableHeader("DZ One-Way", "doublezeroOneWay", "right")}
+            ${benchmarkOneWaySortableHeader("Internet One-Way", "internetOneWay", "right")}
+            ${benchmarkOneWaySortableHeader("One-Way Improvement", "oneWayImprovement", "right")}
+            ${benchmarkOneWaySortableHeader("One-Way Saved", "oneWaySaved", "right")}
+          </tr>
+        </thead>
+        <tbody>
+          ${rows.map(benchmarkOneWayRouteRow).join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function benchmarkOneWayRouteRow(row: BenchmarkRouteRow): string {
+  const route = row.route;
+  return `
+    <tr>
+      <td>
+        <div class="route-pair">
+          <strong>${escapeHtml(row.sourceCity)}</strong>
+          <span aria-hidden="true">→</span>
+          <strong>${escapeHtml(row.targetCity)}</strong>
+        </div>
+        <small>${escapeHtml(row.routeLabel)}</small>
+      </td>
+      <td class="numeric-cell">${benchmarkValueCell(route.doublezero, formatMetricMs(row.doublezeroOneWayMs))}</td>
+      <td class="numeric-cell">${benchmarkValueCell(route.public, formatMetricMs(row.publicOneWayMs))}</td>
+      <td class="numeric-cell">${benchmarkImprovementCell(row.oneWayImprovementPercent)}</td>
+      <td class="numeric-cell">${formatSavedMetricMs(row.oneWaySavedMs)}</td>
+    </tr>
+  `;
+}
+
+function benchmarkRttSortableHeader(label: string, field: BenchmarkRttSortField, align: "left" | "right"): string {
+  return benchmarkSortableHeader(label, field, align, "data-sort-benchmark-rtt", benchmarkRttSortField, benchmarkRttSortDirection);
+}
+
+function benchmarkOneWaySortableHeader(label: string, field: BenchmarkOneWaySortField, align: "left" | "right"): string {
+  return benchmarkSortableHeader(label, field, align, "data-sort-benchmark-one-way", benchmarkOneWaySortField, benchmarkOneWaySortDirection);
+}
+
+function benchmarkSortableHeader(label: string, field: string, align: "left" | "right", sortAttribute: string, activeField: string, activeDirection: SortDirection): string {
+  const arrow = activeField === field ? (activeDirection === "desc" ? "↓" : "↑") : "";
+  return `
+    <th class="${align === "right" ? "numeric-cell" : ""}" aria-sort="${benchmarkAriaSort(field, activeField, activeDirection)}">
+      <button class="table-sort" type="button" ${sortAttribute}="${field}">
         ${escapeHtml(label)} ${arrow}
       </button>
     </th>
   `;
 }
 
-function benchmarkAriaSort(field: BenchmarkSortField): string {
-  if (benchmarkSortField !== field) {
+function benchmarkAriaSort(field: string, activeField: string, activeDirection: SortDirection): string {
+  if (activeField !== field) {
     return "none";
   }
-  return benchmarkSortDirection === "desc" ? "descending" : "ascending";
+  return activeDirection === "desc" ? "descending" : "ascending";
 }
 
 function benchmarkRouteRows(gates: Gate[], matrix: BenchmarkMatrix | null): BenchmarkRouteRow[] {
@@ -646,6 +721,12 @@ function benchmarkRouteRows(gates: Gate[], matrix: BenchmarkMatrix | null): Benc
       : undefined;
     const publicOneWayMs = finiteNumber(route.public?.forwardOneWayMs?.p50);
     const doublezeroOneWayMs = finiteNumber(route.doublezero?.forwardOneWayMs?.p50);
+    const oneWaySavedMs = typeof publicOneWayMs === "number" && typeof doublezeroOneWayMs === "number"
+      ? compactMetric(publicOneWayMs - doublezeroOneWayMs)
+      : undefined;
+    const oneWayImprovementPercent = typeof oneWaySavedMs === "number" && typeof publicOneWayMs === "number" && publicOneWayMs > 0
+      ? compactMetric((oneWaySavedMs / publicOneWayMs) * 100)
+      : undefined;
     const publicLossPercent = finiteNumber(route.public?.lossPercent);
     const doublezeroLossPercent = finiteNumber(route.doublezero?.lossPercent);
     const rttSavedMs = typeof publicRttMs === "number" && typeof doublezeroRttMs === "number"
@@ -672,6 +753,8 @@ function benchmarkRouteRows(gates: Gate[], matrix: BenchmarkMatrix | null): Benc
       jitterImprovementPercent,
       publicOneWayMs,
       doublezeroOneWayMs,
+      oneWaySavedMs,
+      oneWayImprovementPercent,
       publicLossPercent,
       doublezeroLossPercent,
       rttSavedMs,
@@ -688,52 +771,76 @@ function filterBenchmarkRows(rows: BenchmarkRouteRow[]): BenchmarkRouteRow[] {
   return rows.filter((row) => row.sourceCity.toLowerCase() === filter || row.targetCity.toLowerCase() === filter);
 }
 
-function sortBenchmarkRows(rows: BenchmarkRouteRow[]): BenchmarkRouteRow[] {
+function sortBenchmarkRttRows(rows: BenchmarkRouteRow[]): BenchmarkRouteRow[] {
   return [...rows].sort((a, b) => {
     let cmp = 0;
-    switch (benchmarkSortField) {
+    switch (benchmarkRttSortField) {
       case "route":
         cmp = a.cityLabel.localeCompare(b.cityLabel);
         break;
       case "doublezeroRtt":
-        cmp = compareOptionalNumber(a.doublezeroRttMs, b.doublezeroRttMs, benchmarkSortDirection);
+        cmp = compareOptionalNumber(a.doublezeroRttMs, b.doublezeroRttMs, benchmarkRttSortDirection);
         break;
       case "internetRtt":
-        cmp = compareOptionalNumber(a.publicRttMs, b.publicRttMs, benchmarkSortDirection);
+        cmp = compareOptionalNumber(a.publicRttMs, b.publicRttMs, benchmarkRttSortDirection);
         break;
       case "improvement":
-        cmp = compareOptionalNumber(a.rttImprovementPercent, b.rttImprovementPercent, benchmarkSortDirection);
+        cmp = compareOptionalNumber(a.rttImprovementPercent, b.rttImprovementPercent, benchmarkRttSortDirection);
         break;
       case "rttSaved":
-        cmp = compareOptionalNumber(a.rttSavedMs, b.rttSavedMs, benchmarkSortDirection);
+        cmp = compareOptionalNumber(a.rttSavedMs, b.rttSavedMs, benchmarkRttSortDirection);
         break;
       case "doublezeroJitter":
-        cmp = compareOptionalNumber(a.doublezeroJitterMs, b.doublezeroJitterMs, benchmarkSortDirection);
+        cmp = compareOptionalNumber(a.doublezeroJitterMs, b.doublezeroJitterMs, benchmarkRttSortDirection);
         break;
       case "internetJitter":
-        cmp = compareOptionalNumber(a.publicJitterMs, b.publicJitterMs, benchmarkSortDirection);
+        cmp = compareOptionalNumber(a.publicJitterMs, b.publicJitterMs, benchmarkRttSortDirection);
         break;
       case "jitterImprovement":
-        cmp = compareOptionalNumber(a.jitterImprovementPercent, b.jitterImprovementPercent, benchmarkSortDirection);
+        cmp = compareOptionalNumber(a.jitterImprovementPercent, b.jitterImprovementPercent, benchmarkRttSortDirection);
         break;
       case "jitterSaved":
-        cmp = compareOptionalNumber(a.jitterSavedMs, b.jitterSavedMs, benchmarkSortDirection);
-        break;
-      case "doublezeroOneWay":
-        cmp = compareOptionalNumber(a.doublezeroOneWayMs, b.doublezeroOneWayMs, benchmarkSortDirection);
-        break;
-      case "internetOneWay":
-        cmp = compareOptionalNumber(a.publicOneWayMs, b.publicOneWayMs, benchmarkSortDirection);
+        cmp = compareOptionalNumber(a.jitterSavedMs, b.jitterSavedMs, benchmarkRttSortDirection);
         break;
       case "loss":
-        cmp = compareOptionalNumber(totalLossPercent(a), totalLossPercent(b), benchmarkSortDirection);
+        cmp = compareOptionalNumber(totalLossPercent(a), totalLossPercent(b), benchmarkRttSortDirection);
         break;
     }
     if (cmp === 0) {
       cmp = a.routeLabel.localeCompare(b.routeLabel);
     }
-    if (benchmarkSortField === "route") {
-      return benchmarkSortDirection === "asc" ? cmp : -cmp;
+    if (benchmarkRttSortField === "route") {
+      return benchmarkRttSortDirection === "asc" ? cmp : -cmp;
+    }
+    return cmp;
+  });
+}
+
+function sortBenchmarkOneWayRows(rows: BenchmarkRouteRow[]): BenchmarkRouteRow[] {
+  return [...rows].sort((a, b) => {
+    let cmp = 0;
+    switch (benchmarkOneWaySortField) {
+      case "route":
+        cmp = a.cityLabel.localeCompare(b.cityLabel);
+        break;
+      case "doublezeroOneWay":
+        cmp = compareOptionalNumber(a.doublezeroOneWayMs, b.doublezeroOneWayMs, benchmarkOneWaySortDirection);
+        break;
+      case "internetOneWay":
+        cmp = compareOptionalNumber(a.publicOneWayMs, b.publicOneWayMs, benchmarkOneWaySortDirection);
+        break;
+      case "oneWayImprovement":
+        cmp = compareOptionalNumber(a.oneWayImprovementPercent, b.oneWayImprovementPercent, benchmarkOneWaySortDirection);
+        break;
+      case "oneWaySaved":
+        cmp = compareOptionalNumber(a.oneWaySavedMs, b.oneWaySavedMs, benchmarkOneWaySortDirection);
+        break;
+    }
+    if (cmp === 0) {
+      cmp = a.routeLabel.localeCompare(b.routeLabel);
+    }
+    if (benchmarkOneWaySortField === "route") {
+      return benchmarkOneWaySortDirection === "asc" ? cmp : -cmp;
     }
     return cmp;
   });
@@ -1448,10 +1555,13 @@ function bindHandlers(): void {
     createConfigStep = "configure";
     latestMe = null;
     latestSessions = [];
+    gateLatencyInProgressIds.clear();
+    gateLatencyMeasurementInFlight = false;
+    automaticGateLatencyMeasurementStarted = false;
     stopSessionAutoRefresh();
     localStorage.removeItem("hyperspaceAccessToken");
     window.history.replaceState({}, "", viewPath("login"));
-    void refresh();
+    render({ gates: decorateGates(latestGates), sessions: [], me: null, benchmarkMatrix: latestBenchmarkMatrix });
   });
 
   for (const target of document.querySelectorAll("[data-view]")) {
@@ -1572,17 +1682,32 @@ function bindHandlers(): void {
     gateBrowserRttSortDirection = gateBrowserRttSortDirection === "desc" ? "asc" : "desc";
     render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
   });
-  for (const button of document.querySelectorAll("[data-sort-benchmark]")) {
+  for (const button of document.querySelectorAll("[data-sort-benchmark-rtt]")) {
     button.addEventListener("click", () => {
-      const field = (button as HTMLElement).dataset.sortBenchmark;
-      if (!isBenchmarkSortField(field)) {
+      const field = (button as HTMLElement).dataset.sortBenchmarkRtt;
+      if (!isBenchmarkRttSortField(field)) {
         return;
       }
-      if (benchmarkSortField === field) {
-        benchmarkSortDirection = benchmarkSortDirection === "desc" ? "asc" : "desc";
+      if (benchmarkRttSortField === field) {
+        benchmarkRttSortDirection = benchmarkRttSortDirection === "desc" ? "asc" : "desc";
       } else {
-        benchmarkSortField = field;
-        benchmarkSortDirection = benchmarkDefaultSortDirection(field);
+        benchmarkRttSortField = field;
+        benchmarkRttSortDirection = benchmarkRttDefaultSortDirection(field);
+      }
+      render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
+    });
+  }
+  for (const button of document.querySelectorAll("[data-sort-benchmark-one-way]")) {
+    button.addEventListener("click", () => {
+      const field = (button as HTMLElement).dataset.sortBenchmarkOneWay;
+      if (!isBenchmarkOneWaySortField(field)) {
+        return;
+      }
+      if (benchmarkOneWaySortField === field) {
+        benchmarkOneWaySortDirection = benchmarkOneWaySortDirection === "desc" ? "asc" : "desc";
+      } else {
+        benchmarkOneWaySortField = field;
+        benchmarkOneWaySortDirection = benchmarkOneWayDefaultSortDirection(field);
       }
       render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
     });
@@ -2065,30 +2190,42 @@ async function measureAndRefreshGates(): Promise<void> {
   if (gateLatencyMeasurementInFlight) {
     return;
   }
+  const measurementEmail = latestMe?.email;
+  if (!measurementEmail) {
+    return;
+  }
   if (latestGates.length === 0) {
     await refresh({ skipAutoMeasure: true });
   }
   if (latestGates.length === 0) {
     return;
   }
+  const renderMeasurementState = () => {
+    if (latestMe?.email === measurementEmail && currentView !== "login" && currentView !== "register") {
+      render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
+    }
+  };
   gateLatencyMeasurementInFlight = true;
   gateLatencyInProgressIds.clear();
   for (const gate of latestGates) {
     gateLatencyInProgressIds.add(gate.id);
   }
-  render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
+  renderMeasurementState();
   log("Measuring browser RTT to gate probe endpoints...");
   try {
     await Promise.all(latestGates.map(async (gate) => {
       const stats = await measureGateLatency(gate);
       gateLatencyById.set(gate.id, stats);
       gateLatencyInProgressIds.delete(gate.id);
-      render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
+      renderMeasurementState();
     }));
   } finally {
     gateLatencyInProgressIds.clear();
     gateLatencyMeasurementInFlight = false;
-    render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
+    renderMeasurementState();
+  }
+  if (latestMe?.email !== measurementEmail || currentView === "login" || currentView === "register") {
+    return;
   }
   await refresh({ skipAutoMeasure: true });
   log("Browser RTT measurements refreshed.");
@@ -2136,7 +2273,9 @@ function runGateLatencyMeasurement(): void {
   void measureAndRefreshGates().catch((error) => {
     gateLatencyInProgressIds.clear();
     gateLatencyMeasurementInFlight = false;
-    render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
+    if (latestMe && currentView !== "login" && currentView !== "register") {
+      render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
+    }
     log(error instanceof Error ? error.message : "Browser RTT measurement failed.");
   });
 }

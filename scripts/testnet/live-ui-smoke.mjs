@@ -99,7 +99,8 @@ try {
 
   await page.getByRole("link", { name: "Benchmarks" }).click();
   await page.waitForURL(`${webBase}/benchmarks`, { timeout: 30000 });
-  await expectText(page, "Gate benchmark routes");
+  await expectText(page, "Gate benchmark routes — RTT");
+  await expectText(page, "Gate benchmark routes — One-Way");
   await expectText(page, "DZ vs Internet");
   await expectText(page, "City filter");
   await expectText(page, "RTT Improvement");
@@ -110,6 +111,8 @@ try {
   await expectText(page, "RTT Jitter Saved");
   await expectText(page, "DZ One-Way");
   await expectText(page, "Internet One-Way");
+  await expectText(page, "One-Way Improvement");
+  await expectText(page, "One-Way Saved");
   await expectText(page, "fresh within 15m");
   await expectText(page, "Legend:");
   await screenshot(page, "03-benchmarks");

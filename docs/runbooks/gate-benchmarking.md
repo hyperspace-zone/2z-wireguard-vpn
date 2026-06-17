@@ -37,17 +37,18 @@ gate may receive a public probe on the underlay interface and then route the
 reply back through `doublezero0`.
 
 The API stores latest and historical rows in `gate_benchmark_results`. The web
-dashboard renders a route table:
+Benchmarks page renders two route tables:
 
 - one directed gate pair per row
-- sortable columns for city-directed route, DoubleZero RTT, Internet RTT,
+- `Gate benchmark routes — RTT` with sortable columns for city-directed route,
+  DoubleZero RTT, Internet RTT,
   RTT improvement, RTT saved, DoubleZero RTT jitter, Internet RTT jitter,
-  RTT jitter improvement, RTT jitter saved, loss, and one-way values
+  RTT jitter improvement, RTT jitter saved, and loss
+- `Gate benchmark routes — One-Way` with sortable columns for city-directed
+  route, DZ One-Way, Internet One-Way, One-Way improvement, and One-Way saved
 - a City filter for narrowing routes by source or target location
 - a freshness line with the latest sample time and transport coverage within
   the last 15 minutes
-- separate sortable `DZ One-Way` and `Internet One-Way` columns using the
-  forward one-way estimate for each directed row
 - a green/yellow/pink legend for DZ faster, similar, and Internet faster
   routes
 
@@ -154,8 +155,9 @@ Expected dashboard sections:
 
 Open the `Benchmarks` navigation item. Expected benchmark sections:
 
-- `Gate benchmark routes`
 - `DZ vs Internet`
+- `Gate benchmark routes — RTT`
+- `Gate benchmark routes — One-Way`
 
 Capture screenshots after the route table has first samples:
 
@@ -167,8 +169,8 @@ PLAYWRIGHT_CHROMIUM_EXECUTABLE="${PLAYWRIGHT_CHROMIUM_EXECUTABLE:-/snap/bin/chro
 npm run test:live:ui
 ```
 
-The live UI smoke captures dashboard screenshots that include the benchmark
-route table once samples are present.
+The live UI smoke captures both the dashboard and the separate Benchmarks page
+once samples are present.
 
 ## Troubleshooting
 
