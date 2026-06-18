@@ -1,0 +1,1074 @@
+{
+  "runId": "2026-06-17T15-54-09-698Z",
+  "apiBase": "https://app.hyperspace.zone/api",
+  "email": "config-matrix-1781711649699@example.com",
+  "ingressGateName": "gate-eu-ams-21",
+  "egressGateName": "gate-na-chi-21",
+  "nodes": {
+    "allowedSource": {
+      "key": "testnode-eu-ams-01",
+      "host": "84.32.190.156",
+      "publicIp": "84.32.190.156"
+    },
+    "deniedSource": {
+      "key": "testnode-eu-fra-01",
+      "host": "84.32.223.76",
+      "publicIp": "84.32.223.76"
+    },
+    "target": {
+      "key": "testnode-na-chi-01",
+      "host": "88.216.68.3",
+      "publicIp": "88.216.68.3"
+    },
+    "nonTarget": {
+      "key": "testnode-ap-tyo-01",
+      "host": "88.216.188.10",
+      "publicIp": "88.216.188.10"
+    }
+  },
+  "scenarios": [
+    {
+      "id": "source-restricted__destination-restricted__generated-key",
+      "sessionId": "05bbd534-2d50-410b-8e2f-cab8eb68bdee",
+      "mode": "IpToIp",
+      "sourceRestricted": true,
+      "destinationRestricted": true,
+      "providedPublicKey": false,
+      "checks": [
+        {
+          "id": "source-restricted__destination-restricted__generated-key:allowed-source-target",
+          "status": "passed",
+          "expected": "success",
+          "detail": "testnode-eu-ams-01 reached target testnode-na-chi-01",
+          "probe": {
+            "target": "88.216.68.3",
+            "sent": 10,
+            "received": 10,
+            "lost": 0,
+            "lossPercent": 0,
+            "rttP50Ms": 88.648,
+            "forwardP50Ms": 44.609,
+            "reverseP50Ms": 44.032
+          }
+        },
+        {
+          "id": "source-restricted__destination-restricted__generated-key:non-target-denied",
+          "status": "passed",
+          "expected": "failure",
+          "detail": "testnode-eu-ams-01 could not reach non-target testnode-ap-tyo-01",
+          "probe": {
+            "target": "88.216.188.10",
+            "sent": 10,
+            "received": 0,
+            "lost": 10,
+            "lossPercent": 100,
+            "rttP50Ms": null,
+            "forwardP50Ms": null,
+            "reverseP50Ms": null
+          }
+        },
+        {
+          "id": "source-restricted__destination-restricted__generated-key:denied-source-blocked",
+          "status": "passed",
+          "expected": "failure",
+          "detail": "testnode-eu-fra-01 could not use config restricted to 84.32.190.156",
+          "probe": {
+            "target": "88.216.68.3",
+            "sent": 10,
+            "received": 0,
+            "lost": 10,
+            "lossPercent": 100,
+            "rttP50Ms": null,
+            "forwardP50Ms": null,
+            "reverseP50Ms": null
+          }
+        }
+      ],
+      "cleanedUp": true
+    },
+    {
+      "id": "source-restricted__destination-restricted__provided-public-key",
+      "sessionId": "6a11b1b4-6d9a-47d5-91be-f5777635382e",
+      "mode": "IpToIp",
+      "sourceRestricted": true,
+      "destinationRestricted": true,
+      "providedPublicKey": true,
+      "checks": [
+        {
+          "id": "source-restricted__destination-restricted__provided-public-key:allowed-source-target",
+          "status": "passed",
+          "expected": "success",
+          "detail": "testnode-eu-ams-01 reached target testnode-na-chi-01",
+          "probe": {
+            "target": "88.216.68.3",
+            "sent": 10,
+            "received": 10,
+            "lost": 0,
+            "lossPercent": 0,
+            "rttP50Ms": 88.665,
+            "forwardP50Ms": 44.631,
+            "reverseP50Ms": 44.003
+          }
+        },
+        {
+          "id": "source-restricted__destination-restricted__provided-public-key:non-target-denied",
+          "status": "passed",
+          "expected": "failure",
+          "detail": "testnode-eu-ams-01 could not reach non-target testnode-ap-tyo-01",
+          "probe": {
+            "target": "88.216.188.10",
+            "sent": 10,
+            "received": 0,
+            "lost": 10,
+            "lossPercent": 100,
+            "rttP50Ms": null,
+            "forwardP50Ms": null,
+            "reverseP50Ms": null
+          }
+        },
+        {
+          "id": "source-restricted__destination-restricted__provided-public-key:denied-source-blocked",
+          "status": "passed",
+          "expected": "failure",
+          "detail": "testnode-eu-fra-01 could not use config restricted to 84.32.190.156",
+          "probe": {
+            "target": "88.216.68.3",
+            "sent": 10,
+            "received": 0,
+            "lost": 10,
+            "lossPercent": 100,
+            "rttP50Ms": null,
+            "forwardP50Ms": null,
+            "reverseP50Ms": null
+          }
+        },
+        {
+          "id": "source-restricted__destination-restricted__provided-public-key:wrong-private-key-blocked",
+          "status": "passed",
+          "expected": "failure",
+          "detail": "provided client public key only worked with matching private key",
+          "probe": {
+            "target": "88.216.68.3",
+            "sent": 10,
+            "received": 0,
+            "lost": 10,
+            "lossPercent": 100,
+            "rttP50Ms": null,
+            "forwardP50Ms": null,
+            "reverseP50Ms": null
+          }
+        }
+      ],
+      "cleanedUp": true
+    },
+    {
+      "id": "source-restricted__destination-unrestricted__generated-key",
+      "sessionId": "9a13d2d1-471e-4d6f-8ff5-c326cc1059ca",
+      "mode": "FullTunnel",
+      "sourceRestricted": true,
+      "destinationRestricted": false,
+      "providedPublicKey": false,
+      "checks": [
+        {
+          "id": "source-restricted__destination-unrestricted__generated-key:allowed-source-target",
+          "status": "passed",
+          "expected": "success",
+          "detail": "testnode-eu-ams-01 reached target testnode-na-chi-01",
+          "probe": {
+            "target": "88.216.68.3",
+            "sent": 10,
+            "received": 10,
+            "lost": 0,
+            "lossPercent": 0,
+            "rttP50Ms": 88.597,
+            "forwardP50Ms": 44.636,
+            "reverseP50Ms": 43.942
+          }
+        },
+        {
+          "id": "source-restricted__destination-unrestricted__generated-key:non-target-allowed",
+          "status": "passed",
+          "expected": "success",
+          "detail": "testnode-eu-ams-01 reached non-target testnode-ap-tyo-01",
+          "probe": {
+            "target": "88.216.188.10",
+            "sent": 10,
+            "received": 10,
+            "lost": 0,
+            "lossPercent": 0,
+            "rttP50Ms": 225.232,
+            "forwardP50Ms": 114.363,
+            "reverseP50Ms": 110.815
+          }
+        },
+        {
+          "id": "source-restricted__destination-unrestricted__generated-key:denied-source-blocked",
+          "status": "passed",
+          "expected": "failure",
+          "detail": "testnode-eu-fra-01 could not use config restricted to 84.32.190.156",
+          "probe": {
+            "target": "88.216.68.3",
+            "sent": 10,
+            "received": 0,
+            "lost": 10,
+            "lossPercent": 100,
+            "rttP50Ms": null,
+            "forwardP50Ms": null,
+            "reverseP50Ms": null
+          }
+        }
+      ],
+      "cleanedUp": true
+    },
+    {
+      "id": "source-restricted__destination-unrestricted__provided-public-key",
+      "sessionId": "e1d2c72d-ac87-4b4c-938e-3b95977ad403",
+      "mode": "FullTunnel",
+      "sourceRestricted": true,
+      "destinationRestricted": false,
+      "providedPublicKey": true,
+      "checks": [
+        {
+          "id": "source-restricted__destination-unrestricted__provided-public-key:allowed-source-target",
+          "status": "passed",
+          "expected": "success",
+          "detail": "testnode-eu-ams-01 reached target testnode-na-chi-01",
+          "probe": {
+            "target": "88.216.68.3",
+            "sent": 10,
+            "received": 10,
+            "lost": 0,
+            "lossPercent": 0,
+            "rttP50Ms": 88.574,
+            "forwardP50Ms": 44.645,
+            "reverseP50Ms": 43.948
+          }
+        },
+        {
+          "id": "source-restricted__destination-unrestricted__provided-public-key:non-target-allowed",
+          "status": "passed",
+          "expected": "success",
+          "detail": "testnode-eu-ams-01 reached non-target testnode-ap-tyo-01",
+          "probe": {
+            "target": "88.216.188.10",
+            "sent": 10,
+            "received": 10,
+            "lost": 0,
+            "lossPercent": 0,
+            "rttP50Ms": 225.737,
+            "forwardP50Ms": 114.589,
+            "reverseP50Ms": 111.085
+          }
+        },
+        {
+          "id": "source-restricted__destination-unrestricted__provided-public-key:denied-source-blocked",
+          "status": "passed",
+          "expected": "failure",
+          "detail": "testnode-eu-fra-01 could not use config restricted to 84.32.190.156",
+          "probe": {
+            "target": "88.216.68.3",
+            "sent": 10,
+            "received": 0,
+            "lost": 10,
+            "lossPercent": 100,
+            "rttP50Ms": null,
+            "forwardP50Ms": null,
+            "reverseP50Ms": null
+          }
+        },
+        {
+          "id": "source-restricted__destination-unrestricted__provided-public-key:wrong-private-key-blocked",
+          "status": "passed",
+          "expected": "failure",
+          "detail": "provided client public key only worked with matching private key",
+          "probe": {
+            "target": "88.216.68.3",
+            "sent": 10,
+            "received": 0,
+            "lost": 10,
+            "lossPercent": 100,
+            "rttP50Ms": null,
+            "forwardP50Ms": null,
+            "reverseP50Ms": null
+          }
+        }
+      ],
+      "cleanedUp": true
+    },
+    {
+      "id": "source-unrestricted__destination-restricted__generated-key",
+      "sessionId": "e72ee211-61f7-4a87-913f-a3119b6821bf",
+      "mode": "IpToIp",
+      "sourceRestricted": false,
+      "destinationRestricted": true,
+      "providedPublicKey": false,
+      "checks": [
+        {
+          "id": "source-unrestricted__destination-restricted__generated-key:allowed-source-target",
+          "status": "passed",
+          "expected": "success",
+          "detail": "testnode-eu-ams-01 reached target testnode-na-chi-01",
+          "probe": {
+            "target": "88.216.68.3",
+            "sent": 10,
+            "received": 10,
+            "lost": 0,
+            "lossPercent": 0,
+            "rttP50Ms": 88.75,
+            "forwardP50Ms": 44.704,
+            "reverseP50Ms": 43.949
+          }
+        },
+        {
+          "id": "source-unrestricted__destination-restricted__generated-key:non-target-denied",
+          "status": "passed",
+          "expected": "failure",
+          "detail": "testnode-eu-ams-01 could not reach non-target testnode-ap-tyo-01",
+          "probe": {
+            "target": "88.216.188.10",
+            "sent": 10,
+            "received": 0,
+            "lost": 10,
+            "lossPercent": 100,
+            "rttP50Ms": null,
+            "forwardP50Ms": null,
+            "reverseP50Ms": null
+          }
+        },
+        {
+          "id": "source-unrestricted__destination-restricted__generated-key:source-unrestricted-second-source",
+          "status": "passed",
+          "expected": "success",
+          "detail": "testnode-eu-fra-01 used source-unrestricted config",
+          "probe": {
+            "target": "88.216.68.3",
+            "sent": 10,
+            "received": 10,
+            "lost": 0,
+            "lossPercent": 0,
+            "rttP50Ms": 94.761,
+            "forwardP50Ms": 46.969,
+            "reverseP50Ms": 47.711
+          }
+        }
+      ],
+      "cleanedUp": true
+    },
+    {
+      "id": "source-unrestricted__destination-restricted__provided-public-key",
+      "sessionId": "e6900691-e964-473a-a22b-188e64943228",
+      "mode": "IpToIp",
+      "sourceRestricted": false,
+      "destinationRestricted": true,
+      "providedPublicKey": true,
+      "checks": [
+        {
+          "id": "source-unrestricted__destination-restricted__provided-public-key:allowed-source-target",
+          "status": "passed",
+          "expected": "success",
+          "detail": "testnode-eu-ams-01 reached target testnode-na-chi-01",
+          "probe": {
+            "target": "88.216.68.3",
+            "sent": 10,
+            "received": 10,
+            "lost": 0,
+            "lossPercent": 0,
+            "rttP50Ms": 88.648,
+            "forwardP50Ms": 44.699,
+            "reverseP50Ms": 43.965
+          }
+        },
+        {
+          "id": "source-unrestricted__destination-restricted__provided-public-key:non-target-denied",
+          "status": "passed",
+          "expected": "failure",
+          "detail": "testnode-eu-ams-01 could not reach non-target testnode-ap-tyo-01",
+          "probe": {
+            "target": "88.216.188.10",
+            "sent": 10,
+            "received": 0,
+            "lost": 10,
+            "lossPercent": 100,
+            "rttP50Ms": null,
+            "forwardP50Ms": null,
+            "reverseP50Ms": null
+          }
+        },
+        {
+          "id": "source-unrestricted__destination-restricted__provided-public-key:source-unrestricted-second-source",
+          "status": "passed",
+          "expected": "success",
+          "detail": "testnode-eu-fra-01 used source-unrestricted config",
+          "probe": {
+            "target": "88.216.68.3",
+            "sent": 10,
+            "received": 10,
+            "lost": 0,
+            "lossPercent": 0,
+            "rttP50Ms": 94.695,
+            "forwardP50Ms": 46.924,
+            "reverseP50Ms": 47.764
+          }
+        },
+        {
+          "id": "source-unrestricted__destination-restricted__provided-public-key:wrong-private-key-blocked",
+          "status": "passed",
+          "expected": "failure",
+          "detail": "provided client public key only worked with matching private key",
+          "probe": {
+            "target": "88.216.68.3",
+            "sent": 10,
+            "received": 0,
+            "lost": 10,
+            "lossPercent": 100,
+            "rttP50Ms": null,
+            "forwardP50Ms": null,
+            "reverseP50Ms": null
+          }
+        }
+      ],
+      "cleanedUp": true
+    },
+    {
+      "id": "source-unrestricted__destination-unrestricted__generated-key",
+      "sessionId": "70191252-7f28-49fb-80a2-2c07d318203f",
+      "mode": "FullTunnel",
+      "sourceRestricted": false,
+      "destinationRestricted": false,
+      "providedPublicKey": false,
+      "checks": [
+        {
+          "id": "source-unrestricted__destination-unrestricted__generated-key:allowed-source-target",
+          "status": "passed",
+          "expected": "success",
+          "detail": "testnode-eu-ams-01 reached target testnode-na-chi-01",
+          "probe": {
+            "target": "88.216.68.3",
+            "sent": 10,
+            "received": 10,
+            "lost": 0,
+            "lossPercent": 0,
+            "rttP50Ms": 88.692,
+            "forwardP50Ms": 44.718,
+            "reverseP50Ms": 43.987
+          }
+        },
+        {
+          "id": "source-unrestricted__destination-unrestricted__generated-key:non-target-allowed",
+          "status": "passed",
+          "expected": "success",
+          "detail": "testnode-eu-ams-01 reached non-target testnode-ap-tyo-01",
+          "probe": {
+            "target": "88.216.188.10",
+            "sent": 10,
+            "received": 10,
+            "lost": 0,
+            "lossPercent": 0,
+            "rttP50Ms": 225.487,
+            "forwardP50Ms": 114.539,
+            "reverseP50Ms": 110.878
+          }
+        },
+        {
+          "id": "source-unrestricted__destination-unrestricted__generated-key:source-unrestricted-second-source",
+          "status": "passed",
+          "expected": "success",
+          "detail": "testnode-eu-fra-01 used source-unrestricted config",
+          "probe": {
+            "target": "88.216.68.3",
+            "sent": 10,
+            "received": 10,
+            "lost": 0,
+            "lossPercent": 0,
+            "rttP50Ms": 94.877,
+            "forwardP50Ms": 46.887,
+            "reverseP50Ms": 47.844
+          }
+        }
+      ],
+      "cleanedUp": true
+    },
+    {
+      "id": "source-unrestricted__destination-unrestricted__provided-public-key",
+      "sessionId": "06262379-cd80-4fd8-a21d-633649ae27fc",
+      "mode": "FullTunnel",
+      "sourceRestricted": false,
+      "destinationRestricted": false,
+      "providedPublicKey": true,
+      "checks": [
+        {
+          "id": "source-unrestricted__destination-unrestricted__provided-public-key:allowed-source-target",
+          "status": "passed",
+          "expected": "success",
+          "detail": "testnode-eu-ams-01 reached target testnode-na-chi-01",
+          "probe": {
+            "target": "88.216.68.3",
+            "sent": 10,
+            "received": 10,
+            "lost": 0,
+            "lossPercent": 0,
+            "rttP50Ms": 88.609,
+            "forwardP50Ms": 44.713,
+            "reverseP50Ms": 43.958
+          }
+        },
+        {
+          "id": "source-unrestricted__destination-unrestricted__provided-public-key:non-target-allowed",
+          "status": "passed",
+          "expected": "success",
+          "detail": "testnode-eu-ams-01 reached non-target testnode-ap-tyo-01",
+          "probe": {
+            "target": "88.216.188.10",
+            "sent": 10,
+            "received": 10,
+            "lost": 0,
+            "lossPercent": 0,
+            "rttP50Ms": 225.579,
+            "forwardP50Ms": 114.341,
+            "reverseP50Ms": 111.077
+          }
+        },
+        {
+          "id": "source-unrestricted__destination-unrestricted__provided-public-key:source-unrestricted-second-source",
+          "status": "passed",
+          "expected": "success",
+          "detail": "testnode-eu-fra-01 used source-unrestricted config",
+          "probe": {
+            "target": "88.216.68.3",
+            "sent": 10,
+            "received": 10,
+            "lost": 0,
+            "lossPercent": 0,
+            "rttP50Ms": 94.782,
+            "forwardP50Ms": 46.908,
+            "reverseP50Ms": 47.831
+          }
+        },
+        {
+          "id": "source-unrestricted__destination-unrestricted__provided-public-key:wrong-private-key-blocked",
+          "status": "passed",
+          "expected": "failure",
+          "detail": "provided client public key only worked with matching private key",
+          "probe": {
+            "target": "88.216.68.3",
+            "sent": 10,
+            "received": 0,
+            "lost": 10,
+            "lossPercent": 100,
+            "rttP50Ms": null,
+            "forwardP50Ms": null,
+            "reverseP50Ms": null
+          }
+        }
+      ],
+      "cleanedUp": true
+    }
+  ],
+  "checks": [
+    {
+      "id": "baseline:testnode-eu-ams-01->testnode-na-chi-01",
+      "status": "passed",
+      "probe": {
+        "target": "88.216.68.3",
+        "sent": 5,
+        "received": 5,
+        "lost": 0,
+        "lossPercent": 0,
+        "rttP50Ms": 98.22,
+        "forwardP50Ms": 46.698,
+        "reverseP50Ms": 51.51
+      }
+    },
+    {
+      "id": "baseline:testnode-eu-ams-01->testnode-ap-tyo-01",
+      "status": "passed",
+      "probe": {
+        "target": "88.216.188.10",
+        "sent": 5,
+        "received": 5,
+        "lost": 0,
+        "lossPercent": 0,
+        "rttP50Ms": 203.661,
+        "forwardP50Ms": 102.763,
+        "reverseP50Ms": 100.865
+      }
+    },
+    {
+      "id": "baseline:testnode-eu-fra-01->testnode-na-chi-01",
+      "status": "passed",
+      "probe": {
+        "target": "88.216.68.3",
+        "sent": 5,
+        "received": 5,
+        "lost": 0,
+        "lossPercent": 0,
+        "rttP50Ms": 102.221,
+        "forwardP50Ms": 51.388,
+        "reverseP50Ms": 50.822
+      }
+    },
+    {
+      "id": "baseline:testnode-eu-fra-01->testnode-ap-tyo-01",
+      "status": "passed",
+      "probe": {
+        "target": "88.216.188.10",
+        "sent": 5,
+        "received": 5,
+        "lost": 0,
+        "lossPercent": 0,
+        "rttP50Ms": 198.826,
+        "forwardP50Ms": 96.317,
+        "reverseP50Ms": 102.484
+      }
+    },
+    {
+      "id": "source-restricted__destination-restricted__generated-key:allowed-source-target",
+      "status": "passed",
+      "expected": "success",
+      "detail": "testnode-eu-ams-01 reached target testnode-na-chi-01",
+      "probe": {
+        "target": "88.216.68.3",
+        "sent": 10,
+        "received": 10,
+        "lost": 0,
+        "lossPercent": 0,
+        "rttP50Ms": 88.648,
+        "forwardP50Ms": 44.609,
+        "reverseP50Ms": 44.032
+      }
+    },
+    {
+      "id": "source-restricted__destination-restricted__generated-key:non-target-denied",
+      "status": "passed",
+      "expected": "failure",
+      "detail": "testnode-eu-ams-01 could not reach non-target testnode-ap-tyo-01",
+      "probe": {
+        "target": "88.216.188.10",
+        "sent": 10,
+        "received": 0,
+        "lost": 10,
+        "lossPercent": 100,
+        "rttP50Ms": null,
+        "forwardP50Ms": null,
+        "reverseP50Ms": null
+      }
+    },
+    {
+      "id": "source-restricted__destination-restricted__generated-key:denied-source-blocked",
+      "status": "passed",
+      "expected": "failure",
+      "detail": "testnode-eu-fra-01 could not use config restricted to 84.32.190.156",
+      "probe": {
+        "target": "88.216.68.3",
+        "sent": 10,
+        "received": 0,
+        "lost": 10,
+        "lossPercent": 100,
+        "rttP50Ms": null,
+        "forwardP50Ms": null,
+        "reverseP50Ms": null
+      }
+    },
+    {
+      "id": "source-restricted__destination-restricted__provided-public-key:allowed-source-target",
+      "status": "passed",
+      "expected": "success",
+      "detail": "testnode-eu-ams-01 reached target testnode-na-chi-01",
+      "probe": {
+        "target": "88.216.68.3",
+        "sent": 10,
+        "received": 10,
+        "lost": 0,
+        "lossPercent": 0,
+        "rttP50Ms": 88.665,
+        "forwardP50Ms": 44.631,
+        "reverseP50Ms": 44.003
+      }
+    },
+    {
+      "id": "source-restricted__destination-restricted__provided-public-key:non-target-denied",
+      "status": "passed",
+      "expected": "failure",
+      "detail": "testnode-eu-ams-01 could not reach non-target testnode-ap-tyo-01",
+      "probe": {
+        "target": "88.216.188.10",
+        "sent": 10,
+        "received": 0,
+        "lost": 10,
+        "lossPercent": 100,
+        "rttP50Ms": null,
+        "forwardP50Ms": null,
+        "reverseP50Ms": null
+      }
+    },
+    {
+      "id": "source-restricted__destination-restricted__provided-public-key:denied-source-blocked",
+      "status": "passed",
+      "expected": "failure",
+      "detail": "testnode-eu-fra-01 could not use config restricted to 84.32.190.156",
+      "probe": {
+        "target": "88.216.68.3",
+        "sent": 10,
+        "received": 0,
+        "lost": 10,
+        "lossPercent": 100,
+        "rttP50Ms": null,
+        "forwardP50Ms": null,
+        "reverseP50Ms": null
+      }
+    },
+    {
+      "id": "source-restricted__destination-restricted__provided-public-key:wrong-private-key-blocked",
+      "status": "passed",
+      "expected": "failure",
+      "detail": "provided client public key only worked with matching private key",
+      "probe": {
+        "target": "88.216.68.3",
+        "sent": 10,
+        "received": 0,
+        "lost": 10,
+        "lossPercent": 100,
+        "rttP50Ms": null,
+        "forwardP50Ms": null,
+        "reverseP50Ms": null
+      }
+    },
+    {
+      "id": "source-restricted__destination-unrestricted__generated-key:allowed-source-target",
+      "status": "passed",
+      "expected": "success",
+      "detail": "testnode-eu-ams-01 reached target testnode-na-chi-01",
+      "probe": {
+        "target": "88.216.68.3",
+        "sent": 10,
+        "received": 10,
+        "lost": 0,
+        "lossPercent": 0,
+        "rttP50Ms": 88.597,
+        "forwardP50Ms": 44.636,
+        "reverseP50Ms": 43.942
+      }
+    },
+    {
+      "id": "source-restricted__destination-unrestricted__generated-key:non-target-allowed",
+      "status": "passed",
+      "expected": "success",
+      "detail": "testnode-eu-ams-01 reached non-target testnode-ap-tyo-01",
+      "probe": {
+        "target": "88.216.188.10",
+        "sent": 10,
+        "received": 10,
+        "lost": 0,
+        "lossPercent": 0,
+        "rttP50Ms": 225.232,
+        "forwardP50Ms": 114.363,
+        "reverseP50Ms": 110.815
+      }
+    },
+    {
+      "id": "source-restricted__destination-unrestricted__generated-key:denied-source-blocked",
+      "status": "passed",
+      "expected": "failure",
+      "detail": "testnode-eu-fra-01 could not use config restricted to 84.32.190.156",
+      "probe": {
+        "target": "88.216.68.3",
+        "sent": 10,
+        "received": 0,
+        "lost": 10,
+        "lossPercent": 100,
+        "rttP50Ms": null,
+        "forwardP50Ms": null,
+        "reverseP50Ms": null
+      }
+    },
+    {
+      "id": "source-restricted__destination-unrestricted__provided-public-key:allowed-source-target",
+      "status": "passed",
+      "expected": "success",
+      "detail": "testnode-eu-ams-01 reached target testnode-na-chi-01",
+      "probe": {
+        "target": "88.216.68.3",
+        "sent": 10,
+        "received": 10,
+        "lost": 0,
+        "lossPercent": 0,
+        "rttP50Ms": 88.574,
+        "forwardP50Ms": 44.645,
+        "reverseP50Ms": 43.948
+      }
+    },
+    {
+      "id": "source-restricted__destination-unrestricted__provided-public-key:non-target-allowed",
+      "status": "passed",
+      "expected": "success",
+      "detail": "testnode-eu-ams-01 reached non-target testnode-ap-tyo-01",
+      "probe": {
+        "target": "88.216.188.10",
+        "sent": 10,
+        "received": 10,
+        "lost": 0,
+        "lossPercent": 0,
+        "rttP50Ms": 225.737,
+        "forwardP50Ms": 114.589,
+        "reverseP50Ms": 111.085
+      }
+    },
+    {
+      "id": "source-restricted__destination-unrestricted__provided-public-key:denied-source-blocked",
+      "status": "passed",
+      "expected": "failure",
+      "detail": "testnode-eu-fra-01 could not use config restricted to 84.32.190.156",
+      "probe": {
+        "target": "88.216.68.3",
+        "sent": 10,
+        "received": 0,
+        "lost": 10,
+        "lossPercent": 100,
+        "rttP50Ms": null,
+        "forwardP50Ms": null,
+        "reverseP50Ms": null
+      }
+    },
+    {
+      "id": "source-restricted__destination-unrestricted__provided-public-key:wrong-private-key-blocked",
+      "status": "passed",
+      "expected": "failure",
+      "detail": "provided client public key only worked with matching private key",
+      "probe": {
+        "target": "88.216.68.3",
+        "sent": 10,
+        "received": 0,
+        "lost": 10,
+        "lossPercent": 100,
+        "rttP50Ms": null,
+        "forwardP50Ms": null,
+        "reverseP50Ms": null
+      }
+    },
+    {
+      "id": "source-unrestricted__destination-restricted__generated-key:allowed-source-target",
+      "status": "passed",
+      "expected": "success",
+      "detail": "testnode-eu-ams-01 reached target testnode-na-chi-01",
+      "probe": {
+        "target": "88.216.68.3",
+        "sent": 10,
+        "received": 10,
+        "lost": 0,
+        "lossPercent": 0,
+        "rttP50Ms": 88.75,
+        "forwardP50Ms": 44.704,
+        "reverseP50Ms": 43.949
+      }
+    },
+    {
+      "id": "source-unrestricted__destination-restricted__generated-key:non-target-denied",
+      "status": "passed",
+      "expected": "failure",
+      "detail": "testnode-eu-ams-01 could not reach non-target testnode-ap-tyo-01",
+      "probe": {
+        "target": "88.216.188.10",
+        "sent": 10,
+        "received": 0,
+        "lost": 10,
+        "lossPercent": 100,
+        "rttP50Ms": null,
+        "forwardP50Ms": null,
+        "reverseP50Ms": null
+      }
+    },
+    {
+      "id": "source-unrestricted__destination-restricted__generated-key:source-unrestricted-second-source",
+      "status": "passed",
+      "expected": "success",
+      "detail": "testnode-eu-fra-01 used source-unrestricted config",
+      "probe": {
+        "target": "88.216.68.3",
+        "sent": 10,
+        "received": 10,
+        "lost": 0,
+        "lossPercent": 0,
+        "rttP50Ms": 94.761,
+        "forwardP50Ms": 46.969,
+        "reverseP50Ms": 47.711
+      }
+    },
+    {
+      "id": "source-unrestricted__destination-restricted__provided-public-key:allowed-source-target",
+      "status": "passed",
+      "expected": "success",
+      "detail": "testnode-eu-ams-01 reached target testnode-na-chi-01",
+      "probe": {
+        "target": "88.216.68.3",
+        "sent": 10,
+        "received": 10,
+        "lost": 0,
+        "lossPercent": 0,
+        "rttP50Ms": 88.648,
+        "forwardP50Ms": 44.699,
+        "reverseP50Ms": 43.965
+      }
+    },
+    {
+      "id": "source-unrestricted__destination-restricted__provided-public-key:non-target-denied",
+      "status": "passed",
+      "expected": "failure",
+      "detail": "testnode-eu-ams-01 could not reach non-target testnode-ap-tyo-01",
+      "probe": {
+        "target": "88.216.188.10",
+        "sent": 10,
+        "received": 0,
+        "lost": 10,
+        "lossPercent": 100,
+        "rttP50Ms": null,
+        "forwardP50Ms": null,
+        "reverseP50Ms": null
+      }
+    },
+    {
+      "id": "source-unrestricted__destination-restricted__provided-public-key:source-unrestricted-second-source",
+      "status": "passed",
+      "expected": "success",
+      "detail": "testnode-eu-fra-01 used source-unrestricted config",
+      "probe": {
+        "target": "88.216.68.3",
+        "sent": 10,
+        "received": 10,
+        "lost": 0,
+        "lossPercent": 0,
+        "rttP50Ms": 94.695,
+        "forwardP50Ms": 46.924,
+        "reverseP50Ms": 47.764
+      }
+    },
+    {
+      "id": "source-unrestricted__destination-restricted__provided-public-key:wrong-private-key-blocked",
+      "status": "passed",
+      "expected": "failure",
+      "detail": "provided client public key only worked with matching private key",
+      "probe": {
+        "target": "88.216.68.3",
+        "sent": 10,
+        "received": 0,
+        "lost": 10,
+        "lossPercent": 100,
+        "rttP50Ms": null,
+        "forwardP50Ms": null,
+        "reverseP50Ms": null
+      }
+    },
+    {
+      "id": "source-unrestricted__destination-unrestricted__generated-key:allowed-source-target",
+      "status": "passed",
+      "expected": "success",
+      "detail": "testnode-eu-ams-01 reached target testnode-na-chi-01",
+      "probe": {
+        "target": "88.216.68.3",
+        "sent": 10,
+        "received": 10,
+        "lost": 0,
+        "lossPercent": 0,
+        "rttP50Ms": 88.692,
+        "forwardP50Ms": 44.718,
+        "reverseP50Ms": 43.987
+      }
+    },
+    {
+      "id": "source-unrestricted__destination-unrestricted__generated-key:non-target-allowed",
+      "status": "passed",
+      "expected": "success",
+      "detail": "testnode-eu-ams-01 reached non-target testnode-ap-tyo-01",
+      "probe": {
+        "target": "88.216.188.10",
+        "sent": 10,
+        "received": 10,
+        "lost": 0,
+        "lossPercent": 0,
+        "rttP50Ms": 225.487,
+        "forwardP50Ms": 114.539,
+        "reverseP50Ms": 110.878
+      }
+    },
+    {
+      "id": "source-unrestricted__destination-unrestricted__generated-key:source-unrestricted-second-source",
+      "status": "passed",
+      "expected": "success",
+      "detail": "testnode-eu-fra-01 used source-unrestricted config",
+      "probe": {
+        "target": "88.216.68.3",
+        "sent": 10,
+        "received": 10,
+        "lost": 0,
+        "lossPercent": 0,
+        "rttP50Ms": 94.877,
+        "forwardP50Ms": 46.887,
+        "reverseP50Ms": 47.844
+      }
+    },
+    {
+      "id": "source-unrestricted__destination-unrestricted__provided-public-key:allowed-source-target",
+      "status": "passed",
+      "expected": "success",
+      "detail": "testnode-eu-ams-01 reached target testnode-na-chi-01",
+      "probe": {
+        "target": "88.216.68.3",
+        "sent": 10,
+        "received": 10,
+        "lost": 0,
+        "lossPercent": 0,
+        "rttP50Ms": 88.609,
+        "forwardP50Ms": 44.713,
+        "reverseP50Ms": 43.958
+      }
+    },
+    {
+      "id": "source-unrestricted__destination-unrestricted__provided-public-key:non-target-allowed",
+      "status": "passed",
+      "expected": "success",
+      "detail": "testnode-eu-ams-01 reached non-target testnode-ap-tyo-01",
+      "probe": {
+        "target": "88.216.188.10",
+        "sent": 10,
+        "received": 10,
+        "lost": 0,
+        "lossPercent": 0,
+        "rttP50Ms": 225.579,
+        "forwardP50Ms": 114.341,
+        "reverseP50Ms": 111.077
+      }
+    },
+    {
+      "id": "source-unrestricted__destination-unrestricted__provided-public-key:source-unrestricted-second-source",
+      "status": "passed",
+      "expected": "success",
+      "detail": "testnode-eu-fra-01 used source-unrestricted config",
+      "probe": {
+        "target": "88.216.68.3",
+        "sent": 10,
+        "received": 10,
+        "lost": 0,
+        "lossPercent": 0,
+        "rttP50Ms": 94.782,
+        "forwardP50Ms": 46.908,
+        "reverseP50Ms": 47.831
+      }
+    },
+    {
+      "id": "source-unrestricted__destination-unrestricted__provided-public-key:wrong-private-key-blocked",
+      "status": "passed",
+      "expected": "failure",
+      "detail": "provided client public key only worked with matching private key",
+      "probe": {
+        "target": "88.216.68.3",
+        "sent": 10,
+        "received": 0,
+        "lost": 10,
+        "lossPercent": 100,
+        "rttP50Ms": null,
+        "forwardP50Ms": null,
+        "reverseP50Ms": null
+      }
+    }
+  ],
+  "status": "passed"
+}
