@@ -4,7 +4,7 @@ type CreateConfigStep = "configure" | "confirm";
 type SortDirection = "desc" | "asc";
 type KeyInstructionPlatform = "linux" | "macos" | "windows";
 type BenchmarkRttSortField = "route" | "doublezeroRtt" | "internetRtt" | "improvement" | "rttSaved" | "ingressDzRtt" | "egressDzRtt" | "doublezeroJitter" | "internetJitter" | "jitterImprovement" | "jitterSaved" | "loss";
-type BenchmarkOneWaySortField = "route" | "doublezeroOneWay" | "internetOneWay" | "oneWayImprovement" | "oneWaySaved" | "oneWayDeviation" | "oneWayClockError" | "doublezeroOneWayJitter" | "internetOneWayJitter" | "oneWayJitterImprovement" | "oneWayJitterSaved" | "ingressDzOneWay" | "egressDzOneWay";
+type BenchmarkOneWaySortField = "route" | "doublezeroOneWay" | "internetOneWay" | "oneWayImprovement" | "oneWaySaved" | "oneWayClockError" | "doublezeroOneWayJitter" | "internetOneWayJitter" | "oneWayJitterImprovement" | "oneWayJitterSaved" | "ingressDzOneWay" | "egressDzOneWay";
 type SessionValidationErrors = Partial<Record<"sourceIp" | "targetIp" | "ingressGateName" | "egressGateName" | "clientPublicKey", string>>;
 
 interface Gate {
@@ -55,7 +55,6 @@ interface BenchmarkMetric {
   jitterMs?: number;
   forwardOneWayMs?: BenchmarkMetricSummary;
   oneWayDiagnostics?: {
-    deviationMs?: number;
     clockErrorMs?: number;
   };
   errorCode?: string;
@@ -106,9 +105,6 @@ interface BenchmarkRouteRow {
   doublezeroLossPercent: number | undefined;
   publicOneWayMs: number | undefined;
   doublezeroOneWayMs: number | undefined;
-  publicOneWayDeviationMs: number | undefined;
-  doublezeroOneWayDeviationMs: number | undefined;
-  oneWayDeviationMs: number | undefined;
   publicOneWayClockErrorMs: number | undefined;
   doublezeroOneWayClockErrorMs: number | undefined;
   oneWayClockErrorMs: number | undefined;
@@ -390,7 +386,6 @@ function isBenchmarkOneWaySortField(value: string | undefined): value is Benchma
     value === "internetOneWay" ||
     value === "oneWayImprovement" ||
     value === "oneWaySaved" ||
-    value === "oneWayDeviation" ||
     value === "oneWayClockError" ||
     value === "doublezeroOneWayJitter" ||
     value === "internetOneWayJitter" ||
@@ -680,7 +675,6 @@ function benchmarkOneWayRoutesTable(rows: BenchmarkRouteRow[]): string {
             ${benchmarkOneWaySortableHeader("Internet One-Way", "internetOneWay", "right")}
             ${benchmarkOneWaySortableHeader("One-Way Improvement", "oneWayImprovement", "right")}
             ${benchmarkOneWaySortableHeader("One-Way Saved", "oneWaySaved", "right")}
-            ${benchmarkOneWaySortableHeader("~Deviation", "oneWayDeviation", "right", oneWayDeviationTooltip())}
             ${benchmarkOneWaySortableHeader("Clock Error", "oneWayClockError", "right", oneWayClockErrorTooltip())}
             ${benchmarkOneWaySortableHeader("DZ Jitter", "doublezeroOneWayJitter", "right")}
             ${benchmarkOneWaySortableHeader("Internet Jitter", "internetOneWayJitter", "right")}
@@ -714,7 +708,6 @@ function benchmarkOneWayRouteRow(row: BenchmarkRouteRow): string {
       <td class="numeric-cell">${benchmarkValueCell(route.public, formatMetricMs(row.publicOneWayMs))}</td>
       <td class="numeric-cell">${benchmarkImprovementCell(row.oneWayImprovementPercent)}</td>
       <td class="numeric-cell">${formatSavedMetricMs(row.oneWaySavedMs)}</td>
-      <td class="numeric-cell">${benchmarkOneWayDeviationCell(route, row)}</td>
       <td class="numeric-cell">${benchmarkOneWayClockErrorCell(route, row)}</td>
       <td class="numeric-cell">${benchmarkValueCell(route.doublezero, formatJitterMetricMs(row.doublezeroOneWayJitterMs))}</td>
       <td class="numeric-cell">${benchmarkValueCell(route.public, formatJitterMetricMs(row.publicOneWayJitterMs))}</td>
@@ -780,9 +773,6 @@ function benchmarkRouteRows(gates: Gate[], matrix: BenchmarkMatrix | null): Benc
     const doublezeroLossPercent = finiteNumber(route.doublezero?.lossPercent);
     const publicOneWayMs = finiteNumber(route.public?.forwardOneWayMs?.p50);
     const doublezeroOneWayMs = finiteNumber(route.doublezero?.forwardOneWayMs?.p50);
-    const publicOneWayDeviationMs = oneWayDeviationMs(route.public);
-    const doublezeroOneWayDeviationMs = oneWayDeviationMs(route.doublezero);
-    const oneWayDeviationMsValue = maxOptionalMetric(publicOneWayDeviationMs, doublezeroOneWayDeviationMs);
     const publicOneWayClockErrorMs = oneWayClockErrorMs(route.public);
     const doublezeroOneWayClockErrorMs = oneWayClockErrorMs(route.doublezero);
     const oneWayClockErrorMsValue = maxOptionalMetric(publicOneWayClockErrorMs, doublezeroOneWayClockErrorMs);
@@ -830,9 +820,6 @@ function benchmarkRouteRows(gates: Gate[], matrix: BenchmarkMatrix | null): Benc
       doublezeroLossPercent,
       publicOneWayMs,
       doublezeroOneWayMs,
-      publicOneWayDeviationMs,
-      doublezeroOneWayDeviationMs,
-      oneWayDeviationMs: oneWayDeviationMsValue,
       publicOneWayClockErrorMs,
       doublezeroOneWayClockErrorMs,
       oneWayClockErrorMs: oneWayClockErrorMsValue,
@@ -925,9 +912,6 @@ function sortBenchmarkOneWayRows(rows: BenchmarkRouteRow[]): BenchmarkRouteRow[]
         break;
       case "oneWaySaved":
         cmp = compareOptionalNumber(a.oneWaySavedMs, b.oneWaySavedMs, benchmarkOneWaySortDirection);
-        break;
-      case "oneWayDeviation":
-        cmp = compareOptionalNumber(a.oneWayDeviationMs, b.oneWayDeviationMs, benchmarkOneWaySortDirection);
         break;
       case "oneWayClockError":
         cmp = compareOptionalNumber(a.oneWayClockErrorMs, b.oneWayClockErrorMs, benchmarkOneWaySortDirection);
@@ -1038,15 +1022,6 @@ function benchmarkLossCell(route: BenchmarkRoute, row: BenchmarkRouteRow): strin
   `;
 }
 
-function benchmarkOneWayDeviationCell(route: BenchmarkRoute, row: BenchmarkRouteRow): string {
-  return `
-    <div class="stacked-metric">
-      <span>${benchmarkValueCell(route.doublezero, `DZ ${formatDeviationMetricMs(row.doublezeroOneWayDeviationMs)}`)}</span>
-      <span>${benchmarkValueCell(route.public, `Internet ${formatDeviationMetricMs(row.publicOneWayDeviationMs)}`)}</span>
-    </div>
-  `;
-}
-
 function benchmarkOneWayClockErrorCell(route: BenchmarkRoute, row: BenchmarkRouteRow): string {
   return `
     <div class="stacked-metric">
@@ -1082,10 +1057,6 @@ function benchmarkInfoIcon(title: string): string {
 
 function edgeOneWayEstimateTooltip(): string {
   return "Estimated as half of the latest gate-to-DZ RTT. True one-way gate-to-DZ or DZ-to-gate latency cannot be directly measured from this probe because the DoubleZero edge endpoint does not provide synchronized one-way timestamps.";
-}
-
-function oneWayDeviationTooltip(): string {
-  return "One-way latency is measured directly from synchronized gate clocks: target receive time minus source send time. ~Deviation is only a reliability check: abs(measured forward one-way p50 - internal reverse echo p50) / 2. It is not used to calculate one-way latency. High deviation means clock sync or path asymmetry may make the one-way value less reliable; RTT remains valid independently.";
 }
 
 function oneWayClockErrorTooltip(): string {
@@ -1162,10 +1133,6 @@ function formatJitterMetricMs(value: number | undefined): string {
   return typeof value === "number" && Number.isFinite(value) ? `${formatFixedLatency(value, 2)}ms` : "n/a";
 }
 
-function formatDeviationMetricMs(value: number | undefined): string {
-  return typeof value === "number" && Number.isFinite(value) ? `~${formatFixedLatency(value, 2)}ms` : "n/a";
-}
-
 function formatClockErrorMetricMs(value: number | undefined): string {
   return typeof value === "number" && Number.isFinite(value) ? `±${formatFixedLatency(value, 2)}ms` : "n/a";
 }
@@ -1223,10 +1190,6 @@ function summaryP95MinusP50(summary: BenchmarkMetricSummary | undefined): number
   const p50 = finiteNumber(summary?.p50);
   const p95 = finiteNumber(summary?.p95);
   return typeof p50 === "number" && typeof p95 === "number" ? compactMetric(Math.max(0, p95 - p50)) : undefined;
-}
-
-function oneWayDeviationMs(metric: BenchmarkMetric | undefined): number | undefined {
-  return finiteNumber(metric?.oneWayDiagnostics?.deviationMs);
 }
 
 function oneWayClockErrorMs(metric: BenchmarkMetric | undefined): number | undefined {

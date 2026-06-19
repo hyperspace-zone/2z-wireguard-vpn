@@ -283,12 +283,8 @@ export async function listLatestGateBenchmarkRoutes(db: Queryable): Promise<Gate
               ))
             END,
             'oneWayDiagnostics', CASE
-              WHEN (forward_one_way_p50_ms IS NULL OR reverse_one_way_p50_ms IS NULL) AND one_way_clock_error_ms IS NULL THEN NULL
+              WHEN one_way_clock_error_ms IS NULL THEN NULL
               ELSE jsonb_strip_nulls(jsonb_build_object(
-                'deviationMs', CASE
-                  WHEN forward_one_way_p50_ms IS NULL OR reverse_one_way_p50_ms IS NULL THEN NULL
-                  ELSE round((abs(forward_one_way_p50_ms - reverse_one_way_p50_ms) / 2)::numeric, 3)
-                END,
                 'clockErrorMs', one_way_clock_error_ms
               )
             )
