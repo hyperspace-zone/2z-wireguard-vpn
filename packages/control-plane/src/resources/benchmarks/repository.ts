@@ -251,12 +251,17 @@ export async function listLatestGateBenchmarkRoutes(db: Queryable): Promise<Gate
         FROM gates source
         CROSS JOIN gates target
         WHERE source.id <> target.id
-      ),
-      latest AS (
-        SELECT DISTINCT ON (source_gate_id, target_gate_id, transport)
-          source_gate_id,
-          target_gate_id,
-          transport,
+      )
+      SELECT
+        directed_pairs.source_gate_id AS "sourceGateId",
+        directed_pairs.source_gate_name AS "sourceGateName",
+        directed_pairs.target_gate_id AS "targetGateId",
+        directed_pairs.target_gate_name AS "targetGateName",
+        public_latest.metric AS "publicMetric",
+        doublezero_latest.metric AS "doublezeroMetric"
+      FROM directed_pairs
+      LEFT JOIN LATERAL (
+        SELECT
           jsonb_strip_nulls(jsonb_build_object(
             'transport', transport,
             'status', status,
@@ -294,24 +299,57 @@ export async function listLatestGateBenchmarkRoutes(db: Queryable): Promise<Gate
             'measuredAt', measured_at
           )) AS metric
         FROM gate_benchmark_results
-        ORDER BY source_gate_id, target_gate_id, transport, measured_at DESC
-      )
-      SELECT
-        directed_pairs.source_gate_id AS "sourceGateId",
-        directed_pairs.source_gate_name AS "sourceGateName",
-        directed_pairs.target_gate_id AS "targetGateId",
-        directed_pairs.target_gate_name AS "targetGateName",
-        public_latest.metric AS "publicMetric",
-        doublezero_latest.metric AS "doublezeroMetric"
-      FROM directed_pairs
-      LEFT JOIN latest public_latest
-        ON public_latest.source_gate_id = directed_pairs.source_gate_id
-       AND public_latest.target_gate_id = directed_pairs.target_gate_id
-       AND public_latest.transport = 'public'
-      LEFT JOIN latest doublezero_latest
-        ON doublezero_latest.source_gate_id = directed_pairs.source_gate_id
-       AND doublezero_latest.target_gate_id = directed_pairs.target_gate_id
-       AND doublezero_latest.transport = 'doublezero'
+        WHERE source_gate_id = directed_pairs.source_gate_id
+          AND target_gate_id = directed_pairs.target_gate_id
+          AND transport = 'public'
+        ORDER BY measured_at DESC
+        LIMIT 1
+      ) public_latest ON true
+      LEFT JOIN LATERAL (
+        SELECT
+          jsonb_strip_nulls(jsonb_build_object(
+            'transport', transport,
+            'status', status,
+            'sourceInterface', source_interface,
+            'targetEndpoint', target_endpoint,
+            'packetCount', packet_count,
+            'packetsReceived', packets_received,
+            'lossPercent', loss_percent,
+            'rttMs', CASE
+              WHEN rtt_p50_ms IS NULL THEN NULL
+              ELSE jsonb_strip_nulls(jsonb_build_object(
+                'min', rtt_min_ms,
+                'p50', rtt_p50_ms,
+                'p95', rtt_p95_ms,
+                'max', rtt_max_ms
+              ))
+            END,
+            'jitterMs', jitter_ms,
+            'forwardOneWayMs', CASE
+              WHEN forward_one_way_p50_ms IS NULL THEN NULL
+              ELSE jsonb_strip_nulls(jsonb_build_object(
+                'p50', forward_one_way_p50_ms,
+                'p95', forward_one_way_p95_ms
+              ))
+            END,
+            'oneWayDiagnostics', CASE
+              WHEN one_way_clock_error_ms IS NULL THEN NULL
+              ELSE jsonb_strip_nulls(jsonb_build_object(
+                'clockErrorMs', one_way_clock_error_ms
+              )
+            )
+            END,
+            'errorCode', error_code,
+            'errorMessage', error_message,
+            'measuredAt', measured_at
+          )) AS metric
+        FROM gate_benchmark_results
+        WHERE source_gate_id = directed_pairs.source_gate_id
+          AND target_gate_id = directed_pairs.target_gate_id
+          AND transport = 'doublezero'
+        ORDER BY measured_at DESC
+        LIMIT 1
+      ) doublezero_latest ON true
       ORDER BY directed_pairs.source_gate_name, directed_pairs.target_gate_name
     `
   );
