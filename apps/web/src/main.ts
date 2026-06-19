@@ -4,7 +4,7 @@ type CreateConfigStep = "configure" | "confirm";
 type SortDirection = "desc" | "asc";
 type KeyInstructionPlatform = "linux" | "macos" | "windows";
 type BenchmarkRttSortField = "route" | "doublezeroRtt" | "internetRtt" | "improvement" | "rttSaved" | "ingressDzRtt" | "egressDzRtt" | "doublezeroJitter" | "internetJitter" | "jitterImprovement" | "jitterSaved" | "loss";
-type BenchmarkOneWaySortField = "route" | "doublezeroOneWay" | "internetOneWay" | "oneWayImprovement" | "oneWaySaved" | "doublezeroOneWayJitter" | "internetOneWayJitter" | "oneWayJitterImprovement" | "oneWayJitterSaved" | "ingressDzOneWay" | "egressDzOneWay";
+type BenchmarkOneWaySortField = "route" | "doublezeroOneWay" | "internetOneWay" | "oneWayImprovement" | "oneWaySaved" | "oneWayDeviation" | "doublezeroOneWayJitter" | "internetOneWayJitter" | "oneWayJitterImprovement" | "oneWayJitterSaved" | "ingressDzOneWay" | "egressDzOneWay";
 type SessionValidationErrors = Partial<Record<"sourceIp" | "targetIp" | "ingressGateName" | "egressGateName" | "clientPublicKey", string>>;
 
 interface Gate {
@@ -104,6 +104,9 @@ interface BenchmarkRouteRow {
   doublezeroLossPercent: number | undefined;
   publicOneWayMs: number | undefined;
   doublezeroOneWayMs: number | undefined;
+  publicOneWayDeviationMs: number | undefined;
+  doublezeroOneWayDeviationMs: number | undefined;
+  oneWayDeviationMs: number | undefined;
   publicOneWayJitterMs: number | undefined;
   doublezeroOneWayJitterMs: number | undefined;
   oneWayJitterSavedMs: number | undefined;
@@ -382,6 +385,7 @@ function isBenchmarkOneWaySortField(value: string | undefined): value is Benchma
     value === "internetOneWay" ||
     value === "oneWayImprovement" ||
     value === "oneWaySaved" ||
+    value === "oneWayDeviation" ||
     value === "doublezeroOneWayJitter" ||
     value === "internetOneWayJitter" ||
     value === "oneWayJitterImprovement" ||
@@ -670,6 +674,7 @@ function benchmarkOneWayRoutesTable(rows: BenchmarkRouteRow[]): string {
             ${benchmarkOneWaySortableHeader("Internet One-Way", "internetOneWay", "right")}
             ${benchmarkOneWaySortableHeader("One-Way Improvement", "oneWayImprovement", "right")}
             ${benchmarkOneWaySortableHeader("One-Way Saved", "oneWaySaved", "right")}
+            ${benchmarkOneWaySortableHeader("~Deviation", "oneWayDeviation", "right", oneWayDeviationTooltip())}
             ${benchmarkOneWaySortableHeader("DZ Jitter", "doublezeroOneWayJitter", "right")}
             ${benchmarkOneWaySortableHeader("Internet Jitter", "internetOneWayJitter", "right")}
             ${benchmarkOneWaySortableHeader("Jitter Improvement", "oneWayJitterImprovement", "right")}
@@ -702,6 +707,7 @@ function benchmarkOneWayRouteRow(row: BenchmarkRouteRow): string {
       <td class="numeric-cell">${benchmarkValueCell(route.public, formatMetricMs(row.publicOneWayMs))}</td>
       <td class="numeric-cell">${benchmarkImprovementCell(row.oneWayImprovementPercent)}</td>
       <td class="numeric-cell">${formatSavedMetricMs(row.oneWaySavedMs)}</td>
+      <td class="numeric-cell">${benchmarkOneWayDeviationCell(route, row)}</td>
       <td class="numeric-cell">${benchmarkValueCell(route.doublezero, formatJitterMetricMs(row.doublezeroOneWayJitterMs))}</td>
       <td class="numeric-cell">${benchmarkValueCell(route.public, formatJitterMetricMs(row.publicOneWayJitterMs))}</td>
       <td class="numeric-cell">${benchmarkImprovementCell(row.oneWayJitterImprovementPercent)}</td>
@@ -766,6 +772,9 @@ function benchmarkRouteRows(gates: Gate[], matrix: BenchmarkMatrix | null): Benc
     const doublezeroLossPercent = finiteNumber(route.doublezero?.lossPercent);
     const publicOneWayMs = finiteNumber(route.public?.forwardOneWayMs?.p50);
     const doublezeroOneWayMs = finiteNumber(route.doublezero?.forwardOneWayMs?.p50);
+    const publicOneWayDeviationMs = oneWayDeviationMs(route.public);
+    const doublezeroOneWayDeviationMs = oneWayDeviationMs(route.doublezero);
+    const oneWayDeviationMsValue = maxOptionalMetric(publicOneWayDeviationMs, doublezeroOneWayDeviationMs);
     const publicOneWayJitterMs = summaryP95MinusP50(route.public?.forwardOneWayMs);
     const doublezeroOneWayJitterMs = summaryP95MinusP50(route.doublezero?.forwardOneWayMs);
     const oneWayJitterSavedMs = typeof publicOneWayJitterMs === "number" && typeof doublezeroOneWayJitterMs === "number"
@@ -810,6 +819,9 @@ function benchmarkRouteRows(gates: Gate[], matrix: BenchmarkMatrix | null): Benc
       doublezeroLossPercent,
       publicOneWayMs,
       doublezeroOneWayMs,
+      publicOneWayDeviationMs,
+      doublezeroOneWayDeviationMs,
+      oneWayDeviationMs: oneWayDeviationMsValue,
       publicOneWayJitterMs,
       doublezeroOneWayJitterMs,
       oneWayJitterSavedMs,
@@ -899,6 +911,9 @@ function sortBenchmarkOneWayRows(rows: BenchmarkRouteRow[]): BenchmarkRouteRow[]
         break;
       case "oneWaySaved":
         cmp = compareOptionalNumber(a.oneWaySavedMs, b.oneWaySavedMs, benchmarkOneWaySortDirection);
+        break;
+      case "oneWayDeviation":
+        cmp = compareOptionalNumber(a.oneWayDeviationMs, b.oneWayDeviationMs, benchmarkOneWaySortDirection);
         break;
       case "doublezeroOneWayJitter":
         cmp = compareOptionalNumber(a.doublezeroOneWayJitterMs, b.doublezeroOneWayJitterMs, benchmarkOneWaySortDirection);
@@ -1006,6 +1021,15 @@ function benchmarkLossCell(route: BenchmarkRoute, row: BenchmarkRouteRow): strin
   `;
 }
 
+function benchmarkOneWayDeviationCell(route: BenchmarkRoute, row: BenchmarkRouteRow): string {
+  return `
+    <div class="stacked-metric">
+      <span>${benchmarkValueCell(route.doublezero, `DZ ${formatDeviationMetricMs(row.doublezeroOneWayDeviationMs)}`)}</span>
+      <span>${benchmarkValueCell(route.public, `Internet ${formatDeviationMetricMs(row.publicOneWayDeviationMs)}`)}</span>
+    </div>
+  `;
+}
+
 function benchmarkEdgeOneWayEstimateCell(gate: Gate, value: number | undefined, directionLabel: string): string {
   const status = gate.doubleZero;
   if (typeof value !== "number" || !Number.isFinite(value)) {
@@ -1032,6 +1056,10 @@ function benchmarkInfoIcon(title: string): string {
 
 function edgeOneWayEstimateTooltip(): string {
   return "Estimated as half of the latest gate-to-DZ RTT. True one-way gate-to-DZ or DZ-to-gate latency cannot be directly measured from this probe because the DoubleZero edge endpoint does not provide synchronized one-way timestamps.";
+}
+
+function oneWayDeviationTooltip(): string {
+  return "Approximate one-way deviation: abs(forward one-way p50 - reverse one-way p50) / 2, computed separately for DZ and Internet. Reverse is used only as a sanity check; the route value remains directed forward one-way. High deviation means clock sync or path asymmetry makes one-way less reliable, while RTT remains valid.";
 }
 
 function benchmarkImprovementCell(value: number | undefined): string {
@@ -1104,6 +1132,10 @@ function formatJitterMetricMs(value: number | undefined): string {
   return typeof value === "number" && Number.isFinite(value) ? `${formatFixedLatency(value, 2)}ms` : "n/a";
 }
 
+function formatDeviationMetricMs(value: number | undefined): string {
+  return typeof value === "number" && Number.isFinite(value) ? `~${formatFixedLatency(value, 2)}ms` : "n/a";
+}
+
 function formatLossPercent(value: number | undefined): string {
   if (typeof value !== "number" || !Number.isFinite(value)) {
     return "n/a";
@@ -1157,6 +1189,19 @@ function summaryP95MinusP50(summary: BenchmarkMetricSummary | undefined): number
   const p50 = finiteNumber(summary?.p50);
   const p95 = finiteNumber(summary?.p95);
   return typeof p50 === "number" && typeof p95 === "number" ? compactMetric(Math.max(0, p95 - p50)) : undefined;
+}
+
+function oneWayDeviationMs(metric: BenchmarkMetric | undefined): number | undefined {
+  const forwardP50 = finiteNumber(metric?.forwardOneWayMs?.p50);
+  const reverseP50 = finiteNumber(metric?.reverseOneWayMs?.p50);
+  return typeof forwardP50 === "number" && typeof reverseP50 === "number"
+    ? compactMetric(Math.abs(forwardP50 - reverseP50) / 2)
+    : undefined;
+}
+
+function maxOptionalMetric(...values: Array<number | undefined>): number | undefined {
+  const finiteValues = values.filter((value): value is number => typeof value === "number" && Number.isFinite(value));
+  return finiteValues.length > 0 ? Math.max(...finiteValues) : undefined;
 }
 
 function estimatedOneWayFromRtt(value: number | undefined): number | undefined {
