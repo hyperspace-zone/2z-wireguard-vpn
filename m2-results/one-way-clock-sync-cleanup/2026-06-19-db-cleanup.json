@@ -1,0 +1,57 @@
+{
+  "cutoff": "2026-06-19T09:13:00Z",
+  "clusters": {
+    "mainnet": {
+      "before": {
+        "total": 130090,
+        "rows_with_one_way_columns": 741,
+        "pre_cutoff_rows_with_one_way_columns": 521,
+        "rows_with_one_way_samples": 128625,
+        "rows_with_one_way_samples_to_sanitize": 128405,
+        "first_column_one_way": "2026-06-19T08:55:02.442Z",
+        "last_column_one_way": "2026-06-19T09:18:09.723Z",
+        "first_sample_one_way": "2026-06-17T07:34:58.578Z",
+        "last_sample_one_way": "2026-06-19T09:18:09.723Z"
+      },
+      "clearedColumnRows": 521,
+      "sanitizedSampleRows": 128405,
+      "after": {
+        "total": 130112,
+        "rows_with_one_way_columns": 235,
+        "pre_cutoff_rows_with_one_way_columns": 0,
+        "rows_with_one_way_samples": 235,
+        "rows_with_one_way_samples_to_sanitize": 0,
+        "first_column_one_way": "2026-06-19T09:13:01.671Z",
+        "last_column_one_way": "2026-06-19T09:18:32.287Z",
+        "first_sample_one_way": "2026-06-19T09:13:01.671Z",
+        "last_sample_one_way": "2026-06-19T09:18:32.287Z"
+      }
+    },
+    "testnet": {
+      "before": {
+        "total": 151674,
+        "rows_with_one_way_columns": 492,
+        "pre_cutoff_rows_with_one_way_columns": 290,
+        "rows_with_one_way_samples": 143212,
+        "rows_with_one_way_samples_to_sanitize": 143010,
+        "first_column_one_way": "2026-06-19T09:05:07.174Z",
+        "last_column_one_way": "2026-06-19T09:18:30.670Z",
+        "first_sample_one_way": "2026-06-16T11:37:33.480Z",
+        "last_sample_one_way": "2026-06-19T09:18:30.670Z"
+      },
+      "clearedColumnRows": 290,
+      "sanitizedSampleRows": 143010,
+      "after": {
+        "total": 151674,
+        "rows_with_one_way_columns": 202,
+        "pre_cutoff_rows_with_one_way_columns": 0,
+        "rows_with_one_way_samples": 202,
+        "rows_with_one_way_samples_to_sanitize": 0,
+        "first_column_one_way": "2026-06-19T09:13:00.206Z",
+        "last_column_one_way": "2026-06-19T09:18:30.670Z",
+        "first_sample_one_way": "2026-06-19T09:13:00.206Z",
+        "last_sample_one_way": "2026-06-19T09:18:30.670Z"
+      }
+    }
+  }
+}
