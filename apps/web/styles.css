@@ -438,6 +438,28 @@ tbody td {
   color: #dc2626;
 }
 
+.gate-clock-error {
+  border-radius: 4px;
+  display: inline-flex;
+  font-weight: 400;
+  padding: 2px 6px;
+}
+
+.gate-clock-error-good {
+  background: #DBFCE7;
+  color: #16a34a;
+}
+
+.gate-clock-error-warning {
+  background: #FEF9C2;
+  color: #ca8a04;
+}
+
+.gate-clock-error-bad {
+  background: #FFE2E2;
+  color: #dc2626;
+}
+
 .benchmark-legend {
   align-items: center;
   color: #57606a;

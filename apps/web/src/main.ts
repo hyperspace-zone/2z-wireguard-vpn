@@ -3,6 +3,7 @@ type AppView = "dashboard" | "create-config" | "benchmarks" | "login" | "registe
 type CreateConfigStep = "configure" | "confirm";
 type SortDirection = "desc" | "asc";
 type KeyInstructionPlatform = "linux" | "macos" | "windows";
+type GateSortField = "browser-rtt" | "clock-error";
 type BenchmarkRttSortField = "route" | "doublezeroRtt" | "internetRtt" | "improvement" | "rttSaved" | "ingressDzRtt" | "egressDzRtt" | "doublezeroJitter" | "internetJitter" | "jitterImprovement" | "jitterSaved" | "loss";
 type BenchmarkOneWaySortField = "route" | "doublezeroOneWay" | "internetOneWay" | "oneWayImprovement" | "oneWaySaved" | "oneWayClockError" | "doublezeroOneWayJitter" | "internetOneWayJitter" | "oneWayJitterImprovement" | "oneWayJitterSaved" | "ingressDzOneWay" | "egressDzOneWay";
 type SessionValidationErrors = Partial<Record<"sourceIp" | "targetIp" | "ingressGateName" | "egressGateName" | "clientPublicKey", string>>;
@@ -157,7 +158,9 @@ let browserIp = "";
 let currentView: AppView = viewFromLocation();
 let createConfigStep: CreateConfigStep = "configure";
 let createConfigSubmitting = false;
+let gateSortField: GateSortField = "browser-rtt";
 let gateBrowserRttSortDirection: SortDirection = "asc";
+let gateClockErrorSortDirection: SortDirection = "asc";
 let benchmarkRttSortField: BenchmarkRttSortField = "improvement";
 let benchmarkRttSortDirection: SortDirection = "desc";
 let benchmarkOneWaySortField: BenchmarkOneWaySortField = "oneWayImprovement";
@@ -365,6 +368,10 @@ function isKeyInstructionPlatform(value: string | undefined): value is KeyInstru
   return value === "linux" || value === "macos" || value === "windows";
 }
 
+function isGateSortField(value: string | undefined): value is GateSortField {
+  return value === "browser-rtt" || value === "clock-error";
+}
+
 function isBenchmarkRttSortField(value: string | undefined): value is BenchmarkRttSortField {
   return value === "route" ||
     value === "doublezeroRtt" ||
@@ -507,11 +514,12 @@ function gatesPanel(gates: Gate[], benchmarkMatrix: BenchmarkMatrix | null): str
   }
   const showClockError = shouldShowGateClockError();
   const gateClockErrors = showClockError ? estimateGateClockErrors(benchmarkMatrix) : new Map<string, number>();
-  const sortedGates = sortGatesByBrowserLatency(gates, gateBrowserRttSortDirection);
+  const effectiveSortField = showClockError ? gateSortField : "browser-rtt";
+  const effectiveSortDirection = gateSortDirection(effectiveSortField);
+  const sortedGates = sortGates(gates, effectiveSortField, effectiveSortDirection, gateClockErrors);
   const measureButtonLabel = gateLatencyMeasurementInFlight ? "Measuring..." : "Measure browser RTT";
   const measureButtonDisabled = gateLatencyMeasurementInFlight ? "disabled" : "";
-  const sortArrow = gateBrowserRttSortDirection === "desc" ? "↓" : "↑";
-  const sortLabel = gateBrowserRttSortDirection === "desc" ? "high to low" : "low to high";
+  const sortLabel = effectiveSortDirection === "desc" ? "high to low" : "low to high";
   return `
     <table>
       <thead>
@@ -521,10 +529,15 @@ function gatesPanel(gates: Gate[], benchmarkMatrix: BenchmarkMatrix | null): str
           <th>Country</th>
           <th>Public IPv4</th>
           <th>Ready</th>
-          <th aria-sort="${gateBrowserRttSortDirection === "desc" ? "descending" : "ascending"}">
-            <button class="table-sort" type="button" data-sort-gates="browser-rtt">Browser RTT ${sortArrow}</button>
+          <th aria-sort="${gateAriaSort("browser-rtt", effectiveSortField)}">
+            <button class="table-sort" type="button" data-sort-gates="browser-rtt">Browser RTT ${gateSortArrow("browser-rtt", effectiveSortField)}</button>
           </th>
-          ${showClockError ? `<th>Clock Error ${benchmarkInfoIcon(gateClockErrorTooltip())}</th>` : ""}
+          ${showClockError ? `
+            <th aria-sort="${gateAriaSort("clock-error", effectiveSortField)}">
+              <button class="table-sort" type="button" data-sort-gates="clock-error">Clock Error ${gateSortArrow("clock-error", effectiveSortField)}</button>
+              ${benchmarkInfoIcon(gateClockErrorTooltip())}
+            </th>
+          ` : ""}
           <th>Schedulable</th>
           <th>DoubleZero node</th>
         </tr>
@@ -551,7 +564,7 @@ function gatesPanel(gates: Gate[], benchmarkMatrix: BenchmarkMatrix | null): str
     </table>
     <div class="panel-actions">
       <button id="measure-gates" type="button" ${measureButtonDisabled}>${measureButtonLabel}</button>
-      <small>Sorted by Browser RTT, ${sortLabel}.</small>
+      <small>Sorted by ${gateSortLabel(effectiveSortField)}, ${sortLabel}.</small>
     </div>
   `;
 }
@@ -562,6 +575,28 @@ function shouldShowGateClockError(): boolean {
   return value !== null && ["1", "true", "yes", "on"].includes(value.toLowerCase());
 }
 
+function gateSortDirection(field: GateSortField): SortDirection {
+  return field === "clock-error" ? gateClockErrorSortDirection : gateBrowserRttSortDirection;
+}
+
+function gateSortArrow(field: GateSortField, activeField: GateSortField): string {
+  if (field !== activeField) {
+    return "";
+  }
+  return gateSortDirection(field) === "desc" ? "↓" : "↑";
+}
+
+function gateAriaSort(field: GateSortField, activeField: GateSortField): string {
+  if (field !== activeField) {
+    return "none";
+  }
+  return gateSortDirection(field) === "desc" ? "descending" : "ascending";
+}
+
+function gateSortLabel(field: GateSortField): string {
+  return field === "clock-error" ? "Clock Error" : "Browser RTT";
+}
+
 function gateClockErrorTooltip(): string {
   return "Debug-only per-gate Clock Error estimate derived from the current benchmark matrix. Route Clock Error is source gate clock uncertainty plus target gate clock uncertainty, so this column solves the latest gate-to-gate sums back into an approximate value for each gate. Use ?showclockerror=true to show it.";
 }
@@ -570,7 +605,17 @@ function gateClockErrorCell(value: number | undefined): string {
   if (typeof value !== "number" || !Number.isFinite(value)) {
     return '<span class="muted">n/a</span>';
   }
-  return `<span class="mono">${escapeHtml(formatClockErrorMetricMs(value))}</span>`;
+  return `<span class="gate-clock-error ${gateClockErrorClass(value)}">${escapeHtml(formatClockErrorMetricMs(value))}</span>`;
+}
+
+function gateClockErrorClass(value: number): string {
+  if (value <= 5) {
+    return "gate-clock-error-good";
+  }
+  if (value <= 20) {
+    return "gate-clock-error-warning";
+  }
+  return "gate-clock-error-bad";
 }
 
 function estimateGateClockErrors(matrix: BenchmarkMatrix | null): Map<string, number> {
@@ -1991,10 +2036,24 @@ function bindHandlers(): void {
   document.getElementById("measure-gates")?.addEventListener("click", () => {
     runGateLatencyMeasurement();
   });
-  document.querySelector("[data-sort-gates='browser-rtt']")?.addEventListener("click", () => {
-    gateBrowserRttSortDirection = gateBrowserRttSortDirection === "desc" ? "asc" : "desc";
-    render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
-  });
+  for (const button of document.querySelectorAll("[data-sort-gates]")) {
+    button.addEventListener("click", () => {
+      const field = (button as HTMLElement).dataset.sortGates;
+      if (!isGateSortField(field)) {
+        return;
+      }
+      if (gateSortField === field) {
+        if (field === "clock-error") {
+          gateClockErrorSortDirection = gateClockErrorSortDirection === "desc" ? "asc" : "desc";
+        } else {
+          gateBrowserRttSortDirection = gateBrowserRttSortDirection === "desc" ? "asc" : "desc";
+        }
+      } else {
+        gateSortField = field;
+      }
+      render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
+    });
+  }
   for (const button of document.querySelectorAll("[data-sort-benchmark-rtt]")) {
     button.addEventListener("click", () => {
       const field = (button as HTMLElement).dataset.sortBenchmarkRtt;
@@ -2664,18 +2723,16 @@ function sortIngressGates(gates: Gate[]): Gate[] {
   });
 }
 
-function sortGatesByBrowserLatency(gates: Gate[], direction: SortDirection): Gate[] {
+function sortGates(gates: Gate[], field: GateSortField, direction: SortDirection, gateClockErrors: Map<string, number>): Gate[] {
   return [...gates].sort((a, b) => {
-    const aLatency = a.browserLatencyMs;
-    const bLatency = b.browserLatencyMs;
-    if (aLatency == null && bLatency != null) {
-      return 1;
+    let cmp = 0;
+    if (field === "clock-error") {
+      cmp = compareOptionalNumber(gateClockErrors.get(a.id), gateClockErrors.get(b.id), direction);
+    } else {
+      cmp = compareOptionalNumber(a.browserLatencyMs ?? undefined, b.browserLatencyMs ?? undefined, direction);
     }
-    if (bLatency == null && aLatency != null) {
-      return -1;
-    }
-    if (aLatency != null && bLatency != null) {
-      return direction === "desc" ? bLatency - aLatency : aLatency - bLatency;
+    if (cmp !== 0) {
+      return cmp;
     }
     return a.name.localeCompare(b.name);
   });
