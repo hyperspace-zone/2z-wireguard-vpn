@@ -26,7 +26,7 @@ import (
 	"time"
 )
 
-const version = "0.1.1"
+const version = "0.1.2"
 
 type config struct {
 	ControlPlaneURL    string
@@ -324,6 +324,16 @@ func executeRevokeAssignment(cfg config, item job) jobResult {
 const probeMagic = "hyperspace-gate-probe-v1"
 const soReusePort = 0x0F
 const probeServerSyncInterval = 2 * time.Second
+const oneWayClockSyncMaxOffsetSeconds = 0.002
+const clockSyncCacheTTL = 5 * time.Second
+
+var clockSyncCache = struct {
+	mu        sync.Mutex
+	checkedAt time.Time
+	reliable  bool
+}{
+	checkedAt: time.Time{},
+}
 
 type probeServerBinding struct {
 	Transport string
@@ -381,10 +391,10 @@ type probePacket struct {
 }
 
 type probeSample struct {
-	Seq             int     `json:"seq"`
-	RTTMs           float64 `json:"rttMs"`
-	ForwardOneWayMs float64 `json:"forwardOneWayMs"`
-	ReverseOneWayMs float64 `json:"reverseOneWayMs"`
+	Seq             int      `json:"seq"`
+	RTTMs           float64  `json:"rttMs"`
+	ForwardOneWayMs *float64 `json:"forwardOneWayMs,omitempty"`
+	ReverseOneWayMs *float64 `json:"reverseOneWayMs,omitempty"`
 }
 
 type probeMetricSummary struct {
@@ -483,6 +493,8 @@ func runProbeTransport(cfg config, payload probeJobPayload, transport probeTrans
 		Chrony:         chronyTrackingSummary(),
 		MeasuredAt:     measuredAt,
 	}
+	sourceClockSyncOK := chronySummaryReliable(result.Chrony)
+	result.Chrony["oneWayClockSyncOk"] = sourceClockSyncOK
 	if transport.Name != "public" && transport.Name != "doublezero" {
 		result.ErrorCode = "unsupported_transport"
 		result.ErrorMessage = fmt.Sprintf("unsupported transport %q", transport.Name)
@@ -512,7 +524,7 @@ func runProbeTransport(cfg config, payload probeJobPayload, transport probeTrans
 
 	samples := make([]probeSample, 0, payload.Count)
 	for seq := 1; seq <= payload.Count; seq++ {
-		sample, err := runProbeSample(conn, cfg, payload, target, seq, time.Duration(payload.TimeoutMs)*time.Millisecond)
+		sample, err := runProbeSample(conn, cfg, payload, target, seq, time.Duration(payload.TimeoutMs)*time.Millisecond, sourceClockSyncOK)
 		if err == nil {
 			samples = append(samples, sample)
 		}
@@ -531,8 +543,8 @@ func runProbeTransport(cfg config, payload probeJobPayload, transport probeTrans
 	}
 	result.Status = "succeeded"
 	result.RTTMs = summarizeProbeSamples(samples, func(sample probeSample) float64 { return sample.RTTMs })
-	result.ForwardOneWayMs = summarizeProbeSamples(samples, func(sample probeSample) float64 { return sample.ForwardOneWayMs })
-	result.ReverseOneWayMs = summarizeProbeSamples(samples, func(sample probeSample) float64 { return sample.ReverseOneWayMs })
+	result.ForwardOneWayMs = summarizeProbeSamples(samples, func(sample probeSample) float64 { return optionalFloat64(sample.ForwardOneWayMs) })
+	result.ReverseOneWayMs = summarizeProbeSamples(samples, func(sample probeSample) float64 { return optionalFloat64(sample.ReverseOneWayMs) })
 	result.JitterMs = compactFloat(result.RTTMs.P95 - result.RTTMs.P50)
 	return result
 }
@@ -585,6 +597,7 @@ func runProbeSample(
 	target *net.UDPAddr,
 	seq int,
 	timeout time.Duration,
+	sourceClockSyncOK bool,
 ) (probeSample, error) {
 	nonce, err := randomHex(16)
 	if err != nil {
@@ -628,12 +641,17 @@ func runProbeSample(
 		if !verifyProbePacket(response, cfg.ProbeSharedSecret) {
 			continue
 		}
-		return probeSample{
+		sample := probeSample{
 			Seq:             seq,
 			RTTMs:           compactFloat(float64(clientRx.Sub(start).Microseconds()) / 1000),
-			ForwardOneWayMs: compactFloat(nsToMs(response.ServerRxWallUnixNano - request.ClientTxWallUnixNano)),
-			ReverseOneWayMs: compactFloat(nsToMs(clientRx.UnixNano() - response.ServerTxWallUnixNano)),
-		}, nil
+			ForwardOneWayMs: nil,
+			ReverseOneWayMs: nil,
+		}
+		if sourceClockSyncOK && probeObservedRemoteClockSyncOK(response.ServerObservedRemote) {
+			sample.ForwardOneWayMs = float64Ptr(compactFloat(nsToMs(response.ServerRxWallUnixNano - request.ClientTxWallUnixNano)))
+			sample.ReverseOneWayMs = float64Ptr(compactFloat(nsToMs(clientRx.UnixNano() - response.ServerTxWallUnixNano)))
+		}
+		return sample, nil
 	}
 }
 
@@ -844,7 +862,7 @@ func startProbeServerLoop(cfg config, conn net.PacketConn, binding probeServerBi
 				Seq:                  request.Seq,
 				ClientTxWallUnixNano: request.ClientTxWallUnixNano,
 				ServerRxWallUnixNano: serverRx.UnixNano(),
-				ServerObservedRemote: remote.String(),
+				ServerObservedRemote: formatProbeObservedRemote(remote.String(), cachedClockSyncReliable()),
 			}
 			response.ServerTxWallUnixNano = time.Now().UnixNano()
 			signProbePacket(&response, cfg.ProbeSharedSecret)
@@ -855,6 +873,22 @@ func startProbeServerLoop(cfg config, conn net.PacketConn, binding probeServerBi
 			_, _ = conn.WriteTo(encoded, remote)
 		}
 	}()
+}
+
+func formatProbeObservedRemote(remote string, clockSyncOK bool) string {
+	if !clockSyncOK {
+		return remote
+	}
+	return remote + ";clockSync=ok"
+}
+
+func probeObservedRemoteClockSyncOK(value string) bool {
+	for _, part := range strings.Split(value, ";") {
+		if strings.TrimSpace(part) == "clockSync=ok" {
+			return true
+		}
+	}
+	return false
 }
 
 func signProbePacket(packet *probePacket, secret string) {
@@ -945,6 +979,17 @@ func isFiniteFloat(value float64) bool {
 	return !math.IsNaN(value) && !math.IsInf(value, 0)
 }
 
+func optionalFloat64(value *float64) float64 {
+	if value == nil {
+		return math.NaN()
+	}
+	return *value
+}
+
+func float64Ptr(value float64) *float64 {
+	return &value
+}
+
 func probeState(cfg config) string {
 	if cfg.ProbePort <= 0 {
 		return "disabled"
@@ -1008,6 +1053,52 @@ func chronyTrackingSummary() map[string]any {
 		}
 	}
 	return summary
+}
+
+func cachedClockSyncReliable() bool {
+	clockSyncCache.mu.Lock()
+	defer clockSyncCache.mu.Unlock()
+	if !clockSyncCache.checkedAt.IsZero() && time.Since(clockSyncCache.checkedAt) < clockSyncCacheTTL {
+		return clockSyncCache.reliable
+	}
+	clockSyncCache.reliable = chronySummaryReliable(chronyTrackingSummary())
+	clockSyncCache.checkedAt = time.Now()
+	return clockSyncCache.reliable
+}
+
+func chronySummaryReliable(summary map[string]any) bool {
+	if summary == nil {
+		return false
+	}
+	status, _ := summary["status"].(string)
+	if status != "sync" {
+		return false
+	}
+	lastOffset, ok := chronyOffsetSeconds(summary["lastOffset"])
+	if !ok || math.Abs(lastOffset) > oneWayClockSyncMaxOffsetSeconds {
+		return false
+	}
+	rmsOffset, ok := chronyOffsetSeconds(summary["rmsOffset"])
+	if !ok || math.Abs(rmsOffset) > oneWayClockSyncMaxOffsetSeconds {
+		return false
+	}
+	return true
+}
+
+func chronyOffsetSeconds(value any) (float64, bool) {
+	text, ok := value.(string)
+	if !ok {
+		return 0, false
+	}
+	fields := strings.Fields(strings.TrimSpace(text))
+	if len(fields) == 0 {
+		return 0, false
+	}
+	parsed, err := strconv.ParseFloat(fields[0], 64)
+	if err != nil {
+		return 0, false
+	}
+	return parsed, true
 }
 
 func doubleZeroRouteState() string {

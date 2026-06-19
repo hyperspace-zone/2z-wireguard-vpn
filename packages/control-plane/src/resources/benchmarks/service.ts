@@ -77,8 +77,10 @@ function readBenchmarkResult(value: unknown): GateBenchmarkReportMetricInput | n
   assignNumber(result, "lossPercent", readNumber(record, "lossPercent"));
   assignSummary(result, "rttMs", readSummary(record.rttMs));
   assignNumber(result, "jitterMs", readNumber(record, "jitterMs"));
-  assignSummary(result, "forwardOneWayMs", readSummary(record.forwardOneWayMs));
-  assignSummary(result, "reverseOneWayMs", readSummary(record.reverseOneWayMs));
+  if (readOneWayClockSyncOk(record)) {
+    assignSummary(result, "forwardOneWayMs", readSummary(record.forwardOneWayMs));
+    assignSummary(result, "reverseOneWayMs", readSummary(record.reverseOneWayMs));
+  }
   if (Array.isArray(record.samples)) {
     result.samples = record.samples;
   }
@@ -103,6 +105,14 @@ function readSummary(value: unknown): GateBenchmarkReportMetricInput["rttMs"] {
   if (p95 !== undefined) summary.p95 = p95;
   if (max !== undefined) summary.max = max;
   return Object.keys(summary).length > 0 ? summary : undefined;
+}
+
+function readOneWayClockSyncOk(record: Record<string, unknown>): boolean {
+  const chrony = record.chrony;
+  if (!chrony || typeof chrony !== "object" || Array.isArray(chrony)) {
+    return false;
+  }
+  return (chrony as Record<string, unknown>).oneWayClockSyncOk === true;
 }
 
 function assignString<T extends keyof GateBenchmarkReportMetricInput>(

@@ -171,6 +171,51 @@ func TestSummarizeProbeSamples(t *testing.T) {
 	}
 }
 
+func TestSummarizeProbeSamplesSkipsMissingOneWay(t *testing.T) {
+	summary := summarizeProbeSamples([]probeSample{
+		{RTTMs: 10},
+		{RTTMs: 20},
+	}, func(sample probeSample) float64 { return optionalFloat64(sample.ForwardOneWayMs) })
+
+	if summary != (probeMetricSummary{}) {
+		t.Fatalf("expected empty summary for missing one-way samples, got %#v", summary)
+	}
+}
+
+func TestChronySummaryReliable(t *testing.T) {
+	if !chronySummaryReliable(map[string]any{
+		"status":     "sync",
+		"lastOffset": "0.000123 seconds fast of NTP time",
+		"rmsOffset":  "0.000456 seconds",
+	}) {
+		t.Fatal("expected low-offset chrony sync to be reliable")
+	}
+
+	if chronySummaryReliable(map[string]any{
+		"status":     "sync",
+		"lastOffset": "0.044 seconds fast of NTP time",
+		"rmsOffset":  "0.001 seconds",
+	}) {
+		t.Fatal("expected high-offset chrony sync to be unreliable")
+	}
+
+	if chronySummaryReliable(map[string]any{"status": "unavailable"}) {
+		t.Fatal("expected unavailable chrony to be unreliable")
+	}
+}
+
+func TestProbeObservedRemoteClockSyncMarker(t *testing.T) {
+	plain := formatProbeObservedRemote("203.0.113.10:19192", false)
+	if plain != "203.0.113.10:19192" || probeObservedRemoteClockSyncOK(plain) {
+		t.Fatalf("unexpected plain observed remote marker: %q", plain)
+	}
+
+	marked := formatProbeObservedRemote("203.0.113.10:19192", true)
+	if !probeObservedRemoteClockSyncOK(marked) {
+		t.Fatalf("expected clock sync marker in %q", marked)
+	}
+}
+
 func TestDedupeProbeServerBindings(t *testing.T) {
 	bindings := dedupeProbeServerBindings([]probeServerBinding{
 		{Transport: "public", Interface: "eth0"},
