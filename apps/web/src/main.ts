@@ -532,14 +532,14 @@ function gatesPanel(gates: Gate[], benchmarkMatrix: BenchmarkMatrix | null): str
           <th aria-sort="${gateAriaSort("browser-rtt", effectiveSortField)}">
             <button class="table-sort" type="button" data-sort-gates="browser-rtt">Browser RTT ${gateSortArrow("browser-rtt", effectiveSortField)}</button>
           </th>
+          <th>Schedulable</th>
+          <th>DoubleZero node</th>
           ${showClockError ? `
             <th aria-sort="${gateAriaSort("clock-error", effectiveSortField)}">
               <button class="table-sort" type="button" data-sort-gates="clock-error">Clock Error ${gateSortArrow("clock-error", effectiveSortField)}</button>
               ${benchmarkInfoIcon(gateClockErrorTooltip())}
             </th>
           ` : ""}
-          <th>Schedulable</th>
-          <th>DoubleZero node</th>
         </tr>
       </thead>
       <tbody>
@@ -553,9 +553,9 @@ function gatesPanel(gates: Gate[], benchmarkMatrix: BenchmarkMatrix | null): str
                 <td><small class="mono">${escapeHtml(gate.publicIpv4)}</small></td>
                 <td>${statusDot(gate.ready)}</td>
                 <td class="latency-cell">${latencyCell(gate)}</td>
-                ${showClockError ? `<td class="numeric-cell">${gateClockErrorCell(gateClockErrors.get(gate.id))}</td>` : ""}
                 <td>${statusDot(gate.schedulable)}</td>
                 <td>${doubleZeroNodeCell(gate)}</td>
+                ${showClockError ? `<td class="numeric-cell">${gateClockErrorCell(gateClockErrors.get(gate.id))}</td>` : ""}
               </tr>
             `
           )
@@ -609,10 +609,10 @@ function gateClockErrorCell(value: number | undefined): string {
 }
 
 function gateClockErrorClass(value: number): string {
-  if (value <= 5) {
+  if (value <= 3) {
     return "gate-clock-error-good";
   }
-  if (value <= 20) {
+  if (value <= 10) {
     return "gate-clock-error-warning";
   }
   return "gate-clock-error-bad";
