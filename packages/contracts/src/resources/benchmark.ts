@@ -28,7 +28,13 @@ export const gateBenchmarkMetricSchema = {
     rttMs: benchmarkMetricSummarySchema,
     jitterMs: { type: "number" },
     forwardOneWayMs: benchmarkMetricSummarySchema,
-    reverseOneWayMs: benchmarkMetricSummarySchema,
+    oneWayDiagnostics: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        deviationMs: { type: "number" }
+      }
+    },
     errorCode: { type: "string" },
     errorMessage: { type: "string" },
     measuredAt: { type: "string", format: "date-time" }
@@ -53,8 +59,7 @@ export const gateBenchmarkRouteSchema = {
         rttP50Ms: { type: "number" },
         jitterMs: { type: "number" },
         lossPercent: { type: "number" },
-        forwardOneWayP50Ms: { type: "number" },
-        reverseOneWayP50Ms: { type: "number" }
+        forwardOneWayP50Ms: { type: "number" }
       }
     }
   }

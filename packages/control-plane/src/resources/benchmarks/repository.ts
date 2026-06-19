@@ -278,12 +278,11 @@ export async function listLatestGateBenchmarkRoutes(db: Queryable): Promise<Gate
                 'p95', forward_one_way_p95_ms
               ))
             END,
-            'reverseOneWayMs', CASE
-              WHEN reverse_one_way_p50_ms IS NULL THEN NULL
-              ELSE jsonb_strip_nulls(jsonb_build_object(
-                'p50', reverse_one_way_p50_ms,
-                'p95', reverse_one_way_p95_ms
-              ))
+            'oneWayDiagnostics', CASE
+              WHEN forward_one_way_p50_ms IS NULL OR reverse_one_way_p50_ms IS NULL THEN NULL
+              ELSE jsonb_build_object(
+                'deviationMs', round((abs(forward_one_way_p50_ms - reverse_one_way_p50_ms) / 2)::numeric, 3)
+              )
             END,
             'errorCode', error_code,
             'errorMessage', error_message,
@@ -350,7 +349,6 @@ function metricDelta(
   assignNumberDelta(delta, "jitterMs", publicMetric.jitterMs, doublezeroMetric.jitterMs);
   assignNumberDelta(delta, "lossPercent", publicMetric.lossPercent, doublezeroMetric.lossPercent);
   assignNumberDelta(delta, "forwardOneWayP50Ms", publicMetric.forwardOneWayMs?.p50, doublezeroMetric.forwardOneWayMs?.p50);
-  assignNumberDelta(delta, "reverseOneWayP50Ms", publicMetric.reverseOneWayMs?.p50, doublezeroMetric.reverseOneWayMs?.p50);
   return delta;
 }
 

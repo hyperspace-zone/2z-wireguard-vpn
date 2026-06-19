@@ -54,7 +54,9 @@ interface BenchmarkMetric {
   rttMs?: BenchmarkMetricSummary;
   jitterMs?: number;
   forwardOneWayMs?: BenchmarkMetricSummary;
-  reverseOneWayMs?: BenchmarkMetricSummary;
+  oneWayDiagnostics?: {
+    deviationMs?: number;
+  };
   errorCode?: string;
   errorMessage?: string;
   measuredAt: string;
@@ -72,7 +74,6 @@ interface BenchmarkRoute {
     jitterMs?: number;
     lossPercent?: number;
     forwardOneWayP50Ms?: number;
-    reverseOneWayP50Ms?: number;
   };
 }
 
@@ -1059,7 +1060,7 @@ function edgeOneWayEstimateTooltip(): string {
 }
 
 function oneWayDeviationTooltip(): string {
-  return "Approximate one-way deviation: abs(forward one-way p50 - reverse one-way p50) / 2, computed separately for DZ and Internet. Reverse is used only as a sanity check; the route value remains directed forward one-way. High deviation means clock sync or path asymmetry makes one-way less reliable, while RTT remains valid.";
+  return "Approximate one-way deviation: abs(forward one-way p50 - internal reverse echo p50) / 2, computed separately for DZ and Internet. The reverse echo is an internal diagnostic only; the route value remains directed forward one-way. High deviation means clock sync or path asymmetry makes one-way less reliable, while RTT remains valid.";
 }
 
 function benchmarkImprovementCell(value: number | undefined): string {
@@ -1192,11 +1193,7 @@ function summaryP95MinusP50(summary: BenchmarkMetricSummary | undefined): number
 }
 
 function oneWayDeviationMs(metric: BenchmarkMetric | undefined): number | undefined {
-  const forwardP50 = finiteNumber(metric?.forwardOneWayMs?.p50);
-  const reverseP50 = finiteNumber(metric?.reverseOneWayMs?.p50);
-  return typeof forwardP50 === "number" && typeof reverseP50 === "number"
-    ? compactMetric(Math.abs(forwardP50 - reverseP50) / 2)
-    : undefined;
+  return finiteNumber(metric?.oneWayDiagnostics?.deviationMs);
 }
 
 function maxOptionalMetric(...values: Array<number | undefined>): number | undefined {
