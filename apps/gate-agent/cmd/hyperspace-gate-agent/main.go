@@ -26,7 +26,58 @@ import (
 	"time"
 )
 
-const version = "0.1.3"
+const version = "0.1.4"
+
+var defaultNTPDiscoveryHosts = []string{
+	"0.pool.ntp.org",
+	"1.pool.ntp.org",
+	"2.pool.ntp.org",
+	"3.pool.ntp.org",
+	"0.es.pool.ntp.org",
+	"1.es.pool.ntp.org",
+	"2.es.pool.ntp.org",
+	"3.es.pool.ntp.org",
+	"es.pool.ntp.org",
+	"0.asia.pool.ntp.org",
+	"1.asia.pool.ntp.org",
+	"2.asia.pool.ntp.org",
+	"3.asia.pool.ntp.org",
+	"0.europe.pool.ntp.org",
+	"1.europe.pool.ntp.org",
+	"2.europe.pool.ntp.org",
+	"3.europe.pool.ntp.org",
+	"europe.pool.ntp.org",
+	"0.north-america.pool.ntp.org",
+	"1.north-america.pool.ntp.org",
+	"2.north-america.pool.ntp.org",
+	"3.north-america.pool.ntp.org",
+	"time.cloudflare.com",
+	"time.google.com",
+	"time.aws.com",
+	"time.facebook.com",
+	"time.euro.apple.com",
+	"time.esa.int",
+	"time1.esa.int",
+	"ntp.ripe.net",
+	"ptbtime1.ptb.de",
+	"ptbtime2.ptb.de",
+	"ntp1.inrim.it",
+	"ntp2.inrim.it",
+	"ntppool1.time.nl",
+	"ntppool2.time.nl",
+	"ntp.vsl.nl",
+	"ntp.neel.ch",
+	"hora.roa.es",
+	"minuto.roa.es",
+	"tick.espanix.net",
+	"tock.espanix.net",
+	"ntp.i2t.ehu.eus",
+	"pt.pool.ntp.org",
+	"fr.pool.ntp.org",
+	"it.pool.ntp.org",
+	"nl.pool.ntp.org",
+	"de.pool.ntp.org",
+}
 
 type config struct {
 	ControlPlaneURL    string
@@ -429,7 +480,42 @@ type probeTransportResult struct {
 	ErrorMessage       string             `json:"errorMessage,omitempty"`
 }
 
+type probeJobKindPayload struct {
+	Kind string `json:"kind"`
+}
+
+type ntpDiscoveryPayload struct {
+	Kind          string   `json:"kind"`
+	GateID        string   `json:"gateId"`
+	GateName      string   `json:"gateName"`
+	SampleSeconds int      `json:"sampleSeconds"`
+	MaxCandidates int      `json:"maxCandidates"`
+	Hosts         []string `json:"hosts"`
+}
+
+type ntpDiscoveryCandidate struct {
+	Address               string   `json:"address"`
+	Names                 []string `json:"names"`
+	Stratum               int      `json:"stratum"`
+	RootDelayMs           float64  `json:"rootDelayMs"`
+	RootDispersionMs      float64  `json:"rootDispersionMs"`
+	PeerDelayMs           float64  `json:"peerDelayMs"`
+	OffsetFromCurrentMs   float64  `json:"offsetFromCurrentMs"`
+	EstimatedClockErrorMs float64  `json:"estimatedClockErrorMs"`
+	GoodSamples           int      `json:"goodSamples"`
+}
+
 func executeProbeJob(cfg config, item job) jobResult {
+	kind, err := decodeProbeJobKind(item)
+	if err != nil {
+		return failed("invalid_probe_payload", err)
+	}
+	if kind == "gate_ntp_discovery_v1" {
+		return executeNTPDiscoveryJob(item)
+	}
+	if kind != "gate_benchmark_v1" {
+		return failed("invalid_probe_payload", fmt.Errorf("unsupported probe kind %q", kind))
+	}
 	payload, err := decodeProbePayload(item)
 	if err != nil {
 		return failed("invalid_probe_payload", err)
@@ -451,6 +537,17 @@ func executeProbeJob(cfg config, item job) jobResult {
 			"results":        results,
 		},
 	}
+}
+
+func decodeProbeJobKind(item job) (string, error) {
+	var payload probeJobKindPayload
+	if err := json.Unmarshal(item.Payload, &payload); err != nil {
+		return "", err
+	}
+	if payload.Kind == "" {
+		return "", errors.New("probe kind is required")
+	}
+	return payload.Kind, nil
 }
 
 func decodeProbePayload(item job) (probeJobPayload, error) {
@@ -487,6 +584,287 @@ func decodeProbePayload(item job) (probeJobPayload, error) {
 
 func cfgDefaultProbePort() int {
 	return 19192
+}
+
+func executeNTPDiscoveryJob(item job) jobResult {
+	payload, err := decodeNTPDiscoveryPayload(item)
+	if err != nil {
+		return failed("invalid_ntp_discovery_payload", err)
+	}
+	measuredAt := time.Now().UTC().Format(time.RFC3339Nano)
+	currentChrony := chronyTrackingSummary()
+	currentClockErrorMs, currentClockErrorOK := chronyClockErrorMs(currentChrony)
+	currentSources := chronySourceAddresses()
+	candidatesByAddress := resolveNTPDiscoveryCandidates(payload.GateName, payload.Hosts, payload.MaxCandidates, currentSources)
+	added := make([]string, 0, len(candidatesByAddress))
+	for address := range candidatesByAddress {
+		if err := runCommand("chronyc", "add", "server", address, "iburst", "minpoll", "4", "maxpoll", "4", "noselect"); err == nil {
+			added = append(added, address)
+		}
+	}
+	defer func() {
+		for _, address := range added {
+			runIgnore("chronyc", "delete", address)
+		}
+	}()
+	if len(added) > 0 {
+		time.Sleep(time.Duration(payload.SampleSeconds) * time.Second)
+	}
+	candidates := make([]ntpDiscoveryCandidate, 0, len(added))
+	for _, address := range added {
+		candidate, ok := readNTPDiscoveryCandidate(address, candidatesByAddress[address])
+		if ok {
+			candidates = append(candidates, candidate)
+		}
+	}
+	sort.Slice(candidates, func(i, j int) bool {
+		if candidates[i].EstimatedClockErrorMs == candidates[j].EstimatedClockErrorMs {
+			return candidates[i].Address < candidates[j].Address
+		}
+		return candidates[i].EstimatedClockErrorMs < candidates[j].EstimatedClockErrorMs
+	})
+	recommendation := map[string]any{}
+	if len(candidates) > 0 {
+		best := candidates[0]
+		improvesCurrent := !currentClockErrorOK || best.EstimatedClockErrorMs < currentClockErrorMs
+		recommendation = map[string]any{
+			"address":               best.Address,
+			"names":                 best.Names,
+			"estimatedClockErrorMs": best.EstimatedClockErrorMs,
+			"improvesCurrent":       improvesCurrent,
+		}
+		if currentClockErrorOK {
+			recommendation["currentClockErrorMs"] = currentClockErrorMs
+			recommendation["estimatedSavingsMs"] = compactFloat(currentClockErrorMs - best.EstimatedClockErrorMs)
+		}
+	}
+	resultCandidates := candidates
+	if len(resultCandidates) > 20 {
+		resultCandidates = resultCandidates[:20]
+	}
+	summary := map[string]any{
+		"kind":                   "gate_ntp_discovery_v1",
+		"gateId":                 payload.GateID,
+		"gateName":               payload.GateName,
+		"measuredAt":             measuredAt,
+		"sampleSeconds":          payload.SampleSeconds,
+		"maxCandidates":          payload.MaxCandidates,
+		"resolvedCandidateCount": len(candidatesByAddress),
+		"sampledCandidateCount":  len(added),
+		"validCandidateCount":    len(candidates),
+		"currentChrony":          currentChrony,
+		"recommendation":         recommendation,
+		"candidates":             resultCandidates,
+		"note":                   "Candidates are sampled with chronyc noselect. The agent does not mutate chrony configuration or switch system time sources.",
+	}
+	if currentClockErrorOK {
+		summary["currentClockErrorMs"] = currentClockErrorMs
+	}
+	return jobResult{
+		Status:          "succeeded",
+		ActualStateHash: actualStateHash(),
+		ResultSummary:   summary,
+	}
+}
+
+func decodeNTPDiscoveryPayload(item job) (ntpDiscoveryPayload, error) {
+	var payload ntpDiscoveryPayload
+	if err := json.Unmarshal(item.Payload, &payload); err != nil {
+		return payload, err
+	}
+	if payload.Kind != "gate_ntp_discovery_v1" {
+		return payload, fmt.Errorf("unsupported ntp discovery kind %q", payload.Kind)
+	}
+	if payload.SampleSeconds <= 0 {
+		payload.SampleSeconds = 30
+	}
+	if payload.SampleSeconds < 10 {
+		payload.SampleSeconds = 10
+	}
+	if payload.SampleSeconds > 120 {
+		payload.SampleSeconds = 120
+	}
+	if payload.MaxCandidates <= 0 {
+		payload.MaxCandidates = 96
+	}
+	if payload.MaxCandidates < 16 {
+		payload.MaxCandidates = 16
+	}
+	if payload.MaxCandidates > 256 {
+		payload.MaxCandidates = 256
+	}
+	return payload, nil
+}
+
+func resolveNTPDiscoveryCandidates(gateName string, requestedHosts []string, maxCandidates int, skipAddresses map[string]bool) map[string][]string {
+	hosts := dedupeStrings(append(ntpDiscoveryHostsForGate(gateName), requestedHosts...))
+	candidates := map[string][]string{}
+	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
+	defer cancel()
+	for _, host := range hosts {
+		addresses, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+		if err != nil {
+			continue
+		}
+		for _, address := range addresses {
+			ip := address.IP.To4()
+			if ip == nil {
+				continue
+			}
+			text := ip.String()
+			if skipAddresses[text] {
+				continue
+			}
+			candidates[text] = append(candidates[text], host)
+			if len(candidates) >= maxCandidates {
+				return candidates
+			}
+		}
+	}
+	return candidates
+}
+
+func ntpDiscoveryHostsForGate(gateName string) []string {
+	hosts := append([]string{}, defaultNTPDiscoveryHosts...)
+	cityCountryPools := map[string][]string{
+		"ams": {"nl.pool.ntp.org"},
+		"chi": {"us.pool.ntp.org"},
+		"fra": {"de.pool.ntp.org"},
+		"lon": {"uk.pool.ntp.org"},
+		"mad": {"es.pool.ntp.org"},
+		"nyc": {"us.pool.ntp.org"},
+		"osl": {"no.pool.ntp.org"},
+		"sjc": {"us.pool.ntp.org"},
+		"sia": {"lt.pool.ntp.org"},
+		"sin": {"sg.pool.ntp.org"},
+		"sto": {"se.pool.ntp.org"},
+		"tyo": {"jp.pool.ntp.org"},
+	}
+	for token, pools := range cityCountryPools {
+		if strings.Contains(gateName, "-"+token+"-") {
+			for _, pool := range pools {
+				hosts = append(hosts, pool, "0."+pool, "1."+pool, "2."+pool, "3."+pool)
+			}
+		}
+	}
+	return hosts
+}
+
+func chronySourceAddresses() map[string]bool {
+	output := commandOutput("chronyc", "-n", "sources")
+	addresses := map[string]bool{}
+	for _, line := range strings.Split(output, "\n") {
+		for _, field := range strings.Fields(line) {
+			ip := net.ParseIP(field)
+			if ip != nil && ip.To4() != nil {
+				addresses[ip.String()] = true
+			}
+		}
+	}
+	return addresses
+}
+
+func readNTPDiscoveryCandidate(address string, names []string) (ntpDiscoveryCandidate, bool) {
+	output := commandOutput("chronyc", "ntpdata", address)
+	if output == "" || strings.Contains(output, "No such source") {
+		return ntpDiscoveryCandidate{}, false
+	}
+	return readNTPDiscoveryCandidateFromOutput(address, names, output)
+}
+
+func readNTPDiscoveryCandidateFromOutput(address string, names []string, output string) (ntpDiscoveryCandidate, bool) {
+	stratum, ok := chronyDataInt(output, "Stratum")
+	if !ok || stratum <= 0 {
+		return ntpDiscoveryCandidate{}, false
+	}
+	goodSamples, ok := chronyDataInt(output, "Total good RX")
+	if !ok || goodSamples <= 0 {
+		return ntpDiscoveryCandidate{}, false
+	}
+	rootDelayMs, ok := chronyDataSecondsMs(output, "Root delay")
+	if !ok {
+		return ntpDiscoveryCandidate{}, false
+	}
+	rootDispersionMs, ok := chronyDataSecondsMs(output, "Root dispersion")
+	if !ok {
+		return ntpDiscoveryCandidate{}, false
+	}
+	peerDelayMs, ok := chronyDataSecondsMs(output, "Peer delay")
+	if !ok || peerDelayMs <= 0 {
+		return ntpDiscoveryCandidate{}, false
+	}
+	offsetMs, _ := chronyDataSecondsMs(output, "Offset")
+	estimateMs := compactFloat(((rootDelayMs + peerDelayMs) / 2) + rootDispersionMs)
+	return ntpDiscoveryCandidate{
+		Address:               address,
+		Names:                 dedupeStrings(names),
+		Stratum:               stratum,
+		RootDelayMs:           compactFloat(rootDelayMs),
+		RootDispersionMs:      compactFloat(rootDispersionMs),
+		PeerDelayMs:           compactFloat(peerDelayMs),
+		OffsetFromCurrentMs:   compactFloat(offsetMs),
+		EstimatedClockErrorMs: estimateMs,
+		GoodSamples:           goodSamples,
+	}, true
+}
+
+func chronyDataInt(output string, key string) (int, bool) {
+	value, ok := chronyDataField(output, key)
+	if !ok {
+		return 0, false
+	}
+	fields := strings.Fields(value)
+	if len(fields) == 0 {
+		return 0, false
+	}
+	parsed, err := strconv.Atoi(fields[0])
+	if err != nil {
+		return 0, false
+	}
+	return parsed, true
+}
+
+func chronyDataSecondsMs(output string, key string) (float64, bool) {
+	value, ok := chronyDataField(output, key)
+	if !ok {
+		return 0, false
+	}
+	fields := strings.Fields(value)
+	if len(fields) == 0 {
+		return 0, false
+	}
+	parsed, err := strconv.ParseFloat(fields[0], 64)
+	if err != nil {
+		return 0, false
+	}
+	return parsed * 1000, true
+}
+
+func chronyDataField(output string, key string) (string, bool) {
+	for _, line := range strings.Split(output, "\n") {
+		parts := strings.SplitN(line, ":", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		if strings.TrimSpace(parts[0]) == key {
+			return strings.TrimSpace(parts[1]), true
+		}
+	}
+	return "", false
+}
+
+func dedupeStrings(values []string) []string {
+	seen := map[string]bool{}
+	deduped := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" || seen[value] {
+			continue
+		}
+		seen[value] = true
+		deduped = append(deduped, value)
+	}
+	return deduped
 }
 
 func runProbeTransport(cfg config, payload probeJobPayload, transport probeTransportConfig) probeTransportResult {
@@ -1068,6 +1446,13 @@ func chronyState() string {
 	return "reported"
 }
 
+func ntpDiscoveryState() string {
+	if commandState("chronyc") != "present" {
+		return "disabled"
+	}
+	return "enabled"
+}
+
 func chronyTrackingSummary() map[string]any {
 	output, err := commandOutputTimeout(2*time.Second, "chronyc", "tracking")
 	if err != nil {
@@ -1457,6 +1842,7 @@ func sendHeartbeat(client *http.Client, cfg config, probeManager *probeServerMan
 			"udp-probe-doublezero-bind:" + probeBindState(cfg, probeManager, "doublezero"),
 			"udp-probe-hmac:" + hmacState(cfg),
 			"chrony:" + chronyState(),
+			"ntp-discovery:" + ntpDiscoveryState(),
 		},
 		"reportedAt": time.Now().UTC().Format(time.RFC3339),
 	}

@@ -56,6 +56,14 @@ Benchmarks page renders two route tables:
 One-way values depend on synchronized clocks. Install and run chrony on all gate
 hosts and treat RTT as the primary metric if clock quality is unknown.
 
+The platform also has a gate-side NTP discovery maintenance job. The
+control-plane can periodically ask each gate-agent to sample candidate NTP
+servers and report whether a closer source exists. This is intentionally a
+discovery step, not an automatic clock-source mutation: the agent adds
+candidates with `chronyc ... noselect`, waits for samples, ranks them, reports
+the result in the normal job report path, and removes the runtime candidates.
+Operators can then decide whether a chrony config change is justified.
+
 The ingress/egress DZ RTT columns use the latest gate heartbeat field
 `doubleZero.edgeRttMs`. The gate-agent measures it by pinging DoubleZero
 `Tunnel Dst` through the gate public interface. This is the local edge overhead
@@ -95,6 +103,8 @@ Expected heartbeat capabilities include:
 - `udp-probe-doublezero-bind:enabled`
 - `udp-probe-hmac:enabled`
 - `chrony:sync` when chrony reports synchronized clocks
+- `ntp-discovery:enabled` when the agent has `chronyc` and can run NTP
+  candidate discovery jobs
 
 ## Worker Configuration
 
@@ -108,6 +118,20 @@ BENCHMARK_PROBE_COUNT=10
 BENCHMARK_PROBE_INTERVAL_MS=100
 BENCHMARK_PROBE_TIMEOUT_MS=1000
 ```
+
+NTP discovery jobs are off by default. Enable them when you want periodic
+maintenance evidence for gate clock quality:
+
+```bash
+NTP_DISCOVERY_ENABLED=true
+NTP_DISCOVERY_INTERVAL_SECONDS=86400
+NTP_DISCOVERY_SAMPLE_SECONDS=30
+NTP_DISCOVERY_MAX_CANDIDATES=96
+```
+
+The worker schedules one `probe` job per eligible gate with
+`payload.kind = gate_ntp_discovery_v1`. Eligibility requires a fresh gate lease,
+Ready/Schedulable conditions, `chrony:sync`, and `ntp-discovery:enabled`.
 
 For a five-gate testnet this produces 20 directed jobs per interval. For larger
 mainnet-beta footprints, increase `BENCHMARK_INTERVAL_SECONDS` or introduce a
@@ -204,3 +228,46 @@ If one-way values are noisy or negative:
 - Confirm `chrony` is installed and synchronized on all gates.
 - Prefer RTT and packet loss for acceptance evidence when clock sync is not
 tight enough for directional latency.
+- Check the Gates debug view with `?showclockerror=true`. Green means the gate
+  estimate is `<= 3ms`, yellow is `> 3ms` and `<= 10ms`, and pink is `> 10ms`.
+
+## NTP Discovery
+
+NTP source selection has to optimize for clock uncertainty, not just hostname
+location. A source named after the local city can still be bad if the provider
+routes to it through another region.
+
+The gate-agent ranks candidates with a conservative estimate derived from
+`chronyc ntpdata`:
+
+```text
+estimatedClockErrorMs = (rootDelayMs + peerDelayMs) / 2 + rootDispersionMs
+```
+
+This is not a full replacement for the selected-source `Clock Error` shown in
+the UI, which also includes the selected source's `last offset` and `RMS
+offset`. It is a safe ranking signal for candidate proximity because candidates
+are sampled as `noselect` and do not affect the system clock.
+
+Default discovery candidates include:
+
+- NTP Pool global, Europe, Asia, North America, and the gate's inferred country
+  pool where the gate name has a known city token.
+- Major public time providers such as Cloudflare, Google, AWS, Facebook, Apple,
+  ESA, RIPE, PTB, INRiM, and TimeNL.
+- Spain-specific public candidates such as `tick.espanix.net`,
+  `tock.espanix.net`, `hora.roa.es`, `minuto.roa.es`, and `ntp.i2t.ehu.eus`.
+
+The result is stored in `job_attempts.result_summary` and includes:
+
+- current chrony tracking summary and current selected-source Clock Error when
+  available
+- top ranked candidate list
+- recommendation with `improvesCurrent` and estimated savings
+- a note that no chrony configuration was mutated
+
+For example, Madrid on UpCloud can resolve Spanish NTP sources but still fail to
+reach green Clock Error if the route to the source hairpins through other
+metros. In that case the correct fix is provider routing or moving the gate to a
+location/provider with a close time source, not forcing a misleading local
+clock.

@@ -224,6 +224,44 @@ func TestChronyClockErrorMs(t *testing.T) {
 	}
 }
 
+func TestReadNTPDiscoveryCandidate(t *testing.T) {
+	output := `Remote address  : 195.95.153.59 (C35F993B)
+Remote port     : 123
+Leap status     : Normal
+Stratum         : 1
+Root delay      : 0.000000 seconds
+Root dispersion : 0.000100 seconds
+Offset          : -0.012000000 seconds
+Peer delay      : 0.025600 seconds
+Total good RX   : 7`
+
+	candidate, ok := readNTPDiscoveryCandidateFromOutput("195.95.153.59", []string{"tock.espanix.net"}, output)
+	if !ok {
+		t.Fatal("expected valid candidate")
+	}
+	if candidate.Stratum != 1 {
+		t.Fatalf("stratum = %d, expected 1", candidate.Stratum)
+	}
+	if candidate.EstimatedClockErrorMs != 12.9 {
+		t.Fatalf("estimated clock error = %v, expected 12.9", candidate.EstimatedClockErrorMs)
+	}
+	if candidate.OffsetFromCurrentMs != -12 {
+		t.Fatalf("offset = %v, expected -12", candidate.OffsetFromCurrentMs)
+	}
+}
+
+func TestReadNTPDiscoveryCandidateRejectsUnsampledSources(t *testing.T) {
+	output := `Stratum         : 0
+Root delay      : 0.000000 seconds
+Root dispersion : 0.000000 seconds
+Peer delay      : 0.000000 seconds
+Total good RX   : 0`
+
+	if _, ok := readNTPDiscoveryCandidateFromOutput("203.0.113.1", []string{"invalid"}, output); ok {
+		t.Fatal("expected unsampled source to be rejected")
+	}
+}
+
 func TestProbeObservedRemoteClockSyncMarker(t *testing.T) {
 	plain := formatProbeObservedRemote("203.0.113.10:19192", false, nil)
 	if plain != "203.0.113.10:19192" || probeObservedRemoteClockSyncOK(plain) {

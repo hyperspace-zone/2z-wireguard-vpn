@@ -10,6 +10,12 @@ export interface ScheduleGateBenchmarkInput {
   probeTimeoutMs: number;
 }
 
+export interface ScheduleGateNtpDiscoveryInput {
+  intervalSeconds: number;
+  sampleSeconds: number;
+  maxCandidates: number;
+}
+
 export interface GateBenchmarkReportMetricInput {
   transport: BenchmarkTransport;
   status: "succeeded" | "failed";
@@ -137,6 +143,74 @@ export async function insertDueGateBenchmarkProbeJobs(
       input.probeCount,
       input.probeIntervalMs,
       input.probeTimeoutMs
+    ]
+  );
+  return result.rowCount ?? 0;
+}
+
+export async function insertDueGateNtpDiscoveryJobs(
+  db: Queryable,
+  input: ScheduleGateNtpDiscoveryInput
+): Promise<number> {
+  const result = await db.query(
+    `
+      WITH schedulable_gates AS (
+        SELECT gates.id, gates.name
+        FROM gates
+        LEFT JOIN gate_status ON gate_status.gate_id = gates.id
+        LEFT JOIN gate_leases ON gate_leases.gate_id = gates.id
+        LEFT JOIN gate_conditions agent ON agent.gate_id = gates.id AND agent.type = 'AgentConnected'
+        LEFT JOIN gate_conditions ready ON ready.gate_id = gates.id AND ready.type = 'Ready'
+        LEFT JOIN gate_conditions schedulable ON schedulable.gate_id = gates.id AND schedulable.type = 'Schedulable'
+        WHERE gates.desired_state = 'Enabled'
+          AND COALESCE(agent.status = 'True', false)
+          AND COALESCE(ready.status = 'True', false)
+          AND COALESCE(schedulable.status = 'True', false)
+          AND COALESCE('chrony:sync' = ANY(gate_status.observed_capabilities), false)
+          AND COALESCE('ntp-discovery:enabled' = ANY(gate_status.observed_capabilities), false)
+          AND ${freshGateLeaseSqlPredicate}
+      ),
+      due_gates AS (
+        SELECT schedulable_gates.*
+        FROM schedulable_gates
+        WHERE NOT EXISTS (
+          SELECT 1
+          FROM jobs
+          WHERE jobs.type = 'probe'
+            AND jobs.phase IN ('queued', 'leased', 'running', 'retryable_failed')
+            AND jobs.gate_id = schedulable_gates.id
+            AND jobs.payload->>'kind' = 'gate_ntp_discovery_v1'
+        )
+        AND NOT EXISTS (
+          SELECT 1
+          FROM jobs completed
+          JOIN job_attempts attempts ON attempts.job_id = completed.id
+          WHERE completed.type = 'probe'
+            AND completed.phase = 'succeeded'
+            AND completed.gate_id = schedulable_gates.id
+            AND completed.payload->>'kind' = 'gate_ntp_discovery_v1'
+            AND attempts.completed_at > now() - ($1::int * interval '1 second')
+        )
+      )
+      INSERT INTO jobs (type, phase, gate_id, payload, max_retries)
+      SELECT
+        'probe',
+        'queued',
+        id,
+        jsonb_build_object(
+          'kind', 'gate_ntp_discovery_v1',
+          'gateId', id,
+          'gateName', name,
+          'sampleSeconds', $2::int,
+          'maxCandidates', $3::int
+        ),
+        1
+      FROM due_gates
+    `,
+    [
+      input.intervalSeconds,
+      input.sampleSeconds,
+      input.maxCandidates
     ]
   );
   return result.rowCount ?? 0;

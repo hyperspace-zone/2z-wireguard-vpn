@@ -1,12 +1,18 @@
 import type { Queryable } from "../../db/queryable.js";
 import {
   insertDueGateBenchmarkProbeJobs,
+  insertDueGateNtpDiscoveryJobs,
   insertGateBenchmarkReport,
   type GateBenchmarkReportMetricInput,
+  type ScheduleGateNtpDiscoveryInput,
   type ScheduleGateBenchmarkInput
 } from "./repository.js";
 
 export interface GateBenchmarkSchedulerConfig extends ScheduleGateBenchmarkInput {
+  enabled: boolean;
+}
+
+export interface GateNtpDiscoverySchedulerConfig extends ScheduleGateNtpDiscoveryInput {
   enabled: boolean;
 }
 
@@ -18,6 +24,16 @@ export async function scheduleGateBenchmarkProbes(
     return 0;
   }
   return insertDueGateBenchmarkProbeJobs(db, config);
+}
+
+export async function scheduleGateNtpDiscoveryJobs(
+  db: Queryable,
+  config: GateNtpDiscoverySchedulerConfig
+): Promise<number> {
+  if (!config.enabled) {
+    return 0;
+  }
+  return insertDueGateNtpDiscoveryJobs(db, config);
 }
 
 export async function recordGateBenchmarkJobReport(

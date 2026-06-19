@@ -11,6 +11,7 @@ import {
   enqueueCommitJobsForPreparedAssignments,
   enqueueRevocationJobsForAssignments,
   scheduleGateBenchmarkProbes,
+  scheduleGateNtpDiscoveryJobs,
   scheduleSessionsForProvisioning
 } from "@hyperspace-zone/control-plane";
 import type { Database } from "@hyperspace-zone/db";
@@ -26,6 +27,10 @@ export interface ReconcileLoopRuntimeConfig {
   benchmarkProbeCount: number;
   benchmarkProbeIntervalMs: number;
   benchmarkProbeTimeoutMs: number;
+  ntpDiscoveryEnabled: boolean;
+  ntpDiscoveryIntervalSeconds: number;
+  ntpDiscoverySampleSeconds: number;
+  ntpDiscoveryMaxCandidates: number;
 }
 
 export interface ReconcileLoop {
@@ -66,6 +71,12 @@ export function createReconcileLoop(input: CreateReconcileLoopInput): ReconcileL
         probeCount: input.config.benchmarkProbeCount,
         probeIntervalMs: input.config.benchmarkProbeIntervalMs,
         probeTimeoutMs: input.config.benchmarkProbeTimeoutMs
+      });
+      await scheduleGateNtpDiscoveryJobs(input.db, {
+        enabled: input.config.ntpDiscoveryEnabled,
+        intervalSeconds: input.config.ntpDiscoveryIntervalSeconds,
+        sampleSeconds: input.config.ntpDiscoverySampleSeconds,
+        maxCandidates: input.config.ntpDiscoveryMaxCandidates
       });
     }
   };

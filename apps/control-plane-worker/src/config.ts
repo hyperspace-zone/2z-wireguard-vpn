@@ -33,6 +33,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ControlPlaneWo
     benchmarkProbePort: Number(env.BENCHMARK_PROBE_PORT ?? 19192),
     benchmarkProbeCount: Number(env.BENCHMARK_PROBE_COUNT ?? 10),
     benchmarkProbeIntervalMs: Number(env.BENCHMARK_PROBE_INTERVAL_MS ?? 100),
-    benchmarkProbeTimeoutMs: Number(env.BENCHMARK_PROBE_TIMEOUT_MS ?? 1000)
+    benchmarkProbeTimeoutMs: Number(env.BENCHMARK_PROBE_TIMEOUT_MS ?? 1000),
+    ntpDiscoveryEnabled: env.NTP_DISCOVERY_ENABLED === "true",
+    ntpDiscoveryIntervalSeconds: Number(env.NTP_DISCOVERY_INTERVAL_SECONDS ?? 86400),
+    ntpDiscoverySampleSeconds: Number(env.NTP_DISCOVERY_SAMPLE_SECONDS ?? 30),
+    ntpDiscoveryMaxCandidates: Number(env.NTP_DISCOVERY_MAX_CANDIDATES ?? 96)
   };
 }

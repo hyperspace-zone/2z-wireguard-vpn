@@ -75,4 +75,4 @@ export {
 export { isJobReportStatus, type JobReportStatus } from "./resources/jobs/transitions.js";
 export { authenticateGateToken, type AuthenticatedGate } from "./security/gate-auth.js";
 export { authenticatePublicAuthSession } from "./resources/users/service.js";
-export { scheduleGateBenchmarkProbes } from "./resources/benchmarks/service.js";
+export { scheduleGateBenchmarkProbes, scheduleGateNtpDiscoveryJobs } from "./resources/benchmarks/service.js";
