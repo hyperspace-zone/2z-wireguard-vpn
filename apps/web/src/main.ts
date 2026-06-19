@@ -350,7 +350,7 @@ function renderView(state: { view: AppView; gates: Gate[]; sessions: Session[]; 
   if (state.view === "benchmarks") {
     return benchmarksView({ gates: state.gates, benchmarkMatrix: state.benchmarkMatrix });
   }
-  return dashboardView({ gates: state.gates, sessions: state.sessions });
+  return dashboardView({ gates: state.gates, sessions: state.sessions, benchmarkMatrix: state.benchmarkMatrix });
 }
 
 function shouldShowEventLog(view: AppView, me: { email: string } | null): boolean {
@@ -423,7 +423,7 @@ function authNav(view: AppView): string {
   `;
 }
 
-function dashboardView(state: { gates: Gate[]; sessions: Session[] }): string {
+function dashboardView(state: { gates: Gate[]; sessions: Session[]; benchmarkMatrix: BenchmarkMatrix | null }): string {
   return `
     <section class="panel primary-panel">
       <div class="panel-heading">
@@ -437,7 +437,7 @@ function dashboardView(state: { gates: Gate[]; sessions: Session[] }): string {
       <div class="panel-heading">
         <h2>Gates</h2>
       </div>
-      ${gatesPanel(state.gates)}
+      ${gatesPanel(state.gates, state.benchmarkMatrix)}
     </section>
   `;
 }
@@ -501,10 +501,12 @@ function registerView(): string {
   `;
 }
 
-function gatesPanel(gates: Gate[]): string {
+function gatesPanel(gates: Gate[], benchmarkMatrix: BenchmarkMatrix | null): string {
   if (gates.length === 0) {
     return "<p>No gates loaded.</p>";
   }
+  const showClockError = shouldShowGateClockError();
+  const gateClockErrors = showClockError ? estimateGateClockErrors(benchmarkMatrix) : new Map<string, number>();
   const sortedGates = sortGatesByBrowserLatency(gates, gateBrowserRttSortDirection);
   const measureButtonLabel = gateLatencyMeasurementInFlight ? "Measuring..." : "Measure browser RTT";
   const measureButtonDisabled = gateLatencyMeasurementInFlight ? "disabled" : "";
@@ -522,6 +524,7 @@ function gatesPanel(gates: Gate[]): string {
           <th aria-sort="${gateBrowserRttSortDirection === "desc" ? "descending" : "ascending"}">
             <button class="table-sort" type="button" data-sort-gates="browser-rtt">Browser RTT ${sortArrow}</button>
           </th>
+          ${showClockError ? `<th>Clock Error ${benchmarkInfoIcon(gateClockErrorTooltip())}</th>` : ""}
           <th>Schedulable</th>
           <th>DoubleZero node</th>
         </tr>
@@ -537,6 +540,7 @@ function gatesPanel(gates: Gate[]): string {
                 <td><small class="mono">${escapeHtml(gate.publicIpv4)}</small></td>
                 <td>${statusDot(gate.ready)}</td>
                 <td class="latency-cell">${latencyCell(gate)}</td>
+                ${showClockError ? `<td class="numeric-cell">${gateClockErrorCell(gateClockErrors.get(gate.id))}</td>` : ""}
                 <td>${statusDot(gate.schedulable)}</td>
                 <td>${doubleZeroNodeCell(gate)}</td>
               </tr>
@@ -550,6 +554,111 @@ function gatesPanel(gates: Gate[]): string {
       <small>Sorted by Browser RTT, ${sortLabel}.</small>
     </div>
   `;
+}
+
+function shouldShowGateClockError(): boolean {
+  const params = new URLSearchParams(window.location.search);
+  const value = params.get("showclockerror") ?? params.get("showClockError") ?? params.get("clockerror");
+  return value !== null && ["1", "true", "yes", "on"].includes(value.toLowerCase());
+}
+
+function gateClockErrorTooltip(): string {
+  return "Debug-only per-gate Clock Error estimate derived from the current benchmark matrix. Route Clock Error is source gate clock uncertainty plus target gate clock uncertainty, so this column solves the latest gate-to-gate sums back into an approximate value for each gate. Use ?showclockerror=true to show it.";
+}
+
+function gateClockErrorCell(value: number | undefined): string {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return '<span class="muted">n/a</span>';
+  }
+  return `<span class="mono">${escapeHtml(formatClockErrorMetricMs(value))}</span>`;
+}
+
+function estimateGateClockErrors(matrix: BenchmarkMatrix | null): Map<string, number> {
+  const result = new Map<string, number>();
+  const gateIds = Array.from(new Set((matrix?.gates ?? []).map((gate) => gate.id)));
+  if (!matrix || gateIds.length < 2) {
+    return result;
+  }
+
+  const pairValues = new Map<string, { gateA: string; gateB: string; values: number[] }>();
+  for (const route of matrix.routes) {
+    collectGateClockErrorPair(pairValues, route.sourceGateId, route.targetGateId, oneWayClockErrorMs(route.doublezero));
+    collectGateClockErrorPair(pairValues, route.sourceGateId, route.targetGateId, oneWayClockErrorMs(route.public));
+  }
+
+  const gatePairValues = new Map<string, number[]>();
+  let totalPairSum = 0;
+  let pairCount = 0;
+  for (const pair of pairValues.values()) {
+    const pairAverage = averageFinite(pair.values);
+    if (pairAverage === undefined) {
+      continue;
+    }
+    pairCount += 1;
+    totalPairSum += pairAverage;
+    appendGateClockPairValue(gatePairValues, pair.gateA, pairAverage);
+    appendGateClockPairValue(gatePairValues, pair.gateB, pairAverage);
+  }
+
+  const expectedPairCount = (gateIds.length * (gateIds.length - 1)) / 2;
+  const hasCompleteMatrix = gateIds.length > 2 && pairCount === expectedPairCount;
+  const totalClockSum = hasCompleteMatrix ? totalPairSum / (gateIds.length - 1) : undefined;
+  for (const gateId of gateIds) {
+    const values = gatePairValues.get(gateId) ?? [];
+    if (values.length === 0) {
+      continue;
+    }
+    if (hasCompleteMatrix && values.length === gateIds.length - 1 && typeof totalClockSum === "number") {
+      const rowSum = values.reduce((sum, value) => sum + value, 0);
+      result.set(gateId, compactMetric(Math.max(0, (rowSum - totalClockSum) / (gateIds.length - 2))));
+      continue;
+    }
+    const fallbackEstimate = averageFinite(values);
+    if (fallbackEstimate !== undefined) {
+      result.set(gateId, compactMetric(Math.max(0, fallbackEstimate / 2)));
+    }
+  }
+  return result;
+}
+
+function collectGateClockErrorPair(
+  pairValues: Map<string, { gateA: string; gateB: string; values: number[] }>,
+  sourceGateId: string,
+  targetGateId: string,
+  value: number | undefined
+): void {
+  if (sourceGateId === targetGateId || typeof value !== "number" || !Number.isFinite(value)) {
+    return;
+  }
+  const [gateA, gateB] = sortedGatePair(sourceGateId, targetGateId);
+  const key = `${gateA}\u0000${gateB}`;
+  const existing = pairValues.get(key);
+  if (existing) {
+    existing.values.push(value);
+    return;
+  }
+  pairValues.set(key, { gateA, gateB, values: [value] });
+}
+
+function sortedGatePair(gateA: string, gateB: string): [string, string] {
+  return gateA < gateB ? [gateA, gateB] : [gateB, gateA];
+}
+
+function appendGateClockPairValue(gatePairValues: Map<string, number[]>, gateId: string, value: number): void {
+  const values = gatePairValues.get(gateId);
+  if (values) {
+    values.push(value);
+    return;
+  }
+  gatePairValues.set(gateId, [value]);
+}
+
+function averageFinite(values: number[]): number | undefined {
+  const finiteValues = values.filter((value) => Number.isFinite(value));
+  if (finiteValues.length === 0) {
+    return undefined;
+  }
+  return finiteValues.reduce((sum, value) => sum + value, 0) / finiteValues.length;
 }
 
 function benchmarkMatrixPanel(gates: Gate[], matrix: BenchmarkMatrix | null): string {
