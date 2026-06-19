@@ -80,6 +80,7 @@ function readBenchmarkResult(value: unknown): GateBenchmarkReportMetricInput | n
   if (readOneWayClockSyncOk(record)) {
     assignSummary(result, "forwardOneWayMs", readSummary(record.forwardOneWayMs));
     assignSummary(result, "reverseOneWayMs", readSummary(record.reverseOneWayMs));
+    assignNumber(result, "oneWayClockErrorMs", readNumber(record, "oneWayClockErrorMs"));
   }
   if (Array.isArray(record.samples)) {
     result.samples = record.samples;

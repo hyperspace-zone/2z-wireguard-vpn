@@ -204,15 +204,39 @@ func TestChronySummaryReliable(t *testing.T) {
 	}
 }
 
+func TestChronyClockErrorMs(t *testing.T) {
+	actual, ok := chronyClockErrorMs(map[string]any{
+		"status":         "sync",
+		"lastOffset":     "0.000123 seconds fast of NTP time",
+		"rmsOffset":      "0.000456 seconds",
+		"rootDelay":      "0.002000 seconds",
+		"rootDispersion": "0.001000 seconds",
+	})
+	if !ok {
+		t.Fatal("expected clock error estimate")
+	}
+	if actual != 2.579 {
+		t.Fatalf("clock error = %v, expected 2.579", actual)
+	}
+
+	if _, ok := chronyClockErrorMs(map[string]any{"status": "unavailable"}); ok {
+		t.Fatal("expected unavailable chrony to have no clock error estimate")
+	}
+}
+
 func TestProbeObservedRemoteClockSyncMarker(t *testing.T) {
-	plain := formatProbeObservedRemote("203.0.113.10:19192", false)
+	plain := formatProbeObservedRemote("203.0.113.10:19192", false, nil)
 	if plain != "203.0.113.10:19192" || probeObservedRemoteClockSyncOK(plain) {
 		t.Fatalf("unexpected plain observed remote marker: %q", plain)
 	}
 
-	marked := formatProbeObservedRemote("203.0.113.10:19192", true)
+	marked := formatProbeObservedRemote("203.0.113.10:19192", true, float64Ptr(0.789))
 	if !probeObservedRemoteClockSyncOK(marked) {
 		t.Fatalf("expected clock sync marker in %q", marked)
+	}
+	clockErrorMs, ok := probeObservedRemoteClockErrorMs(marked)
+	if !ok || clockErrorMs != 0.789 {
+		t.Fatalf("clock error marker = %v/%v, expected 0.789/true in %q", clockErrorMs, ok, marked)
 	}
 }
 

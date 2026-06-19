@@ -32,7 +32,8 @@ export const gateBenchmarkMetricSchema = {
       type: "object",
       additionalProperties: false,
       properties: {
-        deviationMs: { type: "number" }
+        deviationMs: { type: "number" },
+        clockErrorMs: { type: "number" }
       }
     },
     errorCode: { type: "string" },

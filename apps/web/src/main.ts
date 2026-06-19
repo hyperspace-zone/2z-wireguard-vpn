@@ -4,7 +4,7 @@ type CreateConfigStep = "configure" | "confirm";
 type SortDirection = "desc" | "asc";
 type KeyInstructionPlatform = "linux" | "macos" | "windows";
 type BenchmarkRttSortField = "route" | "doublezeroRtt" | "internetRtt" | "improvement" | "rttSaved" | "ingressDzRtt" | "egressDzRtt" | "doublezeroJitter" | "internetJitter" | "jitterImprovement" | "jitterSaved" | "loss";
-type BenchmarkOneWaySortField = "route" | "doublezeroOneWay" | "internetOneWay" | "oneWayImprovement" | "oneWaySaved" | "oneWayDeviation" | "doublezeroOneWayJitter" | "internetOneWayJitter" | "oneWayJitterImprovement" | "oneWayJitterSaved" | "ingressDzOneWay" | "egressDzOneWay";
+type BenchmarkOneWaySortField = "route" | "doublezeroOneWay" | "internetOneWay" | "oneWayImprovement" | "oneWaySaved" | "oneWayDeviation" | "oneWayClockError" | "doublezeroOneWayJitter" | "internetOneWayJitter" | "oneWayJitterImprovement" | "oneWayJitterSaved" | "ingressDzOneWay" | "egressDzOneWay";
 type SessionValidationErrors = Partial<Record<"sourceIp" | "targetIp" | "ingressGateName" | "egressGateName" | "clientPublicKey", string>>;
 
 interface Gate {
@@ -56,6 +56,7 @@ interface BenchmarkMetric {
   forwardOneWayMs?: BenchmarkMetricSummary;
   oneWayDiagnostics?: {
     deviationMs?: number;
+    clockErrorMs?: number;
   };
   errorCode?: string;
   errorMessage?: string;
@@ -108,6 +109,9 @@ interface BenchmarkRouteRow {
   publicOneWayDeviationMs: number | undefined;
   doublezeroOneWayDeviationMs: number | undefined;
   oneWayDeviationMs: number | undefined;
+  publicOneWayClockErrorMs: number | undefined;
+  doublezeroOneWayClockErrorMs: number | undefined;
+  oneWayClockErrorMs: number | undefined;
   publicOneWayJitterMs: number | undefined;
   doublezeroOneWayJitterMs: number | undefined;
   oneWayJitterSavedMs: number | undefined;
@@ -387,6 +391,7 @@ function isBenchmarkOneWaySortField(value: string | undefined): value is Benchma
     value === "oneWayImprovement" ||
     value === "oneWaySaved" ||
     value === "oneWayDeviation" ||
+    value === "oneWayClockError" ||
     value === "doublezeroOneWayJitter" ||
     value === "internetOneWayJitter" ||
     value === "oneWayJitterImprovement" ||
@@ -676,6 +681,7 @@ function benchmarkOneWayRoutesTable(rows: BenchmarkRouteRow[]): string {
             ${benchmarkOneWaySortableHeader("One-Way Improvement", "oneWayImprovement", "right")}
             ${benchmarkOneWaySortableHeader("One-Way Saved", "oneWaySaved", "right")}
             ${benchmarkOneWaySortableHeader("~Deviation", "oneWayDeviation", "right", oneWayDeviationTooltip())}
+            ${benchmarkOneWaySortableHeader("Clock Error", "oneWayClockError", "right", oneWayClockErrorTooltip())}
             ${benchmarkOneWaySortableHeader("DZ Jitter", "doublezeroOneWayJitter", "right")}
             ${benchmarkOneWaySortableHeader("Internet Jitter", "internetOneWayJitter", "right")}
             ${benchmarkOneWaySortableHeader("Jitter Improvement", "oneWayJitterImprovement", "right")}
@@ -709,6 +715,7 @@ function benchmarkOneWayRouteRow(row: BenchmarkRouteRow): string {
       <td class="numeric-cell">${benchmarkImprovementCell(row.oneWayImprovementPercent)}</td>
       <td class="numeric-cell">${formatSavedMetricMs(row.oneWaySavedMs)}</td>
       <td class="numeric-cell">${benchmarkOneWayDeviationCell(route, row)}</td>
+      <td class="numeric-cell">${benchmarkOneWayClockErrorCell(route, row)}</td>
       <td class="numeric-cell">${benchmarkValueCell(route.doublezero, formatJitterMetricMs(row.doublezeroOneWayJitterMs))}</td>
       <td class="numeric-cell">${benchmarkValueCell(route.public, formatJitterMetricMs(row.publicOneWayJitterMs))}</td>
       <td class="numeric-cell">${benchmarkImprovementCell(row.oneWayJitterImprovementPercent)}</td>
@@ -776,6 +783,9 @@ function benchmarkRouteRows(gates: Gate[], matrix: BenchmarkMatrix | null): Benc
     const publicOneWayDeviationMs = oneWayDeviationMs(route.public);
     const doublezeroOneWayDeviationMs = oneWayDeviationMs(route.doublezero);
     const oneWayDeviationMsValue = maxOptionalMetric(publicOneWayDeviationMs, doublezeroOneWayDeviationMs);
+    const publicOneWayClockErrorMs = oneWayClockErrorMs(route.public);
+    const doublezeroOneWayClockErrorMs = oneWayClockErrorMs(route.doublezero);
+    const oneWayClockErrorMsValue = maxOptionalMetric(publicOneWayClockErrorMs, doublezeroOneWayClockErrorMs);
     const publicOneWayJitterMs = summaryP95MinusP50(route.public?.forwardOneWayMs);
     const doublezeroOneWayJitterMs = summaryP95MinusP50(route.doublezero?.forwardOneWayMs);
     const oneWayJitterSavedMs = typeof publicOneWayJitterMs === "number" && typeof doublezeroOneWayJitterMs === "number"
@@ -823,6 +833,9 @@ function benchmarkRouteRows(gates: Gate[], matrix: BenchmarkMatrix | null): Benc
       publicOneWayDeviationMs,
       doublezeroOneWayDeviationMs,
       oneWayDeviationMs: oneWayDeviationMsValue,
+      publicOneWayClockErrorMs,
+      doublezeroOneWayClockErrorMs,
+      oneWayClockErrorMs: oneWayClockErrorMsValue,
       publicOneWayJitterMs,
       doublezeroOneWayJitterMs,
       oneWayJitterSavedMs,
@@ -915,6 +928,9 @@ function sortBenchmarkOneWayRows(rows: BenchmarkRouteRow[]): BenchmarkRouteRow[]
         break;
       case "oneWayDeviation":
         cmp = compareOptionalNumber(a.oneWayDeviationMs, b.oneWayDeviationMs, benchmarkOneWaySortDirection);
+        break;
+      case "oneWayClockError":
+        cmp = compareOptionalNumber(a.oneWayClockErrorMs, b.oneWayClockErrorMs, benchmarkOneWaySortDirection);
         break;
       case "doublezeroOneWayJitter":
         cmp = compareOptionalNumber(a.doublezeroOneWayJitterMs, b.doublezeroOneWayJitterMs, benchmarkOneWaySortDirection);
@@ -1031,6 +1047,15 @@ function benchmarkOneWayDeviationCell(route: BenchmarkRoute, row: BenchmarkRoute
   `;
 }
 
+function benchmarkOneWayClockErrorCell(route: BenchmarkRoute, row: BenchmarkRouteRow): string {
+  return `
+    <div class="stacked-metric">
+      <span>${benchmarkValueCell(route.doublezero, `DZ ${formatClockErrorMetricMs(row.doublezeroOneWayClockErrorMs)}`)}</span>
+      <span>${benchmarkValueCell(route.public, `Internet ${formatClockErrorMetricMs(row.publicOneWayClockErrorMs)}`)}</span>
+    </div>
+  `;
+}
+
 function benchmarkEdgeOneWayEstimateCell(gate: Gate, value: number | undefined, directionLabel: string): string {
   const status = gate.doubleZero;
   if (typeof value !== "number" || !Number.isFinite(value)) {
@@ -1060,7 +1085,11 @@ function edgeOneWayEstimateTooltip(): string {
 }
 
 function oneWayDeviationTooltip(): string {
-  return "Approximate one-way deviation: abs(forward one-way p50 - internal reverse echo p50) / 2, computed separately for DZ and Internet. The reverse echo is an internal diagnostic only; the route value remains directed forward one-way. High deviation means clock sync or path asymmetry makes one-way less reliable, while RTT remains valid.";
+  return "One-way latency is measured directly from synchronized gate clocks: target receive time minus source send time. ~Deviation is only a reliability check: abs(measured forward one-way p50 - internal reverse echo p50) / 2. It is not used to calculate one-way latency. High deviation means clock sync or path asymmetry may make the one-way value less reliable; RTT remains valid independently.";
+}
+
+function oneWayClockErrorTooltip(): string {
+  return "Clock Error is a chrony-based uncertainty estimate for directed one-way latency: source gate clock uncertainty plus target gate clock uncertainty. Each gate estimate uses abs(last offset) + RMS offset + root delay / 2 + root dispersion from chronyc tracking. It is not RTT / 2 and is not used to calculate one-way latency.";
 }
 
 function benchmarkImprovementCell(value: number | undefined): string {
@@ -1137,6 +1166,10 @@ function formatDeviationMetricMs(value: number | undefined): string {
   return typeof value === "number" && Number.isFinite(value) ? `~${formatFixedLatency(value, 2)}ms` : "n/a";
 }
 
+function formatClockErrorMetricMs(value: number | undefined): string {
+  return typeof value === "number" && Number.isFinite(value) ? `±${formatFixedLatency(value, 2)}ms` : "n/a";
+}
+
 function formatLossPercent(value: number | undefined): string {
   if (typeof value !== "number" || !Number.isFinite(value)) {
     return "n/a";
@@ -1194,6 +1227,10 @@ function summaryP95MinusP50(summary: BenchmarkMetricSummary | undefined): number
 
 function oneWayDeviationMs(metric: BenchmarkMetric | undefined): number | undefined {
   return finiteNumber(metric?.oneWayDiagnostics?.deviationMs);
+}
+
+function oneWayClockErrorMs(metric: BenchmarkMetric | undefined): number | undefined {
+  return finiteNumber(metric?.oneWayDiagnostics?.clockErrorMs);
 }
 
 function maxOptionalMetric(...values: Array<number | undefined>): number | undefined {

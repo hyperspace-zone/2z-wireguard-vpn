@@ -26,7 +26,7 @@ import (
 	"time"
 )
 
-const version = "0.1.2"
+const version = "0.1.3"
 
 type config struct {
 	ControlPlaneURL    string
@@ -328,9 +328,11 @@ const oneWayClockSyncMaxOffsetSeconds = 0.002
 const clockSyncCacheTTL = 5 * time.Second
 
 var clockSyncCache = struct {
-	mu        sync.Mutex
-	checkedAt time.Time
-	reliable  bool
+	mu           sync.Mutex
+	checkedAt    time.Time
+	reliable     bool
+	clockErrorMs float64
+	clockErrorOK bool
 }{
 	checkedAt: time.Time{},
 }
@@ -391,10 +393,13 @@ type probePacket struct {
 }
 
 type probeSample struct {
-	Seq             int      `json:"seq"`
-	RTTMs           float64  `json:"rttMs"`
-	ForwardOneWayMs *float64 `json:"forwardOneWayMs,omitempty"`
-	ReverseOneWayMs *float64 `json:"reverseOneWayMs,omitempty"`
+	Seq                int      `json:"seq"`
+	RTTMs              float64  `json:"rttMs"`
+	ForwardOneWayMs    *float64 `json:"forwardOneWayMs,omitempty"`
+	ReverseOneWayMs    *float64 `json:"reverseOneWayMs,omitempty"`
+	SourceClockErrorMs *float64 `json:"sourceClockErrorMs,omitempty"`
+	TargetClockErrorMs *float64 `json:"targetClockErrorMs,omitempty"`
+	ClockErrorMs       *float64 `json:"clockErrorMs,omitempty"`
 }
 
 type probeMetricSummary struct {
@@ -405,22 +410,23 @@ type probeMetricSummary struct {
 }
 
 type probeTransportResult struct {
-	Transport       string             `json:"transport"`
-	Status          string             `json:"status"`
-	SourceInterface string             `json:"sourceInterface,omitempty"`
-	TargetEndpoint  string             `json:"targetEndpoint,omitempty"`
-	PacketCount     int                `json:"packetCount"`
-	PacketsReceived int                `json:"packetsReceived"`
-	LossPercent     float64            `json:"lossPercent"`
-	RTTMs           probeMetricSummary `json:"rttMs,omitempty"`
-	JitterMs        float64            `json:"jitterMs,omitempty"`
-	ForwardOneWayMs probeMetricSummary `json:"forwardOneWayMs,omitempty"`
-	ReverseOneWayMs probeMetricSummary `json:"reverseOneWayMs,omitempty"`
-	Samples         []probeSample      `json:"samples,omitempty"`
-	Chrony          map[string]any     `json:"chrony,omitempty"`
-	MeasuredAt      string             `json:"measuredAt"`
-	ErrorCode       string             `json:"errorCode,omitempty"`
-	ErrorMessage    string             `json:"errorMessage,omitempty"`
+	Transport          string             `json:"transport"`
+	Status             string             `json:"status"`
+	SourceInterface    string             `json:"sourceInterface,omitempty"`
+	TargetEndpoint     string             `json:"targetEndpoint,omitempty"`
+	PacketCount        int                `json:"packetCount"`
+	PacketsReceived    int                `json:"packetsReceived"`
+	LossPercent        float64            `json:"lossPercent"`
+	RTTMs              probeMetricSummary `json:"rttMs,omitempty"`
+	JitterMs           float64            `json:"jitterMs,omitempty"`
+	ForwardOneWayMs    probeMetricSummary `json:"forwardOneWayMs,omitempty"`
+	ReverseOneWayMs    probeMetricSummary `json:"reverseOneWayMs,omitempty"`
+	OneWayClockErrorMs float64            `json:"oneWayClockErrorMs,omitempty"`
+	Samples            []probeSample      `json:"samples,omitempty"`
+	Chrony             map[string]any     `json:"chrony,omitempty"`
+	MeasuredAt         string             `json:"measuredAt"`
+	ErrorCode          string             `json:"errorCode,omitempty"`
+	ErrorMessage       string             `json:"errorMessage,omitempty"`
 }
 
 func executeProbeJob(cfg config, item job) jobResult {
@@ -495,6 +501,11 @@ func runProbeTransport(cfg config, payload probeJobPayload, transport probeTrans
 	}
 	sourceClockSyncOK := chronySummaryReliable(result.Chrony)
 	result.Chrony["oneWayClockSyncOk"] = sourceClockSyncOK
+	var sourceClockErrorMs *float64
+	if clockErrorMs, ok := chronyClockErrorMs(result.Chrony); ok {
+		sourceClockErrorMs = float64Ptr(clockErrorMs)
+		result.Chrony["clockErrorMs"] = clockErrorMs
+	}
 	if transport.Name != "public" && transport.Name != "doublezero" {
 		result.ErrorCode = "unsupported_transport"
 		result.ErrorMessage = fmt.Sprintf("unsupported transport %q", transport.Name)
@@ -524,7 +535,7 @@ func runProbeTransport(cfg config, payload probeJobPayload, transport probeTrans
 
 	samples := make([]probeSample, 0, payload.Count)
 	for seq := 1; seq <= payload.Count; seq++ {
-		sample, err := runProbeSample(conn, cfg, payload, target, seq, time.Duration(payload.TimeoutMs)*time.Millisecond, sourceClockSyncOK)
+		sample, err := runProbeSample(conn, cfg, payload, target, seq, time.Duration(payload.TimeoutMs)*time.Millisecond, sourceClockSyncOK, sourceClockErrorMs)
 		if err == nil {
 			samples = append(samples, sample)
 		}
@@ -545,6 +556,8 @@ func runProbeTransport(cfg config, payload probeJobPayload, transport probeTrans
 	result.RTTMs = summarizeProbeSamples(samples, func(sample probeSample) float64 { return sample.RTTMs })
 	result.ForwardOneWayMs = summarizeProbeSamples(samples, func(sample probeSample) float64 { return optionalFloat64(sample.ForwardOneWayMs) })
 	result.ReverseOneWayMs = summarizeProbeSamples(samples, func(sample probeSample) float64 { return optionalFloat64(sample.ReverseOneWayMs) })
+	clockErrorSummary := summarizeProbeSamples(samples, func(sample probeSample) float64 { return optionalFloat64(sample.ClockErrorMs) })
+	result.OneWayClockErrorMs = clockErrorSummary.P95
 	result.JitterMs = compactFloat(result.RTTMs.P95 - result.RTTMs.P50)
 	return result
 }
@@ -598,6 +611,7 @@ func runProbeSample(
 	seq int,
 	timeout time.Duration,
 	sourceClockSyncOK bool,
+	sourceClockErrorMs *float64,
 ) (probeSample, error) {
 	nonce, err := randomHex(16)
 	if err != nil {
@@ -650,6 +664,15 @@ func runProbeSample(
 		if sourceClockSyncOK && probeObservedRemoteClockSyncOK(response.ServerObservedRemote) {
 			sample.ForwardOneWayMs = float64Ptr(compactFloat(nsToMs(response.ServerRxWallUnixNano - request.ClientTxWallUnixNano)))
 			sample.ReverseOneWayMs = float64Ptr(compactFloat(nsToMs(clientRx.UnixNano() - response.ServerTxWallUnixNano)))
+			if sourceClockErrorMs != nil {
+				sample.SourceClockErrorMs = float64Ptr(*sourceClockErrorMs)
+			}
+			if targetClockErrorMs, ok := probeObservedRemoteClockErrorMs(response.ServerObservedRemote); ok {
+				sample.TargetClockErrorMs = float64Ptr(targetClockErrorMs)
+				if sourceClockErrorMs != nil {
+					sample.ClockErrorMs = float64Ptr(compactFloat(*sourceClockErrorMs + targetClockErrorMs))
+				}
+			}
 		}
 		return sample, nil
 	}
@@ -854,6 +877,7 @@ func startProbeServerLoop(cfg config, conn net.PacketConn, binding probeServerBi
 			if !verifyProbePacket(request, cfg.ProbeSharedSecret) {
 				continue
 			}
+			clockSyncOK, clockErrorMs := cachedClockSyncState()
 			response := probePacket{
 				Magic:                probeMagic,
 				SourceGate:           request.SourceGate,
@@ -862,7 +886,7 @@ func startProbeServerLoop(cfg config, conn net.PacketConn, binding probeServerBi
 				Seq:                  request.Seq,
 				ClientTxWallUnixNano: request.ClientTxWallUnixNano,
 				ServerRxWallUnixNano: serverRx.UnixNano(),
-				ServerObservedRemote: formatProbeObservedRemote(remote.String(), cachedClockSyncReliable()),
+				ServerObservedRemote: formatProbeObservedRemote(remote.String(), clockSyncOK, clockErrorMs),
 			}
 			response.ServerTxWallUnixNano = time.Now().UnixNano()
 			signProbePacket(&response, cfg.ProbeSharedSecret)
@@ -875,11 +899,15 @@ func startProbeServerLoop(cfg config, conn net.PacketConn, binding probeServerBi
 	}()
 }
 
-func formatProbeObservedRemote(remote string, clockSyncOK bool) string {
+func formatProbeObservedRemote(remote string, clockSyncOK bool, clockErrorMs *float64) string {
 	if !clockSyncOK {
 		return remote
 	}
-	return remote + ";clockSync=ok"
+	parts := []string{remote, "clockSync=ok"}
+	if clockErrorMs != nil {
+		parts = append(parts, fmt.Sprintf("clockErrorMs=%.3f", *clockErrorMs))
+	}
+	return strings.Join(parts, ";")
 }
 
 func probeObservedRemoteClockSyncOK(value string) bool {
@@ -889,6 +917,21 @@ func probeObservedRemoteClockSyncOK(value string) bool {
 		}
 	}
 	return false
+}
+
+func probeObservedRemoteClockErrorMs(value string) (float64, bool) {
+	for _, part := range strings.Split(value, ";") {
+		text := strings.TrimSpace(part)
+		if !strings.HasPrefix(text, "clockErrorMs=") {
+			continue
+		}
+		parsed, err := strconv.ParseFloat(strings.TrimPrefix(text, "clockErrorMs="), 64)
+		if err != nil || !isFiniteFloat(parsed) || parsed < 0 {
+			return 0, false
+		}
+		return compactFloat(parsed), true
+	}
+	return 0, false
 }
 
 func signProbePacket(packet *probePacket, secret string) {
@@ -1050,20 +1093,32 @@ func chronyTrackingSummary() map[string]any {
 			summary["lastOffset"] = value
 		case "RMS offset":
 			summary["rmsOffset"] = value
+		case "Root delay":
+			summary["rootDelay"] = value
+		case "Root dispersion":
+			summary["rootDispersion"] = value
 		}
 	}
 	return summary
 }
 
-func cachedClockSyncReliable() bool {
+func cachedClockSyncState() (bool, *float64) {
 	clockSyncCache.mu.Lock()
 	defer clockSyncCache.mu.Unlock()
 	if !clockSyncCache.checkedAt.IsZero() && time.Since(clockSyncCache.checkedAt) < clockSyncCacheTTL {
-		return clockSyncCache.reliable
+		if clockSyncCache.clockErrorOK {
+			return clockSyncCache.reliable, float64Ptr(clockSyncCache.clockErrorMs)
+		}
+		return clockSyncCache.reliable, nil
 	}
-	clockSyncCache.reliable = chronySummaryReliable(chronyTrackingSummary())
+	summary := chronyTrackingSummary()
+	clockSyncCache.reliable = chronySummaryReliable(summary)
+	clockSyncCache.clockErrorMs, clockSyncCache.clockErrorOK = chronyClockErrorMs(summary)
 	clockSyncCache.checkedAt = time.Now()
-	return clockSyncCache.reliable
+	if clockSyncCache.clockErrorOK {
+		return clockSyncCache.reliable, float64Ptr(clockSyncCache.clockErrorMs)
+	}
+	return clockSyncCache.reliable, nil
 }
 
 func chronySummaryReliable(summary map[string]any) bool {
@@ -1083,6 +1138,31 @@ func chronySummaryReliable(summary map[string]any) bool {
 		return false
 	}
 	return true
+}
+
+func chronyClockErrorMs(summary map[string]any) (float64, bool) {
+	if summary == nil {
+		return 0, false
+	}
+	if status, _ := summary["status"].(string); status != "sync" {
+		return 0, false
+	}
+	lastOffset, ok := chronyOffsetSeconds(summary["lastOffset"])
+	if !ok {
+		return 0, false
+	}
+	rmsOffset, ok := chronyOffsetSeconds(summary["rmsOffset"])
+	if !ok {
+		return 0, false
+	}
+	clockErrorSeconds := math.Abs(lastOffset) + math.Abs(rmsOffset)
+	if rootDelay, ok := chronyOffsetSeconds(summary["rootDelay"]); ok {
+		clockErrorSeconds += math.Abs(rootDelay) / 2
+	}
+	if rootDispersion, ok := chronyOffsetSeconds(summary["rootDispersion"]); ok {
+		clockErrorSeconds += math.Abs(rootDispersion)
+	}
+	return compactFloat(clockErrorSeconds * 1000), true
 }
 
 func chronyOffsetSeconds(value any) (float64, bool) {

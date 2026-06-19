@@ -33,6 +33,7 @@ export interface GateBenchmarkReportMetricInput {
     p50?: number;
     p95?: number;
   };
+  oneWayClockErrorMs?: number;
   samples?: unknown[];
   errorCode?: string;
   errorMessage?: string;
@@ -168,6 +169,7 @@ export async function insertGateBenchmarkReport(
           forward_one_way_p95_ms,
           reverse_one_way_p50_ms,
           reverse_one_way_p95_ms,
+          one_way_clock_error_ms,
           samples,
           error_code,
           error_message,
@@ -193,10 +195,11 @@ export async function insertGateBenchmarkReport(
           $17,
           $18,
           $19,
-          $20::jsonb,
-          $21,
+          $20,
+          $21::jsonb,
           $22,
-          COALESCE($23::timestamptz, now())
+          $23,
+          COALESCE($24::timestamptz, now())
         )
       `,
       [
@@ -219,6 +222,7 @@ export async function insertGateBenchmarkReport(
         finiteNumberOrNull(result.forwardOneWayMs?.p95),
         finiteNumberOrNull(result.reverseOneWayMs?.p50),
         finiteNumberOrNull(result.reverseOneWayMs?.p95),
+        finiteNumberOrNull(result.oneWayClockErrorMs),
         JSON.stringify(Array.isArray(result.samples) ? result.samples.slice(0, 100) : []),
         textOrNull(result.errorCode),
         textOrNull(result.errorMessage),
@@ -279,10 +283,15 @@ export async function listLatestGateBenchmarkRoutes(db: Queryable): Promise<Gate
               ))
             END,
             'oneWayDiagnostics', CASE
-              WHEN forward_one_way_p50_ms IS NULL OR reverse_one_way_p50_ms IS NULL THEN NULL
-              ELSE jsonb_build_object(
-                'deviationMs', round((abs(forward_one_way_p50_ms - reverse_one_way_p50_ms) / 2)::numeric, 3)
+              WHEN (forward_one_way_p50_ms IS NULL OR reverse_one_way_p50_ms IS NULL) AND one_way_clock_error_ms IS NULL THEN NULL
+              ELSE jsonb_strip_nulls(jsonb_build_object(
+                'deviationMs', CASE
+                  WHEN forward_one_way_p50_ms IS NULL OR reverse_one_way_p50_ms IS NULL THEN NULL
+                  ELSE round((abs(forward_one_way_p50_ms - reverse_one_way_p50_ms) / 2)::numeric, 3)
+                END,
+                'clockErrorMs', one_way_clock_error_ms
               )
+            )
             END,
             'errorCode', error_code,
             'errorMessage', error_message,
