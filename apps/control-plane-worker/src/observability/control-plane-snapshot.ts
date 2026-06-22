@@ -263,4 +263,70 @@ async function collectBenchmarkMetrics(db: Database, metrics: RuntimeMetrics): P
       labels
     });
   }
+
+  const routeResult = await db.query<{
+    sourceGate: string;
+    targetGate: string;
+    transport: string;
+    status: string;
+    rttP50Ms: number | null;
+    jitterMs: number | null;
+    lossPercent: number | null;
+    ageSeconds: number | null;
+  }>(`
+    WITH latest AS (
+      SELECT DISTINCT ON (source_gate_id, target_gate_id, transport)
+        source_gate_id,
+        target_gate_id,
+        transport,
+        status,
+        rtt_p50_ms,
+        jitter_ms,
+        loss_percent,
+        measured_at
+      FROM gate_benchmark_results
+      ORDER BY source_gate_id, target_gate_id, transport, measured_at DESC
+    )
+    SELECT
+      source.name AS "sourceGate",
+      target.name AS "targetGate",
+      latest.transport,
+      latest.status,
+      latest.rtt_p50_ms AS "rttP50Ms",
+      latest.jitter_ms AS "jitterMs",
+      latest.loss_percent AS "lossPercent",
+      EXTRACT(EPOCH FROM now() - latest.measured_at)::float AS "ageSeconds"
+    FROM latest
+    JOIN gates source ON source.id = latest.source_gate_id
+    JOIN gates target ON target.id = latest.target_gate_id
+    ORDER BY source.name, target.name, latest.transport
+  `);
+  for (const row of routeResult.rows) {
+    const labels = {
+      route: `${row.sourceGate} -> ${row.targetGate}`,
+      source_gate: row.sourceGate,
+      target_gate: row.targetGate,
+      transport: row.transport
+    };
+    metrics.gauge("control_plane_benchmark_route_failed", row.status === "failed" ? 1 : 0, {
+      help: "Latest gate benchmark route failure state. One means the latest sample failed.",
+      labels
+    });
+    metrics.gauge("control_plane_benchmark_route_age_seconds", row.ageSeconds ?? 1_000_000_000, {
+      help: "Age of the latest gate benchmark route sample in seconds.",
+      labels
+    });
+    metrics.gauge("control_plane_benchmark_route_rtt_p50_ms", row.rttP50Ms ?? 0, {
+      help: "Latest gate benchmark route RTT p50 in milliseconds.",
+      labels
+    });
+    metrics.gauge("control_plane_benchmark_route_jitter_ms", row.jitterMs ?? 0, {
+      help: "Latest gate benchmark route jitter in milliseconds.",
+      labels
+    });
+    metrics.gauge("control_plane_benchmark_route_loss_percent", row.lossPercent ?? 100, {
+      help: "Latest gate benchmark route packet loss percent.",
+      labels
+    });
+  }
 }

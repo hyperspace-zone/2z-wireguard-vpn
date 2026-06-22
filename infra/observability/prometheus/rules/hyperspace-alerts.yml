@@ -73,23 +73,23 @@ groups:
           summary: Dead control-plane jobs are present
           description: At least one control-plane job reached the dead terminal phase and needs operator review.
 
-      - alert: HyperspaceBenchmarkFailures
-        expr: sum(hyperspace_control_plane_benchmark_routes_total{status="failed"}) > 0
+      - alert: HyperspaceBenchmarkRouteFailed
+        expr: hyperspace_control_plane_benchmark_route_failed == 1
         for: 10m
         labels:
           severity: warning
         annotations:
-          summary: Gate benchmark routes are failing
-          description: Latest gate benchmark results include failed Internet or DoubleZero route measurements.
+          summary: Gate benchmark route is failing
+          description: Route {{ $labels.route }} has failing {{ $labels.transport }} benchmark samples.
 
-      - alert: HyperspaceBenchmarkDataStale
-        expr: max(hyperspace_control_plane_benchmark_max_age_seconds) > 900
+      - alert: HyperspaceBenchmarkRouteDataStale
+        expr: hyperspace_control_plane_benchmark_route_age_seconds > 900
         for: 10m
         labels:
           severity: warning
         annotations:
-          summary: Gate benchmark data is stale
-          description: Latest gate benchmark samples are older than 15 minutes.
+          summary: Gate benchmark route data is stale
+          description: Route {{ $labels.route }} has {{ $labels.transport }} benchmark data older than 15 minutes.
 
       - alert: HyperspaceApiHighErrorRate
         expr: sum(rate(hyperspace_api_http_requests_total{status=~"5.."}[5m])) > 0.05

@@ -2,7 +2,7 @@
 {{ if eq .Status "firing" }}FIRING{{ else }}RESOLVED{{ end }} {{ len .Alerts }} Hyperspace alert(s)
 {{ range .Alerts }}
 
-{{ .Labels.alertname }} severity={{ .Labels.severity }} cluster={{ .Labels.cluster }}{{ if .Labels.gate }} gate={{ .Labels.gate }}{{ end }}
+{{ .Labels.alertname }} severity={{ .Labels.severity }}{{ if .Labels.cluster }} cluster={{ .Labels.cluster }}{{ end }}{{ if .Labels.gate }} gate={{ .Labels.gate }}{{ end }}{{ if .Labels.route }} route={{ .Labels.route }}{{ end }}{{ if .Labels.transport }} transport={{ .Labels.transport }}{{ end }}
 {{ .Annotations.summary }}
 {{ .Annotations.description }}
 {{ end }}

@@ -32,4 +32,6 @@ API request rate and p95 latency, worker loop duration, benchmark RTT, packet
 loss, and benchmark staleness. The alert rules cover API/worker scrape failure,
 too few schedulable gates, per-gate stale heartbeats, per-gate readiness and
 DoubleZero readiness failures, dead jobs, benchmark failures, stale benchmark
-data, API 5xx rate, and public API rate-limit activity.
+data, API 5xx rate, and public API rate-limit activity. Benchmark failure and
+staleness alerts are emitted per directed route and transport so notifications
+include the affected source gate, target gate, and Internet/DoubleZero path.
