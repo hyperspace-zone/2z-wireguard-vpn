@@ -1,5 +1,15 @@
 {{ define "telegram.hyperspace.alert" -}}
-<b>{{ .Labels.alertname | html }}</b>{{ if .Labels.severity }} severity=<b>{{ .Labels.severity | html }}</b>{{ end }}{{ if .Labels.cluster }} cluster=<b>{{ .Labels.cluster | html }}</b>{{ end }}{{ if .Labels.gate }} gate=<b>{{ .Labels.gate | html }}</b>{{ end }}{{ if .Labels.route }} route=<b>{{ .Labels.route | html }}</b>{{ end }}{{ if .Labels.transport }} transport=<b>{{ .Labels.transport | html }}</b>{{ end }}
+<b>{{ .Labels.alertname | html }}</b>
+{{ if .Labels.severity }}severity <b>{{ .Labels.severity | html }}</b>
+{{ end -}}
+{{ if .Labels.cluster }}cluster <b>{{ .Labels.cluster | html }}</b>
+{{ end -}}
+{{ if .Labels.gate }}gate <b>{{ .Labels.gate | html }}</b>
+{{ end -}}
+{{ if .Labels.route }}route <b>{{ .Labels.route | html }}</b>
+{{ end -}}
+{{ if .Labels.transport }}transport <b>{{ .Labels.transport | html }}</b>
+{{ end -}}
 {{ if or .Labels.probe_host .Labels.public_ipv4 -}}
 Gate access:
 {{ if .Labels.probe_host }}host <code>{{ .Labels.probe_host | html }}</code>
