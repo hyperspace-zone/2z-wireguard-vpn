@@ -28,15 +28,6 @@ groups:
           summary: Too few schedulable Hyperspace gates
           description: Fewer than two gates are schedulable, so new ingress/egress VPN paths cannot be safely provisioned.
 
-      - alert: HyperspaceEnabledGateHeartbeatStale
-        expr: hyperspace_control_plane_gate_last_seen_age_seconds{enabled="true"} > 180
-        for: 5m
-        labels:
-          severity: critical
-        annotations:
-          summary: Enabled Hyperspace gate heartbeat is stale
-          description: Gate {{ $labels.gate }} has not sent a fresh heartbeat for more than 3 minutes.
-
       - alert: HyperspaceEnabledGateAgentDisconnected
         expr: hyperspace_control_plane_gate_agent_connected{enabled="true"} == 0
         for: 5m
@@ -47,7 +38,10 @@ groups:
           description: Gate {{ $labels.gate }} is enabled but its agent condition or heartbeat lease is not fresh.
 
       - alert: HyperspaceEnabledGateNotReady
-        expr: hyperspace_control_plane_gate_ready{enabled="true"} == 0
+        expr: |
+          (hyperspace_control_plane_gate_ready{enabled="true"} == 0)
+          and on(gate)
+            (hyperspace_control_plane_gate_agent_connected{enabled="true"} == 1)
         for: 10m
         labels:
           severity: warning
@@ -56,7 +50,10 @@ groups:
           description: Gate {{ $labels.gate }} is enabled but does not satisfy the Ready condition.
 
       - alert: HyperspaceEnabledGateDoubleZeroNotReady
-        expr: hyperspace_control_plane_gate_doublezero_ready{enabled="true"} == 0
+        expr: |
+          (hyperspace_control_plane_gate_doublezero_ready{enabled="true"} == 0)
+          and on(gate)
+            (hyperspace_control_plane_gate_agent_connected{enabled="true"} == 1)
         for: 10m
         labels:
           severity: warning

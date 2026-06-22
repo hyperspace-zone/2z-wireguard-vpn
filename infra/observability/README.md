@@ -30,13 +30,14 @@ Deployment artifacts:
 The dashboard covers service scrape health, schedulable gates, sessions, jobs,
 API request rate and p95 latency, worker loop duration, benchmark RTT, packet
 loss, and benchmark staleness. The alert rules cover API/worker scrape failure,
-too few schedulable gates, per-gate stale heartbeats, per-gate readiness and
-DoubleZero readiness failures, dead jobs, benchmark failures, stale benchmark
-data, API 5xx rate, and public API rate-limit activity. Benchmark failure and
-staleness alerts are emitted per directed route and transport so notifications
-include the affected source gate, target gate, and Internet/DoubleZero path.
+too few schedulable gates, per-gate agent disconnects, per-gate readiness and
+DoubleZero readiness failures while the agent is connected, dead jobs, benchmark
+failures, stale benchmark data, API 5xx rate, and public API rate-limit
+activity. Benchmark failure and staleness alerts are emitted per directed route
+and transport so notifications include the affected source gate, target gate,
+and Internet/DoubleZero path.
 Benchmark route alerts are suppressed when either endpoint gate is disconnected;
-that case is covered by per-gate heartbeat and agent connectivity alerts.
+that case is covered by the per-gate agent connectivity alert.
 Alertmanager groups benchmark route transports together by route to avoid
 separate adjacent Telegram messages for Internet and DoubleZero on the same
 route.
