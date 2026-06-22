@@ -5,6 +5,12 @@ global:
 rule_files:
   - /etc/prometheus/rules/hyperspace-alerts.yml
 
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            - 127.0.0.1:9093
+
 scrape_configs:
   - job_name: hyperspace-control-plane-api
     scheme: https

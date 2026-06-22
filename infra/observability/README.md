@@ -6,6 +6,8 @@ This bundle keeps the three observability ontologies separate:
 - Metrics are raw runtime events queued in-process and aggregated into
   Prometheus exposition by a dedicated metrics sink.
 - Alerting is expressed as Prometheus rules and visualized in Grafana.
+- Notification delivery is handled by Alertmanager. The production deployment
+  uses a Telegram receiver for the team chat.
 
 Runtime endpoints:
 
@@ -18,6 +20,8 @@ Deployment artifacts:
 - `prometheus/prometheus.testnet.yml`
 - `prometheus/prometheus.mainnet.yml`
 - `prometheus/rules/hyperspace-alerts.yml`
+- `alertmanager/alertmanager.yml.template`
+- `alertmanager/templates/telegram.tmpl`
 - `grafana/provisioning/datasources/prometheus.yml`
 - `grafana/provisioning/dashboards/hyperspace.yml`
 - `grafana/dashboards/hyperspace-control-plane.json`
@@ -26,5 +30,6 @@ Deployment artifacts:
 The dashboard covers service scrape health, schedulable gates, sessions, jobs,
 API request rate and p95 latency, worker loop duration, benchmark RTT, packet
 loss, and benchmark staleness. The alert rules cover API/worker scrape failure,
-too few schedulable gates, dead jobs, benchmark failures, stale benchmark data,
-API 5xx rate, and public API rate-limit activity.
+too few schedulable gates, per-gate stale heartbeats, per-gate readiness and
+DoubleZero readiness failures, dead jobs, benchmark failures, stale benchmark
+data, API 5xx rate, and public API rate-limit activity.

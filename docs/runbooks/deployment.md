@@ -1104,11 +1104,12 @@ EOF
 sysctl --system
 ```
 
-Install Prometheus, Grafana, and Caddy:
+Install Prometheus, Alertmanager, Grafana, and Caddy:
 
 ```bash
 apt-get update
-apt-get install -y prometheus caddy apt-transport-https software-properties-common wget gpg
+apt-get install -y prometheus prometheus-alertmanager caddy gettext-base \
+  apt-transport-https software-properties-common wget gpg
 
 install -d -m 0755 /etc/apt/keyrings
 wget -q -O - https://apt.grafana.com/gpg.key | gpg --dearmor >/etc/apt/keyrings/grafana.gpg
@@ -1138,6 +1139,35 @@ install -o grafana -g grafana -m 0644 "$HS_REPO_DIR/infra/observability/grafana/
   /var/lib/grafana/dashboards/hyperspace/hyperspace-control-plane.json
 ```
 
+Provision Alertmanager Telegram notifications. Create a Telegram bot with
+BotFather, add it to the team chat, send one message in the chat, then discover
+the chat ID from the bot updates:
+
+```bash
+export TELEGRAM_BOT_TOKEN='<bot-token-from-botfather>'
+curl -fsS "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getUpdates"
+```
+
+For groups, `chat.id` is usually a negative number. Store the token outside git
+and render the Alertmanager config from the repo template:
+
+```bash
+export TELEGRAM_CHAT_ID='<negative-chat-id>'
+
+install -d -m 0755 /etc/prometheus/alertmanager_templates
+install -m 0644 "$HS_REPO_DIR/infra/observability/alertmanager/templates/telegram.tmpl" \
+  /etc/prometheus/alertmanager_templates/telegram.tmpl
+
+install -m 0640 -o root -g prometheus /dev/null /etc/prometheus/telegram_bot_token
+printf '%s\n' "$TELEGRAM_BOT_TOKEN" >/etc/prometheus/telegram_bot_token
+
+TELEGRAM_CHAT_ID="$TELEGRAM_CHAT_ID" envsubst '$TELEGRAM_CHAT_ID' \
+  <"$HS_REPO_DIR/infra/observability/alertmanager/alertmanager.yml.template" \
+  >/etc/prometheus/alertmanager.yml
+
+amtool check-config /etc/prometheus/alertmanager.yml
+```
+
 Expose Grafana over HTTPS and Prometheus under `/prometheus/*`:
 
 ```bash
@@ -1156,15 +1186,25 @@ Start services and validate:
 
 ```bash
 systemctl daemon-reload
-systemctl enable --now prometheus grafana-server caddy
-systemctl restart prometheus grafana-server caddy
+systemctl enable --now prometheus prometheus-alertmanager grafana-server caddy
+systemctl restart prometheus prometheus-alertmanager grafana-server caddy
 
 promtool check config /etc/prometheus/prometheus.yml
 promtool check rules /etc/prometheus/rules/hyperspace-alerts.yml
+amtool check-config /etc/prometheus/alertmanager.yml
 curl -fsS "http://127.0.0.1:9090/-/ready"
+curl -fsS "http://127.0.0.1:9093/-/ready"
 curl -fsS "http://127.0.0.1:3000/api/health"
 curl -fsS "https://${OBSERVABILITY_DOMAIN}/api/health"
 curl -fsS "https://${OBSERVABILITY_DOMAIN}/prometheus/-/ready"
+```
+
+Send a synthetic alert to verify Telegram delivery:
+
+```bash
+amtool --alertmanager.url=http://127.0.0.1:9093 alert add \
+  alertname=HyperspaceSyntheticTest severity=info cluster="${HS_CLUSTER}" \
+  summary="Hyperspace synthetic Telegram alert"
 ```
 
 ## Gate Catalog

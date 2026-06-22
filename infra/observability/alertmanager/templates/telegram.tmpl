@@ -1,0 +1,9 @@
+{{ define "telegram.hyperspace.message" -}}
+{{ if eq .Status "firing" }}FIRING{{ else }}RESOLVED{{ end }} {{ len .Alerts }} Hyperspace alert(s)
+{{ range .Alerts }}
+
+{{ .Labels.alertname }} severity={{ .Labels.severity }} cluster={{ .Labels.cluster }}{{ if .Labels.gate }} gate={{ .Labels.gate }}{{ end }}
+{{ .Annotations.summary }}
+{{ .Annotations.description }}
+{{ end }}
+{{- end }}

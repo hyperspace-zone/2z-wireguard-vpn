@@ -78,6 +78,78 @@ async function collectGateMetrics(db: Database, metrics: RuntimeMetrics): Promis
       labels: { state }
     });
   }
+
+  const gateResult = await db.query<{
+    name: string;
+    enabled: boolean;
+    agentConnected: boolean;
+    ready: boolean;
+    schedulable: boolean;
+    doublezeroReady: boolean;
+    lastSeenAgeSeconds: number | null;
+    leaseSecondsUntilExpiry: number | null;
+  }>(`
+    SELECT
+      gates.name,
+      (gates.desired_state = 'Enabled') AS enabled,
+      (
+        COALESCE(agent.status = 'True', false)
+        AND COALESCE(gate_leases.lease_expires_at > now(), false)
+      ) AS "agentConnected",
+      (
+        COALESCE(agent.status = 'True', false)
+        AND COALESCE(gate_leases.lease_expires_at > now(), false)
+        AND COALESCE(ready.status = 'True', false)
+      ) AS ready,
+      (
+        gates.desired_state = 'Enabled'
+        AND COALESCE(agent.status = 'True', false)
+        AND COALESCE(gate_leases.lease_expires_at > now(), false)
+        AND COALESCE(schedulable.status = 'True', false)
+      ) AS schedulable,
+      (
+        'doublezero0:up' = ANY(gate_status.observed_capabilities)
+        AND gate_status.doublezero_status->>'tunnelStatus' = 'BGP Session Up'
+        AND gate_status.doublezero_status->>'network' = COALESCE(NULLIF(gates.spec->>'doubleZeroEnv', ''), 'testnet')
+        AND gate_status.doublezero_status->>'tunnelSrc' = gates.public_ipv4
+      ) AS "doublezeroReady",
+      EXTRACT(EPOCH FROM now() - gate_status.last_seen_at)::float AS "lastSeenAgeSeconds",
+      EXTRACT(EPOCH FROM gate_leases.lease_expires_at - now())::float AS "leaseSecondsUntilExpiry"
+    FROM gates
+    LEFT JOIN gate_status ON gate_status.gate_id = gates.id
+    LEFT JOIN gate_leases ON gate_leases.gate_id = gates.id
+    LEFT JOIN gate_conditions agent ON agent.gate_id = gates.id AND agent.type = 'AgentConnected'
+    LEFT JOIN gate_conditions ready ON ready.gate_id = gates.id AND ready.type = 'Ready'
+    LEFT JOIN gate_conditions schedulable ON schedulable.gate_id = gates.id AND schedulable.type = 'Schedulable'
+    ORDER BY gates.name
+  `);
+  for (const gate of gateResult.rows) {
+    const labels = { gate: gate.name, enabled: gate.enabled };
+    metrics.gauge("control_plane_gate_agent_connected", gate.agentConnected ? 1 : 0, {
+      help: "Per-gate agent connectivity based on condition state and fresh lease.",
+      labels
+    });
+    metrics.gauge("control_plane_gate_ready", gate.ready ? 1 : 0, {
+      help: "Per-gate Ready state based on gate lifecycle conditions.",
+      labels
+    });
+    metrics.gauge("control_plane_gate_schedulable", gate.schedulable ? 1 : 0, {
+      help: "Per-gate schedulability state.",
+      labels
+    });
+    metrics.gauge("control_plane_gate_doublezero_ready", gate.doublezeroReady ? 1 : 0, {
+      help: "Per-gate DoubleZero readiness state.",
+      labels
+    });
+    metrics.gauge("control_plane_gate_last_seen_age_seconds", gate.lastSeenAgeSeconds ?? 1_000_000_000, {
+      help: "Age of the last gate-agent heartbeat in seconds. Missing heartbeat is represented as a large value.",
+      labels
+    });
+    metrics.gauge("control_plane_gate_lease_seconds_until_expiry", gate.leaseSecondsUntilExpiry ?? -1_000_000_000, {
+      help: "Seconds until the gate-agent heartbeat lease expires. Missing lease is represented as a large negative value.",
+      labels
+    });
+  }
 }
 
 async function collectSessionMetrics(db: Database, metrics: RuntimeMetrics): Promise<void> {

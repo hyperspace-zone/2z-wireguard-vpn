@@ -1,0 +1,23 @@
+global:
+  resolve_timeout: 5m
+
+route:
+  receiver: hyperspace-telegram
+  group_by:
+    - cluster
+    - alertname
+    - gate
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+
+receivers:
+  - name: hyperspace-telegram
+    telegram_configs:
+      - send_resolved: true
+        bot_token_file: /etc/prometheus/telegram_bot_token
+        chat_id: ${TELEGRAM_CHAT_ID}
+        message: '{{ template "telegram.hyperspace.message" . }}'
+
+templates:
+  - /etc/prometheus/alertmanager_templates/*.tmpl
