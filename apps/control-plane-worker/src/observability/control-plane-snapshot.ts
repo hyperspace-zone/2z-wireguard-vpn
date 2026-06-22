@@ -81,6 +81,8 @@ async function collectGateMetrics(db: Database, metrics: RuntimeMetrics): Promis
 
   const gateResult = await db.query<{
     name: string;
+    publicIpv4: string;
+    probeUrl: string | null;
     enabled: boolean;
     agentConnected: boolean;
     ready: boolean;
@@ -91,6 +93,8 @@ async function collectGateMetrics(db: Database, metrics: RuntimeMetrics): Promis
   }>(`
     SELECT
       gates.name,
+      gates.public_ipv4 AS "publicIpv4",
+      gates.spec->>'probeUrl' AS "probeUrl",
       (gates.desired_state = 'Enabled') AS enabled,
       (
         COALESCE(agent.status = 'True', false)
@@ -124,7 +128,12 @@ async function collectGateMetrics(db: Database, metrics: RuntimeMetrics): Promis
     ORDER BY gates.name
   `);
   for (const gate of gateResult.rows) {
-    const labels = { gate: gate.name, enabled: gate.enabled };
+    const labels = {
+      gate: gate.name,
+      enabled: gate.enabled,
+      probe_host: gateAlertProbeHost(gate.probeUrl, gate.publicIpv4),
+      public_ipv4: gate.publicIpv4
+    };
     metrics.gauge("control_plane_gate_agent_connected", gate.agentConnected ? 1 : 0, {
       help: "Per-gate agent connectivity based on condition state and fresh lease.",
       labels
@@ -149,6 +158,18 @@ async function collectGateMetrics(db: Database, metrics: RuntimeMetrics): Promis
       help: "Seconds until the gate-agent heartbeat lease expires. Missing lease is represented as a large negative value.",
       labels
     });
+  }
+}
+
+export function gateAlertProbeHost(probeUrl: string | null | undefined, publicIpv4: string): string {
+  if (!probeUrl) {
+    return publicIpv4;
+  }
+  try {
+    const parsed = new URL(probeUrl);
+    return parsed.hostname || publicIpv4;
+  } catch {
+    return publicIpv4;
   }
 }
 

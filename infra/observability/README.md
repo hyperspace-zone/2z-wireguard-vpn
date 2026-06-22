@@ -35,3 +35,6 @@ DoubleZero readiness failures, dead jobs, benchmark failures, stale benchmark
 data, API 5xx rate, and public API rate-limit activity. Benchmark failure and
 staleness alerts are emitted per directed route and transport so notifications
 include the affected source gate, target gate, and Internet/DoubleZero path.
+Per-gate Telegram alerts include a copyable `host` value from the explicit
+gate catalog `probeUrl` plus the catalog `publicIpv4`; alert routing must not
+derive DNS names from `gate.name`.

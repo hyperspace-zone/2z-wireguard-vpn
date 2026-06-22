@@ -1,9 +1,16 @@
 {{ define "telegram.hyperspace.message" -}}
-{{ if eq .Status "firing" }}FIRING{{ else }}RESOLVED{{ end }} {{ len .Alerts }} Hyperspace alert(s)
+{{ if eq .Status "firing" }}<b>FIRING</b>{{ else }}<b>RESOLVED</b>{{ end }} {{ len .Alerts }} Hyperspace alert(s)
 {{ range .Alerts }}
 
-{{ .Labels.alertname }} severity={{ .Labels.severity }}{{ if .Labels.cluster }} cluster={{ .Labels.cluster }}{{ end }}{{ if .Labels.gate }} gate={{ .Labels.gate }}{{ end }}{{ if .Labels.route }} route={{ .Labels.route }}{{ end }}{{ if .Labels.transport }} transport={{ .Labels.transport }}{{ end }}
-{{ .Annotations.summary }}
-{{ .Annotations.description }}
+<b>{{ .Labels.alertname | html }}</b> severity={{ .Labels.severity | html }}{{ if .Labels.cluster }} cluster={{ .Labels.cluster | html }}{{ end }}{{ if .Labels.gate }} gate={{ .Labels.gate | html }}{{ end }}{{ if .Labels.route }} route={{ .Labels.route | html }}{{ end }}{{ if .Labels.transport }} transport={{ .Labels.transport | html }}{{ end }}
+{{ if or .Labels.probe_host .Labels.public_ipv4 -}}
+Gate access:
+{{ if .Labels.probe_host }}host <code>{{ .Labels.probe_host | html }}</code>
+{{ end -}}
+{{ if .Labels.public_ipv4 }}ip <code>{{ .Labels.public_ipv4 | html }}</code>
+{{ end -}}
+{{ end -}}
+{{ .Annotations.summary | html }}
+{{ .Annotations.description | html }}
 {{ end }}
 {{- end }}
