@@ -1,7 +1,4 @@
-{{ define "telegram.hyperspace.message" -}}
-{{ if eq .Status "firing" }}<b>FIRING</b>{{ else }}<b>RESOLVED</b>{{ end }} {{ len .Alerts }} Hyperspace alert(s)
-{{ range .Alerts }}
-
+{{ define "telegram.hyperspace.alert" -}}
 <b>{{ .Labels.alertname | html }}</b> severity={{ .Labels.severity | html }}{{ if .Labels.cluster }} cluster={{ .Labels.cluster | html }}{{ end }}{{ if .Labels.gate }} gate={{ .Labels.gate | html }}{{ end }}{{ if .Labels.route }} route={{ .Labels.route | html }}{{ end }}{{ if .Labels.transport }} transport={{ .Labels.transport | html }}{{ end }}
 {{ if or .Labels.probe_host .Labels.public_ipv4 -}}
 Gate access:
@@ -12,5 +9,24 @@ Gate access:
 {{ end -}}
 {{ .Annotations.summary | html }}
 {{ .Annotations.description | html }}
+{{ end -}}
+
+{{ define "telegram.hyperspace.message" -}}
+{{ $firing := .Alerts.Firing -}}
+{{ $resolved := .Alerts.Resolved -}}
+{{ if gt (len $firing) 0 -}}
+<b>FIRING</b> {{ len $firing }} Hyperspace alert(s)
+{{ range $firing }}
+
+{{ template "telegram.hyperspace.alert" . }}
 {{ end }}
+{{ end -}}
+{{ if gt (len $resolved) 0 -}}
+{{ if gt (len $firing) 0 }}
+{{ end }}<b>RESOLVED</b> {{ len $resolved }} Hyperspace alert(s)
+{{ range $resolved }}
+
+{{ template "telegram.hyperspace.alert" . }}
+{{ end }}
+{{ end -}}
 {{- end }}
