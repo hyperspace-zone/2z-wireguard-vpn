@@ -127,6 +127,62 @@ other software that rewrites forwarding policy on a gate. Docker commonly sets
 `iptables` `FORWARD` policy to `DROP`; Hyperspace nftables rules can then show
 accepted packets while Docker drops forwarding later in the host firewall path.
 
+## Host Baseline Hardening
+
+Run this section on every Hyperspace host role: web, control-plane, PostgreSQL,
+gate, and observability. Small cloud VMs can become temporarily unreachable when
+desktop-oriented maintenance daemons wake up and consume memory. On cloud
+servers, guest firmware updates are normally not actionable from inside the VM;
+the provider owns host firmware.
+
+Disable and mask `fwupd`/`PackageKit` background activation:
+
+```bash
+for unit in \
+  fwupd-refresh.timer \
+  fwupd-refresh.service \
+  fwupd.service \
+  packagekit.service \
+  packagekit-offline-update.service
+do
+  systemctl stop "$unit" 2>/dev/null || true
+  systemctl disable "$unit" 2>/dev/null || true
+  systemctl mask "$unit" 2>/dev/null || true
+done
+
+systemctl reset-failed \
+  fwupd-refresh.timer \
+  fwupd-refresh.service \
+  fwupd.service \
+  packagekit.service \
+  packagekit-offline-update.service 2>/dev/null || true
+```
+
+For 1 GB hosts, add swap unless the provider already supplies enough memory.
+This does not make undersized hosts fast, but it prevents short-lived metadata
+jobs from pushing the VM into an OOM/user-space stall:
+
+```bash
+if ! swapon --show=NAME --noheadings | grep -qx '/swapfile'; then
+  fallocate -l 2G /swapfile
+  chmod 600 /swapfile
+  mkswap /swapfile
+  swapon /swapfile
+fi
+
+grep -q '^/swapfile ' /etc/fstab || echo '/swapfile none swap sw 0 0' >> /etc/fstab
+
+cat >/etc/sysctl.d/99-hyperspace-vm-memory.conf <<'EOF'
+vm.swappiness=10
+vm.vfs_cache_pressure=50
+EOF
+sysctl --system
+```
+
+Do not rely on unattended background jobs for security patching after this
+hardening. Apply operating-system updates through an explicit maintenance
+window and reboot policy.
+
 Run this preflight on every gate before installing Hyperspace:
 
 ```bash
