@@ -74,7 +74,24 @@ groups:
           description: At least one control-plane job reached the dead terminal phase and needs operator review.
 
       - alert: HyperspaceBenchmarkRouteFailed
-        expr: hyperspace_control_plane_benchmark_route_failed == 1
+        expr: |
+          (hyperspace_control_plane_benchmark_route_failed == 1)
+          and on(source_gate)
+            label_replace(
+              hyperspace_control_plane_gate_agent_connected{enabled="true"} == 1,
+              "source_gate",
+              "$1",
+              "gate",
+              "(.*)"
+            )
+          and on(target_gate)
+            label_replace(
+              hyperspace_control_plane_gate_agent_connected{enabled="true"} == 1,
+              "target_gate",
+              "$1",
+              "gate",
+              "(.*)"
+            )
         for: 10m
         labels:
           severity: warning
@@ -83,7 +100,24 @@ groups:
           description: Route {{ $labels.route }} has failing {{ $labels.transport }} benchmark samples.
 
       - alert: HyperspaceBenchmarkRouteDataStale
-        expr: hyperspace_control_plane_benchmark_route_age_seconds > 900
+        expr: |
+          (hyperspace_control_plane_benchmark_route_age_seconds > 900)
+          and on(source_gate)
+            label_replace(
+              hyperspace_control_plane_gate_agent_connected{enabled="true"} == 1,
+              "source_gate",
+              "$1",
+              "gate",
+              "(.*)"
+            )
+          and on(target_gate)
+            label_replace(
+              hyperspace_control_plane_gate_agent_connected{enabled="true"} == 1,
+              "target_gate",
+              "$1",
+              "gate",
+              "(.*)"
+            )
         for: 10m
         labels:
           severity: warning
