@@ -48,6 +48,7 @@ export const gateSummarySchema = {
     publicIpv4: { type: "string" },
     probeUrl: { type: "string" },
     lastSeenAt: { type: "string", format: "date-time" },
+    clockErrorMs: { type: "number" },
     doubleZero: gateDoubleZeroStatusSchema,
     ready: { type: "boolean" },
     schedulable: { type: "boolean" }

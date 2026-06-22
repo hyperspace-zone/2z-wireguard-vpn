@@ -18,6 +18,7 @@ export interface GateHeartbeatPersistenceInput {
   bootId: string | null;
   observedEndpoint: string | null;
   capabilities: string[];
+  clockErrorMs: number | null;
   doubleZeroStatus: Record<string, unknown>;
   doubleZeroCurrentDevice: string | null;
   doubleZeroLowestLatencyDevice: string | null;
@@ -238,13 +239,14 @@ export async function saveGateHeartbeatStatus(
         last_seen_at,
         observed_endpoint,
         observed_capabilities,
+        clock_error_ms,
         doublezero_status,
         doublezero_current_device,
         doublezero_lowest_latency_device,
         doublezero_lowest_latency_device_warning,
         updated_at
       )
-      VALUES ($1, $2, $3, $4, now(), $5, $6::text[], $7::jsonb, $8, $9, $10, now())
+      VALUES ($1, $2, $3, $4, now(), $5, $6::text[], $7, $8::jsonb, $9, $10, $11, now())
       ON CONFLICT (gate_id) DO UPDATE
       SET
         observed_generation = EXCLUDED.observed_generation,
@@ -253,6 +255,7 @@ export async function saveGateHeartbeatStatus(
         last_seen_at = EXCLUDED.last_seen_at,
         observed_endpoint = EXCLUDED.observed_endpoint,
         observed_capabilities = EXCLUDED.observed_capabilities,
+        clock_error_ms = EXCLUDED.clock_error_ms,
         doublezero_status = EXCLUDED.doublezero_status,
         doublezero_current_device = EXCLUDED.doublezero_current_device,
         doublezero_lowest_latency_device = EXCLUDED.doublezero_lowest_latency_device,
@@ -266,6 +269,7 @@ export async function saveGateHeartbeatStatus(
       input.bootId,
       input.observedEndpoint,
       input.capabilities,
+      input.clockErrorMs,
       JSON.stringify(input.doubleZeroStatus),
       input.doubleZeroCurrentDevice,
       input.doubleZeroLowestLatencyDevice,

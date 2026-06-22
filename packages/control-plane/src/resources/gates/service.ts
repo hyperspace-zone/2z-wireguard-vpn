@@ -22,6 +22,7 @@ export interface GateHeartbeatReport {
   bootId: string;
   observedEndpoint: string;
   capabilities: string[];
+  clockErrorMs?: number;
   doubleZero: Record<string, unknown>;
 }
 
@@ -65,6 +66,7 @@ export async function recordGateHeartbeat(
       bootId: report.bootId || null,
       observedEndpoint: report.observedEndpoint || null,
       capabilities: report.capabilities,
+      clockErrorMs: finiteNumberOrNull(report.clockErrorMs),
       doubleZeroStatus: report.doubleZero,
       doubleZeroCurrentDevice,
       doubleZeroLowestLatencyDevice,
@@ -84,4 +86,8 @@ export async function recordGateHeartbeat(
 function readString(record: Record<string, unknown>, key: string): string {
   const value = record[key];
   return typeof value === "string" ? value.trim() : "";
+}
+
+function finiteNumberOrNull(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }

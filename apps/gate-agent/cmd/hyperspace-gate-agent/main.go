@@ -1821,6 +1821,7 @@ func commitEgress(state assignmentState, plan networkPlan) error {
 
 func sendHeartbeat(client *http.Client, cfg config, probeManager *probeServerManager) error {
 	doubleZero := doubleZeroStatus()
+	chronySummary := chronyTrackingSummary()
 	body := map[string]any{
 		"gateId":           cfg.GateName,
 		"agentVersion":     version,
@@ -1845,6 +1846,9 @@ func sendHeartbeat(client *http.Client, cfg config, probeManager *probeServerMan
 			"ntp-discovery:" + ntpDiscoveryState(),
 		},
 		"reportedAt": time.Now().UTC().Format(time.RFC3339),
+	}
+	if clockErrorMs, ok := chronyClockErrorMs(chronySummary); ok {
+		body["clockErrorMs"] = clockErrorMs
 	}
 	return postJSON(client, cfg, "/v1/gate/heartbeat", body, nil)
 }

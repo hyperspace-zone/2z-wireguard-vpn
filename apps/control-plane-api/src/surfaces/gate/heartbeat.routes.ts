@@ -23,14 +23,21 @@ export function registerGateHeartbeatRoutes(
     }
 
     const body = asRecord(request.body);
+    const clockErrorMs = readFiniteNumber(body, "clockErrorMs");
     await recordGateHeartbeat(deps.db, gate, {
       bootId: readString(body, "bootId"),
       agentVersion: readString(body, "agentVersion"),
       observedEndpoint: readString(body, "observedEndpoint"),
       capabilities: readStringArray(body, "capabilities"),
+      ...(typeof clockErrorMs === "number" ? { clockErrorMs } : {}),
       doubleZero: asRecord(body.doubleZero)
     });
 
     return reply.send({ ok: true });
   });
+}
+
+function readFiniteNumber(record: Record<string, unknown>, key: string): number | undefined {
+  const value = record[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }

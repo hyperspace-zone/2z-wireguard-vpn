@@ -10,6 +10,7 @@ export const gateHeartbeatRequestSchema = {
     agentVersion: { type: "string" },
     observedEndpoint: { type: "string" },
     capabilities: { type: "array", items: { type: "string" } },
+    clockErrorMs: { type: "number" },
     doubleZero: gateDoubleZeroStatusSchema
   }
 } as const;

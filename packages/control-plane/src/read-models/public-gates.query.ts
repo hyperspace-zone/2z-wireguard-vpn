@@ -12,6 +12,7 @@ export async function listPublicGates(db: Queryable): Promise<GateSummary[]> {
     publicIpv4: string;
     probeUrl: string | null;
     lastSeenAt: string | null;
+    clockErrorMs: number | null;
     doubleZero: Record<string, unknown> | null;
     doubleZeroCurrentDevice: string | null;
     doubleZeroLowestLatencyDevice: string | null;
@@ -30,6 +31,7 @@ export async function listPublicGates(db: Queryable): Promise<GateSummary[]> {
         gates.public_ipv4 AS "publicIpv4",
         NULLIF(gates.spec->>'probeUrl', '') AS "probeUrl",
         gate_status.last_seen_at AS "lastSeenAt",
+        gate_status.clock_error_ms::float AS "clockErrorMs",
         gate_status.doublezero_status AS "doubleZero",
         gate_status.doublezero_current_device AS "doubleZeroCurrentDevice",
         gate_status.doublezero_lowest_latency_device AS "doubleZeroLowestLatencyDevice",
@@ -65,6 +67,7 @@ export async function listPublicGates(db: Queryable): Promise<GateSummary[]> {
       publicIpv4: row.publicIpv4,
       ...(row.probeUrl ? { probeUrl: row.probeUrl } : {}),
       ...(row.lastSeenAt ? { lastSeenAt: row.lastSeenAt } : {}),
+      ...(typeof row.clockErrorMs === "number" ? { clockErrorMs: row.clockErrorMs } : {}),
       ...(doubleZero ? { doubleZero } : {}),
       ready: row.ready,
       schedulable: row.schedulable
