@@ -1,0 +1,25 @@
+{
+  "groupBy": ["cluster", "alertname", "gate", "route"],
+  "groupWait": "30s",
+  "groupInterval": "5m",
+  "repeatInterval": "4h",
+  "receivers": [
+    {
+      "name": "hyperspace-telegram-critical",
+      "chatId": -1003866413153,
+      "severities": ["critical"]
+    },
+    {
+      "name": "hyperspace-telegram-default",
+      "chatId": -5402171626,
+      "severities": ["warning", "info"],
+      "default": true
+    },
+    {
+      "name": "hyperspace-telegram-personal-example",
+      "chatId": 366795,
+      "severities": ["critical"],
+      "enabled": false
+    }
+  ]
+}

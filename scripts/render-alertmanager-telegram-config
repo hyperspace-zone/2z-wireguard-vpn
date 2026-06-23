@@ -1,0 +1,150 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+receivers_path="/etc/prometheus/alertmanager_telegram_receivers.json"
+output_path="-"
+bot_token_file="/etc/prometheus/telegram_bot_token"
+template_glob="/etc/prometheus/alertmanager_templates/*.tmpl"
+
+usage() {
+  cat <<'EOF'
+Usage:
+  scripts/render-alertmanager-telegram-config \
+    --receivers /etc/prometheus/alertmanager_telegram_receivers.json \
+    --output /etc/prometheus/alertmanager.yml
+
+Options:
+  --receivers       JSON recipient config path
+  --output          output file path, or '-' for stdout
+  --bot-token-file  Alertmanager bot_token_file path
+  --template-glob   Alertmanager template glob
+EOF
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --receivers)
+      receivers_path="${2:?missing --receivers value}"
+      shift 2
+      ;;
+    --output)
+      output_path="${2:?missing --output value}"
+      shift 2
+      ;;
+    --bot-token-file)
+      bot_token_file="${2:?missing --bot-token-file value}"
+      shift 2
+      ;;
+    --template-glob)
+      template_glob="${2:?missing --template-glob value}"
+      shift 2
+      ;;
+    --help|-h)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "Unknown option: $1" >&2
+      usage >&2
+      exit 1
+      ;;
+  esac
+done
+
+require_duration() {
+  local value="$1"
+  if [[ ! "$value" =~ ^[0-9]+(ms|s|m|h|d|w|y)$ ]]; then
+    echo "Invalid Alertmanager duration: $value" >&2
+    exit 1
+  fi
+}
+
+json_string() {
+  jq -nr --arg value "$1" '$value | @json'
+}
+
+jq -e '
+  type == "object"
+  and (.receivers | type == "array")
+  and ([.receivers[] | select(.enabled != false)] | length > 0)
+  and all(.receivers[] | select(.enabled != false);
+    (.name | type == "string" and test("^[A-Za-z0-9_.-]+$"))
+    and ((.chatId | tostring) | test("^-?[0-9]+$"))
+    and ((.severities // []) | type == "array")
+    and all((.severities // [])[]; (. | tostring | test("^[A-Za-z0-9_.-]+$")))
+  )
+  and (([.receivers[] | select(.enabled != false and .default == true)] | length) <= 1)
+  and (
+    ([.receivers[] | select(.enabled != false) | .name] | length)
+    ==
+    ([.receivers[] | select(.enabled != false) | .name] | unique | length)
+  )
+' "$receivers_path" >/dev/null
+
+group_wait="$(jq -r '.groupWait // "30s"' "$receivers_path")"
+group_interval="$(jq -r '.groupInterval // "5m"' "$receivers_path")"
+repeat_interval="$(jq -r '.repeatInterval // "4h"' "$receivers_path")"
+require_duration "$group_wait"
+require_duration "$group_interval"
+require_duration "$repeat_interval"
+
+default_receiver="$(jq -r '([.receivers[] | select(.enabled != false and .default == true) | .name][0]) // "hyperspace-null"' "$receivers_path")"
+has_explicit_default="$(jq -r '([.receivers[] | select(.enabled != false and .default == true)] | length) > 0' "$receivers_path")"
+
+tmp_output="$(mktemp)"
+trap 'rm -f "$tmp_output"' EXIT
+
+{
+  printf 'global:\n'
+  printf '  resolve_timeout: 5m\n\n'
+  printf 'route:\n'
+  printf '  receiver: %s\n' "$default_receiver"
+  printf '  group_by:\n'
+  jq -r '(.groupBy // ["cluster", "alertname", "gate", "route"])[]' "$receivers_path" |
+    while IFS= read -r label; do
+      if [[ ! "$label" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+        echo "Invalid group_by label: $label" >&2
+        exit 1
+      fi
+      printf '    - %s\n' "$label"
+    done
+  printf '  group_wait: %s\n' "$group_wait"
+  printf '  group_interval: %s\n' "$group_interval"
+  printf '  repeat_interval: %s\n' "$repeat_interval"
+
+  route_count="$(jq '[.receivers[] | select(.enabled != false) | (.severities // [])[]] | length' "$receivers_path")"
+  if [[ "$route_count" -gt 0 ]]; then
+    printf '  routes:\n'
+    jq -r '.receivers[] | select(.enabled != false) | .name as $name | (.severities // [])[] | [$name, (. | tostring)] | @tsv' "$receivers_path" |
+      while IFS=$'\t' read -r receiver_name severity; do
+        printf '    - receiver: %s\n' "$receiver_name"
+        printf '      matchers:\n'
+        printf '        - severity=%s\n' "$(json_string "$severity")"
+        printf '      continue: true\n'
+      done
+  fi
+
+  printf '\nreceivers:\n'
+  if [[ "$has_explicit_default" != "true" ]]; then
+    printf '  - name: %s\n' "$default_receiver"
+  fi
+  jq -r '.receivers[] | select(.enabled != false) | [.name, (.chatId | tostring)] | @tsv' "$receivers_path" |
+    while IFS=$'\t' read -r receiver_name chat_id; do
+      printf '  - name: %s\n' "$receiver_name"
+      printf '    telegram_configs:\n'
+      printf '      - send_resolved: true\n'
+      printf '        bot_token_file: %s\n' "$bot_token_file"
+      printf '        chat_id: %s\n' "$chat_id"
+      printf '        parse_mode: HTML\n'
+      printf "        message: '{{ template \"telegram.hyperspace.message\" . }}'\n\n"
+    done
+
+  printf 'templates:\n'
+  printf '  - %s\n' "$template_glob"
+} >"$tmp_output"
+
+if [[ "$output_path" == "-" ]]; then
+  cat "$tmp_output"
+else
+  install -m 0644 "$tmp_output" "$output_path"
+fi

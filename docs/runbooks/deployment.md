@@ -1164,7 +1164,7 @@ Install Prometheus, Alertmanager, Grafana, and Caddy:
 
 ```bash
 apt-get update
-apt-get install -y prometheus prometheus-alertmanager caddy gettext-base \
+apt-get install -y prometheus prometheus-alertmanager caddy gettext-base jq \
   apt-transport-https software-properties-common wget gpg
 
 install -d -m 0755 /etc/apt/keyrings
@@ -1206,14 +1206,18 @@ curl -fsS "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getUpdates"
 
 For groups, `chat.id` is usually a negative number. For channels and
 supergroups, Telegram Bot API IDs usually have the `-100...` form even when
-the Telegram UI shows the positive suffix. Store the token outside git and
-render the Alertmanager config from the repo template. Critical alerts are
-routed to `TELEGRAM_CRITICAL_CHAT_ID`; warnings and informational alerts use
-`TELEGRAM_DEFAULT_CHAT_ID`.
+the Telegram UI shows the positive suffix. For private user delivery, use the
+user's Telegram `chat_id`; Telegram bots cannot send to a phone number and the
+user must start a conversation with the bot first. For channels, the bot must
+be allowed to post to the channel.
+
+Store the bot token outside git. Store the routing policy in
+`/etc/prometheus/alertmanager_telegram_receivers.json`: each receiver declares
+the Telegram `chatId` and the alert `severities` it should receive. Add more
+receivers for extra chats, channels, or private users.
 
 ```bash
-export TELEGRAM_CRITICAL_CHAT_ID='<critical-negative-chat-id>'
-export TELEGRAM_DEFAULT_CHAT_ID='<warning-info-negative-chat-id>'
+export TELEGRAM_BOT_TOKEN='<bot-token-from-botfather>'
 
 install -d -m 0755 /etc/prometheus/alertmanager_templates
 install -m 0644 "$HS_REPO_DIR/infra/observability/alertmanager/templates/telegram.tmpl" \
@@ -1222,13 +1226,57 @@ install -m 0644 "$HS_REPO_DIR/infra/observability/alertmanager/templates/telegra
 install -m 0640 -o root -g prometheus /dev/null /etc/prometheus/telegram_bot_token
 printf '%s\n' "$TELEGRAM_BOT_TOKEN" >/etc/prometheus/telegram_bot_token
 
-TELEGRAM_CRITICAL_CHAT_ID="$TELEGRAM_CRITICAL_CHAT_ID" \
-TELEGRAM_DEFAULT_CHAT_ID="$TELEGRAM_DEFAULT_CHAT_ID" \
-  envsubst '$TELEGRAM_CRITICAL_CHAT_ID $TELEGRAM_DEFAULT_CHAT_ID' \
-  <"$HS_REPO_DIR/infra/observability/alertmanager/alertmanager.yml.template" \
-  >/etc/prometheus/alertmanager.yml
+install -m 0640 -o root -g prometheus \
+  "$HS_REPO_DIR/infra/observability/alertmanager/telegram-receivers.example.json" \
+  /etc/prometheus/alertmanager_telegram_receivers.json
+nano /etc/prometheus/alertmanager_telegram_receivers.json
+
+"$HS_REPO_DIR/scripts/render-alertmanager-telegram-config" \
+  --receivers /etc/prometheus/alertmanager_telegram_receivers.json \
+  --output /etc/prometheus/alertmanager.yml
 
 amtool check-config /etc/prometheus/alertmanager.yml
+```
+
+Example receiver policy:
+
+```json
+{
+  "receivers": [
+    {
+      "name": "hyperspace-telegram-critical",
+      "chatId": -1003866413153,
+      "severities": ["critical"]
+    },
+    {
+      "name": "hyperspace-telegram-default",
+      "chatId": -5402171626,
+      "severities": ["warning", "info"],
+      "default": true
+    },
+    {
+      "name": "hyperspace-telegram-personal-yadrena",
+      "chatId": 366795,
+      "severities": ["critical"]
+    }
+  ]
+}
+```
+
+`default: true` is the fallback receiver for alerts whose severity is not
+matched by any explicit route. If no receiver has `default: true`, unmatched
+alerts are intentionally dropped by an empty `hyperspace-null` receiver.
+
+After changing `/etc/prometheus/alertmanager_telegram_receivers.json`, render
+and reload Alertmanager:
+
+```bash
+jq . /etc/prometheus/alertmanager_telegram_receivers.json
+"$HS_REPO_DIR/scripts/render-alertmanager-telegram-config" \
+  --receivers /etc/prometheus/alertmanager_telegram_receivers.json \
+  --output /etc/prometheus/alertmanager.yml
+amtool check-config /etc/prometheus/alertmanager.yml
+systemctl restart prometheus-alertmanager
 ```
 
 Expose Grafana over HTTPS and Prometheus under `/prometheus/*`:

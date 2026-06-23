@@ -6,9 +6,9 @@ This bundle keeps the three observability ontologies separate:
 - Metrics are raw runtime events queued in-process and aggregated into
   Prometheus exposition by a dedicated metrics sink.
 - Alerting is expressed as Prometheus rules and visualized in Grafana.
-- Notification delivery is handled by Alertmanager. The production deployment
-  routes `severity=critical` alerts to the critical Telegram channel and
-  warnings/info alerts to the default operations chat.
+- Notification delivery is handled by Alertmanager. Telegram recipients are
+  configured in `/etc/prometheus/alertmanager_telegram_receivers.json`; each
+  chat, channel, or private user `chat_id` declares the severities it receives.
 
 Runtime endpoints:
 
@@ -22,6 +22,7 @@ Deployment artifacts:
 - `prometheus/prometheus.mainnet.yml`
 - `prometheus/rules/hyperspace-alerts.yml`
 - `alertmanager/alertmanager.yml.template`
+- `alertmanager/telegram-receivers.example.json`
 - `alertmanager/templates/telegram.tmpl`
 - `grafana/provisioning/datasources/prometheus.yml`
 - `grafana/provisioning/dashboards/hyperspace.yml`
@@ -45,3 +46,7 @@ route.
 Per-gate Telegram alerts include a copyable `host` value from the explicit
 gate catalog `probeUrl` plus the catalog `publicIpv4`; alert routing must not
 derive DNS names from `gate.name`.
+Render `/etc/prometheus/alertmanager.yml` with
+`scripts/render-alertmanager-telegram-config` after editing
+`/etc/prometheus/alertmanager_telegram_receivers.json`, then validate it with
+`amtool check-config` and restart `prometheus-alertmanager`.
