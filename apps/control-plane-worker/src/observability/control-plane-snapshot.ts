@@ -5,19 +5,29 @@ export async function collectControlPlaneSnapshotMetrics(input: {
   db: Database;
   metrics: RuntimeMetrics;
   health: HealthRegistry;
-}): Promise<void> {
+}): Promise<boolean> {
   const started = process.hrtime.bigint();
   try {
     await collectGateMetrics(input.db, input.metrics);
     await collectSessionMetrics(input.db, input.metrics);
     await collectJobMetrics(input.db, input.metrics);
     await collectBenchmarkMetrics(input.db, input.metrics);
+    input.metrics.gauge("control_plane_snapshot_ready", 1, {
+      help: "Whether the worker has collected a complete control-plane business metrics snapshot."
+    });
+    input.metrics.gauge("control_plane_snapshot_last_success_timestamp_seconds", Date.now() / 1000, {
+      help: "Unix timestamp of the last successful control-plane business metrics snapshot."
+    });
     input.health.setComponent("database", {
       state: "ready",
       message: "Control-plane database snapshot collected.",
       details: { latencyMs: Number(process.hrtime.bigint() - started) / 1_000_000 }
     });
+    return true;
   } catch (error) {
+    input.metrics.gauge("control_plane_snapshot_ready", 0, {
+      help: "Whether the worker has collected a complete control-plane business metrics snapshot."
+    });
     input.metrics.counter("worker_snapshot_collection_errors_total", 1, {
       help: "Total worker observability snapshot collection failures."
     });
@@ -25,6 +35,7 @@ export async function collectControlPlaneSnapshotMetrics(input: {
       state: "failed",
       message: error instanceof Error ? error.message : String(error)
     });
+    throw error;
   }
 }
 

@@ -11,9 +11,17 @@ export function createWorkerObservabilityServer(input: {
   port: number;
   health: HealthRegistry;
   metrics: RuntimeMetrics;
+  metricsReady?: () => boolean;
 }): WorkerObservabilityServer {
   const server = createServer((request, response) => {
     if (request.url?.split("?")[0] === "/metrics") {
+      if (input.metricsReady && !input.metricsReady()) {
+        response.writeHead(503, {
+          "content-type": "text/plain; charset=utf-8"
+        });
+        response.end("control-plane business metrics snapshot is not ready\n");
+        return;
+      }
       const body = input.metrics.renderPrometheus();
       response.writeHead(200, {
         "content-type": "text/plain; version=0.0.4; charset=utf-8"

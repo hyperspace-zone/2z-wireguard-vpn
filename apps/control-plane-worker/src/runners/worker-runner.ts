@@ -17,6 +17,7 @@ export function createWorkerRunner(input: {
   config: ControlPlaneWorkerConfig;
   health: HealthRegistry;
   metrics: RuntimeMetrics;
+  onSnapshotReady?: () => void;
 }): WorkerRunner {
   const reconcileRunner = createReconcileRunner({
     db: input.db,
@@ -34,7 +35,10 @@ export function createWorkerRunner(input: {
         await runMeasuredLoop("reconcile", input, () => reconcileRunner.runOnce());
         await runMeasuredLoop("retry", input, () => retryLoop.runOnce());
         await runMeasuredLoop("cleanup", input, () => cleanupLoop.runOnce());
-        await runMeasuredLoop("snapshot", input, () => collectControlPlaneSnapshotMetrics(input));
+        const snapshotReady = await runMeasuredLoop("snapshot", input, () => collectControlPlaneSnapshotMetrics(input));
+        if (snapshotReady) {
+          input.onSnapshotReady?.();
+        }
         if (!stopping) {
           await sleep(input.config.pollMs);
         }
@@ -52,18 +56,18 @@ export function createWorkerRunner(input: {
   };
 }
 
-async function runMeasuredLoop(
+async function runMeasuredLoop<T>(
   loop: string,
   input: {
     config: ControlPlaneWorkerConfig;
     health: HealthRegistry;
     metrics: RuntimeMetrics;
   },
-  fn: () => Promise<void>
-): Promise<void> {
+  fn: () => Promise<T>
+): Promise<T | undefined> {
   const started = process.hrtime.bigint();
   try {
-    await fn();
+    const result = await fn();
     const durationSeconds = Number(process.hrtime.bigint() - started) / 1_000_000_000;
     input.metrics.counter("worker_loop_runs_total", 1, {
       help: "Total worker loop executions by loop and status.",
@@ -82,6 +86,7 @@ async function runMeasuredLoop(
       message: "Loop completed successfully.",
       details: { durationSeconds }
     });
+    return result;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     input.metrics.counter("worker_loop_runs_total", 1, {
@@ -98,5 +103,6 @@ async function runMeasuredLoop(
       loop,
       error: message
     });
+    return undefined;
   }
 }
