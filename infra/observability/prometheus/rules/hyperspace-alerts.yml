@@ -31,6 +31,7 @@ groups:
       - alert: HyperspaceEnabledGateAgentDisconnected
         expr: hyperspace_control_plane_gate_agent_connected{enabled="true"} == 0
         for: 5m
+        keep_firing_for: 10m
         labels:
           severity: critical
         annotations:
