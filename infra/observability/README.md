@@ -7,7 +7,8 @@ This bundle keeps the three observability ontologies separate:
   Prometheus exposition by a dedicated metrics sink.
 - Alerting is expressed as Prometheus rules and visualized in Grafana.
 - Notification delivery is handled by Alertmanager. The production deployment
-  uses a Telegram receiver for the team chat.
+  routes `severity=critical` alerts to the critical Telegram channel and
+  warnings/info alerts to the default operations chat.
 
 Runtime endpoints:
 

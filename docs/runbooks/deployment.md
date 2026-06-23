@@ -1196,19 +1196,24 @@ install -o grafana -g grafana -m 0644 "$HS_REPO_DIR/infra/observability/grafana/
 ```
 
 Provision Alertmanager Telegram notifications. Create a Telegram bot with
-BotFather, add it to the team chat, send one message in the chat, then discover
-the chat ID from the bot updates:
+BotFather, add it to the target chats, send one message in each chat, then
+discover the chat IDs from the bot updates:
 
 ```bash
 export TELEGRAM_BOT_TOKEN='<bot-token-from-botfather>'
 curl -fsS "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getUpdates"
 ```
 
-For groups, `chat.id` is usually a negative number. Store the token outside git
-and render the Alertmanager config from the repo template:
+For groups, `chat.id` is usually a negative number. For channels and
+supergroups, Telegram Bot API IDs usually have the `-100...` form even when
+the Telegram UI shows the positive suffix. Store the token outside git and
+render the Alertmanager config from the repo template. Critical alerts are
+routed to `TELEGRAM_CRITICAL_CHAT_ID`; warnings and informational alerts use
+`TELEGRAM_DEFAULT_CHAT_ID`.
 
 ```bash
-export TELEGRAM_CHAT_ID='<negative-chat-id>'
+export TELEGRAM_CRITICAL_CHAT_ID='<critical-negative-chat-id>'
+export TELEGRAM_DEFAULT_CHAT_ID='<warning-info-negative-chat-id>'
 
 install -d -m 0755 /etc/prometheus/alertmanager_templates
 install -m 0644 "$HS_REPO_DIR/infra/observability/alertmanager/templates/telegram.tmpl" \
@@ -1217,7 +1222,9 @@ install -m 0644 "$HS_REPO_DIR/infra/observability/alertmanager/templates/telegra
 install -m 0640 -o root -g prometheus /dev/null /etc/prometheus/telegram_bot_token
 printf '%s\n' "$TELEGRAM_BOT_TOKEN" >/etc/prometheus/telegram_bot_token
 
-TELEGRAM_CHAT_ID="$TELEGRAM_CHAT_ID" envsubst '$TELEGRAM_CHAT_ID' \
+TELEGRAM_CRITICAL_CHAT_ID="$TELEGRAM_CRITICAL_CHAT_ID" \
+TELEGRAM_DEFAULT_CHAT_ID="$TELEGRAM_DEFAULT_CHAT_ID" \
+  envsubst '$TELEGRAM_CRITICAL_CHAT_ID $TELEGRAM_DEFAULT_CHAT_ID' \
   <"$HS_REPO_DIR/infra/observability/alertmanager/alertmanager.yml.template" \
   >/etc/prometheus/alertmanager.yml
 

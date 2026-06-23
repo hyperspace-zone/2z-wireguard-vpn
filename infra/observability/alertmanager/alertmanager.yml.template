@@ -2,7 +2,7 @@ global:
   resolve_timeout: 5m
 
 route:
-  receiver: hyperspace-telegram
+  receiver: hyperspace-telegram-default
   group_by:
     - cluster
     - alertname
@@ -11,13 +11,25 @@ route:
   group_wait: 30s
   group_interval: 5m
   repeat_interval: 4h
+  routes:
+    - receiver: hyperspace-telegram-critical
+      matchers:
+        - severity="critical"
 
 receivers:
-  - name: hyperspace-telegram
+  - name: hyperspace-telegram-critical
     telegram_configs:
       - send_resolved: true
         bot_token_file: /etc/prometheus/telegram_bot_token
-        chat_id: ${TELEGRAM_CHAT_ID}
+        chat_id: ${TELEGRAM_CRITICAL_CHAT_ID}
+        parse_mode: HTML
+        message: '{{ template "telegram.hyperspace.message" . }}'
+
+  - name: hyperspace-telegram-default
+    telegram_configs:
+      - send_resolved: true
+        bot_token_file: /etc/prometheus/telegram_bot_token
+        chat_id: ${TELEGRAM_DEFAULT_CHAT_ID}
         parse_mode: HTML
         message: '{{ template "telegram.hyperspace.message" . }}'
 
