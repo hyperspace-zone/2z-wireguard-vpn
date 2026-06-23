@@ -258,6 +258,10 @@ async function collectBenchmarkMetrics(db: Database, metrics: RuntimeMetrics): P
         loss_percent,
         measured_at
       FROM gate_benchmark_results
+      JOIN gates source ON source.id = gate_benchmark_results.source_gate_id
+      JOIN gates target ON target.id = gate_benchmark_results.target_gate_id
+      WHERE source.desired_state = 'Enabled'
+        AND target.desired_state = 'Enabled'
       ORDER BY source_gate_id, target_gate_id, transport, measured_at DESC
     )
     SELECT
@@ -317,6 +321,10 @@ async function collectBenchmarkMetrics(db: Database, metrics: RuntimeMetrics): P
         loss_percent,
         measured_at
       FROM gate_benchmark_results
+      JOIN gates source ON source.id = gate_benchmark_results.source_gate_id
+      JOIN gates target ON target.id = gate_benchmark_results.target_gate_id
+      WHERE source.desired_state = 'Enabled'
+        AND target.desired_state = 'Enabled'
       ORDER BY source_gate_id, target_gate_id, transport, measured_at DESC
     )
     SELECT

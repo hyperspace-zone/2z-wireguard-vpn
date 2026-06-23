@@ -6,7 +6,8 @@
     "country": "Germany",
     "publicIpv4": "203.0.113.10",
     "probeUrl": "https://gate-eu-fra-01.example.net/.well-known/hyperspace-probe",
-    "doubleZeroEnv": "testnet"
+    "doubleZeroEnv": "testnet",
+    "desiredState": "Enabled"
   },
   {
     "name": "gate-na-chi-01",
@@ -15,6 +16,7 @@
     "country": "United States",
     "publicIpv4": "203.0.113.20",
     "probeUrl": "https://203.0.113.20/.well-known/hyperspace-probe",
-    "doubleZeroEnv": "testnet"
+    "doubleZeroEnv": "testnet",
+    "desiredState": "Disabled"
   }
 ]

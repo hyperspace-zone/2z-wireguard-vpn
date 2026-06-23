@@ -31,6 +31,8 @@ test("gate seed keeps human city and country fields", () => {
   assert.equal(seed.city, "Frankfurt");
   assert.equal(seed.country, "Germany");
   assert.equal(seed.doubleZeroEnv, "mainnet-beta");
+  assert.equal(seed.desiredState, "Enabled");
+  assert.equal(seed.probeHost, "gate-eu-fra-01.example.net");
 });
 
 test("gate seed defaults DoubleZero environment to testnet", () => {
@@ -84,6 +86,28 @@ test("gate seed rejects duplicate probe urls", () => {
   assert.throws(
     () => normalizeGateSeeds([fraGate, { ...chiGate, probeUrl: fraGate.probeUrl }]),
     /duplicate gate probeUrl/
+  );
+});
+
+test("gate seed rejects duplicate probe hosts", () => {
+  assert.throws(
+    () => normalizeGateSeeds([fraGate, { ...chiGate, probeUrl: "https://gate-eu-fra-01.example.net/alternate-probe" }]),
+    /duplicate gate probe host gate-eu-fra-01\.example\.net/
+  );
+});
+
+test("gate seed accepts explicit desired state", () => {
+  const seeds = normalizeGateSeeds([
+    { ...fraGate, desiredState: "Disabled" },
+    chiGate
+  ]);
+  assert.equal(seeds[0]?.desiredState, "Disabled");
+});
+
+test("gate seed rejects invalid desired state", () => {
+  assert.throws(
+    () => normalizeGateSeeds([fraGate, { ...chiGate, desiredState: "Offline" as never }]),
+    /desiredState must be Enabled, Draining, Disabled, or Maintenance/
   );
 });
 

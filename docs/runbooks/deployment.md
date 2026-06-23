@@ -1344,7 +1344,8 @@ The file should look like this after replacing values:
     "country": "Germany",
     "publicIpv4": "203.0.113.10",
     "probeUrl": "https://gate-eu-fra-01.example.net/.well-known/hyperspace-probe",
-    "doubleZeroEnv": "mainnet-beta"
+    "doubleZeroEnv": "mainnet-beta",
+    "desiredState": "Enabled"
   },
   {
     "name": "gate-na-chi-01",
@@ -1353,7 +1354,8 @@ The file should look like this after replacing values:
     "country": "United States",
     "publicIpv4": "203.0.113.20",
     "probeUrl": "https://203.0.113.20/.well-known/hyperspace-probe",
-    "doubleZeroEnv": "mainnet-beta"
+    "doubleZeroEnv": "mainnet-beta",
+    "desiredState": "Disabled"
   }
 ]
 ```
@@ -1383,6 +1385,18 @@ URL. If you use DNS names such as `gate-eu-fra-02.hyperspace.zone`, put that
 hostname in `probeUrl`, for example
 `https://gate-eu-fra-02.hyperspace.zone/.well-known/hyperspace-probe`.
 `probeUrl` must be unique when present.
+The control plane also stores the lower-cased `probeUrl` hostname as
+`probeHost`; this hostname must be unique as well. This prevents adding the
+same HTTPS probe endpoint twice under different paths or gate names.
+
+`desiredState` is optional and defaults to `Enabled`. Use `Disabled` when a
+gate is intentionally powered off or temporarily removed from the active
+footprint but may be brought back later. Disabled gates remain in the
+operator/admin catalog and keep historical benchmark data, but they are hidden
+from the public gate catalog, excluded from scheduling and benchmark planning,
+and do not produce enabled-gate alerts. Use `Maintenance` or `Draining` only
+for operator workflows where the gate should remain visible to admins but not
+accept new work.
 
 Set `doubleZeroEnv` to the same value as `DZ_ENV` for every gate:
 `testnet` for DoubleZero testnet clusters, or `mainnet-beta` for DoubleZero
@@ -1397,8 +1411,8 @@ and does not provide separate scheduling pools for mixed environments.
 
 The seed file must contain at least two gates because the current platform
 requires distinct ingress and egress gates for a session. The seed command also
-rejects duplicate `name`, `identity`, `publicIpv4`, and duplicate
-`probeUrl` values.
+rejects duplicate `name`, `identity`, `publicIpv4`, duplicate `probeUrl`, and
+duplicate `probeUrl` host values.
 
 Use `city` and `country` as operator-facing location fields. The control plane
 does not validate or normalize spelling; values are displayed as provided.
@@ -1436,9 +1450,23 @@ script needs to parse issued gate tokens.
 
 The seed command validates the gate catalog before writing to PostgreSQL:
 the file must contain at least two gates, `name`, `identity`, and
-`publicIpv4` must be unique, `probeUrl` must be unique when present,
-`publicIpv4` must be a public IPv4 address, and `doubleZeroEnv` must be `testnet` or
-`mainnet-beta`.
+`publicIpv4` must be unique, `probeUrl` and its hostname must be unique when
+present, `publicIpv4` must be a public IPv4 address, `doubleZeroEnv` must be
+`testnet` or `mainnet-beta`, and `desiredState` must be one of `Enabled`,
+`Draining`, `Disabled`, or `Maintenance`.
+
+To temporarily remove a gate from the active footprint without deleting
+history, set it to `Disabled` in the seed file and apply the seed:
+
+```bash
+jq 'map(if .name == "gate-na-chi-02" or .publicIpv4 == "152.44.43.130" then .desiredState = "Disabled" else . end)' \
+  /etc/hyperspace/gates.json >/tmp/gates.json
+install -o root -g hyperspace -m 0640 /tmp/gates.json /etc/hyperspace/gates.json
+sudo -u hyperspace env DATABASE_URL="$DATABASE_URL" scripts/seed-gates-json /etc/hyperspace/gates.json | jq .
+```
+
+To bring the same gate back, change `desiredState` to `Enabled`, confirm the VM
+and `hyperspace-gate-agent` are running, and apply the seed again.
 
 ## Gate Agents
 

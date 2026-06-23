@@ -2,7 +2,10 @@ import type { GateSummary } from "@hyperspace-zone/contracts";
 import type { Queryable } from "../db/queryable.js";
 import { freshGateLeaseSqlPredicate } from "../resources/gate-leases/repository.js";
 
-export async function listPublicGates(db: Queryable): Promise<GateSummary[]> {
+export async function listPublicGates(
+  db: Queryable,
+  options: { includeNonEnabled?: boolean } = {}
+): Promise<GateSummary[]> {
   const result = await db.query<{
     id: string;
     name: string;
@@ -48,8 +51,10 @@ export async function listPublicGates(db: Queryable): Promise<GateSummary[]> {
       LEFT JOIN gate_conditions agent ON agent.gate_id = gates.id AND agent.type = 'AgentConnected'
       LEFT JOIN gate_conditions ready ON ready.gate_id = gates.id AND ready.type = 'Ready'
       LEFT JOIN gate_conditions schedulable ON schedulable.gate_id = gates.id AND schedulable.type = 'Schedulable'
+      WHERE ($1::boolean = true OR gates.desired_state = 'Enabled')
       ORDER BY gates.country, gates.city, gates.name
-    `
+    `,
+    [options.includeNonEnabled === true]
   );
   return result.rows.map((row) => {
     const doubleZero = mergeGateDoubleZeroStatus({

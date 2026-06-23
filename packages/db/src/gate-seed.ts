@@ -13,10 +13,13 @@ export interface GateSeed {
   publicIpv4: string;
   probeUrl?: string;
   doubleZeroEnv?: "testnet" | "mainnet-beta";
+  desiredState?: "Enabled" | "Draining" | "Disabled" | "Maintenance";
 }
 
 export interface NormalizedGateSeed extends GateSeed {
   doubleZeroEnv: "testnet" | "mainnet-beta";
+  desiredState: "Enabled" | "Draining" | "Disabled" | "Maintenance";
+  probeHost?: string;
 }
 
 export function normalizeGateSeeds(input: unknown): NormalizedGateSeed[] {
@@ -28,6 +31,7 @@ export function normalizeGateSeeds(input: unknown): NormalizedGateSeed[] {
   const identities = new Set<string>();
   const publicIpv4s = new Set<string>();
   const probeUrls = new Set<string>();
+  const probeHosts = new Set<string>();
   return input.map((value, index) => {
     if (typeof value !== "object" || value === null) {
       throw new Error(`gate seed at index ${index} must be an object`);
@@ -39,12 +43,23 @@ export function normalizeGateSeeds(input: unknown): NormalizedGateSeed[] {
     const city = readRequiredText(seed.city, `${label}.city`);
     const country = readRequiredText(seed.country, `${label}.country`);
     const publicIpv4 = readRequiredToken(seed.publicIpv4, `${label}.publicIpv4`);
-    const probeUrl = seed.probeUrl ? readHttpsUrl(seed.probeUrl, `${label}.probeUrl`) : "";
+    const parsedProbeUrl = seed.probeUrl ? readHttpsUrl(seed.probeUrl, `${label}.probeUrl`) : null;
+    const probeUrl = parsedProbeUrl?.toString() ?? "";
+    const probeHost = parsedProbeUrl?.hostname.toLowerCase() ?? "";
     if (isIP(publicIpv4) !== 4) {
       throw new Error(`${label}.publicIpv4 must be a public IPv4 address`);
     }
     if (seed.doubleZeroEnv && seed.doubleZeroEnv !== "testnet" && seed.doubleZeroEnv !== "mainnet-beta") {
       throw new Error(`${label}.doubleZeroEnv must be testnet or mainnet-beta`);
+    }
+    if (
+      seed.desiredState &&
+      seed.desiredState !== "Enabled" &&
+      seed.desiredState !== "Draining" &&
+      seed.desiredState !== "Disabled" &&
+      seed.desiredState !== "Maintenance"
+    ) {
+      throw new Error(`${label}.desiredState must be Enabled, Draining, Disabled, or Maintenance`);
     }
     if (names.has(name)) {
       throw new Error(`duplicate gate name ${name}`);
@@ -58,11 +73,15 @@ export function normalizeGateSeeds(input: unknown): NormalizedGateSeed[] {
     if (probeUrl && probeUrls.has(probeUrl)) {
       throw new Error(`duplicate gate probeUrl ${probeUrl}`);
     }
+    if (probeHost && probeHosts.has(probeHost)) {
+      throw new Error(`duplicate gate probe host ${probeHost}`);
+    }
     names.add(name);
     identities.add(identity);
     publicIpv4s.add(publicIpv4);
     if (probeUrl) {
       probeUrls.add(probeUrl);
+      probeHosts.add(probeHost);
     }
 
     return {
@@ -72,7 +91,9 @@ export function normalizeGateSeeds(input: unknown): NormalizedGateSeed[] {
       country,
       publicIpv4,
       ...(probeUrl ? { probeUrl } : {}),
-      doubleZeroEnv: seed.doubleZeroEnv ?? "testnet"
+      ...(probeHost ? { probeHost } : {}),
+      doubleZeroEnv: seed.doubleZeroEnv ?? "testnet",
+      desiredState: seed.desiredState ?? "Enabled"
     };
   });
 }
@@ -85,7 +106,7 @@ function readRequiredToken(value: unknown, field: string): string {
   return text;
 }
 
-function readHttpsUrl(value: unknown, field: string): string {
+function readHttpsUrl(value: unknown, field: string): URL {
   const text = readRequiredText(value, field);
   let url: URL;
   try {
@@ -96,7 +117,7 @@ function readHttpsUrl(value: unknown, field: string): string {
   if (url.protocol !== "https:") {
     throw new Error(`${field} must use https`);
   }
-  return url.toString();
+  return url;
 }
 
 function readRequiredText(value: unknown, field: string): string {

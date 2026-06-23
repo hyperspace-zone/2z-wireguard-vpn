@@ -25,6 +25,48 @@ try {
   const issuedTokens: Array<{ gate: string; token: string }> = [];
 
   await db.transaction(async (client) => {
+    const existing = await client.query<{
+      name: string;
+      identity: string;
+      publicIpv4: string;
+      probeHost: string | null;
+    }>(
+      `
+        SELECT
+          name,
+          identity,
+          public_ipv4 AS "publicIpv4",
+          lower(NULLIF(spec->>'probeHost', '')) AS "probeHost"
+        FROM gates
+        WHERE name = ANY($1::text[])
+           OR identity = ANY($2::text[])
+           OR public_ipv4 = ANY($3::text[])
+           OR lower(NULLIF(spec->>'probeHost', '')) = ANY($4::text[])
+      `,
+      [
+        seeds.map((seed) => seed.name),
+        seeds.map((seed) => seed.identity),
+        seeds.map((seed) => seed.publicIpv4),
+        seeds.map((seed) => seed.probeHost).filter((value): value is string => Boolean(value))
+      ]
+    );
+    for (const row of existing.rows) {
+      for (const seed of seeds) {
+        if (row.name === seed.name) {
+          continue;
+        }
+        if (row.identity === seed.identity) {
+          throw new Error(`gate identity ${seed.identity} is already used by ${row.name}`);
+        }
+        if (row.publicIpv4 === seed.publicIpv4) {
+          throw new Error(`gate publicIpv4 ${seed.publicIpv4} is already used by ${row.name}`);
+        }
+        if (row.probeHost && seed.probeHost && row.probeHost === seed.probeHost) {
+          throw new Error(`gate probe host ${seed.probeHost} is already used by ${row.name}`);
+        }
+      }
+    }
+
     for (const seed of seeds) {
       const gate = await client.query<{ id: string }>(
         `
@@ -39,7 +81,7 @@ try {
             capacity_limit,
             spec
           )
-          VALUES ($1, 'Enabled', $2, $3, $4, $5, $6, $7, $8::jsonb)
+          VALUES ($1, $9::gate_desired_state, $2, $3, $4, $5, $6, $7, $8::jsonb)
           ON CONFLICT (name) DO UPDATE
           SET
             identity = EXCLUDED.identity,
@@ -48,7 +90,7 @@ try {
             public_ipv4 = EXCLUDED.public_ipv4,
             scheduling_weight = EXCLUDED.scheduling_weight,
             capacity_limit = EXCLUDED.capacity_limit,
-            desired_state = 'Enabled',
+            desired_state = EXCLUDED.desired_state,
             spec = EXCLUDED.spec,
             updated_at = now()
           RETURNING id
@@ -64,11 +106,13 @@ try {
           JSON.stringify({
             doubleZeroEnv: seed.doubleZeroEnv,
             ...(seed.probeUrl ? { probeUrl: seed.probeUrl } : {}),
+            ...(seed.probeHost ? { probeHost: seed.probeHost } : {}),
             location: {
               city: seed.city,
               country: seed.country
             }
-          })
+          }),
+          seed.desiredState
         ]
       );
 

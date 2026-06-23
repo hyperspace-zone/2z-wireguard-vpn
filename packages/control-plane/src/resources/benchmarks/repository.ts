@@ -325,6 +325,8 @@ export async function listLatestGateBenchmarkRoutes(db: Queryable): Promise<Gate
         FROM gates source
         CROSS JOIN gates target
         WHERE source.id <> target.id
+          AND source.desired_state = 'Enabled'
+          AND target.desired_state = 'Enabled'
       )
       SELECT
         directed_pairs.source_gate_id AS "sourceGateId",

@@ -29,7 +29,7 @@ export function registerAdminGatesRoutes(
     if (!admin) {
       return;
     }
-    return reply.send({ gates: await listPublicGates(deps.db) });
+    return reply.send({ gates: await listPublicGates(deps.db, { includeNonEnabled: true }) });
   });
 
   registerGateDesiredStateRoute(app, deps, "enable", "Enabled");
