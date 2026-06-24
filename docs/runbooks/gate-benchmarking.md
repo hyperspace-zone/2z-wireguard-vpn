@@ -271,3 +271,32 @@ reach green Clock Error if the route to the source hairpins through other
 metros. In that case the correct fix is provider routing or moving the gate to a
 location/provider with a close time source, not forcing a misleading local
 clock.
+
+### Mainnet NTP Source Snapshot, 2026-06-24
+
+The 2026-06-24 mainnet tuning pass used internet research only to build the
+candidate list. Final source selection was based on live `chronyc ... noselect`
+samples from each gate. Do not assume that the geographically nearest public NTP
+name is the best source for a gate; provider routing and peering dominate.
+
+| Gate | Preferred source after tuning | Public sources checked | Result |
+| --- | --- | --- | --- |
+| `gate-sa-sao-21` | `gps.nu.ntp.br` | NTP.br stratum-1/2, `br.pool.ntp.org`, Cloudflare, Google | Green, about 0.6ms Clock Error. |
+| `gate-eu-ams-21` | `ntppool4.time.nl` | TimeNL/VSL, `nl.pool.ntp.org`, Cloudflare, Google | Green, about 0.6ms Clock Error. |
+| `gate-eu-sto-21` | `sth4.ntp.se` | Netnod Stockholm, `se.pool.ntp.org`, Cloudflare, Google | Green, about 0.4ms Clock Error. |
+| `gate-eu-lon-01` | `ntp1.npl.co.uk` | NPL, `uk.pool.ntp.org`, Cloudflare, Google, Apple | Green, about 1.0ms Clock Error. |
+| `gate-na-sjc-01` | `clock.fmt.he.net` | Hurricane Electric SJC/FMT, NIST WWV, US pool, Cloudflare, Google, Apple | Green, about 2.2ms Clock Error. |
+| `gate-eu-mad-01` | `tock.espanix.net`, `tick.espanix.net` | ESPANIX, ROA, Spain pool, Cloudflare, Google | Already green, about 0.3ms Clock Error. |
+| `gate-eu-fra-21` | `130.162.222.153` plus RIPE/PTB fallbacks | RIPE, PTB, Germany pool, Cloudflare | Already green, about 0.8ms Clock Error. |
+| `gate-eu-osl-01` | `185.175.56.95` | Norway pool, Nordic low-delay candidates, Netnod, Cloudflare | Already green, about 1.0ms Clock Error. |
+| `gate-ap-tyo-21` | Existing Tokyo-local pool source | NICT, JST mfeed, Japan pool, Cloudflare, Google, Apple | Existing source stayed better than public official candidates, about 1.5ms Clock Error. |
+| `gate-ap-sin-21` | Existing Singapore-local pool source | Singapore pool, Asia pool, Cloudflare, Google, Apple, Ubuntu | Existing source stayed better than tested candidates, about 1.2ms Clock Error. |
+| `gate-ap-hkg-21` | `223.255.185.2` | Hong Kong Observatory, Hong Kong pool, Cloudflare, Google | Improved from about 7.3ms to about 3.4ms, still close to the yellow threshold. |
+| `gate-eu-sia-21` | `5.20.0.21`, `5.20.0.20` | Lithuania pool, LITNET/Lithuania candidates, Cloudflare, Google, Apple | Best public reachable sources are still yellow, about 4.9ms. |
+| `gate-na-chi-21` | `72.30.35.89` | US pool, NIST WWV, Cloudflare, Google, Apple | Best public reachable sources are still yellow, about 7.1ms. |
+| `gate-na-slc-21` | NIST WWV sources | XMission Salt Lake City, NIST WWV, US pool, Cloudflare, Google, Apple | XMission routed worse from this VM; best public reachable sources are still yellow, about 7.6ms. |
+
+If a gate remains yellow after this process, the next fix is not more public NTP
+names. Ask the infrastructure provider for provider-local NTP/PTP, better
+routing to the selected source, or move the gate to a provider/region where
+`root delay / 2 + root dispersion` is below the UI threshold.
