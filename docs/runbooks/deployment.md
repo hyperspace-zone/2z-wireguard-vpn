@@ -1394,9 +1394,11 @@ gate is intentionally powered off or temporarily removed from the active
 footprint but may be brought back later. Disabled gates remain in the
 operator/admin catalog and keep historical benchmark data, but they are hidden
 from the public gate catalog, excluded from scheduling and benchmark planning,
-and do not produce enabled-gate alerts. Use `Maintenance` or `Draining` only
-for operator workflows where the gate should remain visible to admins but not
-accept new work.
+and do not produce enabled-gate alerts. Use `Maintenance` for gates that should
+remain visible in the public Gates inventory but must not accept new work yet,
+for example when a host is prepared and waiting for DoubleZero `access-pass`
+approval. Use `Draining` for operator workflows where the gate should remain
+visible to admins while existing work is being removed.
 
 Set `doubleZeroEnv` to the same value as `DZ_ENV` for every gate:
 `testnet` for DoubleZero testnet clusters, or `mainnet-beta` for DoubleZero

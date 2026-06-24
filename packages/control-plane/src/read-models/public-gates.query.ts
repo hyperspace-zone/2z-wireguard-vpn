@@ -51,7 +51,10 @@ export async function listPublicGates(
       LEFT JOIN gate_conditions agent ON agent.gate_id = gates.id AND agent.type = 'AgentConnected'
       LEFT JOIN gate_conditions ready ON ready.gate_id = gates.id AND ready.type = 'Ready'
       LEFT JOIN gate_conditions schedulable ON schedulable.gate_id = gates.id AND schedulable.type = 'Schedulable'
-      WHERE ($1::boolean = true OR gates.desired_state = 'Enabled')
+      WHERE (
+        $1::boolean = true
+        OR gates.desired_state IN ('Enabled', 'Maintenance')
+      )
       ORDER BY gates.country, gates.city, gates.name
     `,
     [options.includeNonEnabled === true]
