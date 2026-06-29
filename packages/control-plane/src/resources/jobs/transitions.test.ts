@@ -33,8 +33,10 @@ test("job lease and session-failure transitions are canonical", () => {
   assert.equal(queuedJobTransition(), "queued");
   assert.equal(expiredLeaseTransition("leased"), "queued");
   assert.equal(expiredLeaseTransition("succeeded"), "succeeded");
+  assert.equal(expiredLeaseTransition("acknowledged_dead"), "acknowledged_dead");
   assert.equal(deadForSessionFailureTransition("running"), "dead");
   assert.equal(deadForSessionFailureTransition("succeeded"), "succeeded");
+  assert.equal(deadForSessionFailureTransition("acknowledged_dead"), "acknowledged_dead");
   assert.deepEqual(expiredLeaseCandidateJobPhases, ["leased", "running"]);
   assert.deepEqual(sessionFailureDeadCandidateJobPhases, ["queued", "leased", "running", "retryable_failed"]);
 });

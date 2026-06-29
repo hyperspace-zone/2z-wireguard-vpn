@@ -698,6 +698,24 @@ This drop-in deliberately uses the `DZ_ENV` selected in Bootstrap Variables.
 Do not switch `DZ_ENV` between `testnet` and `mainnet-beta` after an
 `access-pass` has been issued for a gate.
 
+For production gates, also install the passive route-liveness tuning drop-in.
+This keeps DoubleZero route liveness enabled, but reduces background traffic by
+using longer passive liveness intervals. Do not enable active route liveness
+unless the DoubleZero team explicitly asks for it; active mode can remove kernel
+routes when peers are considered down.
+
+Use a late-sorting `zz-` filename because other service drop-ins may also reset
+`ExecStart`:
+
+```bash
+install -d /etc/systemd/system/doublezerod.service.d
+cat >/etc/systemd/system/doublezerod.service.d/zz-route-liveness-passive-tuning.conf <<EOF
+[Service]
+ExecStart=
+ExecStart=/usr/bin/doublezerod -sock-file /run/doublezerod/doublezerod.sock -env ${DZ_ENV} -route-liveness-tx-min 10s -route-liveness-rx-min 10s -route-liveness-max-tx-ceil 30s
+EOF
+```
+
 Then run:
 
 ```bash
@@ -1251,7 +1269,7 @@ Example receiver policy:
     {
       "name": "hyperspace-telegram-default",
       "chatId": -5402171626,
-      "severities": ["warning", "info"],
+      "severities": ["critical", "warning", "info"],
       "default": true
     },
     {
@@ -1317,6 +1335,31 @@ amtool --alertmanager.url=http://127.0.0.1:9093 alert add \
   alertname=HyperspaceSyntheticTest severity=info cluster="${HS_CLUSTER}" \
   summary="Hyperspace synthetic Telegram alert"
 ```
+
+Dead control-plane jobs are retained for review. `phase="dead"` means an
+operator still needs to inspect the failed job and it triggers
+`HyperspaceDeadJobsPresent`. After review, keep the row for history but move it
+to `phase="acknowledged_dead"` so old incidents do not keep paging:
+
+```bash
+cd "$HS_REPO_DIR"
+
+# Dry-run first. This prints grouped candidates without mutating the database.
+scripts/acknowledge-dead-jobs.mjs \
+  --env-file /etc/hyperspace/control-plane-worker.env \
+  --older-than "24 hours"
+
+# Execute only after the candidates are understood.
+scripts/acknowledge-dead-jobs.mjs \
+  --env-file /etc/hyperspace/control-plane-worker.env \
+  --older-than "24 hours" \
+  --execute \
+  --reason "reviewed old dead jobs"
+```
+
+Use `--type probe`, `--type apply_assignment`, or `--gate gate-name` to narrow
+the acknowledgement. New failures still enter `dead` first and will alert until
+they are reviewed.
 
 ## Gate Catalog
 

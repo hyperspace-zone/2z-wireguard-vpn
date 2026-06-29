@@ -1,7 +1,15 @@
 import type { FromSchema } from "json-schema-to-ts";
 
 export const jobTypeValues = ["probe", "apply_assignment", "revoke_assignment", "cleanup_orphan", "reconcile"] as const;
-export const jobPhaseValues = ["queued", "leased", "running", "succeeded", "retryable_failed", "dead"] as const;
+export const jobPhaseValues = [
+  "queued",
+  "leased",
+  "running",
+  "succeeded",
+  "retryable_failed",
+  "dead",
+  "acknowledged_dead"
+] as const;
 
 export type JobType = typeof jobTypeValues[number];
 export type JobPhase = typeof jobPhaseValues[number];

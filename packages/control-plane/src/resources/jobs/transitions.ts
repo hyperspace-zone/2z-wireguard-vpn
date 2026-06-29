@@ -1,5 +1,12 @@
 export type JobReportStatus = "succeeded" | "retryable_failed" | "failed";
-export type JobPhase = "queued" | "leased" | "running" | "succeeded" | "retryable_failed" | "dead";
+export type JobPhase =
+  | "queued"
+  | "leased"
+  | "running"
+  | "succeeded"
+  | "retryable_failed"
+  | "dead"
+  | "acknowledged_dead";
 export type TerminalJobPhase = "succeeded" | "dead" | "retryable_failed";
 
 export const sessionFailureDeadCandidateJobPhases: readonly JobPhase[] = [

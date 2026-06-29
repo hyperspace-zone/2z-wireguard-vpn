@@ -38,6 +38,17 @@ failures, stale benchmark data, API 5xx rate, and public API rate-limit
 activity. Benchmark failure and staleness alerts are emitted per directed route
 and transport so notifications include the affected source gate, target gate,
 and Internet/DoubleZero path.
+Dead jobs are intentionally noisy until an operator reviews them. After review,
+keep the historical job row and move it from `dead` to `acknowledged_dead`:
+
+```bash
+scripts/acknowledge-dead-jobs.mjs --env-file /etc/hyperspace/control-plane-worker.env --older-than "24 hours"
+scripts/acknowledge-dead-jobs.mjs --env-file /etc/hyperspace/control-plane-worker.env --older-than "24 hours" --execute --reason "reviewed old setup failures"
+```
+
+Only `phase="dead"` triggers `HyperspaceDeadJobsPresent`; acknowledged dead jobs
+remain visible in job metrics and admin job listings but do not page the
+operator again.
 Benchmark route alerts are suppressed when either endpoint gate is disconnected;
 that case is covered by the per-gate agent connectivity alert.
 Alertmanager groups benchmark route transports together by route to avoid
