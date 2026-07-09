@@ -757,6 +757,7 @@ Open the required firewall/security-group paths:
 | Each gate to control-plane | TCP 443 | Gate heartbeat and reconciliation jobs. |
 | Between DoubleZero clients | UDP 44880 | DoubleZero route-liveness traffic. |
 | Gates to gates | UDP 19192 by default | Milestone 2 public-vs-DoubleZero benchmark probes. Restrict to known gate IPs and keep `GATE_PROBE_SHARED_SECRET` enabled. |
+| Observability to each gate | TCP 9100 | Prometheus `node_exporter` host resource metrics. Restrict to the observability host IPs only. |
 | WireGuard clients to ingress gates | UDP listen ports assigned by Hyperspace | Client tunnel traffic. Keep the assigned/dynamic UDP range open, or open the intended WireGuard UDP ports until the range is constrained in deployment config. |
 | Egress gates to targets | As required by policy | User traffic exiting through the selected egress gate. |
 
