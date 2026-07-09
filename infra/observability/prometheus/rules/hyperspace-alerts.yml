@@ -62,6 +62,45 @@ groups:
           summary: Enabled Hyperspace gate DoubleZero readiness failed
           description: Gate {{ $labels.gate }} is enabled but DoubleZero tunnel state is not ready.
 
+      - alert: HyperspaceGateNodeExporterDown
+        expr: up{job="hyperspace-gate-node"} == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Hyperspace gate host metrics scrape is down
+          description: Prometheus cannot scrape node exporter on gate {{ $labels.gate }} for 5 minutes.
+
+      - alert: HyperspaceGateRootFilesystemCritical
+        expr: |
+          (
+            node_filesystem_avail_bytes{job="hyperspace-gate-node", mountpoint="/"}
+              / node_filesystem_size_bytes{job="hyperspace-gate-node", mountpoint="/"} < 0.05
+          )
+          or
+          node_filesystem_avail_bytes{job="hyperspace-gate-node", mountpoint="/"} < 536870912
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: Hyperspace gate root filesystem is critically full
+          description: Gate {{ $labels.gate }} has less than 5% or 512MiB available on the root filesystem.
+
+      - alert: HyperspaceGateMemoryCritical
+        expr: |
+          (
+            node_memory_MemAvailable_bytes{job="hyperspace-gate-node"}
+              / node_memory_MemTotal_bytes{job="hyperspace-gate-node"} < 0.10
+          )
+          and
+          node_memory_MemAvailable_bytes{job="hyperspace-gate-node"} < 134217728
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: Hyperspace gate memory is critically low
+          description: Gate {{ $labels.gate }} has less than 10% and 128MiB available RAM.
+
       - alert: HyperspaceDeadJobsPresent
         expr: sum(hyperspace_control_plane_jobs_total{phase="dead"}) > 0
         for: 5m

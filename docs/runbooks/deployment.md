@@ -1213,6 +1213,34 @@ install -o grafana -g grafana -m 0644 "$HS_REPO_DIR/infra/observability/grafana/
   /var/lib/grafana/dashboards/hyperspace/hyperspace-control-plane.json
 ```
 
+### Gate host resource alerts
+
+Gate host disk and RAM alerts use Prometheus `node_exporter` on every active
+gate. Install it during gate bootstrap and whenever a gate is added to the
+catalog:
+
+```bash
+apt-get update
+apt-get install -y prometheus-node-exporter
+systemctl enable --now prometheus-node-exporter
+```
+
+Prometheus scrapes gate node exporters with the `hyperspace-gate-node` job in
+`infra/observability/prometheus/prometheus.${HS_CLUSTER}.yml`. When adding,
+removing, disabling, or replacing a gate, update that scrape target list with
+the gate `name`, `probe_host`, and `public_ipv4`, then reprovision
+`/etc/prometheus/prometheus.yml` and restart Prometheus.
+
+The host-resource alerts are intentionally independent from gate-agent
+heartbeats:
+
+- `HyperspaceGateNodeExporterDown` warns when host resource metrics are not
+  scrapeable.
+- `HyperspaceGateRootFilesystemCritical` pages when `/` has less than 5% or
+  512MiB available.
+- `HyperspaceGateMemoryCritical` pages when RAM has less than 10% and 128MiB
+  available.
+
 Provision Alertmanager Telegram notifications. Create a Telegram bot with
 BotFather, add it to the target chats, send one message in each chat, then
 discover the chat IDs from the bot updates:

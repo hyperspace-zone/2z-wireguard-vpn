@@ -31,3 +31,43 @@ scrape_configs:
         labels:
           cluster: testnet
           role: control-plane-worker
+
+  - job_name: hyperspace-gate-node
+    scheme: http
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["213.163.192.30:9100"]
+        labels:
+          cluster: testnet
+          role: gate
+          gate: gate-ap-sin-01
+          probe_host: gate-ap-sin-01.testnet.hyperspace.zone
+          public_ipv4: 213.163.192.30
+      - targets: ["85.9.219.252:9100"]
+        labels:
+          cluster: testnet
+          role: gate
+          gate: gate-eu-ams-01
+          probe_host: gate-eu-ams-01.testnet.hyperspace.zone
+          public_ipv4: 85.9.219.252
+      - targets: ["212.147.230.200:9100"]
+        labels:
+          cluster: testnet
+          role: gate
+          gate: gate-eu-fra-01
+          probe_host: gate-eu-fra-01.testnet.hyperspace.zone
+          public_ipv4: 212.147.230.200
+      - targets: ["94.237.62.140:9100"]
+        labels:
+          cluster: testnet
+          role: gate
+          gate: gate-eu-lon-01
+          probe_host: gate-eu-lon-01.testnet.hyperspace.zone
+          public_ipv4: 94.237.62.140
+      - targets: ["85.9.199.104:9100"]
+        labels:
+          cluster: testnet
+          role: gate
+          gate: gate-na-nyc-01
+          probe_host: gate-na-nyc-01.testnet.hyperspace.zone
+          public_ipv4: 85.9.199.104
