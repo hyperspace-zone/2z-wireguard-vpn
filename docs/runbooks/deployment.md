@@ -947,7 +947,7 @@ SELF_SERVICE_ALLOW_PRIVATE_DESTINATIONS=false
 
 # Milestone 3 onboarding and billing.
 EMAIL_PROVIDER=resend
-EMAIL_FROM=Hyperspace <no-reply@hyperspace.zone>
+EMAIL_FROM="Hyperspace <no-reply@hyperspace.zone>"
 EMAIL_REPLY_TO=support@hyperspace.zone
 RESEND_API_KEY=replace-with-resend-api-key
 EMAIL_OTP_HASH_SECRET=replace-with-random-32-byte-secret
