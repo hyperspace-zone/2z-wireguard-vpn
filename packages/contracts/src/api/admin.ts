@@ -121,3 +121,65 @@ export const adminDoubleZeroBillingSnapshotResponseSchema = {
     id: { type: "string" }
   }
 } as const;
+
+export const adminDoubleZeroUsageImportRecordSchema = {
+  type: "object",
+  additionalProperties: true,
+  required: ["recordId", "windowStart", "windowEnd", "doubleZeroCostMinor"],
+  properties: {
+    recordId: { type: "string", minLength: 1 },
+    accountId: { type: "string", minLength: 1 },
+    sessionId: { type: "string", minLength: 1 },
+    windowStart: { type: "string", format: "date-time" },
+    windowEnd: { type: "string", format: "date-time" },
+    ingressGateName: { type: "string" },
+    egressGateName: { type: "string" },
+    bytesIn: { type: "number", minimum: 0 },
+    bytesOut: { type: "number", minimum: 0 },
+    doubleZeroCostMinor: { type: "number", minimum: 0 },
+    currency: { type: "string" },
+    metadata: { type: "object", additionalProperties: true }
+  }
+} as const;
+
+export const adminDoubleZeroUsageImportRequestSchema = {
+  type: "object",
+  additionalProperties: true,
+  required: ["cluster", "tenant", "importSource", "raw", "records"],
+  properties: {
+    cluster: { type: "string", minLength: 1 },
+    tenant: { type: "string", minLength: 1 },
+    importSource: { type: "string", minLength: 1 },
+    raw: { type: "object", additionalProperties: true },
+    records: {
+      type: "array",
+      minItems: 1,
+      items: adminDoubleZeroUsageImportRecordSchema
+    }
+  }
+} as const;
+
+export const adminDoubleZeroUsageImportResponseSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["importId", "imported", "duplicates", "rejected", "totalChargeMinor", "currency"],
+  properties: {
+    importId: { type: "string" },
+    imported: { type: "number" },
+    duplicates: { type: "number" },
+    rejected: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["recordId", "reason"],
+        properties: {
+          recordId: { type: "string" },
+          reason: { type: "string" }
+        }
+      }
+    },
+    totalChargeMinor: { type: "number" },
+    currency: { type: "string" }
+  }
+} as const;

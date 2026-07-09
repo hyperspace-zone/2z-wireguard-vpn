@@ -330,3 +330,119 @@ export async function insertDoubleZeroTenantBillingSnapshot(
   );
   return mustRow(result).id;
 }
+
+export async function insertDoubleZeroUsageImport(
+  db: Queryable,
+  input: {
+    cluster: string;
+    tenant: string;
+    importSource: string;
+    raw: Record<string, unknown>;
+  }
+): Promise<string> {
+  const result = await db.query<{ id: string }>(
+    `
+      INSERT INTO doublezero_usage_imports (
+        cluster,
+        tenant,
+        import_source,
+        raw
+      )
+      VALUES ($1, $2, $3, $4::jsonb)
+      RETURNING id
+    `,
+    [input.cluster, input.tenant, input.importSource, JSON.stringify(input.raw)]
+  );
+  return mustRow(result).id;
+}
+
+export async function findAccountIdForSession(db: Queryable, sessionId: string): Promise<string | null> {
+  const result = await db.query<{ accountId: string }>(
+    `
+      SELECT account_id AS "accountId"
+      FROM sessions
+      WHERE id = $1
+    `,
+    [sessionId]
+  );
+  return result.rows[0]?.accountId ?? null;
+}
+
+export async function findAccountId(db: Queryable, accountId: string): Promise<string | null> {
+  const result = await db.query<{ accountId: string }>(
+    `
+      SELECT id AS "accountId"
+      FROM accounts
+      WHERE id = $1
+    `,
+    [accountId]
+  );
+  return result.rows[0]?.accountId ?? null;
+}
+
+export async function insertRatedUsageEvent(
+  db: Queryable,
+  input: {
+    accountId: string;
+    sessionId?: string;
+    provider: string;
+    sourceType: string;
+    sourceId: string;
+    windowStart: string;
+    windowEnd: string;
+    ingressGateName?: string;
+    egressGateName?: string;
+    bytesIn: number;
+    bytesOut: number;
+    costMinor: number;
+    markupBps: number;
+    chargeMinor: number;
+    currency: string;
+    metadata?: Record<string, unknown>;
+  }
+): Promise<{ id: string } | null> {
+  const result = await db.query<{ id: string }>(
+    `
+      INSERT INTO rated_usage_events (
+        account_id,
+        session_id,
+        provider,
+        source_type,
+        source_id,
+        window_start,
+        window_end,
+        ingress_gate_name,
+        egress_gate_name,
+        bytes_in,
+        bytes_out,
+        cost_minor,
+        markup_bps,
+        charge_minor,
+        currency,
+        metadata
+      )
+      VALUES ($1, $2::uuid, $3, $4, $5, $6::timestamptz, $7::timestamptz, $8, $9, $10, $11, $12, $13, $14, $15, $16::jsonb)
+      ON CONFLICT (source_type, source_id) DO NOTHING
+      RETURNING id
+    `,
+    [
+      input.accountId,
+      input.sessionId ?? null,
+      input.provider,
+      input.sourceType,
+      input.sourceId,
+      input.windowStart,
+      input.windowEnd,
+      input.ingressGateName ?? null,
+      input.egressGateName ?? null,
+      input.bytesIn,
+      input.bytesOut,
+      input.costMinor,
+      input.markupBps,
+      input.chargeMinor,
+      input.currency,
+      JSON.stringify(input.metadata ?? {})
+    ]
+  );
+  return result.rows[0] ?? null;
+}

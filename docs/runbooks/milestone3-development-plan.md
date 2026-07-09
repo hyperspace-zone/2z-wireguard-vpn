@@ -48,6 +48,8 @@ Implemented in `milestone3-mainnet-scaleout`:
 - User billing account, immutable balance ledger, Solana top-up intents, and
   a testnet-only unverified top-up credit mode.
 - Admin ingestion endpoint for raw DoubleZero tenant billing snapshots.
+- Replay-safe DoubleZero usage import endpoint with configurable Hyperspace
+  markup and immutable balance-ledger debit entries.
 - Self-service UI account panel with balance, top-up intent creation, top-up
   signature submission, linked Solana wallet display, and wallet link action.
 - Route policy support for `pathPolicy.excludeCountries`, including the UI

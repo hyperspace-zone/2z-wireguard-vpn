@@ -54,6 +54,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ControlPlaneAp
       solanaTokenMint: env.SOLANA_TOKEN_MINT ?? "",
       topupIntentTtlSeconds: readPositiveInteger(env, "TOPUP_INTENT_TTL_SECONDS", 60 * 60),
       allowUnverifiedTopups: readBoolean(env, "BILLING_ALLOW_UNVERIFIED_TOPUPS", false),
+      usageMarkupBps: readNonNegativeInteger(env, "BILLING_USAGE_MARKUP_BPS", 1500),
       enforcePositiveBalance: readBoolean(env, "BILLING_ENFORCE_POSITIVE_BALANCE", false),
       requiredMinBalanceMinor: readNonNegativeInteger(env, "BILLING_REQUIRED_MIN_BALANCE_MINOR", 0)
     },

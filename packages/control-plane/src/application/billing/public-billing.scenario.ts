@@ -21,6 +21,7 @@ export interface BillingConfig {
   solanaTokenMint: string;
   topupIntentTtlSeconds: number;
   allowUnverifiedTopups: boolean;
+  usageMarkupBps: number;
 }
 
 export interface BillingSummary {

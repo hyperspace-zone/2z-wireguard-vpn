@@ -2,6 +2,8 @@ import {
   adminAuditEventsResponseSchema,
   adminDoubleZeroBillingSnapshotRequestSchema,
   adminDoubleZeroBillingSnapshotResponseSchema,
+  adminDoubleZeroUsageImportRequestSchema,
+  adminDoubleZeroUsageImportResponseSchema,
   adminForceReconcileRequestSchema,
   adminForceReconcileResponseSchema,
   adminGateCommandResponseSchema,
@@ -17,6 +19,8 @@ export const adminApiSchemas = {
   auditEventsResponse: adminAuditEventsResponseSchema,
   doubleZeroBillingSnapshotRequest: adminDoubleZeroBillingSnapshotRequestSchema,
   doubleZeroBillingSnapshotResponse: adminDoubleZeroBillingSnapshotResponseSchema,
+  doubleZeroUsageImportRequest: adminDoubleZeroUsageImportRequestSchema,
+  doubleZeroUsageImportResponse: adminDoubleZeroUsageImportResponseSchema,
   gateCommandResponse: adminGateCommandResponseSchema,
   forceReconcileRequest: adminForceReconcileRequestSchema,
   forceReconcileResponse: adminForceReconcileResponseSchema

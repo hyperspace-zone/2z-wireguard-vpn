@@ -47,6 +47,14 @@ export {
   type CreateTopupResult,
   type SubmitTopupResult
 } from "./application/billing/public-billing.scenario.js";
+export {
+  calculateMarkedUpChargeMinor,
+  importDoubleZeroUsage,
+  type DoubleZeroUsageBillingConfig,
+  type DoubleZeroUsageImportInput,
+  type DoubleZeroUsageImportResult,
+  type DoubleZeroUsageRecordInput
+} from "./application/billing/doublezero-usage-import.scenario.js";
 export { issueClientConfigDownloadToken } from "./application/artifacts/issue-download-token.scenario.js";
 export { drainGate } from "./application/operator/drain-gate.scenario.js";
 export { forceReconcile } from "./application/operator/force-reconcile.scenario.js";

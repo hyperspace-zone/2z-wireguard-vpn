@@ -970,6 +970,7 @@ SOLANA_TOKEN_SYMBOL=USDC
 SOLANA_TOKEN_MINT=
 TOPUP_INTENT_TTL_SECONDS=3600
 BILLING_ALLOW_UNVERIFIED_TOPUPS=false
+BILLING_USAGE_MARKUP_BPS=1500
 BILLING_ENFORCE_POSITIVE_BALANCE=false
 BILLING_REQUIRED_MIN_BALANCE_MINOR=0
 EOF
@@ -1025,6 +1026,44 @@ curl -fsS -X POST "$HS_API_ORIGIN/v1/admin/billing/doublezero/tenant-snapshots" 
 The JSON must include `cluster`, `tenant`, and `raw`. Optional normalized fields
 are `paymentStatus`, `tokenAccount`, `billingRate`, and
 `lastDeductionDzEpoch`. Keep the raw DoubleZero output intact for auditability.
+
+DoubleZero usage imports are replay-safe and apply Hyperspace markup before
+writing debit entries to the immutable balance ledger. `BILLING_USAGE_MARKUP_BPS`
+is basis points over the DoubleZero cost, so `1500` means 15%.
+
+```bash
+curl -fsS -X POST "$HS_API_ORIGIN/v1/admin/billing/doublezero/usage-imports" \
+  -H "x-admin-token: $ADMIN_TOKEN" \
+  -H "content-type: application/json" \
+  --data @doublezero-usage-import.json
+```
+
+Example record shape:
+
+```json
+{
+  "cluster": "mainnet",
+  "tenant": "hyperspace",
+  "importSource": "doublezero-metering-2026-07-09T13:00Z",
+  "raw": {},
+  "records": [
+    {
+      "recordId": "dz-usage-unique-id",
+      "sessionId": "hyperspace-session-id",
+      "windowStart": "2026-07-09T13:00:00Z",
+      "windowEnd": "2026-07-09T14:00:00Z",
+      "bytesIn": 123456,
+      "bytesOut": 654321,
+      "doubleZeroCostMinor": 17,
+      "currency": "USD"
+    }
+  ]
+}
+```
+
+If `sessionId` is absent, the record may include `accountId` directly. Replaying
+the same `recordId` is safe: the rated usage event is unique by source and will
+not double-charge the account.
 
 Milestone 3 gate scale-out should use the repository automation scripts instead
 of hand-copying commands from this runbook. The scripts are designed for rollout
