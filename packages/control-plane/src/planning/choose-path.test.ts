@@ -32,11 +32,11 @@ test("choosePath schedules an explicit mainnet-beta gate pair using gate_status 
       assertSchedulableGateQuery(sql);
 
       if (calls.length === 1) {
-        assert.deepEqual(params, [null, null, ingressGate.name]);
+        assert.deepEqual(params, [null, null, ingressGate.name, []]);
         return { rows: [ingressGate as unknown as Row] };
       }
 
-      assert.deepEqual(params, [ingressGate.id, null, egressGate.name]);
+      assert.deepEqual(params, [ingressGate.id, null, egressGate.name, []]);
       return { rows: [egressGate as unknown as Row] };
     }
   };
@@ -54,7 +54,37 @@ test("choosePath schedules an explicit mainnet-beta gate pair using gate_status 
     egressGateName: egressGate.name,
     egressPublicIpv4: egressGate.publicIpv4
   });
+  assert.deepEqual(calls[0]?.params, [null, null, ingressGate.name, []]);
   assert.equal(calls.length, 2);
+});
+
+test("choosePath passes excluded countries from censorship-resistant route policy", async () => {
+  const calls: QueryCall[] = [];
+  const client = {
+    async query<Row extends object = Record<string, unknown>>(
+      sql: string,
+      params?: readonly unknown[]
+    ): Promise<{ rows: Row[] }> {
+      calls.push({ sql, params });
+      assertSchedulableGateQuery(sql);
+      if (calls.length === 1) {
+        return { rows: [ingressGate as unknown as Row] };
+      }
+      return { rows: [egressGate as unknown as Row] };
+    }
+  };
+
+  const path = await choosePath(client, {
+    ingressGateName: ingressGate.name,
+    egressGateName: egressGate.name,
+    pathPolicy: {
+      excludeCountries: ["DE", "Germany"]
+    }
+  });
+
+  assert.ok(path);
+  assert.deepEqual(calls[0]?.params, [null, null, ingressGate.name, ["germany"]]);
+  assert.deepEqual(calls[1]?.params, [ingressGate.id, null, egressGate.name, ["germany"]]);
 });
 
 function assertSchedulableGateQuery(sql: string): void {
@@ -78,4 +108,5 @@ function assertSchedulableGateQuery(sql: string): void {
   );
   assert.match(sql, /gate_status\.doublezero_status->>'tunnelSrc'\s+=\s+gates\.public_ipv4/i);
   assert.match(sql, /gate_leases\.lease_expires_at\s+>\s+now\(\)/i);
+  assert.match(sql, /lower\(gates\.country\)\s+<>\s+ALL\(\$4::text\[\]\)/i);
 }

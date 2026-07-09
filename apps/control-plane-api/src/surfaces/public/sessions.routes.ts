@@ -6,6 +6,7 @@ import {
   publicSessionsResponseSchema
 } from "@hyperspace-zone/contracts";
 import {
+  accountHasSufficientBalance,
   createSession,
   deleteHiddenSession,
   listPublicSessions,
@@ -23,6 +24,10 @@ export function registerPublicSessionsRoutes(
   deps: {
     db: Database;
     requireUser: (request: FastifyRequest, reply: FastifyReply) => Promise<PublicAuthUser | null>;
+    billing: {
+      enforcePositiveBalance: boolean;
+      requiredMinBalanceMinor: number;
+    };
     selfServiceAbuseControls: SessionAbuseControlConfig;
   }
 ): void {
@@ -56,6 +61,19 @@ export function registerPublicSessionsRoutes(
     const user = await deps.requireUser(request, reply);
     if (!user) {
       return;
+    }
+
+    if (deps.billing.enforcePositiveBalance) {
+      const hasBalance = await accountHasSufficientBalance(
+        deps.db,
+        user.accountId,
+        deps.billing.requiredMinBalanceMinor
+      );
+      if (!hasBalance) {
+        return sendApplicationError(reply, "session_requires_positive_balance", {
+          message: "Top up your balance before issuing a new VPN config."
+        });
+      }
     }
 
     const created = await createSession(deps.db, user, asRecord(request.body), deps.selfServiceAbuseControls);

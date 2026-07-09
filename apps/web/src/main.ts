@@ -139,14 +139,69 @@ interface Session {
   createdAt: string;
 }
 
+interface Me {
+  id?: string;
+  accountId?: string;
+  email: string;
+  displayName?: string;
+}
+
+interface WalletLink {
+  id: string;
+  chain: string;
+  publicKey: string;
+  label?: string | null;
+  linkedAt: string;
+}
+
+interface TopupIntent {
+  id: string;
+  provider: string;
+  status: string;
+  amountMinor: number;
+  currency: string;
+  chain?: string | null;
+  tokenSymbol?: string | null;
+  tokenMint?: string | null;
+  treasuryAddress?: string | null;
+  reference: string;
+  expectedSender?: string | null;
+  transactionSignature?: string | null;
+  expiresAt: string;
+  submittedAt?: string | null;
+  confirmedAt?: string | null;
+  createdAt: string;
+}
+
+interface BillingLedgerEntry {
+  id: string;
+  entryType: string;
+  amountMinor: number;
+  currency: string;
+  sourceType: string;
+  sourceId: string;
+  description: string;
+  createdAt: string;
+}
+
+interface BillingSummary {
+  accountId: string;
+  balanceMinor: number;
+  currency: string;
+  ledger: BillingLedgerEntry[];
+  topups: TopupIntent[];
+}
+
 const apiBase = (window as unknown as { HYPERSPACE_API_BASE?: string }).HYPERSPACE_API_BASE ?? "/api";
 const wireGuardCanonicalBase64Pattern = /^[A-Za-z0-9+/]{42}[AEIMQUYcgkosw048]=$/;
 const benchmarkFreshWindowMs = 15 * 60 * 1000;
-let token = localStorage.getItem("hyperspaceAccessToken") ?? "";
+let token = consumeOauthTokenFromLocation() || localStorage.getItem("hyperspaceAccessToken") || "";
 let latestGates: Gate[] = [];
 let latestSessions: Session[] = [];
-let latestMe: { email: string } | null = null;
+let latestMe: Me | null = null;
 let latestBenchmarkMatrix: BenchmarkMatrix | null = null;
+let latestBilling: BillingSummary | null = null;
+let latestWallets: WalletLink[] = [];
 const gateLatencyById = new Map<string, { medianMs: number | null; minMs: number | null; maxMs: number | null; sampleCount: number }>();
 const gateLatencyInProgressIds = new Set<string>();
 const revokingConfigIds = new Set<string>();
@@ -168,6 +223,11 @@ let benchmarkOneWaySortField: BenchmarkOneWaySortField = "oneWayImprovement";
 let benchmarkOneWaySortDirection: SortDirection = "desc";
 let benchmarkCityFilter = "";
 let sessionValidationErrors: SessionValidationErrors = {};
+let emailOtpPendingEmail = "";
+let emailOtpBusy = false;
+let googleLoginBusy = false;
+let walletLinkBusy = false;
+let topupBusy = false;
 let ingressGateManuallySelected = false;
 let keyInstructionPlatform: KeyInstructionPlatform = "linux";
 let runInstructionPlatform: KeyInstructionPlatform = "linux";
@@ -183,7 +243,8 @@ const sessionDraft = {
   ingressGateName: "",
   egressGateName: "",
   useClientPublicKey: false,
-  clientPublicKey: ""
+  clientPublicKey: "",
+  avoidGermany: false
 };
 
 const root = document.getElementById("app");
@@ -219,27 +280,33 @@ function renderLoading(): void {
 }
 
 async function refresh(options: { skipAutoMeasure?: boolean } = {}): Promise<void> {
-  const [gates, sessions, me, benchmarkMatrix] = await Promise.all([
+  const [gates, sessions, me, benchmarkMatrix, billing, wallets] = await Promise.all([
     getGates().catch(() => [] as Gate[]),
     token ? getSessions().catch(() => [] as Session[]) : Promise.resolve([]),
     token ? getMe().catch(() => null) : Promise.resolve(null),
-    getBenchmarkMatrix().catch(() => null)
+    getBenchmarkMatrix().catch(() => null),
+    token ? getBilling().catch(() => null) : Promise.resolve(null),
+    token ? getWallets().catch(() => [] as WalletLink[]) : Promise.resolve([])
   ]);
   latestGates = gates;
   latestSessions = sessions;
   latestMe = me;
   latestBenchmarkMatrix = benchmarkMatrix;
-  render({ gates: decorateGates(gates), sessions, me, benchmarkMatrix });
+  latestBilling = billing;
+  latestWallets = wallets;
+  render({ gates: decorateGates(gates), sessions, me, benchmarkMatrix, billing, wallets });
   if (!options.skipAutoMeasure && me) {
     maybeMeasureGatesAutomatically();
   }
 }
 
-function render(state: { gates?: Gate[]; sessions?: Session[]; me?: { email: string } | null; benchmarkMatrix?: BenchmarkMatrix | null } = {}): void {
+function render(state: { gates?: Gate[]; sessions?: Session[]; me?: Me | null; benchmarkMatrix?: BenchmarkMatrix | null; billing?: BillingSummary | null; wallets?: WalletLink[] } = {}): void {
   const gates = state.gates ?? [];
   const sessions = state.sessions ?? [];
   const me = state.me ?? null;
   const benchmarkMatrix = state.benchmarkMatrix ?? latestBenchmarkMatrix;
+  const billing = state.billing === undefined ? latestBilling : state.billing;
+  const wallets = state.wallets ?? latestWallets;
   const view = resolveViewForAuth(me);
   appRoot.innerHTML = `
     <main class="shell">
@@ -254,7 +321,7 @@ function render(state: { gates?: Gate[]; sessions?: Session[]; me?: { email: str
       </section>
 
       ${me ? appNav(view) : authNav(view)}
-      ${renderView({ view, gates, sessions, benchmarkMatrix })}
+      ${renderView({ view, gates, sessions, benchmarkMatrix, billing, wallets })}
 
       ${shouldShowEventLog(view, me) ? `<pre id="event-log" class="event-log">${escapeHtml(eventLogLines.join("\n"))}</pre>` : ""}
     </main>
@@ -263,7 +330,7 @@ function render(state: { gates?: Gate[]; sessions?: Session[]; me?: { email: str
   syncSessionAutoRefresh(view, me, sessions);
 }
 
-function syncSessionAutoRefresh(view: AppView, me: { email: string } | null, sessions: Session[]): void {
+function syncSessionAutoRefresh(view: AppView, me: Me | null, sessions: Session[]): void {
   const shouldRefresh = Boolean(me && view === "dashboard" && sessions.some(sessionNeedsAutoRefresh));
   if (!shouldRefresh) {
     stopSessionAutoRefresh();
@@ -326,7 +393,7 @@ function viewPath(view: AppView): string {
   return "/";
 }
 
-function resolveViewForAuth(me: { email: string } | null): AppView {
+function resolveViewForAuth(me: Me | null): AppView {
   let view = currentView;
   if (!me && view !== "login" && view !== "register" && view !== "benchmarks") {
     view = "login";
@@ -341,7 +408,7 @@ function resolveViewForAuth(me: { email: string } | null): AppView {
   return view;
 }
 
-function renderView(state: { view: AppView; gates: Gate[]; sessions: Session[]; benchmarkMatrix: BenchmarkMatrix | null }): string {
+function renderView(state: { view: AppView; gates: Gate[]; sessions: Session[]; benchmarkMatrix: BenchmarkMatrix | null; billing: BillingSummary | null; wallets: WalletLink[] }): string {
   if (state.view === "login") {
     return loginView();
   }
@@ -354,10 +421,10 @@ function renderView(state: { view: AppView; gates: Gate[]; sessions: Session[]; 
   if (state.view === "benchmarks") {
     return benchmarksView({ gates: state.gates, benchmarkMatrix: state.benchmarkMatrix });
   }
-  return dashboardView({ gates: state.gates, sessions: state.sessions, benchmarkMatrix: state.benchmarkMatrix });
+  return dashboardView({ gates: state.gates, sessions: state.sessions, benchmarkMatrix: state.benchmarkMatrix, billing: state.billing, wallets: state.wallets });
 }
 
-function shouldShowEventLog(view: AppView, me: { email: string } | null): boolean {
+function shouldShowEventLog(view: AppView, me: Me | null): boolean {
   return Boolean(me) && view !== "login" && view !== "register";
 }
 
@@ -431,8 +498,15 @@ function authNav(view: AppView): string {
   `;
 }
 
-function dashboardView(state: { gates: Gate[]; sessions: Session[]; benchmarkMatrix: BenchmarkMatrix | null }): string {
+function dashboardView(state: { gates: Gate[]; sessions: Session[]; benchmarkMatrix: BenchmarkMatrix | null; billing: BillingSummary | null; wallets: WalletLink[] }): string {
   return `
+    <section class="panel primary-panel">
+      <div class="panel-heading">
+        <h2>Account</h2>
+      </div>
+      ${accountPanel(state.billing, state.wallets)}
+    </section>
+
     <section class="panel primary-panel">
       <div class="panel-heading">
         <h2>VPN configs</h2>
@@ -478,11 +552,23 @@ function createConfigView(gates: Gate[]): string {
 function loginView(): string {
   return `
     <section class="panel auth-panel">
-      <form id="login-form" class="auth-form">
+      <form id="email-code-request-form" class="auth-form">
         <div>
           <h2>Log in</h2>
-          <p>Use your account to manage issued WireGuard configs.</p>
+          <p>Use an email code or Google account to manage issued WireGuard configs.</p>
         </div>
+        <label>Email <input name="email" type="email" autocomplete="email" required value="${escapeHtml(emailOtpPendingEmail)}" /></label>
+        <button type="submit" ${emailOtpBusy ? "disabled" : ""}>${emailOtpBusy ? "Sending..." : "Send code"}</button>
+      </form>
+      ${emailOtpPendingEmail ? `
+        <form id="email-code-verify-form" class="auth-form auth-subform">
+          <label>Code <input name="code" inputmode="numeric" autocomplete="one-time-code" minlength="6" maxlength="6" required /></label>
+          <button type="submit" ${emailOtpBusy ? "disabled" : ""}>${emailOtpBusy ? "Checking..." : "Verify code"}</button>
+        </form>
+      ` : ""}
+      <button id="google-login" class="secondary-button auth-provider-button" type="button" ${googleLoginBusy ? "disabled" : ""}>${googleLoginBusy ? "Opening Google..." : "Continue with Google"}</button>
+      <div class="auth-divider"><span>or password</span></div>
+      <form id="login-form" class="auth-form">
         <label>Email <input name="email" type="email" autocomplete="email" required /></label>
         <label>Password <input name="password" type="password" autocomplete="current-password" required /></label>
         <button type="submit">Log in</button>
@@ -506,6 +592,58 @@ function registerView(): string {
         <p class="auth-switch">Already have an account? <a href="/login" data-view="login">Log in</a></p>
       </form>
     </section>
+  `;
+}
+
+function accountPanel(billing: BillingSummary | null, wallets: WalletLink[]): string {
+  return `
+    <div class="account-grid">
+      <div class="account-card">
+        <h3>Balance</h3>
+        <strong class="balance-value">${escapeHtml(formatMoneyMinor(billing?.balanceMinor ?? 0, billing?.currency ?? "USD"))}</strong>
+        <small>Applies to new and active VPN configs when billing enforcement is enabled.</small>
+      </div>
+      <div class="account-card">
+        <h3>Solana wallet</h3>
+        ${wallets.length > 0
+          ? wallets.map((wallet) => `<p class="mono wallet-row">${escapeHtml(shortWallet(wallet.publicKey))}</p>`).join("")
+          : '<p class="empty-marker">No wallet linked</p>'}
+        <button id="link-solana-wallet" type="button" ${walletLinkBusy ? "disabled" : ""}>${walletLinkBusy ? "Linking..." : "Link Solana wallet"}</button>
+      </div>
+      <div class="account-card topup-card">
+        <h3>Top up</h3>
+        <form id="topup-form" class="inline-form">
+          <label>Amount, USD <input name="amountUsd" inputmode="decimal" placeholder="25.00" required /></label>
+          <button type="submit" ${topupBusy ? "disabled" : ""}>${topupBusy ? "Creating..." : "Create top-up"}</button>
+        </form>
+      </div>
+    </div>
+    ${topupIntentsPanel(billing?.topups ?? [])}
+  `;
+}
+
+function topupIntentsPanel(topups: TopupIntent[]): string {
+  if (topups.length === 0) {
+    return "";
+  }
+  return `
+    <div class="topup-list">
+      ${topups.slice(0, 3).map((topup) => `
+        <div class="topup-row">
+          <div>
+            <strong>${escapeHtml(formatMoneyMinor(topup.amountMinor, topup.currency))}</strong>
+            <small>${escapeHtml(topup.status)} · ${escapeHtml(topup.reference)}</small>
+            ${topup.treasuryAddress ? `<small>Send ${escapeHtml(topup.tokenSymbol ?? "USDC")} to <span class="mono">${escapeHtml(topup.treasuryAddress)}</span></small>` : ""}
+          </div>
+          ${topup.status === "pending" ? `
+            <form class="submit-topup-form inline-form" data-topup-id="${escapeHtml(topup.id)}">
+              <input name="transactionSignature" placeholder="Solana transaction signature" required />
+              <button type="submit">Submit</button>
+            </form>
+          ` : ""}
+        </div>
+      `).join("")}
+    </div>
   `;
 }
 
@@ -1377,6 +1515,13 @@ function createSessionPanel(gates: Gate[]): string {
             ${clientKeyInstructionsPanel()}
           ` : "<small>The control plane will generate a client key pair when this is off.</small>"}
         </fieldset>
+        <fieldset class="form-group route-policy-group">
+          <label class="checkbox-line">
+            <input name="avoidGermany" type="checkbox" ${sessionDraft.avoidGermany ? "checked" : ""} />
+            <span>Avoid Germany</span>
+          </label>
+          <small>Exclude German gates from this route when selecting ingress and egress.</small>
+        </fieldset>
         <button type="submit">Review config</button>
       </form>
     </div>
@@ -1390,6 +1535,7 @@ function createConfigConfirmationPanel(gates: Gate[]): string {
   const egress = gateSummary(sessionDraft.egressGateName, gates);
   const modeLabel = draftRouteTypeLabel();
   const clientKeyLabel = sessionDraft.useClientPublicKey ? "Provided by client" : "Generated by control plane";
+  const routePolicyLabel = sessionDraft.avoidGermany ? "Avoid Germany" : "Default";
   const policyText = sessionDraft.mode === "FullTunnel"
     ? `${sourceLabel} enters through the selected ingress, crosses DoubleZero, and exits to the Internet through the selected egress.`
     : `${sourceLabel} can reach only ${destinationLabel} through the selected ingress, DoubleZero transit, and selected egress.`;
@@ -1422,6 +1568,7 @@ function createConfigConfirmationPanel(gates: Gate[]): string {
             ${reviewField("Allowed source", sourceLabel, sessionDraft.restrictSource)}
             ${reviewField("Destination", destinationLabel, sessionDraft.mode === "IpToIp")}
             ${reviewField("Client public key", clientKeyLabel)}
+            ${reviewField("Route policy", routePolicyLabel, sessionDraft.avoidGermany)}
           </div>
         </div>
       </div>
@@ -1864,6 +2011,22 @@ function bindHandlers(): void {
     void submitAuth("/v1/public/auth/login", form);
   });
 
+  document.getElementById("email-code-request-form")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const form = new FormData(event.target as HTMLFormElement);
+    void requestEmailCode(form);
+  });
+
+  document.getElementById("email-code-verify-form")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const form = new FormData(event.target as HTMLFormElement);
+    void verifyEmailCode(form);
+  });
+
+  document.getElementById("google-login")?.addEventListener("click", () => {
+    void startGoogleLogin();
+  });
+
   document.getElementById("session-form")?.addEventListener("submit", (event) => {
     event.preventDefault();
     updateSessionDraftFromForm(event.target as HTMLFormElement);
@@ -1953,6 +2116,22 @@ function bindHandlers(): void {
   document.getElementById("confirm-create-config")?.addEventListener("click", () => {
     void createSession();
   });
+  document.getElementById("link-solana-wallet")?.addEventListener("click", () => {
+    void linkSolanaWalletFromBrowser();
+  });
+  document.getElementById("topup-form")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    void createTopup(new FormData(event.target as HTMLFormElement));
+  });
+  for (const form of document.querySelectorAll(".submit-topup-form")) {
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const topupId = (event.currentTarget as HTMLElement).dataset.topupId;
+      if (topupId) {
+        void submitTopupSignature(topupId, new FormData(event.target as HTMLFormElement));
+      }
+    });
+  }
   document.getElementById("measure-gates")?.addEventListener("click", () => {
     runGateLatencyMeasurement();
   });
@@ -2048,6 +2227,78 @@ async function submitAuth(path: string, form: FormData): Promise<void> {
   await refresh();
 }
 
+async function requestEmailCode(form: FormData): Promise<void> {
+  if (emailOtpBusy) {
+    return;
+  }
+  emailOtpBusy = true;
+  emailOtpPendingEmail = String(form.get("email") ?? "").trim();
+  render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
+  try {
+    const response = await api("/v1/public/auth/email/request-code", {
+      method: "POST",
+      body: { email: emailOtpPendingEmail }
+    });
+    emailOtpPendingEmail = response.email || emailOtpPendingEmail;
+    log(response.devCode ? `Email code sent. Test code: ${response.devCode}` : "Email code sent.");
+  } catch (error) {
+    log(error instanceof Error ? error.message : "Could not send email code.");
+  } finally {
+    emailOtpBusy = false;
+    render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
+  }
+}
+
+async function verifyEmailCode(form: FormData): Promise<void> {
+  if (emailOtpBusy) {
+    return;
+  }
+  emailOtpBusy = true;
+  render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
+  try {
+    const response = await api("/v1/public/auth/email/verify-code", {
+      method: "POST",
+      body: {
+        email: emailOtpPendingEmail,
+        code: String(form.get("code") ?? "")
+      }
+    });
+    completeAuth(response);
+    emailOtpPendingEmail = "";
+    log("Signed in with email code.");
+    await refresh();
+  } catch (error) {
+    log(error instanceof Error ? error.message : "Could not verify email code.");
+  } finally {
+    emailOtpBusy = false;
+    render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
+  }
+}
+
+async function startGoogleLogin(): Promise<void> {
+  if (googleLoginBusy) {
+    return;
+  }
+  googleLoginBusy = true;
+  render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
+  try {
+    const response = await api(`/v1/public/auth/google/start?redirect=${encodeURIComponent("/")}`, { method: "GET" });
+    window.location.href = response.authorizationUrl;
+  } catch (error) {
+    googleLoginBusy = false;
+    render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
+    log(error instanceof Error ? error.message : "Google login is not configured yet.");
+  }
+}
+
+function completeAuth(response: { accessToken: string }): void {
+  token = response.accessToken;
+  currentView = "dashboard";
+  createConfigStep = "configure";
+  localStorage.setItem("hyperspaceAccessToken", token);
+  window.history.replaceState({}, "", viewPath("dashboard"));
+}
+
 async function createSession(): Promise<void> {
   if (createConfigSubmitting) {
     return;
@@ -2075,6 +2326,101 @@ async function createSession(): Promise<void> {
     render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
     log(error instanceof Error ? error.message : "Could not create VPN config.");
   }
+}
+
+async function linkSolanaWalletFromBrowser(): Promise<void> {
+  if (walletLinkBusy) {
+    return;
+  }
+  const provider = (window as unknown as { solana?: SolanaBrowserProvider }).solana;
+  if (!provider?.connect || !provider?.signMessage) {
+    log("No Solana browser wallet found.");
+    return;
+  }
+  walletLinkBusy = true;
+  render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
+  try {
+    const connection = await provider.connect();
+    const publicKey = connection.publicKey?.toString?.() ?? provider.publicKey?.toString?.() ?? "";
+    if (!publicKey) {
+      throw new Error("Could not read Solana public key.");
+    }
+    const challenge = await api("/v1/public/auth/wallets/solana/challenge", {
+      method: "POST",
+      body: { publicKey }
+    });
+    const signed = await provider.signMessage(new TextEncoder().encode(challenge.message), "utf8");
+    const signature = bytesToBase64(signed.signature);
+    await api("/v1/public/auth/wallets/solana/link", {
+      method: "POST",
+      body: {
+        publicKey,
+        nonce: challenge.nonce,
+        signature
+      }
+    });
+    log(`Solana wallet linked: ${shortWallet(publicKey)}`);
+    await refresh({ skipAutoMeasure: true });
+  } catch (error) {
+    log(error instanceof Error ? error.message : "Could not link Solana wallet.");
+  } finally {
+    walletLinkBusy = false;
+    render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
+  }
+}
+
+async function createTopup(form: FormData): Promise<void> {
+  if (topupBusy) {
+    return;
+  }
+  const amountMinor = Math.round(Number(String(form.get("amountUsd") ?? "0").replace(",", ".")) * 100);
+  if (!Number.isFinite(amountMinor) || amountMinor < 100) {
+    log("Enter a top-up amount of at least $1.00.");
+    return;
+  }
+  topupBusy = true;
+  render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
+  try {
+    const expectedSender = latestWallets.find((wallet) => wallet.chain === "solana")?.publicKey;
+    await api("/v1/public/billing/topups", {
+      method: "POST",
+      body: {
+        amountMinor,
+        expectedSender
+      }
+    });
+    log("Top-up intent created.");
+    await refresh({ skipAutoMeasure: true });
+  } catch (error) {
+    log(error instanceof Error ? error.message : "Could not create top-up intent.");
+  } finally {
+    topupBusy = false;
+    render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
+  }
+}
+
+async function submitTopupSignature(topupId: string, form: FormData): Promise<void> {
+  const transactionSignature = String(form.get("transactionSignature") ?? "").trim();
+  if (!transactionSignature) {
+    log("Paste the Solana transaction signature.");
+    return;
+  }
+  try {
+    await api(`/v1/public/billing/topups/${topupId}/submit`, {
+      method: "POST",
+      body: { transactionSignature }
+    });
+    log("Top-up transaction submitted.");
+    await refresh({ skipAutoMeasure: true });
+  } catch (error) {
+    log(error instanceof Error ? error.message : "Could not submit top-up transaction.");
+  }
+}
+
+interface SolanaBrowserProvider {
+  publicKey?: { toString(): string };
+  connect(): Promise<{ publicKey?: { toString(): string } }>;
+  signMessage(message: Uint8Array, encoding?: string): Promise<{ signature: Uint8Array }>;
 }
 
 function validateSessionDraft(): SessionValidationErrors {
@@ -2132,6 +2478,12 @@ function sessionPayloadFromDraft(): Record<string, unknown> {
   };
   if (sessionDraft.mode === "IpToIp") {
     payload.targetIp = sessionDraft.restrictTarget ? optionalDraftString(sessionDraft.targetIp) : undefined;
+  }
+  if (sessionDraft.avoidGermany) {
+    payload.pathPolicy = {
+      excludeCountries: ["Germany"],
+      reason: "avoid-germany"
+    };
   }
   return payload;
 }
@@ -2215,6 +2567,15 @@ async function getBenchmarkMatrix(): Promise<BenchmarkMatrix> {
 async function getSessions(): Promise<Session[]> {
   const response = await api("/v1/public/sessions", { method: "GET" });
   return response.sessions;
+}
+
+async function getBilling(): Promise<BillingSummary> {
+  return api("/v1/public/billing", { method: "GET" });
+}
+
+async function getWallets(): Promise<WalletLink[]> {
+  const response = await api("/v1/public/auth/wallets", { method: "GET" });
+  return response.wallets;
 }
 
 async function refreshDashboardSessions(): Promise<void> {
@@ -2335,6 +2696,7 @@ function updateSessionDraftFromForm(form: HTMLFormElement): void {
   if (formData.has("clientPublicKey")) {
     sessionDraft.clientPublicKey = String(formData.get("clientPublicKey") ?? "");
   }
+  sessionDraft.avoidGermany = formData.get("avoidGermany") === "on";
 }
 
 function syncSessionDraftMode(): void {
@@ -2849,6 +3211,44 @@ function compact(value: unknown): unknown {
 function optionalDraftString(value: string): string | undefined {
   const trimmed = value.trim();
   return trimmed || undefined;
+}
+
+function consumeOauthTokenFromLocation(): string {
+  if (!window.location.hash.startsWith("#")) {
+    return "";
+  }
+  const params = new URLSearchParams(window.location.hash.slice(1));
+  const accessToken = params.get("access_token") ?? "";
+  if (!accessToken) {
+    return "";
+  }
+  window.history.replaceState({}, "", viewPath("dashboard"));
+  localStorage.setItem("hyperspaceAccessToken", accessToken);
+  return accessToken;
+}
+
+function formatMoneyMinor(amountMinor: number, currency: string): string {
+  const amount = amountMinor / 100;
+  try {
+    return new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency
+    }).format(amount);
+  } catch {
+    return `${amount.toFixed(2)} ${currency}`;
+  }
+}
+
+function shortWallet(publicKey: string): string {
+  return publicKey.length <= 12 ? publicKey : `${publicKey.slice(0, 4)}...${publicKey.slice(-4)}`;
+}
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = "";
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte);
+  }
+  return btoa(binary);
 }
 
 function isIpv4(value: string): boolean {

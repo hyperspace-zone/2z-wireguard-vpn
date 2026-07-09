@@ -1,5 +1,5 @@
 import Fastify, { type FastifyInstance } from "fastify";
-import type { SessionAbuseControlConfig } from "@hyperspace-zone/control-plane";
+import type { BillingConfig, GoogleOAuthConfig, SessionAbuseControlConfig } from "@hyperspace-zone/control-plane";
 import type { Database } from "@hyperspace-zone/db";
 import {
   createHealthRegistry,
@@ -11,6 +11,7 @@ import { createHttpAuth } from "./http/auth.js";
 import { registerOpenApiRoute } from "./http/openapi.js";
 import { registerPublicRateLimits, type PublicRateLimitConfig } from "./http/rate-limit.js";
 import { registerAdminAuditRoutes } from "./surfaces/admin/audit.routes.js";
+import { registerAdminBillingRoutes } from "./surfaces/admin/billing.routes.js";
 import { registerAdminGatesRoutes } from "./surfaces/admin/gates.routes.js";
 import { registerAdminJobRoutes } from "./surfaces/admin/jobs.routes.js";
 import { registerAdminSessionRoutes } from "./surfaces/admin/sessions.routes.js";
@@ -23,6 +24,7 @@ import { registerHealthRoutes } from "./surfaces/health.routes.js";
 import { registerPublicArtifactRoutes } from "./surfaces/public/artifacts.routes.js";
 import { registerPublicAuthRoutes } from "./surfaces/public/auth.routes.js";
 import { registerPublicBenchmarkRoutes } from "./surfaces/public/benchmarks.routes.js";
+import { registerPublicBillingRoutes } from "./surfaces/public/billing.routes.js";
 import { registerPublicGatesRoutes } from "./surfaces/public/gates.routes.js";
 import { registerPublicNetworkRoutes } from "./surfaces/public/network.routes.js";
 import { registerPublicSessionsRoutes } from "./surfaces/public/sessions.routes.js";
@@ -34,6 +36,24 @@ export interface ControlPlaneApiRuntimeConfig {
   artifactEncryptionKey: Buffer | null;
   publicRateLimit: PublicRateLimitConfig;
   selfServiceAbuseControls: SessionAbuseControlConfig;
+  emailAuth: {
+    provider: "console" | "resend";
+    resendApiKey: string;
+    from: string;
+    replyTo: string;
+    otpHashSecret: string;
+    otpTtlSeconds: number;
+    exposeCodes: boolean;
+  };
+  googleOAuth: GoogleOAuthConfig | null;
+  walletAuth: {
+    challengeHashSecret: string;
+    challengeTtlSeconds: number;
+  };
+  billing: BillingConfig & {
+    enforcePositiveBalance: boolean;
+    requiredMinBalanceMinor: number;
+  };
 }
 
 export interface CreateControlPlaneApiAppInput {
@@ -65,14 +85,23 @@ export function createApp(input: CreateControlPlaneApiAppInput): FastifyInstance
   registerPublicAuthRoutes(app, {
     db,
     authSessionTtlSeconds: config.authSessionTtlSeconds,
+    emailAuth: config.emailAuth,
+    googleOAuth: config.googleOAuth,
+    walletAuth: config.walletAuth,
     requireUser: auth.requireUser
   });
   registerPublicBenchmarkRoutes(app, { db });
   registerPublicGatesRoutes(app, { db });
   registerPublicNetworkRoutes(app, { requireUser: auth.requireUser });
+  registerPublicBillingRoutes(app, {
+    db,
+    requireUser: auth.requireUser,
+    billing: config.billing
+  });
   registerPublicSessionsRoutes(app, {
     db,
     requireUser: auth.requireUser,
+    billing: config.billing,
     selfServiceAbuseControls: config.selfServiceAbuseControls
   });
   registerPublicArtifactRoutes(app, {
@@ -85,6 +114,7 @@ export function createApp(input: CreateControlPlaneApiAppInput): FastifyInstance
   registerAdminSessionRoutes(app, { db, requireAdmin: auth.requireAdmin });
   registerAdminJobRoutes(app, { db, requireAdmin: auth.requireAdmin });
   registerAdminAuditRoutes(app, { db, requireAdmin: auth.requireAdmin });
+  registerAdminBillingRoutes(app, { db, requireAdmin: auth.requireAdmin });
   registerAgentSessionRoutes(app);
   registerAgentEntitlementRoutes(app);
   registerGateActualStateRoutes(app, { db, requireGate: auth.requireGate });

@@ -944,6 +944,34 @@ SELF_SERVICE_MAX_ACTIVE_SESSIONS_PER_ACCOUNT=5
 SELF_SERVICE_MAX_SESSION_CREATES_PER_WINDOW=20
 SELF_SERVICE_SESSION_CREATE_WINDOW_SECONDS=3600
 SELF_SERVICE_ALLOW_PRIVATE_DESTINATIONS=false
+
+# Milestone 3 onboarding and billing.
+EMAIL_PROVIDER=resend
+EMAIL_FROM=Hyperspace <no-reply@hyperspace.zone>
+EMAIL_REPLY_TO=support@hyperspace.zone
+RESEND_API_KEY=replace-with-resend-api-key
+EMAIL_OTP_HASH_SECRET=replace-with-random-32-byte-secret
+EMAIL_OTP_TTL_SECONDS=600
+EMAIL_OTP_EXPOSE_CODES=false
+
+# Google OAuth is optional until a Google OAuth client is provisioned.
+APP_PUBLIC_URL=https://app.example.com
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+GOOGLE_OAUTH_REDIRECT_URL=
+GOOGLE_OAUTH_STATE_TTL_SECONDS=600
+
+# Solana wallet linking and top-ups.
+WALLET_CHALLENGE_HASH_SECRET=replace-with-random-32-byte-secret
+WALLET_CHALLENGE_TTL_SECONDS=600
+BILLING_CURRENCY=USD
+SOLANA_TREASURY_ADDRESS=
+SOLANA_TOKEN_SYMBOL=USDC
+SOLANA_TOKEN_MINT=
+TOPUP_INTENT_TTL_SECONDS=3600
+BILLING_ALLOW_UNVERIFIED_TOPUPS=false
+BILLING_ENFORCE_POSITIVE_BALANCE=false
+BILLING_REQUIRED_MIN_BALANCE_MINOR=0
 EOF
 chown root:hyperspace /etc/hyperspace/control-plane-api.env
 chmod 0640 /etc/hyperspace/control-plane-api.env
@@ -956,6 +984,47 @@ account: active non-terminal VPN configs are capped, create bursts are capped
 per window, IP-to-IP targets must be public IPv4 `/32` destinations unless
 explicitly overridden. Full-tunnel configs may be unrestricted by source; if a
 source restriction is supplied, the API only validates that it is an IPv4 CIDR.
+
+For testnet UI demonstrations, `BILLING_ALLOW_UNVERIFIED_TOPUPS=true` may be
+used to credit submitted top-up signatures without a Solana RPC verifier. Keep
+it `false` in production-like environments. Production confirmation should
+verify the submitted Solana transaction against the configured treasury address,
+token mint, amount, and reference before crediting the immutable balance ledger.
+
+Google OAuth setup prompt for a browser automation agent after you log in to
+Google Cloud Console:
+
+```text
+Open Google Cloud Console and create or update an OAuth 2.0 Web application
+client for Hyperspace.
+
+Authorized JavaScript origins:
+- https://app.testnet.hyperspace.zone
+- https://app.hyperspace.zone
+
+Authorized redirect URIs:
+- https://control-plane.testnet.hyperspace.zone/v1/public/auth/google/callback
+- https://control-plane.hyperspace.zone/v1/public/auth/google/callback
+
+Copy the Client ID and Client Secret, then update GOOGLE_CLIENT_ID,
+GOOGLE_CLIENT_SECRET, GOOGLE_OAUTH_REDIRECT_URL, and APP_PUBLIC_URL in
+/etc/hyperspace/control-plane-api.env for testnet or mainnet. Do not print the
+secret into the chat.
+```
+
+DoubleZero tenant billing snapshots can be ingested by an operator with
+`ADMIN_TOKEN`:
+
+```bash
+curl -fsS -X POST "$HS_API_ORIGIN/v1/admin/billing/doublezero/tenant-snapshots" \
+  -H "authorization: Bearer $ADMIN_TOKEN" \
+  -H "content-type: application/json" \
+  --data @tenant-billing-snapshot.json
+```
+
+The JSON must include `cluster`, `tenant`, and `raw`. Optional normalized fields
+are `paymentStatus`, `tokenAccount`, `billingRate`, and
+`lastDeductionDzEpoch`. Keep the raw DoubleZero output intact for auditability.
 
 Create `/etc/hyperspace/control-plane-worker.env` with the same
 `ARTIFACT_ENCRYPTION_KEY`:

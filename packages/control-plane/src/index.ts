@@ -8,11 +8,45 @@ export {
   type LoginUserError
 } from "./application/auth/login-user.scenario.js";
 export {
+  requestEmailLoginCode,
+  verifyEmailLoginCode,
+  type EmailSender,
+  type RequestEmailLoginCodeInput,
+  type RequestEmailLoginCodeResult,
+  type VerifyEmailLoginCodeInput,
+  type VerifyEmailLoginCodeResult
+} from "./application/auth/email-login.scenario.js";
+export {
+  completeGoogleOAuth,
+  createGoogleOAuthStart,
+  type GoogleOAuthCompleteResult,
+  type GoogleOAuthConfig,
+  type GoogleOAuthStartResult,
+  type MinimalFetch
+} from "./application/auth/google-oauth.scenario.js";
+export {
   registerUser,
   type AuthSessionResult,
   type PublicUser,
   type RegisterUserError
 } from "./application/auth/register-user.scenario.js";
+export {
+  createSolanaWalletChallenge,
+  linkSolanaWallet,
+  listSolanaWalletLinks,
+  type WalletChallengeResult,
+  type WalletLinkResult
+} from "./application/auth/solana-wallet.scenario.js";
+export {
+  accountHasSufficientBalance,
+  createSolanaTopupIntent,
+  readAccountBillingSummary,
+  submitSolanaTopupSignature,
+  type BillingConfig,
+  type BillingSummary,
+  type CreateTopupResult,
+  type SubmitTopupResult
+} from "./application/billing/public-billing.scenario.js";
 export { issueClientConfigDownloadToken } from "./application/artifacts/issue-download-token.scenario.js";
 export { drainGate } from "./application/operator/drain-gate.scenario.js";
 export { forceReconcile } from "./application/operator/force-reconcile.scenario.js";
@@ -62,6 +96,7 @@ export {
   type ArtifactDownloadToken
 } from "./resources/artifacts/download-tokens.js";
 export { recordGateHeartbeat, type GateHeartbeatReport, type GateRuntimeIdentity } from "./resources/gates/service.js";
+export { insertDoubleZeroTenantBillingSnapshot } from "./resources/billing/repository.js";
 export {
   defaultSessionAbuseControlConfig,
   type SessionAbuseControlConfig

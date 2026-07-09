@@ -97,3 +97,27 @@ export const adminForceReconcileResponseSchema = {
     jobId: { type: "string" }
   }
 } as const;
+
+export const adminDoubleZeroBillingSnapshotRequestSchema = {
+  type: "object",
+  additionalProperties: true,
+  required: ["cluster", "tenant", "raw"],
+  properties: {
+    cluster: { type: "string", minLength: 1 },
+    tenant: { type: "string", minLength: 1 },
+    paymentStatus: { type: "string" },
+    tokenAccount: { type: "string" },
+    billingRate: { type: "string" },
+    lastDeductionDzEpoch: { type: "number" },
+    raw: { type: "object", additionalProperties: true }
+  }
+} as const;
+
+export const adminDoubleZeroBillingSnapshotResponseSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["id"],
+  properties: {
+    id: { type: "string" }
+  }
+} as const;

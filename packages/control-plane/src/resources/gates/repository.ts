@@ -46,6 +46,7 @@ export async function selectSchedulableGate(
     excludeGateId?: string;
     gateId?: string;
     gateName?: string;
+    excludedCountries?: string[];
   }
 ): Promise<SchedulableGateRow | null> {
   const result = await db.query<SchedulableGateRow>(
@@ -65,13 +66,18 @@ export async function selectSchedulableGate(
         ${doubleZeroGateSqlPredicate}
         AND ($2::uuid IS NULL OR gates.id = $2::uuid)
         AND ($3::text IS NULL OR gates.name = $3)
+        AND (
+          cardinality($4::text[]) = 0
+          OR lower(gates.country) <> ALL($4::text[])
+        )
       ORDER BY gates.scheduling_weight DESC, gates.name ASC
       LIMIT 1
     `,
     [
       input.excludeGateId || null,
       input.gateId || null,
-      input.gateName || null
+      input.gateName || null,
+      input.excludedCountries ?? []
     ]
   );
   return result.rows[0] ?? null;

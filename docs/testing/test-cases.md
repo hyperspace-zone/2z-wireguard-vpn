@@ -131,7 +131,21 @@ Do not include them in routine `npm test` or live smoke runs.
 | --- | --- | --- | --- |
 | UNIT-001 | `choosePath` SQL joins gate status. | Scheduler never emits SQL referencing `gate_status` without joining it. | `packages/control-plane/src/planning/choose-path.test.ts` |
 | UNIT-002 | Gate schedulability requires DoubleZero. | Missing `doublezero0`, down BGP session, env mismatch, or tunnel source mismatch keep gate ready when the agent/host is healthy, but make it unschedulable. | `packages/control-plane/src/resources/gates/readiness.test.ts` |
-| UNIT-003 | Build/typecheck across workspaces. | Contracts, DB, control-plane, API, worker, web build and typecheck cleanly. | `npm run build && npm run typecheck` |
+| UNIT-003 | Milestone 3 OTP and Solana wallet primitives. | Email OTP uses HMAC verification; Solana wallet link verifies a real Ed25519 signature and rejects invalid keys. | `packages/control-plane/src/application/auth/*.test.ts` |
+| UNIT-004 | Censorship-resistant route policy. | `choosePath` passes normalized excluded countries to schedulable gate selection. | `packages/control-plane/src/planning/choose-path.test.ts` |
+| UNIT-005 | Build/typecheck across workspaces. | Contracts, DB, control-plane, API, worker, web build and typecheck cleanly. | `npm run build && npm run typecheck` |
+
+## Milestone 3 UI Smoke
+
+Run the offline Chromium smoke for the self-service account console:
+
+```bash
+PLAYWRIGHT_CHROMIUM_EXECUTABLE=/snap/bin/chromium npm run test:milestone3:ui
+```
+
+The smoke mocks the public API, signs in with email code, verifies the account
+balance panel, creates a VPN config, and asserts that the "Avoid Germany" UI
+emits `pathPolicy.excludeCountries=["Germany"]`.
 
 ## Live Testnet Smoke
 

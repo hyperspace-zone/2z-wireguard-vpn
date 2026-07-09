@@ -586,13 +586,41 @@ small {
 }
 
 .auth-panel {
-  max-width: 460px;
+  max-width: 520px;
 }
 
 .auth-form,
 .session-form {
   display: grid;
   gap: 14px;
+}
+
+.auth-subform {
+  border-top: 1px solid #d8dee8;
+  margin-top: 14px;
+  padding-top: 14px;
+}
+
+.auth-provider-button {
+  margin-top: 14px;
+  width: 100%;
+}
+
+.auth-divider {
+  align-items: center;
+  color: #57606a;
+  display: grid;
+  font-size: 12px;
+  grid-template-columns: 1fr auto 1fr;
+  gap: 10px;
+  margin: 16px 0;
+}
+
+.auth-divider::before,
+.auth-divider::after {
+  background: #d8dee8;
+  content: "";
+  height: 1px;
 }
 
 .auth-form h2 {
@@ -656,6 +684,10 @@ small {
 }
 
 .client-key-group {
+  grid-column: 1 / -1;
+}
+
+.route-policy-group {
   grid-column: 1 / -1;
 }
 
@@ -840,6 +872,63 @@ small {
 
 .panel-actions {
   margin-top: 14px;
+}
+
+.account-grid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(3, minmax(220px, 1fr));
+}
+
+.account-card {
+  border: 1px solid #d8dee8;
+  border-radius: 8px;
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+}
+
+.account-card h3 {
+  font-size: 15px;
+  margin: 0;
+}
+
+.account-card small,
+.topup-row small {
+  color: #57606a;
+  display: block;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.balance-value {
+  font-size: 24px;
+}
+
+.wallet-row {
+  margin: 0;
+}
+
+.inline-form {
+  align-items: end;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.topup-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.topup-row {
+  align-items: center;
+  border-top: 1px solid #d8dee8;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(220px, 1fr) minmax(280px, 1.5fr);
+  padding-top: 12px;
 }
 
 .session-form button {
@@ -1111,10 +1200,13 @@ small {
 
   .topbar,
   .grid,
+  .account-grid,
   .gate-select-row,
+  .inline-form,
   .review-grid,
   .review-row,
-  .session-form {
+  .session-form,
+  .topup-row {
     grid-template-columns: 1fr;
     display: grid;
   }

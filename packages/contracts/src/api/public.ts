@@ -68,6 +68,192 @@ export const publicAuthMeResponseSchema = {
   }
 } as const;
 
+export const publicRequestEmailLoginCodeRequestSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["email"],
+  properties: {
+    email: { type: "string", format: "email" }
+  }
+} as const;
+
+export const publicRequestEmailLoginCodeResponseSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["status", "email", "expiresAt"],
+  properties: {
+    status: { const: "sent" },
+    email: { type: "string" },
+    expiresAt: { type: "string", format: "date-time" },
+    devCode: { type: "string" }
+  }
+} as const;
+
+export const publicVerifyEmailLoginCodeRequestSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["email", "code"],
+  properties: {
+    email: { type: "string", format: "email" },
+    code: { type: "string", minLength: 6, maxLength: 6 }
+  }
+} as const;
+
+export const publicGoogleOAuthStartResponseSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["authorizationUrl", "expiresAt"],
+  properties: {
+    authorizationUrl: { type: "string" },
+    expiresAt: { type: "string", format: "date-time" }
+  }
+} as const;
+
+export const publicWalletLinkSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["id", "chain", "publicKey", "linkedAt"],
+  properties: {
+    id: { type: "string" },
+    chain: { type: "string" },
+    publicKey: { type: "string" },
+    label: { type: ["string", "null"] },
+    linkedAt: { type: "string", format: "date-time" }
+  }
+} as const;
+
+export const publicWalletLinksResponseSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["wallets"],
+  properties: {
+    wallets: { type: "array", items: publicWalletLinkSchema }
+  }
+} as const;
+
+export const publicCreateSolanaWalletChallengeRequestSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["publicKey"],
+  properties: {
+    publicKey: { type: "string", minLength: 32 }
+  }
+} as const;
+
+export const publicSolanaWalletChallengeResponseSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["chain", "publicKey", "nonce", "message", "expiresAt"],
+  properties: {
+    chain: { const: "solana" },
+    publicKey: { type: "string" },
+    nonce: { type: "string" },
+    message: { type: "string" },
+    expiresAt: { type: "string", format: "date-time" }
+  }
+} as const;
+
+export const publicLinkSolanaWalletRequestSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["publicKey", "nonce", "signature"],
+  properties: {
+    publicKey: { type: "string", minLength: 32 },
+    nonce: { type: "string", minLength: 1 },
+    signature: { type: "string", minLength: 64 }
+  }
+} as const;
+
+export const publicLinkSolanaWalletResponseSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["wallet"],
+  properties: {
+    wallet: publicWalletLinkSchema
+  }
+} as const;
+
+export const publicBillingLedgerEntrySchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["id", "entryType", "amountMinor", "currency", "sourceType", "sourceId", "description", "createdAt"],
+  properties: {
+    id: { type: "string" },
+    entryType: { type: "string" },
+    amountMinor: { type: "number" },
+    currency: { type: "string" },
+    sourceType: { type: "string" },
+    sourceId: { type: "string" },
+    description: { type: "string" },
+    createdAt: { type: "string", format: "date-time" }
+  }
+} as const;
+
+export const publicTopupIntentSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["id", "provider", "status", "amountMinor", "currency", "reference", "expiresAt", "createdAt"],
+  properties: {
+    id: { type: "string" },
+    provider: { type: "string" },
+    status: { type: "string" },
+    amountMinor: { type: "number" },
+    currency: { type: "string" },
+    chain: { type: ["string", "null"] },
+    tokenSymbol: { type: ["string", "null"] },
+    tokenMint: { type: ["string", "null"] },
+    treasuryAddress: { type: ["string", "null"] },
+    reference: { type: "string" },
+    expectedSender: { type: ["string", "null"] },
+    transactionSignature: { type: ["string", "null"] },
+    expiresAt: { type: "string", format: "date-time" },
+    submittedAt: { type: ["string", "null"], format: "date-time" },
+    confirmedAt: { type: ["string", "null"], format: "date-time" },
+    createdAt: { type: "string", format: "date-time" }
+  }
+} as const;
+
+export const publicBillingSummaryResponseSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["accountId", "balanceMinor", "currency", "ledger", "topups"],
+  properties: {
+    accountId: { type: "string" },
+    balanceMinor: { type: "number" },
+    currency: { type: "string" },
+    ledger: { type: "array", items: publicBillingLedgerEntrySchema },
+    topups: { type: "array", items: publicTopupIntentSchema }
+  }
+} as const;
+
+export const publicCreateTopupRequestSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["amountMinor"],
+  properties: {
+    amountMinor: { type: "number", minimum: 100 },
+    expectedSender: { type: "string" }
+  }
+} as const;
+
+export const publicTopupIntentResponseSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["topup"],
+  properties: {
+    topup: publicTopupIntentSchema
+  }
+} as const;
+
+export const publicSubmitTopupRequestSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["transactionSignature"],
+  properties: {
+    transactionSignature: { type: "string", minLength: 64 }
+  }
+} as const;
+
 export const publicCreateSessionRequestSchema = {
   type: "object",
   additionalProperties: true,

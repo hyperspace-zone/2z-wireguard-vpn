@@ -37,6 +37,33 @@ Milestone 2 delivered:
 
 Milestone 3 should build on that state rather than replace it.
 
+## Implementation Slice 1
+
+Implemented in `milestone3-mainnet-scaleout`:
+
+- Email code login backed by Resend REST delivery.
+- Google OAuth start/callback endpoints with configuration-gated activation.
+- Solana wallet link flow with nonce challenge and server-side Ed25519
+  signature verification.
+- User billing account, immutable balance ledger, Solana top-up intents, and
+  a testnet-only unverified top-up credit mode.
+- Admin ingestion endpoint for raw DoubleZero tenant billing snapshots.
+- Self-service UI account panel with balance, top-up intent creation, top-up
+  signature submission, linked Solana wallet display, and wallet link action.
+- Route policy support for `pathPolicy.excludeCountries`, including the UI
+  "Avoid Germany" control for censorship-resistant routing.
+- Chromium/Playwright UI smoke test covering email-code login, account panel,
+  Create config, and `pathPolicy.excludeCountries=["Germany"]`.
+
+Still pending for later Milestone 3 work:
+
+- Production Solana RPC confirmation of top-up transactions before ledger
+  credit.
+- Full DoubleZero metering adapter and rated usage debit pipeline.
+- Broader deployment automation and the final PoP expansion wave.
+- Native WireGuard wrapper or install helper beyond the current generated
+  platform run scripts.
+
 ## Workstream 1: Mainnet Footprint Scale-Out
 
 Target outcome: expand mainnet from the current 14 enabled gates toward about 29

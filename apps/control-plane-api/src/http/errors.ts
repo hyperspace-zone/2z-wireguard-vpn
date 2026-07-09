@@ -22,6 +22,7 @@ export type ApplicationErrorCode =
   | "download_token_not_found"
   | "distinct_gates_required"
   | "egress_gate_required"
+  | "email_code_expired"
   | "email_already_registered"
   | "forbidden"
   | "gate_auth_required"
@@ -31,18 +32,35 @@ export type ApplicationErrorCode =
   | "invalid_client_public_key"
   | "invalid_credentials"
   | "invalid_destination_cidr"
+  | "invalid_email_code"
   | "invalid_email"
   | "invalid_gate_credentials"
   | "invalid_job_status"
   | "invalid_mode"
+  | "invalid_oauth_state"
   | "invalid_source_cidr"
+  | "invalid_topup_amount"
+  | "invalid_transaction_signature"
+  | "invalid_wallet_challenge"
+  | "invalid_wallet_public_key"
+  | "invalid_wallet_signature"
   | "job_not_found"
+  | "oauth_email_not_verified"
+  | "oauth_exchange_failed"
+  | "oauth_not_configured"
   | "raw_config_not_available"
   | "rate_limited"
+  | "route_policy_not_satisfied"
   | "session_create_rate_limited"
+  | "session_requires_positive_balance"
   | "session_not_found"
   | "session_not_revoked"
   | "session_quota_exceeded"
+  | "topup_already_final"
+  | "topup_expired"
+  | "topup_not_found"
+  | "topup_provider_not_configured"
+  | "too_many_attempts"
   | "weak_password";
 
 export function sendApplicationError(
@@ -63,11 +81,15 @@ function applicationErrorStatus(code: ApplicationErrorCode): number {
     case "admin_surface_not_configured":
     case "agent_surface_disabled":
     case "artifact_encryption_not_configured":
+    case "oauth_not_configured":
+    case "topup_provider_not_configured":
       return 503;
     case "artifact_not_ready":
     case "email_already_registered":
+    case "session_requires_positive_balance":
     case "session_quota_exceeded":
     case "session_not_revoked":
+    case "topup_already_final":
       return 409;
     case "rate_limited":
     case "session_create_rate_limited":
@@ -83,23 +105,37 @@ function applicationErrorStatus(code: ApplicationErrorCode): number {
       return 401;
     case "forbidden":
     case "destination_not_allowed":
+    case "oauth_email_not_verified":
       return 403;
     case "download_token_not_found":
     case "gate_not_found":
     case "job_not_found":
     case "session_not_found":
+    case "topup_not_found":
       return 404;
     case "credentials_required":
     case "destination_required":
     case "distinct_gates_required":
     case "egress_gate_required":
+    case "email_code_expired":
     case "ingress_gate_required":
     case "invalid_client_public_key":
     case "invalid_destination_cidr":
+    case "invalid_email_code":
     case "invalid_email":
     case "invalid_job_status":
     case "invalid_mode":
+    case "invalid_oauth_state":
     case "invalid_source_cidr":
+    case "invalid_topup_amount":
+    case "invalid_transaction_signature":
+    case "invalid_wallet_challenge":
+    case "invalid_wallet_public_key":
+    case "invalid_wallet_signature":
+    case "oauth_exchange_failed":
+    case "route_policy_not_satisfied":
+    case "topup_expired":
+    case "too_many_attempts":
     case "weak_password":
       return 400;
   }
