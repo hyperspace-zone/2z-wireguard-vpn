@@ -1026,6 +1026,31 @@ The JSON must include `cluster`, `tenant`, and `raw`. Optional normalized fields
 are `paymentStatus`, `tokenAccount`, `billingRate`, and
 `lastDeductionDzEpoch`. Keep the raw DoubleZero output intact for auditability.
 
+Milestone 3 gate scale-out should use the repository automation scripts instead
+of hand-copying commands from this runbook. The scripts are designed for rollout
+waves and support dry-run output before mutating any host:
+
+```bash
+npm run gates:rollout-wave -- \
+  --inventory infra/gates.mainnet.json \
+  --wave 2026-07-a \
+  --ssh-key /root/hyperspace/.ssh_keys/hyperspace_mainnet_gatekeeper_20260526 \
+  --control-plane-url https://control-plane.hyperspace.zone \
+  --web-origin https://app.hyperspace.zone \
+  --gate-token-dir /root/hyperspace/secrets/mainnet-gate-tokens \
+  --probe-secret-file /root/hyperspace/secrets/mainnet-gate-probe-secret
+
+# execute only after reviewing the dry-run
+npm run gates:rollout-wave -- ... --execute
+```
+
+The automation installs host packages, HWE kernel where available, DoubleZero,
+chrony, Caddy, WireGuard tooling, the passive DoubleZero route-liveness tuning
+drop-in, the optional Caddy HTTPS probe host, and the `hyperspace-gate-agent`
+systemd service. It never overwrites `/root/.config/doublezero/id.json`; if a
+host does not yet have a DoubleZero identity or access-pass, keep that gate
+`Disabled` or `Maintenance` in the catalog until DoubleZero approves it.
+
 Create `/etc/hyperspace/control-plane-worker.env` with the same
 `ARTIFACT_ENCRYPTION_KEY`:
 

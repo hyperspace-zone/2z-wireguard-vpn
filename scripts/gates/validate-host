@@ -1,0 +1,90 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat >&2 <<'EOF'
+usage: scripts/gates/validate-host --host HOST --doublezero-env testnet|mainnet-beta [options]
+
+Options:
+  --ssh-key PATH     SSH private key.
+  --ssh-user USER    SSH user, default root.
+  --dry-run          Print the SSH command instead of executing.
+EOF
+}
+
+host=""
+ssh_key=""
+ssh_user="root"
+dz_env=""
+dry_run=false
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --host) host="${2:-}"; shift 2 ;;
+    --ssh-key) ssh_key="${2:-}"; shift 2 ;;
+    --ssh-user) ssh_user="${2:-}"; shift 2 ;;
+    --doublezero-env) dz_env="${2:-}"; shift 2 ;;
+    --dry-run) dry_run=true; shift ;;
+    -h|--help) usage; exit 0 ;;
+    *) echo "unknown argument: $1" >&2; usage; exit 2 ;;
+  esac
+done
+
+if [[ -z "$host" || -z "$dz_env" ]]; then
+  usage
+  exit 2
+fi
+
+ssh_args=(-o StrictHostKeyChecking=no -o ServerAliveInterval=15 -o ServerAliveCountMax=4)
+if [[ -n "$ssh_key" ]]; then
+  ssh_args+=(-i "$ssh_key")
+fi
+
+remote_script="$(cat <<'REMOTE'
+set -euo pipefail
+json_bool() { if "$@" >/dev/null 2>&1; then printf true; else printf false; fi; }
+json_string() { python3 -c 'import json,sys; print(json.dumps(sys.stdin.read().strip()))'; }
+
+hostname_value="$(hostname -f 2>/dev/null || hostname)"
+kernel_value="$(uname -r)"
+doublezero_status="$(doublezero --env "$DZ_ENV" --keypair /root/.config/doublezero/id.json status </dev/null 2>&1 || true)"
+chrony_tracking="$(chronyc tracking 2>&1 || true)"
+public_ipv4="$(curl -fsS4 https://api.ipify.org 2>/dev/null || true)"
+
+cat <<JSON
+{
+  "hostname": $(printf '%s' "$hostname_value" | json_string),
+  "kernel": $(printf '%s' "$kernel_value" | json_string),
+  "publicIpv4": $(printf '%s' "$public_ipv4" | json_string),
+  "commands": {
+    "doublezero": $(json_bool command -v doublezero),
+    "wg": $(json_bool command -v wg),
+    "ip": $(json_bool command -v ip),
+    "nft": $(json_bool command -v nft),
+    "chronyc": $(json_bool command -v chronyc),
+    "caddy": $(json_bool command -v caddy),
+    "hyperspaceGateAgent": $(json_bool command -v hyperspace-gate-agent)
+  },
+  "services": {
+    "doublezerod": $(json_bool systemctl is-active --quiet doublezerod),
+    "hyperspaceGateAgent": $(json_bool systemctl is-active --quiet hyperspace-gate-agent),
+    "chrony": $(json_bool systemctl is-active --quiet chrony),
+    "caddy": $(json_bool systemctl is-active --quiet caddy)
+  },
+  "interfaces": {
+    "doublezero0": $(json_bool ip link show doublezero0)
+  },
+  "doublezeroStatus": $(printf '%s' "$doublezero_status" | json_string),
+  "chronyTracking": $(printf '%s' "$chrony_tracking" | json_string)
+}
+JSON
+REMOTE
+)"
+
+if [[ "$dry_run" == true ]]; then
+  printf 'ssh %q %q DZ_ENV=%q bash -s <<REMOTE\n%s\nREMOTE\n' \
+    "${ssh_args[*]}" "${ssh_user}@${host}" "$dz_env" "$remote_script"
+  exit 0
+fi
+
+ssh "${ssh_args[@]}" "${ssh_user}@${host}" "DZ_ENV=$(printf '%q' "$dz_env") bash -s" <<<"$remote_script"

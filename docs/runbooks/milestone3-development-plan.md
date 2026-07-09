@@ -55,6 +55,19 @@ Implemented in `milestone3-mainnet-scaleout`:
 - Chromium/Playwright UI smoke test covering email-code login, account panel,
   Create config, and `pathPolicy.excludeCountries=["Germany"]`.
 
+## Implementation Slice 2
+
+Implemented in `milestone3-mainnet-scaleout`:
+
+- Idempotent gate deployment automation scripts:
+  - `scripts/gates/bootstrap-host`
+  - `scripts/gates/deploy-agent`
+  - `scripts/gates/validate-host`
+  - `scripts/gates/rollout-wave.mjs`
+- Wave-based dry-run rollout command exposed as `npm run gates:rollout-wave`.
+- Deployment runbook updated to make the automation the preferred scale-out
+  path.
+
 Still pending for later Milestone 3 work:
 
 - Production Solana RPC confirmation of top-up transactions before ledger

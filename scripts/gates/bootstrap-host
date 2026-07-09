@@ -1,0 +1,121 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat >&2 <<'EOF'
+usage: scripts/gates/bootstrap-host --host HOST --doublezero-env testnet|mainnet-beta [options]
+
+Options:
+  --ssh-key PATH              SSH private key.
+  --ssh-user USER             SSH user, default root.
+  --doublezero-version VER    Optional pinned doublezero package version.
+  --dry-run                   Print the remote command instead of executing it.
+EOF
+}
+
+host=""
+ssh_key=""
+ssh_user="root"
+dz_env=""
+doublezero_version=""
+dry_run=false
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --host) host="${2:-}"; shift 2 ;;
+    --ssh-key) ssh_key="${2:-}"; shift 2 ;;
+    --ssh-user) ssh_user="${2:-}"; shift 2 ;;
+    --doublezero-env) dz_env="${2:-}"; shift 2 ;;
+    --doublezero-version) doublezero_version="${2:-}"; shift 2 ;;
+    --dry-run) dry_run=true; shift ;;
+    -h|--help) usage; exit 0 ;;
+    *) echo "unknown argument: $1" >&2; usage; exit 2 ;;
+  esac
+done
+
+if [[ -z "$host" || -z "$dz_env" ]]; then
+  usage
+  exit 2
+fi
+case "$dz_env" in
+  testnet|mainnet-beta) ;;
+  *) echo "unsupported --doublezero-env: $dz_env" >&2; exit 2 ;;
+esac
+
+ssh_args=(-o StrictHostKeyChecking=no -o ServerAliveInterval=15 -o ServerAliveCountMax=4)
+if [[ -n "$ssh_key" ]]; then
+  ssh_args+=(-i "$ssh_key")
+fi
+
+remote_script="$(cat <<'REMOTE'
+set -euo pipefail
+export DEBIAN_FRONTEND=noninteractive
+
+case "$DZ_ENV" in
+  testnet) DOUBLEZERO_CLOUDSMITH_REPO=doublezero-testnet ;;
+  mainnet-beta) DOUBLEZERO_CLOUDSMITH_REPO=doublezero ;;
+  *) echo "unsupported DZ_ENV=$DZ_ENV" >&2; exit 2 ;;
+esac
+
+apt-get update
+apt-get install -y ca-certificates curl git gnupg build-essential gettext-base jq python3 \
+  wireguard-tools iproute2 nftables chrony caddy
+
+if apt-cache show linux-generic-hwe-24.04 >/dev/null 2>&1; then
+  apt-get install -y linux-generic-hwe-24.04
+else
+  apt-get install -y linux-generic
+fi
+
+systemctl disable --now fwupd-refresh.timer fwupd-refresh.service fwupd.service packagekit.service 2>/dev/null || true
+systemctl mask fwupd-refresh.timer fwupd-refresh.service fwupd.service packagekit.service 2>/dev/null || true
+
+if [ "$DOUBLEZERO_CLOUDSMITH_REPO" = "doublezero-testnet" ]; then
+  rm -f /etc/apt/sources.list.d/malbeclabs-doublezero.list
+else
+  rm -f /etc/apt/sources.list.d/malbeclabs-doublezero-testnet.list
+fi
+curl -1sLf "https://dl.cloudsmith.io/public/malbeclabs/${DOUBLEZERO_CLOUDSMITH_REPO}/setup.deb.sh" | bash
+apt-get update
+if [ -n "${DOUBLEZERO_VERSION:-}" ]; then
+  apt-get install -y "doublezero=${DOUBLEZERO_VERSION}"
+else
+  apt-get install -y doublezero
+fi
+
+install -d -o root -g root -m 0750 /etc/hyperspace
+dpkg-query -W -f='${Package} ${Version}\n' doublezero > /etc/hyperspace/doublezero-version.txt
+
+install -d /etc/systemd/system/doublezerod.service.d
+cat >/etc/systemd/system/doublezerod.service.d/zz-route-liveness-passive-tuning.conf <<EOF
+[Service]
+ExecStart=
+ExecStart=/usr/bin/doublezerod -sock-file /run/doublezerod/doublezerod.sock -env ${DZ_ENV} -route-liveness-tx-min 10s -route-liveness-rx-min 10s -route-liveness-max-tx-ceil 30s
+EOF
+
+systemctl daemon-reload
+systemctl enable --now chrony nftables caddy
+systemctl enable --now doublezerod || true
+
+if [ -s /root/.config/doublezero/id.json ]; then
+  chmod 0600 /root/.config/doublezero/id.json
+  doublezero --env "$DZ_ENV" --keypair /root/.config/doublezero/id.json address </dev/null || true
+else
+  echo "DoubleZero keypair is not present at /root/.config/doublezero/id.json; restore it or generate it before connecting." >&2
+fi
+
+command -v doublezero
+command -v wg
+command -v nft
+command -v chronyc
+REMOTE
+)"
+
+if [[ "$dry_run" == true ]]; then
+  printf 'ssh %q %q DZ_ENV=%q DOUBLEZERO_VERSION=%q bash -s <<REMOTE\n%s\nREMOTE\n' \
+    "${ssh_args[*]}" "${ssh_user}@${host}" "$dz_env" "$doublezero_version" "$remote_script"
+  exit 0
+fi
+
+ssh "${ssh_args[@]}" "${ssh_user}@${host}" \
+  "DZ_ENV=$(printf '%q' "$dz_env") DOUBLEZERO_VERSION=$(printf '%q' "$doublezero_version") bash -s" <<<"$remote_script"
