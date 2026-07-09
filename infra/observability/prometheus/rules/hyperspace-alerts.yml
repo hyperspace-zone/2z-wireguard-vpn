@@ -101,6 +101,24 @@ groups:
           summary: Hyperspace gate memory is critically low
           description: Gate {{ $labels.gate }} has less than 10% and 128MiB available RAM.
 
+      - alert: HyperspaceGateDiskJanitorStale
+        expr: time() - hyperspace_gate_disk_janitor_last_run_timestamp_seconds{job="hyperspace-gate-node"} > 1800
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Hyperspace gate disk janitor is stale
+          description: Gate {{ $labels.gate }} has not reported a disk janitor run for more than 30 minutes.
+
+      - alert: HyperspaceGateDiskJanitorFailed
+        expr: hyperspace_gate_disk_janitor_last_success{job="hyperspace-gate-node"} == 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Hyperspace gate disk janitor failed
+          description: Gate {{ $labels.gate }} reported a failed disk janitor run.
+
       - alert: HyperspaceDeadJobsPresent
         expr: sum(hyperspace_control_plane_jobs_total{phase="dead"}) > 0
         for: 5m

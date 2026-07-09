@@ -1,0 +1,14 @@
+[Unit]
+Description=Run Hyperspace gate disk janitor periodically
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=5min
+AccuracySec=30s
+RandomizedDelaySec=30s
+Persistent=true
+Unit=hyperspace-disk-janitor.service
+
+[Install]
+WantedBy=timers.target
+

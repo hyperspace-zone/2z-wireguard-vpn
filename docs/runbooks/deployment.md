@@ -531,6 +531,8 @@ apt-get install -y \
   wireguard-tools \
   iproute2 \
   nftables \
+  logrotate \
+  prometheus-node-exporter \
   caddy
 ```
 
@@ -763,6 +765,53 @@ Open the required firewall/security-group paths:
 
 Provisioning can succeed while client traffic still fails if the cloud firewall
 blocks the assigned WireGuard UDP port on the ingress gate.
+
+### Gate disk janitor
+
+Install the local disk janitor on every gate. It prevents noisy system logs
+from filling the root filesystem and emits node-exporter textfile metrics for
+operator evidence.
+
+```bash
+install -d -m 0755 /usr/local/sbin
+install -m 0755 "$HS_REPO_DIR/scripts/hyperspace-disk-janitor.sh" \
+  /usr/local/sbin/hyperspace-disk-janitor
+
+install -d -m 0755 /etc/systemd/journald.conf.d
+install -m 0644 "$HS_REPO_DIR/infra/journald/hyperspace-gate-limits.conf" \
+  /etc/systemd/journald.conf.d/90-hyperspace-gate-limits.conf
+
+install -d -m 0755 /etc/logrotate.d
+install -m 0644 "$HS_REPO_DIR/infra/logrotate/hyperspace-gate-logs" \
+  /etc/logrotate.d/hyperspace-gate-logs
+
+install -d -m 0755 /var/lib/node_exporter/textfile_collector
+cat >/etc/default/prometheus-node-exporter <<'EOF'
+ARGS="--collector.textfile.directory=/var/lib/node_exporter/textfile_collector"
+EOF
+
+install -m 0644 "$HS_REPO_DIR/infra/systemd/hyperspace-disk-janitor.service" \
+  /etc/systemd/system/hyperspace-disk-janitor.service
+install -m 0644 "$HS_REPO_DIR/infra/systemd/hyperspace-disk-janitor.timer" \
+  /etc/systemd/system/hyperspace-disk-janitor.timer
+
+systemctl daemon-reload
+systemctl restart systemd-journald
+systemctl enable --now prometheus-node-exporter
+systemctl restart prometheus-node-exporter
+systemctl enable --now hyperspace-disk-janitor.timer
+systemctl start hyperspace-disk-janitor.service
+systemctl list-timers --all | grep hyperspace-disk-janitor
+```
+
+The janitor runs every five minutes. If `/` is at least 85% used, it vacuums
+journald to 200MiB, runs `apt-get clean`, and forces logrotate. If `/` is still
+at least 95% used after that soft cleanup, it truncates only known system log
+files (`/var/log/syslog*` and `/var/log/kern.log*`) and reloads/restarts
+`rsyslog`.
+
+It must not remove or mutate `/etc/hyperspace`, `/var/lib/hyperspace-gate`,
+WireGuard state, DoubleZero identity files, or control-plane data.
 
 ## Control-Plane Host Bootstrap
 
@@ -1223,7 +1272,12 @@ catalog:
 ```bash
 apt-get update
 apt-get install -y prometheus-node-exporter
+install -d -m 0755 /var/lib/node_exporter/textfile_collector
+cat >/etc/default/prometheus-node-exporter <<'EOF'
+ARGS="--collector.textfile.directory=/var/lib/node_exporter/textfile_collector"
+EOF
 systemctl enable --now prometheus-node-exporter
+systemctl restart prometheus-node-exporter
 ```
 
 Prometheus scrapes gate node exporters with the `hyperspace-gate-node` job in
@@ -1241,6 +1295,21 @@ heartbeats:
   512MiB available.
 - `HyperspaceGateMemoryCritical` pages when RAM has less than 10% and 128MiB
   available.
+- `HyperspaceGateDiskJanitorStale` warns when the local disk janitor has not
+  reported a run for more than 30 minutes.
+- `HyperspaceGateDiskJanitorFailed` warns when the local disk janitor reports
+  its last run as failed.
+
+The janitor publishes these textfile metrics through node exporter:
+
+- `hyperspace_gate_disk_janitor_last_run_timestamp_seconds`
+- `hyperspace_gate_disk_janitor_last_before_used_percent`
+- `hyperspace_gate_disk_janitor_last_after_used_percent`
+- `hyperspace_gate_disk_janitor_last_before_avail_bytes`
+- `hyperspace_gate_disk_janitor_last_after_avail_bytes`
+- `hyperspace_gate_disk_janitor_last_success`
+- `hyperspace_gate_disk_janitor_last_action{action="..."}`
+- `hyperspace_gate_disk_janitor_runs_total`
 
 Provision Alertmanager Telegram notifications. Create a Telegram bot with
 BotFather, add it to the target chats, send one message in each chat, then

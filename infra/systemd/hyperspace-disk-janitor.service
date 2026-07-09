@@ -1,0 +1,12 @@
+[Unit]
+Description=Hyperspace gate disk janitor
+Documentation=https://github.com/hyperspace-zone/2z-wireguard-vpn
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/usr/local/sbin/hyperspace-disk-janitor
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+
