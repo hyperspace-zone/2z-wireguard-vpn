@@ -158,6 +158,40 @@ systemctl reset-failed \
   packagekit-offline-update.service 2>/dev/null || true
 ```
 
+Disable unattended APT activity as well. A 1 GB gate can enter sustained
+memory and I/O pressure while `unattended-upgrade` reads package metadata;
+the gate-agent, SSH, and node exporter can then all stop responding before a
+five-minute resource alert becomes firing. Run the repository script on every
+host role:
+
+```bash
+install -m 0755 "$HS_REPO_DIR/scripts/disable-automatic-upgrades.sh" \
+  /usr/local/sbin/hyperspace-disable-automatic-upgrades
+/usr/local/sbin/hyperspace-disable-automatic-upgrades
+```
+
+The script disables APT periodic policy and masks `apt-daily.timer`,
+`apt-daily-upgrade.timer`, their services, and `unattended-upgrades.service`.
+It deliberately does not terminate an already-running apt/dpkg transaction;
+let such a transaction finish, repair it if necessary, and run the script
+again. Verify the baseline with:
+
+```bash
+systemctl is-enabled \
+  apt-daily.timer \
+  apt-daily-upgrade.timer \
+  apt-daily.service \
+  apt-daily-upgrade.service \
+  unattended-upgrades.service
+apt-config dump | grep -E '^APT::Periodic'
+pgrep -a 'apt|dpkg|unattended' || true
+```
+
+Every listed unit should be `masked`, all `APT::Periodic` values should be
+`"0"`, and no package transaction should remain. Reapply this baseline after
+an image replacement or distribution upgrade because package installation can
+restore vendor presets.
+
 For 1 GB hosts, add swap unless the provider already supplies enough memory.
 This does not make undersized hosts fast, but it prevents short-lived metadata
 jobs from pushing the VM into an OOM/user-space stall:
@@ -1294,7 +1328,9 @@ heartbeats:
 - `HyperspaceGateRootFilesystemCritical` pages when `/` has less than 5% or
   512MiB available.
 - `HyperspaceGateMemoryCritical` pages when RAM has less than 10% and 128MiB
-  available.
+  available for 30 seconds. Prometheus keeps it firing for 10 minutes so a
+  rapid host stall cannot erase the notification as soon as node exporter
+  becomes unreachable.
 - `HyperspaceGateDiskJanitorStale` warns when the local disk janitor has not
   reported a run for more than 30 minutes.
 - `HyperspaceGateDiskJanitorFailed` warns when the local disk janitor reports

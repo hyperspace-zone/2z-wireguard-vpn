@@ -94,7 +94,8 @@ groups:
           )
           and
           node_memory_MemAvailable_bytes{job="hyperspace-gate-node"} < 134217728
-        for: 5m
+        for: 30s
+        keep_firing_for: 10m
         labels:
           severity: critical
         annotations:
