@@ -158,6 +158,40 @@ systemctl reset-failed \
   packagekit-offline-update.service 2>/dev/null || true
 ```
 
+Disable unattended APT activity as well. A 1 GB gate can enter sustained
+memory and I/O pressure while `unattended-upgrade` reads package metadata;
+the gate-agent, SSH, and node exporter can then all stop responding before a
+five-minute resource alert becomes firing. Run the repository script on every
+host role:
+
+```bash
+install -m 0755 "$HS_REPO_DIR/scripts/disable-automatic-upgrades.sh" \
+  /usr/local/sbin/hyperspace-disable-automatic-upgrades
+/usr/local/sbin/hyperspace-disable-automatic-upgrades
+```
+
+The script disables APT periodic policy and masks `apt-daily.timer`,
+`apt-daily-upgrade.timer`, their services, and `unattended-upgrades.service`.
+It deliberately does not terminate an already-running apt/dpkg transaction;
+let such a transaction finish, repair it if necessary, and run the script
+again. Verify the baseline with:
+
+```bash
+systemctl is-enabled \
+  apt-daily.timer \
+  apt-daily-upgrade.timer \
+  apt-daily.service \
+  apt-daily-upgrade.service \
+  unattended-upgrades.service
+apt-config dump | grep -E '^APT::Periodic'
+pgrep -a 'apt|dpkg|unattended' || true
+```
+
+Every listed unit should be `masked`, all `APT::Periodic` values should be
+`"0"`, and no package transaction should remain. Reapply this baseline after
+an image replacement or distribution upgrade because package installation can
+restore vendor presets.
+
 For 1 GB hosts, add swap unless the provider already supplies enough memory.
 This does not make undersized hosts fast, but it prevents short-lived metadata
 jobs from pushing the VM into an OOM/user-space stall:
@@ -532,6 +566,8 @@ apt-get install -y \
   wireguard-tools \
   iproute2 \
   nftables \
+  logrotate \
+  prometheus-node-exporter \
   caddy
 ```
 
@@ -758,11 +794,59 @@ Open the required firewall/security-group paths:
 | Each gate to control-plane | TCP 443 | Gate heartbeat and reconciliation jobs. |
 | Between DoubleZero clients | UDP 44880 | DoubleZero route-liveness traffic. |
 | Gates to gates | UDP 19192 by default | Milestone 2 public-vs-DoubleZero benchmark probes. Restrict to known gate IPs and keep `GATE_PROBE_SHARED_SECRET` enabled. |
+| Observability to each gate | TCP 9100 | Prometheus `node_exporter` host resource metrics. Restrict to the observability host IPs only. |
 | WireGuard clients to ingress gates | UDP listen ports assigned by Hyperspace | Client tunnel traffic. Keep the assigned/dynamic UDP range open, or open the intended WireGuard UDP ports until the range is constrained in deployment config. |
 | Egress gates to targets | As required by policy | User traffic exiting through the selected egress gate. |
 
 Provisioning can succeed while client traffic still fails if the cloud firewall
 blocks the assigned WireGuard UDP port on the ingress gate.
+
+### Gate disk janitor
+
+Install the local disk janitor on every gate. It prevents noisy system logs
+from filling the root filesystem and emits node-exporter textfile metrics for
+operator evidence.
+
+```bash
+install -d -m 0755 /usr/local/sbin
+install -m 0755 "$HS_REPO_DIR/scripts/hyperspace-disk-janitor.sh" \
+  /usr/local/sbin/hyperspace-disk-janitor
+
+install -d -m 0755 /etc/systemd/journald.conf.d
+install -m 0644 "$HS_REPO_DIR/infra/journald/hyperspace-gate-limits.conf" \
+  /etc/systemd/journald.conf.d/90-hyperspace-gate-limits.conf
+
+install -d -m 0755 /etc/logrotate.d
+install -m 0644 "$HS_REPO_DIR/infra/logrotate/hyperspace-gate-logs" \
+  /etc/logrotate.d/hyperspace-gate-logs
+
+install -d -m 0755 /var/lib/node_exporter/textfile_collector
+cat >/etc/default/prometheus-node-exporter <<'EOF'
+ARGS="--collector.textfile.directory=/var/lib/node_exporter/textfile_collector"
+EOF
+
+install -m 0644 "$HS_REPO_DIR/infra/systemd/hyperspace-disk-janitor.service" \
+  /etc/systemd/system/hyperspace-disk-janitor.service
+install -m 0644 "$HS_REPO_DIR/infra/systemd/hyperspace-disk-janitor.timer" \
+  /etc/systemd/system/hyperspace-disk-janitor.timer
+
+systemctl daemon-reload
+systemctl restart systemd-journald
+systemctl enable --now prometheus-node-exporter
+systemctl restart prometheus-node-exporter
+systemctl enable --now hyperspace-disk-janitor.timer
+systemctl start hyperspace-disk-janitor.service
+systemctl list-timers --all | grep hyperspace-disk-janitor
+```
+
+The janitor runs every five minutes. If `/` is at least 85% used, it vacuums
+journald to 200MiB, runs `apt-get clean`, and forces logrotate. If `/` is still
+at least 95% used after that soft cleanup, it truncates only known system log
+files (`/var/log/syslog*` and `/var/log/kern.log*`) and reloads/restarts
+`rsyslog`.
+
+It must not remove or mutate `/etc/hyperspace`, `/var/lib/hyperspace-gate`,
+WireGuard state, DoubleZero identity files, or control-plane data.
 
 ## Control-Plane Host Bootstrap
 
@@ -1382,6 +1466,56 @@ install -m 0644 "$HS_REPO_DIR/infra/observability/grafana/provisioning/dashboard
 install -o grafana -g grafana -m 0644 "$HS_REPO_DIR/infra/observability/grafana/dashboards/hyperspace-control-plane.json" \
   /var/lib/grafana/dashboards/hyperspace/hyperspace-control-plane.json
 ```
+
+### Gate host resource alerts
+
+Gate host disk and RAM alerts use Prometheus `node_exporter` on every active
+gate. Install it during gate bootstrap and whenever a gate is added to the
+catalog:
+
+```bash
+apt-get update
+apt-get install -y prometheus-node-exporter
+install -d -m 0755 /var/lib/node_exporter/textfile_collector
+cat >/etc/default/prometheus-node-exporter <<'EOF'
+ARGS="--collector.textfile.directory=/var/lib/node_exporter/textfile_collector"
+EOF
+systemctl enable --now prometheus-node-exporter
+systemctl restart prometheus-node-exporter
+```
+
+Prometheus scrapes gate node exporters with the `hyperspace-gate-node` job in
+`infra/observability/prometheus/prometheus.${HS_CLUSTER}.yml`. When adding,
+removing, disabling, or replacing a gate, update that scrape target list with
+the gate `name`, `probe_host`, and `public_ipv4`, then reprovision
+`/etc/prometheus/prometheus.yml` and restart Prometheus.
+
+The host-resource alerts are intentionally independent from gate-agent
+heartbeats:
+
+- `HyperspaceGateNodeExporterDown` warns when host resource metrics are not
+  scrapeable.
+- `HyperspaceGateRootFilesystemCritical` pages when `/` has less than 5% or
+  512MiB available.
+- `HyperspaceGateMemoryCritical` pages when RAM has less than 10% and 128MiB
+  available for 30 seconds. Prometheus keeps it firing for 10 minutes so a
+  rapid host stall cannot erase the notification as soon as node exporter
+  becomes unreachable.
+- `HyperspaceGateDiskJanitorStale` warns when the local disk janitor has not
+  reported a run for more than 30 minutes.
+- `HyperspaceGateDiskJanitorFailed` warns when the local disk janitor reports
+  its last run as failed.
+
+The janitor publishes these textfile metrics through node exporter:
+
+- `hyperspace_gate_disk_janitor_last_run_timestamp_seconds`
+- `hyperspace_gate_disk_janitor_last_before_used_percent`
+- `hyperspace_gate_disk_janitor_last_after_used_percent`
+- `hyperspace_gate_disk_janitor_last_before_avail_bytes`
+- `hyperspace_gate_disk_janitor_last_after_avail_bytes`
+- `hyperspace_gate_disk_janitor_last_success`
+- `hyperspace_gate_disk_janitor_last_action{action="..."}`
+- `hyperspace_gate_disk_janitor_runs_total`
 
 Provision Alertmanager Telegram notifications. Create a Telegram bot with
 BotFather, add it to the target chats, send one message in each chat, then

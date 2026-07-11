@@ -1,0 +1,14 @@
+/var/log/syslog
+/var/log/kern.log
+/var/log/auth.log
+{
+    su root adm
+    daily
+    rotate 3
+    maxsize 100M
+    missingok
+    notifempty
+    compress
+    delaycompress
+    copytruncate
+}
