@@ -1,7 +1,7 @@
 {
   "runId": "2026-06-17T15-54-09-698Z",
   "apiBase": "https://app.hyperspace.zone/api",
-  "email": "config-matrix-1781711649699@example.com",
+  "email": "[redacted]",
   "ingressGateName": "gate-eu-ams-21",
   "egressGateName": "gate-na-chi-21",
   "nodes": {

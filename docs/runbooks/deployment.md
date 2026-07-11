@@ -356,7 +356,7 @@ export TLS_CERT_NAME=<host-public-ip-or-dns>
 
 For the combined web/control-plane host this is usually `HS_WEB_HOST`. For a
 gate, this is the gate's public IP or DNS name, for example
-`gate-eu-fra-01.example.net`.
+`gate-eu-fra-01.testnet.hyperspace.zone`.
 
 For an IP address certificate, run:
 
@@ -478,8 +478,9 @@ the final web/API or gate Caddyfile is installed.
 For DNS-based deployments, it is also acceptable to let Caddy manage Let's
 Encrypt certificates directly instead of provisioning Certbot certificates and
 copying them into `/etc/caddy/certs`. This is the shorter path for stable DNS
-names such as `app.example.net`, `control-plane.example.net`, and
-`gate-eu-fra-01.example.net`.
+names such as `app.testnet.hyperspace.zone`,
+`control-plane.testnet.hyperspace.zone`, and
+`gate-eu-fra-01.testnet.hyperspace.zone`.
 
 Use this path only when:
 
@@ -492,10 +493,10 @@ the final Caddyfiles and include an operations email in the global options:
 
 ```caddy
 {
-  email ops@example.net
+  email gatekeepers@hyperspace.zone
 }
 
-example.net {
+app.testnet.hyperspace.zone {
   respond "ok" 200
 }
 ```
@@ -955,7 +956,7 @@ EMAIL_OTP_TTL_SECONDS=600
 EMAIL_OTP_EXPOSE_CODES=false
 
 # Google OAuth is optional until a Google OAuth client is provisioned.
-APP_PUBLIC_URL=https://app.example.com
+APP_PUBLIC_URL=https://app.testnet.hyperspace.zone
 GOOGLE_CLIENT_ID=
 GOOGLE_CLIENT_SECRET=
 GOOGLE_OAUTH_REDIRECT_URL=
@@ -1555,7 +1556,7 @@ The file should look like this after replacing values:
     "city": "Frankfurt",
     "country": "Germany",
     "publicIpv4": "203.0.113.10",
-    "probeUrl": "https://gate-eu-fra-01.example.net/.well-known/hyperspace-probe",
+    "probeUrl": "https://gate-eu-fra-01.testnet.hyperspace.zone/.well-known/hyperspace-probe",
     "doubleZeroEnv": "mainnet-beta",
     "desiredState": "Enabled"
   },
@@ -1830,14 +1831,14 @@ upstream Caddy/API origin can return the wrong virtual host response.
 
 ```caddy
 {
-  email ops@example.net
+  email gatekeepers@hyperspace.zone
 }
 
-app.example.net {
+app.testnet.hyperspace.zone {
   handle /api/* {
     uri strip_prefix /api
-    reverse_proxy https://control-plane.example.net {
-      header_up Host control-plane.example.net
+    reverse_proxy https://control-plane.testnet.hyperspace.zone {
+      header_up Host control-plane.testnet.hyperspace.zone
     }
   }
 

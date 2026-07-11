@@ -5,6 +5,8 @@ import { hashPassword } from "../../security/passwords.js";
 import { loginUser } from "./login-user.scenario.js";
 
 test("password login is blocked until the account email is verified", async () => {
+  const email = "pending-login-unit@ostealmar.resend.app";
+  const password = "unit-only-password-not-runtime";
   let sessionInsertAttempted = false;
   const db: Queryable = {
     async query<Row extends object>(sql: string): Promise<{ rows: Row[] }> {
@@ -12,10 +14,10 @@ test("password login is blocked until the account email is verified", async () =
         return { rows: [{
           id: "user-1",
           accountId: "account-1",
-          email: "pending@example.com",
+          email,
           displayName: "Pending",
           avatarUrl: null,
-          passwordHash: hashPassword("correct-horse-battery-staple"),
+          passwordHash: hashPassword(password),
           emailVerified: false
         } as Row] };
       }
@@ -27,8 +29,8 @@ test("password login is blocked until the account email is verified", async () =
   };
 
   const result = await loginUser(db, {
-    email: "pending@example.com",
-    password: "correct-horse-battery-staple",
+    email,
+    password,
     authSessionTtlSeconds: 3600
   });
 

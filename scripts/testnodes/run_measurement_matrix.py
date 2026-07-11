@@ -9,10 +9,8 @@ run, then removed after wg-quick down.
 from __future__ import annotations
 
 import argparse
-import base64
 import json
 import os
-import secrets
 import statistics
 import subprocess
 import sys
@@ -21,12 +19,11 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 
-DEFAULT_API_BASE = "https://app.example.net/api"
+DEFAULT_API_BASE = "https://app.testnet.hyperspace.zone/api"
 DEFAULT_SSH_KEY = "~/.ssh/id_ed25519"
 DEFAULT_PROBE_PATH = "/opt/hyperspace-testnodes/one_way_probe.py"
 DEFAULT_PROBE_PORT = 19191
@@ -151,23 +148,19 @@ def api_request(api_base: str, path_or_url: str, *, method: str = "GET", token: 
         raise ApiError(f"{method} {url} failed: {error.code} {parsed}") from error
 
 
-def ensure_api_token(api_base: str, email: str, password: str) -> str:
-    try:
-        response = api_request(
-            api_base,
-            "/v1/public/auth/register",
-            method="POST",
-            body={"email": email, "password": password, "displayName": "Testnode Matrix"},
+def resolve_api_token(args: argparse.Namespace) -> str:
+    if args.token:
+        return str(args.token)
+    if not args.email or not args.password:
+        raise RuntimeError(
+            "Hyperspace measurements require HS_MATRIX_TOKEN/--token or both "
+            "HS_MATRIX_EMAIL/--email and HS_MATRIX_PASSWORD/--password for an existing verified account"
         )
-        return str(response["accessToken"])
-    except ApiError as error:
-        if "email_already_registered" not in str(error):
-            raise
     response = api_request(
-        api_base,
+        args.api_base,
         "/v1/public/auth/login",
         method="POST",
-        body={"email": email, "password": password},
+        body={"email": args.email, "password": args.password},
     )
     return str(response["accessToken"])
 
@@ -280,9 +273,7 @@ def choose_path(rankings: dict[str, list[dict[str, Any]]], source: TestNode, des
 
 
 def run_hyperspace_matrix(args: argparse.Namespace, output_dir: Path) -> list[dict[str, Any]]:
-    email = args.email or f"measurement-matrix-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}@example.net"
-    password = args.password or generate_password()
-    token = ensure_api_token(args.api_base, email, password)
+    token = resolve_api_token(args)
     rankings = measure_gate_rankings(args, output_dir)
     results: list[dict[str, Any]] = []
 
@@ -458,10 +449,6 @@ def node_json(node: TestNode) -> dict[str, str]:
     return {"key": node.key, "host": node.host, "publicIp": node.public_ip}
 
 
-def generate_password() -> str:
-    return "Tn!" + base64.urlsafe_b64encode(secrets.token_bytes(18)).decode("ascii")
-
-
 def write_json(path: Path, value: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -473,6 +460,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--mode", choices=["public", "hyperspace", "all"], default="all")
     parser.add_argument("--inventory", type=Path, required=True, help="JSON file with testnodes and gates")
     parser.add_argument("--api-base", default=os.environ.get("HS_API_BASE", DEFAULT_API_BASE))
+    parser.add_argument("--token", default=os.environ.get("HS_MATRIX_TOKEN"))
     parser.add_argument("--email", default=os.environ.get("HS_MATRIX_EMAIL"))
     parser.add_argument("--password", default=os.environ.get("HS_MATRIX_PASSWORD"))
     parser.add_argument("--ssh-key", default=os.environ.get("HS_TESTNODE_SSH_KEY", DEFAULT_SSH_KEY))

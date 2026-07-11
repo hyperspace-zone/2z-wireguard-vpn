@@ -58,24 +58,24 @@ Create an inventory file on the operator workstation:
 {
   "testnodes": [
     {
-      "key": "client-a",
-      "host": "client-a.example.net",
-      "publicIp": "198.51.100.10"
+      "key": "client-ams",
+      "host": "testnode-eu-ams-01.hyperspace.zone",
+      "publicIp": "84.32.190.156"
     },
     {
-      "key": "client-b",
-      "host": "client-b.example.net",
-      "publicIp": "198.51.100.20"
+      "key": "client-fra",
+      "host": "testnode-eu-fra-01.hyperspace.zone",
+      "publicIp": "84.32.223.76"
     }
   ],
   "gates": [
     {
-      "name": "gate-eu-fra-01",
-      "publicIpv4": "203.0.113.10"
+      "name": "gate-eu-fra-21",
+      "publicIpv4": "84.32.59.174"
     },
     {
-      "name": "gate-na-chi-01",
-      "publicIpv4": "203.0.113.20"
+      "name": "gate-na-chi-21",
+      "publicIpv4": "88.216.68.89"
     }
   ]
 }
@@ -101,8 +101,9 @@ curl -fsS "$HS_PUBLIC_API_BASE/v1/public/gates" | jq '.gates[] | {name, ready, s
 ```
 
 Use `$HS_WEB_BASE/api` when the public entrypoint is the web host, such as
-`https://app.example.net/api`. Use the bare API origin when the API has its own
-public host, such as `https://control-plane.example.net`.
+`https://app.testnet.hyperspace.zone/api`. Use the bare API origin when the API
+has its own public host, such as
+`https://control-plane.testnet.hyperspace.zone`.
 
 Expected result:
 

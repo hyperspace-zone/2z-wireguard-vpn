@@ -1,24 +1,24 @@
 {
   "testnodes": [
     {
-      "key": "source-a",
-      "host": "source-a.example.net",
-      "publicIp": "198.51.100.10"
+      "key": "ams",
+      "host": "testnode-eu-ams-01.hyperspace.zone",
+      "publicIp": "84.32.190.156"
     },
     {
-      "key": "target-b",
-      "host": "target-b.example.net",
-      "publicIp": "198.51.100.20"
+      "key": "fra",
+      "host": "testnode-eu-fra-01.hyperspace.zone",
+      "publicIp": "84.32.223.76"
     }
   ],
   "gates": [
     {
-      "name": "gate-eu-fra-01",
-      "publicIpv4": "203.0.113.10"
+      "name": "gate-eu-fra-21",
+      "publicIpv4": "84.32.59.174"
     },
     {
-      "name": "gate-na-chi-01",
-      "publicIpv4": "203.0.113.20"
+      "name": "gate-na-chi-21",
+      "publicIpv4": "88.216.68.89"
     }
   ]
 }

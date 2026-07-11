@@ -8,7 +8,7 @@ const fraGate: GateSeed = {
   city: "Frankfurt",
   country: "Germany",
   publicIpv4: "203.0.113.10",
-  probeUrl: "https://gate-eu-fra-01.example.net/.well-known/hyperspace-probe",
+  probeUrl: "https://gate-eu-fra-01.testnet.hyperspace.zone/.well-known/hyperspace-probe",
   doubleZeroEnv: "mainnet-beta"
 };
 
@@ -32,7 +32,7 @@ test("gate seed keeps human city and country fields", () => {
   assert.equal(seed.country, "Germany");
   assert.equal(seed.doubleZeroEnv, "mainnet-beta");
   assert.equal(seed.desiredState, "Enabled");
-  assert.equal(seed.probeHost, "gate-eu-fra-01.example.net");
+  assert.equal(seed.probeHost, "gate-eu-fra-01.testnet.hyperspace.zone");
 });
 
 test("gate seed defaults DoubleZero environment to testnet", () => {
@@ -42,7 +42,7 @@ test("gate seed defaults DoubleZero environment to testnet", () => {
       name: "gate-custom-01",
       identity: "9YGHJEuxtnhhnCinsWB8bCTF5CY2fUXMjU4jmbUDEu5y",
       publicIpv4: "203.0.113.11",
-      probeUrl: "https://gate-custom-01.example.net/.well-known/hyperspace-probe",
+      probeUrl: "https://gate-custom-01.testnet.hyperspace.zone/.well-known/hyperspace-probe",
       doubleZeroEnv: undefined
     },
     chiGate
@@ -91,8 +91,8 @@ test("gate seed rejects duplicate probe urls", () => {
 
 test("gate seed rejects duplicate probe hosts", () => {
   assert.throws(
-    () => normalizeGateSeeds([fraGate, { ...chiGate, probeUrl: "https://gate-eu-fra-01.example.net/alternate-probe" }]),
-    /duplicate gate probe host gate-eu-fra-01\.example\.net/
+    () => normalizeGateSeeds([fraGate, { ...chiGate, probeUrl: "https://gate-eu-fra-01.testnet.hyperspace.zone/alternate-probe" }]),
+    /duplicate gate probe host gate-eu-fra-01\.testnet\.hyperspace\.zone/
   );
 });
 
@@ -113,14 +113,14 @@ test("gate seed rejects invalid desired state", () => {
 
 test("gate seed requires publicIpv4 to be IPv4", () => {
   assert.throws(
-    () => normalizeGateSeeds([fraGate, { ...chiGate, publicIpv4: "gate-na-chi-01.example.net" }]),
+    () => normalizeGateSeeds([fraGate, { ...chiGate, publicIpv4: "gate-na-chi-01.testnet.hyperspace.zone" }]),
     /publicIpv4 must be a public IPv4 address/
   );
 });
 
 test("gate seed requires HTTPS probe urls", () => {
   assert.throws(
-    () => normalizeGateSeeds([fraGate, { ...chiGate, probeUrl: "http://gate-na-chi-01.example.net/.well-known/hyperspace-probe" }]),
+    () => normalizeGateSeeds([fraGate, { ...chiGate, probeUrl: "http://gate-na-chi-01.testnet.hyperspace.zone/.well-known/hyperspace-probe" }]),
     /probeUrl must use https/
   );
 });

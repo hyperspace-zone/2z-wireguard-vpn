@@ -1,7 +1,7 @@
 # Gate HTTPS probe endpoint.
 # Required environment:
 # - GATE_HOST: public DNS name or public IP address.
-# - WEB_ORIGIN: web UI origin, for example https://app.example.net.
+# - WEB_ORIGIN: web UI origin, for example https://app.testnet.hyperspace.zone.
 # - TLS_FULLCHAIN: path to fullchain.pem copied from Let's Encrypt.
 # - TLS_PRIVKEY: path to privkey.pem copied from Let's Encrypt.
 # - GATE_NAME: gate name returned on non-probe requests.

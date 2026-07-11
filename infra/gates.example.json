@@ -5,7 +5,7 @@
     "city": "Frankfurt",
     "country": "Germany",
     "publicIpv4": "203.0.113.10",
-    "probeUrl": "https://gate-eu-fra-01.example.net/.well-known/hyperspace-probe",
+    "probeUrl": "https://gate-eu-fra-01.testnet.hyperspace.zone/.well-known/hyperspace-probe",
     "doubleZeroEnv": "testnet",
     "desiredState": "Enabled"
   },

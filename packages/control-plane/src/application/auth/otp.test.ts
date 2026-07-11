@@ -4,11 +4,14 @@ import { generateNumericOtp, hashEmailOtp, verifyHash } from "./otp.js";
 
 test("email OTP hash verifies only the same normalized email and code", () => {
   const secret = "test-secret";
-  const hash = hashEmailOtp(secret, "user@example.com", "123456");
+  const email = "otp-hash-unit@ostealmar.resend.app";
+  const otherEmail = "otp-hash-other-unit@ostealmar.resend.app";
+  const code = "482731";
+  const hash = hashEmailOtp(secret, email, code);
 
-  assert.equal(verifyHash(hashEmailOtp(secret, "user@example.com", "123456"), hash), true);
-  assert.equal(verifyHash(hashEmailOtp(secret, "other@example.com", "123456"), hash), false);
-  assert.equal(verifyHash(hashEmailOtp(secret, "user@example.com", "654321"), hash), false);
+  assert.equal(verifyHash(hashEmailOtp(secret, email, code), hash), true);
+  assert.equal(verifyHash(hashEmailOtp(secret, otherEmail, code), hash), false);
+  assert.equal(verifyHash(hashEmailOtp(secret, email, "164208"), hash), false);
 });
 
 test("numeric OTP generation returns a six digit code", () => {

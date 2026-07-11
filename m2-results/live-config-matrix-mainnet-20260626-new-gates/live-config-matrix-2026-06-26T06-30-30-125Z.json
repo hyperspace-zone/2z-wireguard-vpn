@@ -1,7 +1,7 @@
 {
   "runId": "2026-06-26T06-30-30-125Z",
   "apiBase": "https://app.hyperspace.zone/api",
-  "email": "config-matrix-hkg-slc-20260626@example.com",
+  "email": "[redacted]",
   "ingressGateName": "gate-ap-hkg-21",
   "egressGateName": "gate-na-slc-21",
   "nodes": {

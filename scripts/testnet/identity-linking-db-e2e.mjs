@@ -26,7 +26,7 @@ const db = createDatabase({
 const results = [];
 
 try {
-  const googleFirstEmail = `${emailPrefix}-google-first@example.test`;
+  const googleFirstEmail = `${emailPrefix}-google-first@ostealmar.resend.app`;
   const googleFirst = await googleLogin({
     email: googleFirstEmail,
     sub: `${emailPrefix}-google-sub`,
@@ -36,7 +36,7 @@ try {
   assertEqual(googleThenOtp.user.accountId, googleFirst.user.accountId, "Google-first then OTP account");
   results.push("google-first-then-otp");
 
-  const verifiedPasswordEmail = `${emailPrefix}-password-verified@example.test`;
+  const verifiedPasswordEmail = `${emailPrefix}-password-verified@ostealmar.resend.app`;
   await passwordRegistration(verifiedPasswordEmail, "Verified Password");
   const verifiedPasswordOtp = await otpLogin(verifiedPasswordEmail);
   const passwordBeforeGoogle = await passwordLogin(verifiedPasswordEmail);
@@ -51,7 +51,7 @@ try {
   assertEqual(passwordAfterGoogle.user.accountId, verifiedPasswordOtp.user.accountId, "password preserved after safe Google link");
   results.push("verified-password-then-google");
 
-  const pendingPasswordEmail = `${emailPrefix}-password-pending@example.test`;
+  const pendingPasswordEmail = `${emailPrefix}-password-pending@ostealmar.resend.app`;
   await passwordRegistration(pendingPasswordEmail, "Pending Password");
   const pendingPasswordGoogle = await googleLogin({
     email: pendingPasswordEmail,
@@ -142,8 +142,8 @@ async function googleLogin(profile) {
   const config = {
     clientId: "identity-e2e-client",
     clientSecret: "identity-e2e-secret",
-    redirectUrl: "https://example.test/oauth/callback",
-    appRedirectUrl: "https://example.test/",
+    redirectUrl: "https://app.testnet.hyperspace.zone/api/v1/public/auth/google/callback",
+    appRedirectUrl: "https://app.testnet.hyperspace.zone/",
     stateTtlSeconds: 600,
     authSessionTtlSeconds: 3600
   };

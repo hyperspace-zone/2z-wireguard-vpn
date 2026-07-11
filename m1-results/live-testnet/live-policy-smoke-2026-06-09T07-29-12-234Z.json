@@ -1,7 +1,7 @@
 {
   "runId": "2026-06-09T07-29-12-234Z",
   "apiBase": "https://app.testnet.hyperspace.zone/api",
-  "email": "policy-smoke-1780990152234@example.com",
+  "email": "[redacted]",
   "ingressGateName": "gate-eu-ams-01",
   "egressGateName": "gate-eu-lon-01",
   "allowedSource": {

@@ -2,7 +2,7 @@
   "runId": "2026-06-17T05-48-36-791Z",
   "webBase": "https://app.testnet.hyperspace.zone",
   "apiBase": "https://app.testnet.hyperspace.zone/api",
-  "email": "codex-live-1781675316791@example.com",
+  "email": "[redacted]",
   "targetIp": "1.1.1.1",
   "ingressGateName": "gate-eu-fra-01",
   "egressGateName": "gate-eu-lon-01",

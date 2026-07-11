@@ -8,7 +8,7 @@ test("public auth session authentication hashes token and marks valid sessions s
   const user = {
     id: "user-1",
     accountId: "account-1",
-    email: "user@example.com",
+    email: "session-unit-user@ostealmar.resend.app",
     displayName: "User",
     avatarUrl: null
   };

@@ -55,24 +55,24 @@ The inventory must contain at least two testnodes and two gates:
 {
   "testnodes": [
     {
-      "key": "source-a",
-      "host": "source-a.example.net",
-      "publicIp": "198.51.100.10"
+      "key": "ams",
+      "host": "testnode-eu-ams-01.hyperspace.zone",
+      "publicIp": "84.32.190.156"
     },
     {
-      "key": "target-b",
-      "host": "target-b.example.net",
-      "publicIp": "198.51.100.20"
+      "key": "fra",
+      "host": "testnode-eu-fra-01.hyperspace.zone",
+      "publicIp": "84.32.223.76"
     }
   ],
   "gates": [
     {
-      "name": "gate-eu-fra-01",
-      "publicIpv4": "203.0.113.10"
+      "name": "gate-eu-fra-21",
+      "publicIpv4": "84.32.59.174"
     },
     {
-      "name": "gate-na-chi-01",
-      "publicIpv4": "203.0.113.20"
+      "name": "gate-na-chi-21",
+      "publicIpv4": "88.216.68.89"
     }
   ]
 }
@@ -135,6 +135,16 @@ export HS_API_BASE="${HS_API_BASE:-https://${HS_WEB_HOST}/api}"
 export HS_TEST_OUTPUT_DIR="${HS_TEST_OUTPUT_DIR:-m1-results/live-cluster/matrix}"
 ```
 
+For Hyperspace measurements, provide an access token for a verified operator
+account. Alternatively, set both `HS_MATRIX_EMAIL` and `HS_MATRIX_PASSWORD` for
+an existing verified password account. The matrix runner never creates an
+account or bypasses email verification.
+
+```bash
+read -rsp "Hyperspace access token: " HS_MATRIX_TOKEN; echo
+export HS_MATRIX_TOKEN
+```
+
 Run both public and Hyperspace measurements:
 
 ```bash
@@ -142,6 +152,7 @@ npm run measure:matrix -- \
   --mode all \
   --inventory ./m1-testnodes.json \
   --api-base "$HS_API_BASE" \
+  --token "$HS_MATRIX_TOKEN" \
   --ssh-key "$HS_TESTNODE_SSH_KEY" \
   --output-dir "$HS_TEST_OUTPUT_DIR" \
   --active-timeout 120 \
@@ -166,4 +177,3 @@ Expected result:
 - `hyperspace.json` records the selected ingress/egress gate pair per directed
   measurement.
 - Temporary sessions are revoked and deleted after each measurement.
-

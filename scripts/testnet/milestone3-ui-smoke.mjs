@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { execFileSync } from "node:child_process";
+import { randomBytes, randomInt } from "node:crypto";
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { extname, join, resolve } from "node:path";
@@ -10,6 +11,9 @@ const webDir = join(repoRoot, "apps/web");
 const distDir = join(webDir, "dist");
 const chromiumExecutable = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE || "/snap/bin/chromium";
 const headless = process.env.PLAYWRIGHT_HEADLESS !== "0";
+const testEmail = "pilot-ui-smoke@ostealmar.resend.app";
+const testPassword = `Ui-${randomBytes(18).toString("base64url")}`;
+const mockedOtp = String(randomInt(100_000, 1_000_000));
 
 execFileSync("npm", ["--workspace", "@hyperspace-zone/web", "run", "build"], {
   cwd: repoRoot,
@@ -84,9 +88,9 @@ try {
     if (path === "/v1/public/auth/email/request-code" && method === "POST") {
       return json(route, {
         status: "sent",
-        email: "pilot@example.com",
+        email: testEmail,
         expiresAt: new Date(Date.now() + 600_000).toISOString(),
-        devCode: "123456"
+        devCode: mockedOtp
       });
     }
     if (path === "/v1/public/auth/register" && method === "POST") {
@@ -95,7 +99,7 @@ try {
         status: "sent",
         email: registeredUserPayload.email,
         expiresAt: new Date(Date.now() + 600_000).toISOString(),
-        devCode: "123456"
+        devCode: mockedOtp
       }, 201);
     }
     if (path === "/v1/public/auth/google/start" && method === "GET") {
@@ -106,16 +110,19 @@ try {
       });
     }
     if (path === "/v1/public/auth/email/verify-code" && method === "POST") {
+      if (request.postDataJSON().code !== mockedOtp) {
+        return json(route, { error: "invalid_code" }, 401);
+      }
       authenticated = true;
       return json(route, {
-        user: { id: "user-1", accountId: "account-1", email: "pilot@example.com", displayName: "Pilot", avatarUrl: null },
+        user: { id: "user-1", accountId: "account-1", email: testEmail, displayName: "Pilot", avatarUrl: null },
         accessToken: "test-token",
         expiresAt: new Date(Date.now() + 86_400_000).toISOString()
       });
     }
     if (path === "/v1/public/auth/me") {
       return okAuth
-        ? json(route, { user: { id: "user-1", accountId: "account-1", email: "pilot@example.com", displayName: "Pilot", avatarUrl: null } })
+        ? json(route, { user: { id: "user-1", accountId: "account-1", email: testEmail, displayName: "Pilot", avatarUrl: null } })
         : json(route, { error: "auth_required" }, 401);
     }
     if (path === "/v1/public/billing") {
@@ -151,10 +158,10 @@ try {
   }
 
   await page.goto(`${baseUrl}/register`);
-  await page.locator("#register-form input[name=email]").fill("pilot@example.com");
-  await page.locator("#register-form input[name=password]").fill("correct-horse-battery-staple");
+  await page.locator("#register-form input[name=email]").fill(testEmail);
+  await page.locator("#register-form input[name=password]").fill(testPassword);
   await page.locator("#register-form button[type=submit]").click();
-  await page.locator("#email-code-verify-form input[name=code]").fill("123456");
+  await page.locator("#email-code-verify-form input[name=code]").fill(mockedOtp);
   await page.locator("#email-code-verify-form button[type=submit]").click();
 
   await page.getByRole("heading", { name: "Account" }).waitFor();
@@ -173,7 +180,7 @@ try {
   if (!createdSessionPayload?.pathPolicy?.excludeCountries?.includes("Germany")) {
     throw new Error(`expected Avoid Germany pathPolicy, got ${JSON.stringify(createdSessionPayload)}`);
   }
-  if (registeredUserPayload?.email !== "pilot@example.com") {
+  if (registeredUserPayload?.email !== testEmail) {
     throw new Error(`expected password registration before OTP verification, got ${JSON.stringify(registeredUserPayload)}`);
   }
 
