@@ -1,5 +1,5 @@
 export function createResendAuthHelper(input) {
-  const resendApiKey = input.resendApiKey || process.env.RESEND_API_KEY || "";
+  const resendApiKey = input.resendApiKey || process.env.RESEND_RECEIVING_API_KEY || process.env.RESEND_API_KEY || "";
   const timeoutMs = Number(input.timeoutMs || process.env.RESEND_RECEIVING_TIMEOUT_MS || 90_000);
   const seenEmailIds = new Set();
 
@@ -35,7 +35,7 @@ export function createResendAuthHelper(input) {
 
   async function waitForOtp(recipient) {
     if (!resendApiKey) {
-      throw new Error("RESEND_API_KEY with Full access is required when the API does not expose test OTP codes");
+      throw new Error("RESEND_RECEIVING_API_KEY with Full access is required when the API does not expose test OTP codes");
     }
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {

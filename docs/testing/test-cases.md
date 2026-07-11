@@ -165,10 +165,13 @@ Optional overrides:
 ```bash
 HS_API_BASE=https://app.testnet.hyperspace.zone/api
 RESEND_RECEIVING_DOMAIN=ostealmar.resend.app
+RESEND_RECEIVING_API_KEY=re_full_access_key
 RESEND_RECEIVING_TIMEOUT_MS=90000
 ```
 
-The API key must have access to both sending and Receiving API operations. The
+Keep the runtime `RESEND_API_KEY` restricted to Sending access. Create a
+separate `RESEND_RECEIVING_API_KEY` with Full access for test automation because
+Resend Receiving API calls are rejected for send-only keys. The
 test covers password registration followed by OTP verification and password
 login, repeated OTP login on the same password account, and OTP-first account
 creation followed by another OTP login. It asserts stable account IDs across
