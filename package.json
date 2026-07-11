@@ -21,6 +21,7 @@
     "test": "npm run test --workspaces --if-present",
     "test:unit": "npm run test --workspaces --if-present",
     "test:milestone3:ui": "node scripts/testnet/milestone3-ui-smoke.mjs",
+    "test:live:email": "node scripts/testnet/resend-otp-e2e.mjs",
     "test:live:ui": "node scripts/testnet/live-ui-smoke.mjs",
     "test:live:policy": "node scripts/testnet/live-policy-smoke.mjs",
     "test:live": "npm run test:live:ui && npm run test:live:policy",

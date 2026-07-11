@@ -6,10 +6,12 @@ export interface PublicUser {
   accountId: string;
   email: string;
   displayName: string;
+  avatarUrl: string | null;
 }
 
 export interface PasswordCredentialRow extends PublicUser {
   passwordHash: string;
+  emailVerified: boolean;
 }
 
 export interface EmailLoginChallengeRow {
@@ -39,6 +41,10 @@ export interface WalletLinkRow {
   linkedAt: string;
 }
 
+export async function lockIdentityEmail(db: Queryable, email: string): Promise<void> {
+  await db.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [email]);
+}
+
 export async function insertRegisteredUser(
   db: Queryable,
   input: {
@@ -56,7 +62,7 @@ export async function insertRegisteredUser(
     `
       INSERT INTO users (account_id, email, display_name)
       VALUES ($1, $2, $3)
-      RETURNING id, account_id AS "accountId", email::text, display_name AS "displayName"
+      RETURNING id, account_id AS "accountId", email::text, display_name AS "displayName", avatar_url AS "avatarUrl"
     `,
     [accountId, input.email, input.displayName]
   );
@@ -66,6 +72,13 @@ export async function insertRegisteredUser(
     "INSERT INTO password_credentials (user_id, password_hash) VALUES ($1, $2)",
     [createdUser.id, input.passwordHash]
   );
+  await upsertIdentity(db, {
+    accountId: createdUser.accountId,
+    provider: "email",
+    providerSubject: createdUser.email,
+    email: createdUser.email,
+    metadata: { login: "password", verification: "pending" }
+  });
   await db.query(
     `
       INSERT INTO audit_events (event_type, actor_type, actor_id, account_id, details)
@@ -80,7 +93,7 @@ export async function insertRegisteredUser(
 export async function findPublicUserByEmail(db: Queryable, email: string): Promise<PublicUser | null> {
   const result = await db.query<PublicUser>(
     `
-      SELECT id, account_id AS "accountId", email::text, display_name AS "displayName"
+      SELECT id, account_id AS "accountId", email::text, display_name AS "displayName", avatar_url AS "avatarUrl"
       FROM users
       WHERE email = $1
         AND disabled_at IS NULL
@@ -88,6 +101,102 @@ export async function findPublicUserByEmail(db: Queryable, email: string): Promi
     [email]
   );
   return result.rows[0] ?? null;
+}
+
+export async function findPublicUserByIdentity(
+  db: Queryable,
+  provider: string,
+  providerSubject: string
+): Promise<PublicUser | null> {
+  const result = await db.query<PublicUser>(
+    `
+      SELECT
+        users.id,
+        users.account_id AS "accountId",
+        users.email::text,
+        users.display_name AS "displayName",
+        users.avatar_url AS "avatarUrl"
+      FROM identities
+      JOIN users ON users.account_id = identities.account_id
+      WHERE identities.provider = $1
+        AND identities.provider_subject = $2
+        AND users.disabled_at IS NULL
+      ORDER BY users.created_at
+      LIMIT 1
+    `,
+    [provider, providerSubject]
+  );
+  return result.rows[0] ?? null;
+}
+
+export async function isAccountEmailVerified(
+  db: Queryable,
+  accountId: string,
+  email: string
+): Promise<boolean> {
+  const result = await db.query<{ verified: boolean }>(
+    `
+      SELECT EXISTS (
+        SELECT 1
+        FROM identities
+        WHERE account_id = $1
+          AND provider = 'email'
+          AND provider_subject = $2
+          AND verified_at IS NOT NULL
+      ) AS verified
+    `,
+    [accountId, email]
+  );
+  return result.rows[0]?.verified === true;
+}
+
+export async function hasPasswordCredential(db: Queryable, userId: string): Promise<boolean> {
+  const result = await db.query<{ configured: boolean }>(
+    "SELECT EXISTS (SELECT 1 FROM password_credentials WHERE user_id = $1) AS configured",
+    [userId]
+  );
+  return result.rows[0]?.configured === true;
+}
+
+export async function securelyClaimUnverifiedPasswordAccount(
+  db: Queryable,
+  user: PublicUser,
+  provider: string
+): Promise<void> {
+  await db.query("DELETE FROM password_credentials WHERE user_id = $1", [user.id]);
+  await db.query(
+    "UPDATE auth_sessions SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL",
+    [user.id]
+  );
+  await db.query(
+    `
+      INSERT INTO audit_events (event_type, actor_type, actor_id, account_id, details)
+      VALUES ('unverified_account_claimed', 'user', $1, $2, $3::jsonb)
+    `,
+    [user.id, user.accountId, JSON.stringify({ email: user.email, provider, passwordRemoved: true, sessionsRevoked: true })]
+  );
+}
+
+export async function syncGoogleUserProfile(
+  db: Queryable,
+  user: PublicUser,
+  profile: { name: string; picture: string }
+): Promise<PublicUser> {
+  const result = await db.query<PublicUser>(
+    `
+      UPDATE users
+      SET display_name = CASE
+            WHEN display_name = email::text AND $2 <> '' THEN $2
+            ELSE display_name
+          END,
+          avatar_url = CASE WHEN $3 <> '' THEN $3 ELSE avatar_url END,
+          updated_at = now()
+      WHERE id = $1
+      RETURNING id, account_id AS "accountId", email::text, display_name AS "displayName", avatar_url AS "avatarUrl"
+    `,
+    [user.id, profile.name, profile.picture]
+  );
+  return mustRow(result);
 }
 
 export async function insertUserWithoutPassword(
@@ -106,7 +215,7 @@ export async function insertUserWithoutPassword(
     `
       INSERT INTO users (account_id, email, display_name)
       VALUES ($1, $2, $3)
-      RETURNING id, account_id AS "accountId", email::text, display_name AS "displayName"
+      RETURNING id, account_id AS "accountId", email::text, display_name AS "displayName", avatar_url AS "avatarUrl"
     `,
     [accountId, input.email, input.displayName]
   );
@@ -124,7 +233,7 @@ export async function upsertIdentity(
     verifiedAt?: string;
   }
 ): Promise<void> {
-  await db.query(
+  const result = await db.query<{ accountId: string }>(
     `
       INSERT INTO identities (
         account_id,
@@ -137,11 +246,12 @@ export async function upsertIdentity(
       )
       VALUES ($1, $2, $3, $4::citext, $5::jsonb, $6::timestamptz, now())
       ON CONFLICT (provider, provider_subject) DO UPDATE
-      SET account_id = EXCLUDED.account_id,
-          email = COALESCE(EXCLUDED.email, identities.email),
-          metadata = EXCLUDED.metadata,
+      SET email = COALESCE(EXCLUDED.email, identities.email),
+          metadata = identities.metadata || EXCLUDED.metadata,
           verified_at = COALESCE(EXCLUDED.verified_at, identities.verified_at),
           last_seen_at = now()
+      WHERE identities.account_id = EXCLUDED.account_id
+      RETURNING account_id AS "accountId"
     `,
     [
       input.accountId,
@@ -152,6 +262,9 @@ export async function upsertIdentity(
       input.verifiedAt ?? null
     ]
   );
+  if (result.rows[0]?.accountId !== input.accountId) {
+    throw new Error(`identity ${input.provider} is already linked to another account`);
+  }
 }
 
 export async function insertEmailLoginChallenge(
@@ -408,6 +521,15 @@ export async function findPasswordCredentialByEmail(
         users.account_id AS "accountId",
         users.email::text,
         users.display_name AS "displayName",
+        users.avatar_url AS "avatarUrl",
+        EXISTS (
+          SELECT 1
+          FROM identities
+          WHERE identities.account_id = users.account_id
+            AND identities.provider = 'email'
+            AND identities.provider_subject = users.email::text
+            AND identities.verified_at IS NOT NULL
+        ) AS "emailVerified",
         password_credentials.password_hash AS "passwordHash"
       FROM users
       JOIN password_credentials ON password_credentials.user_id = users.id
@@ -445,7 +567,8 @@ export async function findActiveAuthSessionUserByTokenHash(
         users.id,
         users.account_id AS "accountId",
         users.email::text,
-        users.display_name AS "displayName"
+        users.display_name AS "displayName",
+        users.avatar_url AS "avatarUrl"
       FROM auth_sessions
       JOIN users ON users.id = auth_sessions.user_id
       WHERE auth_sessions.token_hash = $1

@@ -24,6 +24,7 @@ export type ApplicationErrorCode =
   | "egress_gate_required"
   | "email_code_expired"
   | "email_already_registered"
+  | "email_not_verified"
   | "forbidden"
   | "gate_auth_required"
   | "gate_not_found"
@@ -105,6 +106,7 @@ function applicationErrorStatus(code: ApplicationErrorCode): number {
       return 401;
     case "forbidden":
     case "destination_not_allowed":
+    case "email_not_verified":
     case "oauth_email_not_verified":
       return 403;
     case "download_token_not_found":

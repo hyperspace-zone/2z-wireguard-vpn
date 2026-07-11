@@ -1027,6 +1027,28 @@ APP_PUBLIC_URL=https://app.hyperspace.zone
 GOOGLE_OAUTH_REDIRECT_URL=https://app.hyperspace.zone/api/v1/public/auth/google/callback
 ```
 
+### Account identity linking
+
+An account may have password, email OTP, Google, and wallet identities. The
+canonical rules are independent of sign-in order:
+
+- password registration creates a pending account and sends an OTP; it does
+  not create an authenticated session until the email is verified;
+- password login is rejected until the matching email identity is verified;
+- Google login first resolves the immutable Google `sub`, then links a new
+  Google identity to an existing account only by the verified Google email;
+- OTP after Google, and Google after verified password registration, reuse the
+  same account because the normalized email identity is unique;
+- if Google encounters a legacy unverified password account, the old password
+  and sessions are revoked before Google claims it, preventing account
+  pre-hijacking;
+- Google display name replaces only an email-shaped placeholder, while its
+  avatar is synchronized into the public profile.
+
+Do not bypass email verification for password registrations. Migration
+`0021_verified_identity_linking.sql` backfills legacy password identities as
+pending unless they were already verified by OTP or Google.
+
 DoubleZero tenant billing snapshots can be ingested by an operator with
 `ADMIN_TOKEN`:
 

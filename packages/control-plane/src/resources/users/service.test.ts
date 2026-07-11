@@ -9,7 +9,8 @@ test("public auth session authentication hashes token and marks valid sessions s
     id: "user-1",
     accountId: "account-1",
     email: "user@example.com",
-    displayName: "User"
+    displayName: "User",
+    avatarUrl: null
   };
   const db: Queryable = {
     async query<Row extends object>(sql: string, params: readonly unknown[] = []) {

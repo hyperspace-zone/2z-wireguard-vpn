@@ -1,4 +1,4 @@
-import Fastify, { type FastifyInstance } from "fastify";
+import Fastify, { type FastifyInstance, type FastifyRequest } from "fastify";
 import type { BillingConfig, GoogleOAuthConfig, SessionAbuseControlConfig } from "@hyperspace-zone/control-plane";
 import type { Database } from "@hyperspace-zone/db";
 import {
@@ -72,7 +72,11 @@ export function createApp(input: CreateControlPlaneApiAppInput): FastifyInstance
   health.setComponent("configuration", { state: "ready", message: "Runtime configuration loaded." });
 
   const app = Fastify({
-    logger: true
+    logger: {
+      serializers: {
+        req: serializeRequestForLog
+      }
+    }
   });
   app.addHook("onClose", async () => {
     metrics.stop();
@@ -124,6 +128,20 @@ export function createApp(input: CreateControlPlaneApiAppInput): FastifyInstance
   health.setComponent("process", { state: "ready", message: "Fastify app is ready." });
 
   return app;
+}
+
+function serializeRequestForLog(request: FastifyRequest): Record<string, unknown> {
+  return {
+    method: request.method,
+    url: requestPathForLog(request.url),
+    host: request.hostname,
+    remoteAddress: request.ip,
+    remotePort: request.raw.socket.remotePort
+  };
+}
+
+export function requestPathForLog(url: string | undefined): string {
+  return url?.split("?", 1)[0] || "/";
 }
 
 function registerRuntimeMetricsHooks(app: FastifyInstance, metrics: RuntimeMetrics): void {

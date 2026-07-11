@@ -38,6 +38,7 @@ if (!address || typeof address === "string") {
 const baseUrl = `http://127.0.0.1:${address.port}`;
 
 let createdSessionPayload = null;
+let registeredUserPayload = null;
 let authenticated = false;
 let googleRedirectAfter = null;
 const gates = [
@@ -88,6 +89,15 @@ try {
         devCode: "123456"
       });
     }
+    if (path === "/v1/public/auth/register" && method === "POST") {
+      registeredUserPayload = request.postDataJSON();
+      return json(route, {
+        status: "sent",
+        email: registeredUserPayload.email,
+        expiresAt: new Date(Date.now() + 600_000).toISOString(),
+        devCode: "123456"
+      }, 201);
+    }
     if (path === "/v1/public/auth/google/start" && method === "GET") {
       googleRedirectAfter = url.searchParams.get("redirect");
       return json(route, {
@@ -98,14 +108,14 @@ try {
     if (path === "/v1/public/auth/email/verify-code" && method === "POST") {
       authenticated = true;
       return json(route, {
-        user: { id: "user-1", accountId: "account-1", email: "pilot@example.com", displayName: "Pilot" },
+        user: { id: "user-1", accountId: "account-1", email: "pilot@example.com", displayName: "Pilot", avatarUrl: null },
         accessToken: "test-token",
         expiresAt: new Date(Date.now() + 86_400_000).toISOString()
       });
     }
     if (path === "/v1/public/auth/me") {
       return okAuth
-        ? json(route, { user: { id: "user-1", accountId: "account-1", email: "pilot@example.com", displayName: "Pilot" } })
+        ? json(route, { user: { id: "user-1", accountId: "account-1", email: "pilot@example.com", displayName: "Pilot", avatarUrl: null } })
         : json(route, { error: "auth_required" }, 401);
     }
     if (path === "/v1/public/billing") {
@@ -140,9 +150,10 @@ try {
     throw new Error(`expected Google redirect after /login, got ${JSON.stringify(googleRedirectAfter)}`);
   }
 
-  await page.goto(`${baseUrl}/login`);
-  await page.locator("#email-code-request-form input[name=email]").fill("pilot@example.com");
-  await page.locator("#email-code-request-form button[type=submit]").click();
+  await page.goto(`${baseUrl}/register`);
+  await page.locator("#register-form input[name=email]").fill("pilot@example.com");
+  await page.locator("#register-form input[name=password]").fill("correct-horse-battery-staple");
+  await page.locator("#register-form button[type=submit]").click();
   await page.locator("#email-code-verify-form input[name=code]").fill("123456");
   await page.locator("#email-code-verify-form button[type=submit]").click();
 
@@ -161,6 +172,9 @@ try {
   await page.waitForFunction(() => window.localStorage.getItem("hyperspaceAccessToken") === "test-token");
   if (!createdSessionPayload?.pathPolicy?.excludeCountries?.includes("Germany")) {
     throw new Error(`expected Avoid Germany pathPolicy, got ${JSON.stringify(createdSessionPayload)}`);
+  }
+  if (registeredUserPayload?.email !== "pilot@example.com") {
+    throw new Error(`expected password registration before OTP verification, got ${JSON.stringify(registeredUserPayload)}`);
   }
 
   console.log(JSON.stringify({ ok: true, createdSessionPayload }, null, 2));

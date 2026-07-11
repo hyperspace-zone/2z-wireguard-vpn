@@ -6,6 +6,7 @@ import {
   incrementEmailLoginChallengeAttempts,
   insertEmailLoginChallenge,
   insertUserWithoutPassword,
+  lockIdentityEmail,
   upsertIdentity,
   type PublicUser
 } from "../../resources/users/repository.js";
@@ -113,6 +114,7 @@ export async function verifyEmailLoginCode(
     }
 
     await consumeEmailLoginChallenge(client, challenge.id);
+    await lockIdentityEmail(client, email);
     const user = await findOrCreateEmailUser(client, email);
     await upsertIdentity(client, {
       accountId: user.accountId,

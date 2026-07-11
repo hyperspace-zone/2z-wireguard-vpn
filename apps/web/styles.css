@@ -524,6 +524,14 @@ small {
   align-items: center;
 }
 
+.identity-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex: 0 0 32px;
+}
+
 .app-nav {
   display: flex;
   gap: 8px;

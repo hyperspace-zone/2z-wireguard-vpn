@@ -1,15 +1,21 @@
 import type { Queryable, TransactionalQueryable } from "../../db/queryable.js";
 import {
   consumeOauthLoginChallenge,
+  findPublicUserByIdentity,
   findPublicUserByEmail,
+  hasPasswordCredential,
   insertOauthLoginChallenge,
   insertUserWithoutPassword,
+  isAccountEmailVerified,
+  lockIdentityEmail,
+  securelyClaimUnverifiedPasswordAccount,
+  syncGoogleUserProfile,
   upsertIdentity,
   type PublicUser
 } from "../../resources/users/repository.js";
 import { newSecretToken, sha256Hex } from "../../security/tokens.js";
-import { isUniqueViolation } from "../../support/db.js";
 import { createAuthSession } from "./auth-session.js";
+import { decideGoogleIdentityLink, type GoogleIdentityLinkMode } from "./identity-linking.policy.js";
 import type { AuthSessionResult } from "./register-user.scenario.js";
 
 interface MinimalFetchResponse {
@@ -92,32 +98,35 @@ export async function completeGoogleOAuth(
   }
 ): Promise<GoogleOAuthCompleteResult> {
   const stateHash = sha256Hex(input.state);
-  return db.transaction(async (client) => {
-    const challenge = await consumeOauthLoginChallenge(client, {
+  const challenge = await db.transaction(async (client) => {
+    return consumeOauthLoginChallenge(client, {
       provider: "google",
       stateHash
     });
-    if (!challenge) {
-      return "oauth_state_invalid";
-    }
-    if (Date.parse(challenge.expiresAt) <= Date.now()) {
-      return "oauth_state_expired";
-    }
+  });
+  if (!challenge) {
+    return "oauth_state_invalid";
+  }
+  if (Date.parse(challenge.expiresAt) <= Date.now()) {
+    return "oauth_state_expired";
+  }
 
-    const fetchImpl = input.fetchImpl ?? fetch;
-    const token = await exchangeGoogleCode(fetchImpl, config, input.code);
-    if (!token?.accessToken) {
-      return "oauth_exchange_failed";
-    }
-    const profile = await fetchGoogleProfile(fetchImpl, token.accessToken);
-    if (!profile) {
-      return "oauth_exchange_failed";
-    }
-    if (!profile.emailVerified) {
-      return "oauth_email_not_verified";
-    }
+  const fetchImpl = input.fetchImpl ?? fetch;
+  const token = await exchangeGoogleCode(fetchImpl, config, input.code);
+  if (!token?.accessToken) {
+    return "oauth_exchange_failed";
+  }
+  const profile = await fetchGoogleProfile(fetchImpl, token.accessToken);
+  if (!profile) {
+    return "oauth_exchange_failed";
+  }
+  if (!profile.emailVerified) {
+    return "oauth_email_not_verified";
+  }
 
-    const user = await findOrCreateGoogleUser(client, profile);
+  return db.transaction(async (client) => {
+    const resolved = await resolveGoogleUser(client, profile);
+    const user = await syncGoogleUserProfile(client, resolved.user, profile);
     await upsertIdentity(client, {
       accountId: user.accountId,
       provider: "google",
@@ -125,18 +134,21 @@ export async function completeGoogleOAuth(
       email: profile.email,
       metadata: {
         name: profile.name,
-        picture: profile.picture
+        picture: profile.picture,
+        linkMode: resolved.mode
       },
       verifiedAt: new Date().toISOString()
     });
-    await upsertIdentity(client, {
-      accountId: user.accountId,
-      provider: "email",
-      providerSubject: profile.email,
-      email: profile.email,
-      metadata: { login: "google" },
-      verifiedAt: new Date().toISOString()
-    });
+    if (user.email === profile.email) {
+      await upsertIdentity(client, {
+        accountId: user.accountId,
+        provider: "email",
+        providerSubject: profile.email,
+        email: profile.email,
+        metadata: { login: "google" },
+        verifiedAt: new Date().toISOString()
+      });
+    }
     const session = await createAuthSession(user.id, config.authSessionTtlSeconds, client);
     return {
       auth: { user, accessToken: session.token, expiresAt: session.expiresAt },
@@ -199,32 +211,46 @@ async function fetchGoogleProfile(fetchImpl: MinimalFetch, accessToken: string):
   };
 }
 
-async function findOrCreateGoogleUser(
+async function resolveGoogleUser(
   db: Queryable,
   profile: {
+    sub: string;
     email: string;
     name: string;
   }
-): Promise<PublicUser> {
-  const existing = await findPublicUserByEmail(db, profile.email);
-  if (existing) {
-    return existing;
+): Promise<{ user: PublicUser; mode: GoogleIdentityLinkMode }> {
+  await lockIdentityEmail(db, profile.email);
+  const providerUser = await findPublicUserByIdentity(db, "google", profile.sub);
+  if (providerUser) {
+    return { user: providerUser, mode: "existing_google_identity" };
   }
-  try {
-    return await insertUserWithoutPassword(db, {
+
+  const emailUser = await findPublicUserByEmail(db, profile.email);
+  const emailVerified = emailUser
+    ? await isAccountEmailVerified(db, emailUser.accountId, profile.email)
+    : false;
+  const passwordConfigured = emailUser
+    ? await hasPasswordCredential(db, emailUser.id)
+    : false;
+  const mode = decideGoogleIdentityLink({
+    providerIdentityExists: false,
+    emailAccountExists: Boolean(emailUser),
+    emailVerified,
+    passwordConfigured
+  });
+
+  if (!emailUser) {
+    const user = await insertUserWithoutPassword(db, {
       email: profile.email,
       displayName: profile.name || profile.email
     });
-  } catch (error) {
-    if (!isUniqueViolation(error)) {
-      throw error;
-    }
-    const raced = await findPublicUserByEmail(db, profile.email);
-    if (!raced) {
-      throw error;
-    }
-    return raced;
+    return { user, mode };
   }
+
+  if (mode === "claim_unverified_password_account") {
+    await securelyClaimUnverifiedPasswordAccount(db, emailUser, "google");
+  }
+  return { user: emailUser, mode };
 }
 
 function sanitizeRedirectAfter(value: string | undefined): string {

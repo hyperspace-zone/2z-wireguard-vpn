@@ -61,7 +61,7 @@ export function registerPublicAuthRoutes(
     schema: {
       body: publicRegisterRequestSchema,
       response: {
-        201: publicAuthResponseSchema,
+        201: publicRequestEmailLoginCodeResponseSchema,
         400: errorResponseSchema,
         409: errorResponseSchema
       }
@@ -71,8 +71,7 @@ export function registerPublicAuthRoutes(
     const result = await registerUser(deps.db, {
       email: readString(body, "email"),
       password: readString(body, "password"),
-      displayName: readString(body, "displayName"),
-      authSessionTtlSeconds: deps.authSessionTtlSeconds
+      displayName: readString(body, "displayName")
     });
     if (result === "invalid_email") {
       return sendApplicationError(reply, "invalid_email");
@@ -84,7 +83,17 @@ export function registerPublicAuthRoutes(
       return sendApplicationError(reply, result);
     }
 
-    return reply.code(201).send(result);
+    const challenge = await requestEmailLoginCode(deps.db, {
+      email: result.email,
+      codeTtlSeconds: deps.emailAuth.otpTtlSeconds,
+      hashSecret: deps.emailAuth.otpHashSecret,
+      sender: emailSender,
+      exposeCode: deps.emailAuth.exposeCodes
+    });
+    if (challenge === "invalid_email") {
+      return sendApplicationError(reply, "invalid_email");
+    }
+    return reply.code(201).send(challenge);
   });
 
   app.post("/v1/public/auth/login", {
@@ -93,7 +102,8 @@ export function registerPublicAuthRoutes(
       response: {
         200: publicAuthResponseSchema,
         400: errorResponseSchema,
-        401: errorResponseSchema
+        401: errorResponseSchema,
+        403: errorResponseSchema
       }
     }
   }, async (request, reply) => {
@@ -108,6 +118,9 @@ export function registerPublicAuthRoutes(
     }
     if (result === "invalid_credentials") {
       return sendApplicationError(reply, "invalid_credentials");
+    }
+    if (result === "email_not_verified") {
+      return sendApplicationError(reply, "email_not_verified");
     }
 
     return reply.send(result);

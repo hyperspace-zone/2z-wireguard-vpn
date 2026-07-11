@@ -144,6 +144,7 @@ interface Me {
   accountId?: string;
   email: string;
   displayName?: string;
+  avatarUrl?: string | null;
 }
 
 interface WalletLink {
@@ -316,7 +317,7 @@ function render(state: { gates?: Gate[]; sessions?: Session[]; me?: Me | null; b
           <p>DoubleZero-backed WireGuard configs across Hyperspace gates.</p>
         </div>
         <div class="identity">
-          ${me ? `<span>${escapeHtml(me.email)}</span><button id="logout">Log out</button>` : '<a class="button-link secondary-button" href="/login" data-view="login">Log in</a>'}
+          ${me ? `${me.avatarUrl ? `<img class="identity-avatar" src="${escapeHtml(me.avatarUrl)}" alt="" referrerpolicy="no-referrer" />` : ""}<span>${escapeHtml(me.displayName || me.email)}</span><button id="logout">Log out</button>` : '<a class="button-link secondary-button" href="/login" data-view="login">Log in</a>'}
         </div>
       </section>
 
@@ -2002,13 +2003,13 @@ function bindHandlers(): void {
   document.getElementById("register-form")?.addEventListener("submit", (event) => {
     event.preventDefault();
     const form = new FormData(event.target as HTMLFormElement);
-    void submitAuth("/v1/public/auth/register", form);
+    void registerWithPassword(form);
   });
 
   document.getElementById("login-form")?.addEventListener("submit", (event) => {
     event.preventDefault();
     const form = new FormData(event.target as HTMLFormElement);
-    void submitAuth("/v1/public/auth/login", form);
+    void submitPasswordLogin(form);
   });
 
   document.getElementById("email-code-request-form")?.addEventListener("submit", (event) => {
@@ -2210,21 +2211,55 @@ function bindHandlers(): void {
   }
 }
 
-async function submitAuth(path: string, form: FormData): Promise<void> {
-  const response = await api(path, {
-    method: "POST",
-    body: {
-      email: String(form.get("email") ?? ""),
-      password: String(form.get("password") ?? "")
+async function registerWithPassword(form: FormData): Promise<void> {
+  const email = String(form.get("email") ?? "").trim();
+  try {
+    const response = await api("/v1/public/auth/register", {
+      method: "POST",
+      body: {
+        email,
+        password: String(form.get("password") ?? "")
+      }
+    });
+    emailOtpPendingEmail = response.email || email;
+    currentView = "login";
+    window.history.replaceState({}, "", viewPath("login"));
+    log(response.devCode ? `Account created. Test verification code: ${response.devCode}` : "Account created. Check your email to verify it.");
+    render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
+  } catch (error) {
+    if (error instanceof Error && error.message === "email_already_registered") {
+      emailOtpPendingEmail = email;
+      currentView = "login";
+      window.history.replaceState({}, "", viewPath("login"));
+      log("This email already has an account. Use Google, an email code, or your password to log in.");
+      render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
+      return;
     }
-  });
-  token = response.accessToken;
-  currentView = "dashboard";
-  createConfigStep = "configure";
-  localStorage.setItem("hyperspaceAccessToken", token);
-  window.history.replaceState({}, "", viewPath("dashboard"));
-  log("Signed in.");
-  await refresh();
+    log(error instanceof Error ? error.message : "Could not create account.");
+  }
+}
+
+async function submitPasswordLogin(form: FormData): Promise<void> {
+  const email = String(form.get("email") ?? "").trim();
+  try {
+    const response = await api("/v1/public/auth/login", {
+      method: "POST",
+      body: {
+        email,
+        password: String(form.get("password") ?? "")
+      }
+    });
+    completeAuth(response);
+    log("Signed in with password.");
+    await refresh();
+  } catch (error) {
+    if (error instanceof Error && error.message === "email_not_verified") {
+      emailOtpPendingEmail = email;
+      await sendEmailCode(email);
+      return;
+    }
+    log(error instanceof Error ? error.message : "Could not log in.");
+  }
 }
 
 async function requestEmailCode(form: FormData): Promise<void> {
@@ -2234,10 +2269,19 @@ async function requestEmailCode(form: FormData): Promise<void> {
   emailOtpBusy = true;
   emailOtpPendingEmail = String(form.get("email") ?? "").trim();
   render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
+  await sendEmailCode(emailOtpPendingEmail, true);
+}
+
+async function sendEmailCode(email: string, alreadyBusy = false): Promise<void> {
+  if (!alreadyBusy) {
+    emailOtpBusy = true;
+    emailOtpPendingEmail = email;
+    render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
+  }
   try {
     const response = await api("/v1/public/auth/email/request-code", {
       method: "POST",
-      body: { email: emailOtpPendingEmail }
+      body: { email }
     });
     emailOtpPendingEmail = response.email || emailOtpPendingEmail;
     log(response.devCode ? `Email code sent. Test code: ${response.devCode}` : "Email code sent.");

@@ -4,7 +4,7 @@ import { verifyPassword } from "../../security/passwords.js";
 import { createAuthSession } from "./auth-session.js";
 import type { AuthSessionResult, PublicUser } from "./register-user.scenario.js";
 
-export type LoginUserError = "credentials_required" | "invalid_credentials";
+export type LoginUserError = "credentials_required" | "invalid_credentials" | "email_not_verified";
 
 export async function loginUser(
   db: Queryable,
@@ -23,6 +23,9 @@ export async function loginUser(
   if (!row || !verifyPassword(input.password, row.passwordHash)) {
     return "invalid_credentials";
   }
+  if (!row.emailVerified) {
+    return "email_not_verified";
+  }
 
   const session = await createAuthSession(row.id, input.authSessionTtlSeconds, db);
   return {
@@ -30,7 +33,8 @@ export async function loginUser(
       id: row.id,
       accountId: row.accountId,
       email: row.email,
-      displayName: row.displayName
+      displayName: row.displayName,
+      avatarUrl: row.avatarUrl
     },
     accessToken: session.token,
     expiresAt: session.expiresAt

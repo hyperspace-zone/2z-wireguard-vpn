@@ -37,12 +37,13 @@ export const publicLoginRequestSchema = {
 export const publicUserSchema = {
   type: "object",
   additionalProperties: false,
-  required: ["id", "accountId", "email", "displayName"],
+  required: ["id", "accountId", "email", "displayName", "avatarUrl"],
   properties: {
     id: { type: "string" },
     accountId: { type: "string" },
     email: { type: "string" },
-    displayName: { type: "string" }
+    displayName: { type: "string" },
+    avatarUrl: { type: ["string", "null"] }
   }
 } as const;
 
