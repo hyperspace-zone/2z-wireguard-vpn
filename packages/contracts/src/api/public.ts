@@ -113,13 +113,15 @@ export const publicGoogleOAuthStartResponseSchema = {
 export const publicWalletLinkSchema = {
   type: "object",
   additionalProperties: false,
-  required: ["id", "chain", "publicKey", "linkedAt"],
+  required: ["id", "chain", "publicKey", "linkedAt", "custody", "canReceive"],
   properties: {
     id: { type: "string" },
     chain: { type: "string" },
     publicKey: { type: "string" },
     label: { type: ["string", "null"] },
-    linkedAt: { type: "string", format: "date-time" }
+    linkedAt: { type: "string", format: "date-time" },
+    custody: { enum: ["hyperspace", "external"] },
+    canReceive: { type: "boolean" }
   }
 } as const;
 
@@ -207,6 +209,7 @@ export const publicTopupIntentSchema = {
     reference: { type: "string" },
     expectedSender: { type: ["string", "null"] },
     transactionSignature: { type: ["string", "null"] },
+    paymentUrl: { type: "string" },
     expiresAt: { type: "string", format: "date-time" },
     submittedAt: { type: ["string", "null"], format: "date-time" },
     confirmedAt: { type: ["string", "null"], format: "date-time" },

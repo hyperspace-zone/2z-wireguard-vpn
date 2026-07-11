@@ -133,9 +133,11 @@ Do not include them in routine `npm test` or live smoke runs.
 | --- | --- | --- | --- |
 | UNIT-001 | `choosePath` SQL joins gate status. | Scheduler never emits SQL referencing `gate_status` without joining it. | `packages/control-plane/src/planning/choose-path.test.ts` |
 | UNIT-002 | Gate schedulability requires DoubleZero. | Missing `doublezero0`, down BGP session, env mismatch, or tunnel source mismatch keep gate ready when the agent/host is healthy, but make it unschedulable. | `packages/control-plane/src/resources/gates/readiness.test.ts` |
-| UNIT-003 | Milestone 3 identity, OTP, and Solana wallet primitives. | Password login requires verified email; Google linking prefers provider `sub`, safely claims unverified password accounts, OTP uses HMAC verification, and Solana links verify Ed25519 signatures. | `packages/control-plane/src/application/auth/*.test.ts` |
-| UNIT-004 | Censorship-resistant route policy. | `choosePath` passes normalized excluded countries to schedulable gate selection. | `packages/control-plane/src/planning/choose-path.test.ts` |
-| UNIT-005 | Build/typecheck across workspaces. | Contracts, DB, control-plane, API, worker, web build and typecheck cleanly. | `npm run build && npm run typecheck` |
+| UNIT-003 | Milestone 3 identity, OTP, and Solana wallet primitives. | Password login requires verified email; Google linking prefers provider `sub`, safely claims unverified password accounts, OTP uses HMAC verification, custodial Solana seeds are encrypted, and external links verify Ed25519 signatures. | `packages/control-plane/src/application/auth/*.test.ts` |
+| UNIT-004 | Finalized Solana top-up verification. | RPC status, memo, mint, recipient owner, base-unit amount, and optional sender must all match before credit. | `packages/control-plane/src/application/billing/solana-rpc-verifier.test.ts` |
+| UNIT-005 | Censorship-resistant route policy. | `choosePath` passes normalized excluded countries, cities, and preferred egress regions to schedulable gate selection. | `packages/control-plane/src/planning/choose-path.test.ts` |
+| UNIT-006 | Metering payload validation. | Missing byte or cost fields are rejected instead of silently becoming zero-cost usage. | `apps/control-plane-worker/src/loops/doublezero-metering-loop.test.ts` |
+| UNIT-007 | Build/typecheck across workspaces. | Contracts, DB, control-plane, API, worker, web build and typecheck cleanly. | `npm run build && npm run typecheck` |
 
 ## Milestone 3 UI Smoke
 
@@ -147,8 +149,9 @@ PLAYWRIGHT_CHROMIUM_EXECUTABLE=/snap/bin/chromium npm run test:milestone3:ui
 
 The smoke mocks the public API, registers with a password, completes email
 verification, verifies the account
-balance panel, creates a VPN config, and asserts that the "Avoid Germany" UI
-emits `pathPolicy.excludeCountries=["Germany"]`.
+balance and deposit-wallet panels, injected external wallet linking, Solana Pay,
+WireGuard QR and helper download, then creates a VPN config and asserts generic
+country/city/region route constraints.
 
 ## Resend OTP E2E
 

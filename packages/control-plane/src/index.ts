@@ -31,6 +31,10 @@ export {
   type RegisterUserError
 } from "./application/auth/register-user.scenario.js";
 export {
+  ensureCustodialSolanaWallet,
+  type PublicSolanaWallet
+} from "./application/auth/custodial-wallet.scenario.js";
+export {
   createSolanaWalletChallenge,
   linkSolanaWallet,
   listSolanaWalletLinks,
@@ -41,6 +45,7 @@ export {
   accountHasSufficientBalance,
   createSolanaTopupIntent,
   readAccountBillingSummary,
+  reconcileSubmittedSolanaTopups,
   submitSolanaTopupSignature,
   type BillingConfig,
   type BillingSummary,
@@ -105,6 +110,11 @@ export {
 } from "./resources/artifacts/download-tokens.js";
 export { recordGateHeartbeat, type GateHeartbeatReport, type GateRuntimeIdentity } from "./resources/gates/service.js";
 export { insertDoubleZeroTenantBillingSnapshot } from "./resources/billing/repository.js";
+export {
+  readBillingImportCursor,
+  recordBillingImportFailure,
+  recordBillingImportSuccess
+} from "./resources/billing/repository.js";
 export {
   defaultSessionAbuseControlConfig,
   type SessionAbuseControlConfig

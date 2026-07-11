@@ -198,3 +198,36 @@ groups:
         annotations:
           summary: Public API rate limiting is active
           description: Public API requests are being rejected by basic abuse-control rate limits.
+
+      - alert: HyperspaceBillingMeteringNeverSucceeded
+        expr: |
+          hyperspace_billing_metering_import_enabled == 1
+          unless on()
+          hyperspace_worker_loop_last_success_timestamp_seconds{loop="doublezero-metering"}
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: Billing metering import has not succeeded
+          description: Periodic DoubleZero metering is enabled but the worker has not completed a successful import.
+
+      - alert: HyperspaceBillingMeteringStale
+        expr: |
+          (time() - hyperspace_worker_loop_last_success_timestamp_seconds{loop="doublezero-metering"} > 900)
+          and on()
+          (hyperspace_billing_metering_import_enabled == 1)
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Billing metering import is stale
+          description: The latest successful DoubleZero metering import is older than 15 minutes.
+
+      - alert: HyperspaceBillingMeteringRejectedRecords
+        expr: increase(hyperspace_billing_metering_records_total{result="rejected"}[15m]) > 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: Billing metering records were rejected
+          description: One or more DoubleZero metering records could not be reconciled to a valid account or session.

@@ -47,6 +47,8 @@ export async function selectSchedulableGate(
     gateId?: string;
     gateName?: string;
     excludedCountries?: string[];
+    excludedCities?: string[];
+    preferredRegions?: string[];
   }
 ): Promise<SchedulableGateRow | null> {
   const result = await db.query<SchedulableGateRow>(
@@ -70,6 +72,14 @@ export async function selectSchedulableGate(
           cardinality($4::text[]) = 0
           OR lower(gates.country) <> ALL($4::text[])
         )
+        AND (
+          cardinality($5::text[]) = 0
+          OR lower(gates.city) <> ALL($5::text[])
+        )
+        AND (
+          cardinality($6::text[]) = 0
+          OR split_part(lower(gates.name), '-', 2) = ANY($6::text[])
+        )
       ORDER BY gates.scheduling_weight DESC, gates.name ASC
       LIMIT 1
     `,
@@ -77,7 +87,9 @@ export async function selectSchedulableGate(
       input.excludeGateId || null,
       input.gateId || null,
       input.gateName || null,
-      input.excludedCountries ?? []
+      input.excludedCountries ?? [],
+      input.excludedCities ?? [],
+      input.preferredRegions ?? []
     ]
   );
   return result.rows[0] ?? null;

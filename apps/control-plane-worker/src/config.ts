@@ -1,4 +1,5 @@
 import { parseAes256GcmKey } from "@hyperspace-zone/shared";
+import type { BillingConfig } from "@hyperspace-zone/control-plane";
 import type { ReconcileLoopRuntimeConfig } from "./loops/reconcile-loop.js";
 
 export interface ControlPlaneWorkerConfig extends ReconcileLoopRuntimeConfig {
@@ -7,6 +8,16 @@ export interface ControlPlaneWorkerConfig extends ReconcileLoopRuntimeConfig {
   workerId: string;
   observabilityHost: string;
   observabilityPort: number;
+  solanaTopupReconcileIntervalSeconds: number;
+  billing: BillingConfig;
+  doubleZeroMetering: {
+    url: string;
+    bearerToken: string;
+    sourceName: string;
+    cluster: string;
+    tenant: string;
+    intervalSeconds: number;
+  };
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): ControlPlaneWorkerConfig {
@@ -26,6 +37,27 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ControlPlaneWo
     workerId: env.WORKER_ID ?? `worker-${process.pid}`,
     observabilityHost: env.WORKER_OBSERVABILITY_HOST ?? "0.0.0.0",
     observabilityPort: Number(env.WORKER_OBSERVABILITY_PORT ?? 9091),
+    solanaTopupReconcileIntervalSeconds: Number(env.SOLANA_TOPUP_RECONCILE_INTERVAL_SECONDS ?? 15),
+    billing: {
+      currency: env.BILLING_CURRENCY ?? "USD",
+      solanaTreasuryAddress: env.SOLANA_TREASURY_ADDRESS ?? "",
+      solanaTokenSymbol: env.SOLANA_TOKEN_SYMBOL ?? "USDC",
+      solanaTokenMint: env.SOLANA_TOKEN_MINT ?? "",
+      solanaRpcUrl: env.SOLANA_RPC_URL ?? "",
+      solanaTokenBaseUnitsPerBillingMinor: Number(env.SOLANA_TOKEN_BASE_UNITS_PER_BILLING_MINOR ?? 10_000),
+      solanaTokenDecimals: Number(env.SOLANA_TOKEN_DECIMALS ?? 6),
+      topupIntentTtlSeconds: Number(env.TOPUP_INTENT_TTL_SECONDS ?? 3600),
+      allowUnverifiedTopups: false,
+      usageMarkupBps: Number(env.BILLING_USAGE_MARKUP_BPS ?? 1500)
+    },
+    doubleZeroMetering: {
+      url: env.DOUBLEZERO_METERING_URL ?? "",
+      bearerToken: env.DOUBLEZERO_METERING_BEARER_TOKEN ?? "",
+      sourceName: env.DOUBLEZERO_METERING_SOURCE_NAME ?? "doublezero-hyperspace",
+      cluster: env.DOUBLEZERO_METERING_CLUSTER ?? "mainnet-beta",
+      tenant: env.DOUBLEZERO_METERING_TENANT ?? "hyperspace",
+      intervalSeconds: Number(env.DOUBLEZERO_METERING_INTERVAL_SECONDS ?? 300)
+    },
     gateHeartbeatStaleSeconds: Number(env.GATE_HEARTBEAT_STALE_SECONDS ?? 45),
     provisioningTimeoutSeconds: Number(env.PROVISIONING_TIMEOUT_SECONDS ?? 90),
     benchmarkProbesEnabled: env.BENCHMARK_PROBES_ENABLED !== "false",

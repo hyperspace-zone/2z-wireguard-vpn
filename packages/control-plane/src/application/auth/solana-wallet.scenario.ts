@@ -2,6 +2,7 @@ import { createPublicKey, verify as verifySignature } from "node:crypto";
 import type { TransactionalQueryable } from "../../db/queryable.js";
 import {
   consumeWalletLinkChallenge,
+  findActiveWalletLinkOwner,
   findLatestWalletLinkChallengeForUpdate,
   insertWalletLink,
   insertWalletLinkChallenge,
@@ -11,6 +12,7 @@ import {
   type WalletLinkRow
 } from "../../resources/users/repository.js";
 import { newSecretToken } from "../../security/tokens.js";
+import type { PublicSolanaWallet } from "./custodial-wallet.scenario.js";
 import { hmacSha256Hex, verifyHash } from "./otp.js";
 
 export interface WalletChallengeResult {
@@ -22,9 +24,10 @@ export interface WalletChallengeResult {
 }
 
 export type WalletLinkResult =
-  | { status: "linked"; wallet: WalletLinkRow }
+  | { status: "linked"; wallet: PublicSolanaWallet }
   | "invalid_public_key"
   | "invalid_signature"
+  | "wallet_already_linked"
   | "challenge_not_found"
   | "challenge_expired";
 
@@ -97,6 +100,10 @@ export async function linkSolanaWallet(
     if (!verifySolanaSignature(publicKey, challenge.message, input.signature)) {
       return "invalid_signature";
     }
+    const existingOwner = await findActiveWalletLinkOwner(client, "solana", publicKey);
+    if (existingOwner && existingOwner !== user.accountId) {
+      return "wallet_already_linked";
+    }
 
     await consumeWalletLinkChallenge(client, challenge.id);
     const wallet = await insertWalletLink(client, {
@@ -113,15 +120,24 @@ export async function linkSolanaWallet(
       metadata: { publicKey },
       verifiedAt: new Date().toISOString()
     });
-    return { status: "linked", wallet };
+    return { status: "linked", wallet: toExternalWallet(wallet) };
   });
 }
 
 export async function listSolanaWalletLinks(
   db: TransactionalQueryable,
   accountId: string
-): Promise<WalletLinkRow[]> {
-  return listWalletLinks(db, accountId);
+): Promise<PublicSolanaWallet[]> {
+  return (await listWalletLinks(db, accountId)).map(toExternalWallet);
+}
+
+function toExternalWallet(wallet: WalletLinkRow): PublicSolanaWallet {
+  return {
+    ...wallet,
+    chain: "solana",
+    custody: "external",
+    canReceive: true
+  };
 }
 
 export function solanaWalletLinkMessage(input: {

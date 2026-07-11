@@ -19,6 +19,7 @@ import {
   completeGoogleOAuth,
   createGoogleOAuthStart,
   createSolanaWalletChallenge,
+  ensureCustodialSolanaWallet,
   linkSolanaWallet,
   listSolanaWalletLinks,
   loginUser,
@@ -51,6 +52,7 @@ export function registerPublicAuthRoutes(
     walletAuth: {
       challengeHashSecret: string;
       challengeTtlSeconds: number;
+      custodialEncryptionKey: Buffer | null;
     };
     requireUser: (request: FastifyRequest, reply: FastifyReply) => Promise<PublicAuthUser | null>;
   }
@@ -240,7 +242,11 @@ export function registerPublicAuthRoutes(
     if (!user) {
       return;
     }
-    return reply.send({ wallets: await listSolanaWalletLinks(deps.db, user.accountId) });
+    const externalWallets = await listSolanaWalletLinks(deps.db, user.accountId);
+    const custodialWallet = deps.walletAuth.custodialEncryptionKey
+      ? await ensureCustodialSolanaWallet(deps.db, user.accountId, deps.walletAuth.custodialEncryptionKey)
+      : null;
+    return reply.send({ wallets: custodialWallet ? [custodialWallet, ...externalWallets] : externalWallets });
   });
 
   app.post("/v1/public/auth/wallets/solana/challenge", {
@@ -329,6 +335,8 @@ function walletLinkError(error: string): ApplicationErrorCode {
     case "challenge_not_found":
     case "challenge_expired":
       return "invalid_wallet_challenge";
+    case "wallet_already_linked":
+      return "wallet_already_linked";
     default:
       return "invalid_wallet_signature";
   }

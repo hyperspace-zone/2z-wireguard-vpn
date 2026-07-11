@@ -45,6 +45,12 @@ let createdSessionPayload = null;
 let registeredUserPayload = null;
 let authenticated = false;
 let googleRedirectAfter = null;
+let walletLinkPayload = null;
+let externalWalletLinked = false;
+let topups = [];
+const sessions = [];
+const externalWalletPublicKey = "Ammp1YcgfiAhr7xaaBDaUYn7MDk7dPHv3yWUDvdX5fKB";
+const depositWalletPublicKey = "6TQxgf6T4DRqk2r6WwCSw8uFsAdWbym3G8Yt19cZX7wt";
 const gates = [
   {
     id: "00000000-0000-4000-8000-000000000001",
@@ -65,12 +71,30 @@ const gates = [
     ready: true,
     schedulable: true,
     desiredState: "Enabled"
+  },
+  {
+    id: "00000000-0000-4000-8000-000000000003",
+    name: "gate-eu-fra-21",
+    city: "Frankfurt",
+    country: "Germany",
+    publicIpv4: "203.0.113.30",
+    ready: true,
+    schedulable: true,
+    desiredState: "Enabled"
   }
 ];
 
 const browser = await chromium.launch({ headless, executablePath: chromiumExecutable });
 try {
   const page = await browser.newPage();
+  await page.addInitScript(({ publicKey }) => {
+    const key = { toString: () => publicKey };
+    window.solana = {
+      publicKey: key,
+      async connect() { return { publicKey: key }; },
+      async signMessage() { return { signature: new Uint8Array(64).fill(7) }; }
+    };
+  }, { publicKey: externalWalletPublicKey });
   await page.route("**/api/v1/public/**", async (route) => {
     const request = route.request();
     const url = new URL(request.url());
@@ -131,18 +155,60 @@ try {
         balanceMinor: 2500,
         currency: "USD",
         ledger: [],
-        topups: []
+        topups
       });
     }
     if (path === "/v1/public/auth/wallets") {
-      return json(route, { wallets: [] });
+      return json(route, { wallets: [
+        { id: "wallet-custodial", chain: "solana", publicKey: depositWalletPublicKey, label: "Hyperspace deposit wallet", linkedAt: new Date().toISOString(), custody: "hyperspace", canReceive: true },
+        ...(externalWalletLinked ? [{ id: "wallet-external", chain: "solana", publicKey: externalWalletPublicKey, label: null, linkedAt: new Date().toISOString(), custody: "external", canReceive: true }] : [])
+      ] });
+    }
+    if (path === "/v1/public/auth/wallets/solana/challenge" && method === "POST") {
+      return json(route, { chain: "solana", publicKey: externalWalletPublicKey, nonce: "wallet-nonce", message: "Link wallet", expiresAt: new Date(Date.now() + 600_000).toISOString() });
+    }
+    if (path === "/v1/public/auth/wallets/solana/link" && method === "POST") {
+      walletLinkPayload = request.postDataJSON();
+      externalWalletLinked = true;
+      return json(route, { wallet: { id: "wallet-external", chain: "solana", publicKey: externalWalletPublicKey, label: null, linkedAt: new Date().toISOString(), custody: "external", canReceive: true } });
+    }
+    if (path === "/v1/public/billing/topups" && method === "POST") {
+      const input = request.postDataJSON();
+      const topup = {
+        id: "topup-1", provider: "solana", status: "pending", amountMinor: input.amountMinor, currency: "USD",
+        chain: "solana", tokenSymbol: "USDC", tokenMint: "mint", treasuryAddress: depositWalletPublicKey,
+        reference: externalWalletPublicKey, expectedSender: input.expectedSender || null, transactionSignature: null,
+        paymentUrl: `solana:${depositWalletPublicKey}?amount=25&spl-token=mint&reference=${externalWalletPublicKey}`,
+        expiresAt: new Date(Date.now() + 600_000).toISOString(), submittedAt: null, confirmedAt: null, createdAt: new Date().toISOString()
+      };
+      topups = [topup];
+      return json(route, { topup }, 201);
     }
     if (path === "/v1/public/sessions" && method === "GET") {
-      return json(route, { sessions: [] });
+      return json(route, { sessions });
     }
     if (path === "/v1/public/sessions" && method === "POST") {
       createdSessionPayload = request.postDataJSON();
-      return json(route, { session: { id: "session-1" } }, 201);
+      const session = {
+        id: "session-1", mode: createdSessionPayload.mode, desiredState: "Active", phase: "active",
+        destinationCidrs: ["1.1.1.1/32"], sourceCidr: null, label: "Smoke config",
+        selectedPath: { ingressGateName: createdSessionPayload.ingressGateName, egressGateName: createdSessionPayload.egressGateName },
+        createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
+      };
+      sessions.splice(0, sessions.length, session);
+      return json(route, { session }, 201);
+    }
+    if (path.endsWith("/artifacts/client-config/download-token") && method === "POST") {
+      return json(route, { token: "artifact-token", expiresAt: new Date(Date.now() + 300_000).toISOString(), downloadUrl: "/v1/public/artifacts/download/artifact-token", downloadConfigUrl: "/v1/public/artifacts/download/artifact-token?format=conf" });
+    }
+    if (path === "/v1/public/artifacts/download/artifact-token") {
+      if (url.searchParams.get("format") === "qr") {
+        return route.fulfill({ status: 200, contentType: "image/svg+xml", body: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><path d="M0 0h10v10H0z"/></svg>' });
+      }
+      if (url.searchParams.get("format") === "conf") {
+        return route.fulfill({ status: 200, contentType: "text/plain", body: "[Interface]\nPrivateKey = hidden\n" });
+      }
+      return json(route, { payload: { fileName: "hyperspace-smoke.conf", configText: "[Interface]\nPrivateKey = hidden\n" } });
     }
     if (path === "/v1/public/network/me") {
       return json(route, { ip: "198.51.100.10" });
@@ -166,19 +232,45 @@ try {
 
   await page.getByRole("heading", { name: "Account" }).waitFor();
   await page.getByText("$25.00").waitFor();
+  await page.getByRole("button", { name: "Connect external wallet (optional)" }).click();
+  await page.getByText(/External:/).waitFor();
+  if (walletLinkPayload?.publicKey !== externalWalletPublicKey || walletLinkPayload?.nonce !== "wallet-nonce") {
+    throw new Error(`expected injected Solana wallet link payload, got ${JSON.stringify(walletLinkPayload)}`);
+  }
+
+  await page.locator("#topup-form input[name=amountUsd]").fill("25.00");
+  await page.locator("#topup-form button[type=submit]").click();
+  await page.getByRole("link", { name: "Pay with Solana wallet" }).waitFor();
 
   await page.getByLabel("Primary").getByRole("link", { name: "Create config" }).click();
   await page.locator("input[name=targetIp]").fill("1.1.1.1");
   await page.locator("select[name=ingressGateName]").selectOption("gate-eu-ams-21");
   await page.locator("select[name=egressGateName]").selectOption("gate-na-sjc-01");
-  await page.locator("input[name=avoidGermany]").check();
+  await page.locator("select[name=preferredRegion]").selectOption("na");
+  await page.getByText("Excluded countries", { exact: true }).click();
+  await page.locator('input[name=excludeCountry][value="Germany"]').check();
+  await page.getByText("Excluded cities", { exact: true }).click();
+  await page.locator('input[name=excludeCity][value="Frankfurt"]').check();
   await page.getByRole("button", { name: "Review config" }).click();
-  await page.getByText("Avoid Germany").waitFor();
+  await page.getByText(/Avoid countries: Germany/).waitFor();
   await page.getByRole("button", { name: "Confirm and create" }).click();
 
+  await page.getByRole("button", { name: "QR" }).click();
+  await page.getByRole("dialog", { name: "WireGuard configuration QR code" }).waitFor();
+  await page.getByRole("button", { name: "Close" }).click();
+  const [helperDownload] = await Promise.all([
+    page.waitForEvent("download"),
+    page.getByRole("button", { name: "Connect", exact: true }).click()
+  ]);
+  if (!/hyperspace-connect\.(sh|command|ps1)$/.test(helperDownload.suggestedFilename())) {
+    throw new Error(`unexpected helper filename ${helperDownload.suggestedFilename()}`);
+  }
+
   await page.waitForFunction(() => window.localStorage.getItem("hyperspaceAccessToken") === "test-token");
-  if (!createdSessionPayload?.pathPolicy?.excludeCountries?.includes("Germany")) {
-    throw new Error(`expected Avoid Germany pathPolicy, got ${JSON.stringify(createdSessionPayload)}`);
+  if (!createdSessionPayload?.pathPolicy?.excludeCountries?.includes("Germany") ||
+      !createdSessionPayload?.pathPolicy?.excludeCities?.includes("Frankfurt") ||
+      !createdSessionPayload?.pathPolicy?.preferredRegions?.includes("na")) {
+    throw new Error(`expected generalized routing policy, got ${JSON.stringify(createdSessionPayload)}`);
   }
   if (registeredUserPayload?.email !== testEmail) {
     throw new Error(`expected password registration before OTP verification, got ${JSON.stringify(registeredUserPayload)}`);

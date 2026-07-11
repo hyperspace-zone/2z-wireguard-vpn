@@ -32,11 +32,11 @@ test("choosePath schedules an explicit mainnet-beta gate pair using gate_status 
       assertSchedulableGateQuery(sql);
 
       if (calls.length === 1) {
-        assert.deepEqual(params, [null, null, ingressGate.name, []]);
+        assert.deepEqual(params, [null, null, ingressGate.name, [], [], []]);
         return { rows: [ingressGate as unknown as Row] };
       }
 
-      assert.deepEqual(params, [ingressGate.id, null, egressGate.name, []]);
+      assert.deepEqual(params, [ingressGate.id, null, egressGate.name, [], [], []]);
       return { rows: [egressGate as unknown as Row] };
     }
   };
@@ -54,7 +54,7 @@ test("choosePath schedules an explicit mainnet-beta gate pair using gate_status 
     egressGateName: egressGate.name,
     egressPublicIpv4: egressGate.publicIpv4
   });
-  assert.deepEqual(calls[0]?.params, [null, null, ingressGate.name, []]);
+  assert.deepEqual(calls[0]?.params, [null, null, ingressGate.name, [], [], []]);
   assert.equal(calls.length, 2);
 });
 
@@ -78,13 +78,15 @@ test("choosePath passes excluded countries from censorship-resistant route polic
     ingressGateName: ingressGate.name,
     egressGateName: egressGate.name,
     pathPolicy: {
-      excludeCountries: ["DE", "Germany"]
+      excludeCountries: ["DE", "Germany"],
+      excludeCities: ["Frankfurt"],
+      preferredRegions: ["North America"]
     }
   });
 
   assert.ok(path);
-  assert.deepEqual(calls[0]?.params, [null, null, ingressGate.name, ["germany"]]);
-  assert.deepEqual(calls[1]?.params, [ingressGate.id, null, egressGate.name, ["germany"]]);
+  assert.deepEqual(calls[0]?.params, [null, null, ingressGate.name, ["germany"], ["frankfurt"], []]);
+  assert.deepEqual(calls[1]?.params, [ingressGate.id, null, egressGate.name, ["germany"], ["frankfurt"], ["na"]]);
 });
 
 function assertSchedulableGateQuery(sql: string): void {
@@ -109,4 +111,6 @@ function assertSchedulableGateQuery(sql: string): void {
   assert.match(sql, /gate_status\.doublezero_status->>'tunnelSrc'\s+=\s+gates\.public_ipv4/i);
   assert.match(sql, /gate_leases\.lease_expires_at\s+>\s+now\(\)/i);
   assert.match(sql, /lower\(gates\.country\)\s+<>\s+ALL\(\$4::text\[\]\)/i);
+  assert.match(sql, /lower\(gates\.city\)\s+<>\s+ALL\(\$5::text\[\]\)/i);
+  assert.match(sql, /split_part\(lower\(gates\.name\),\s*'-',\s*2\)\s+=\s+ANY\(\$6::text\[\]\)/i);
 }

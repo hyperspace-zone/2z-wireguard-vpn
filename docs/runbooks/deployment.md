@@ -1003,6 +1003,7 @@ Generate secrets on the control-plane host:
 ```bash
 export ADMIN_TOKEN="$(openssl rand -hex 32)"
 export ARTIFACT_ENCRYPTION_KEY="$(node -e 'console.log(require("node:crypto").randomBytes(32).toString("base64url"))')"
+export CUSTODIAL_WALLET_ENCRYPTION_KEY="$(node -e 'console.log(require("node:crypto").randomBytes(32).toString("base64url"))')"
 ```
 
 Create `/etc/hyperspace/control-plane-api.env`:
@@ -1049,10 +1050,14 @@ GOOGLE_OAUTH_STATE_TTL_SECONDS=600
 # Solana wallet linking and top-ups.
 WALLET_CHALLENGE_HASH_SECRET=replace-with-random-32-byte-secret
 WALLET_CHALLENGE_TTL_SECONDS=600
+CUSTODIAL_WALLET_ENCRYPTION_KEY=${CUSTODIAL_WALLET_ENCRYPTION_KEY}
 BILLING_CURRENCY=USD
 SOLANA_TREASURY_ADDRESS=
 SOLANA_TOKEN_SYMBOL=USDC
-SOLANA_TOKEN_MINT=
+SOLANA_TOKEN_MINT=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v
+SOLANA_TOKEN_DECIMALS=6
+SOLANA_TOKEN_BASE_UNITS_PER_BILLING_MINOR=10000
+SOLANA_RPC_URL=replace-with-private-solana-rpc-url
 TOPUP_INTENT_TTL_SECONDS=3600
 BILLING_ALLOW_UNVERIFIED_TOPUPS=false
 BILLING_USAGE_MARKUP_BPS=1500
@@ -1071,11 +1076,11 @@ per window, IP-to-IP targets must be public IPv4 `/32` destinations unless
 explicitly overridden. Full-tunnel configs may be unrestricted by source; if a
 source restriction is supplied, the API only validates that it is an IPv4 CIDR.
 
-For testnet UI demonstrations, `BILLING_ALLOW_UNVERIFIED_TOPUPS=true` may be
-used to credit submitted top-up signatures without a Solana RPC verifier. Keep
-it `false` in production-like environments. Production confirmation should
-verify the submitted Solana transaction against the configured treasury address,
-token mint, amount, and reference before crediting the immutable balance ledger.
+Keep `BILLING_ALLOW_UNVERIFIED_TOPUPS=false` in every shared environment. The
+worker discovers Solana Pay transactions by the intent reference, then requires
+finalized RPC confirmation, exact recipient owner, mint, amount, memo, and
+optional sender before crediting the immutable balance ledger. See
+`docs/runbooks/milestone3-billing-and-wallets.md`.
 
 Google OAuth setup prompt for a browser automation agent after you log in to
 Google Cloud Console:
@@ -1222,6 +1227,20 @@ WORKER_ID=control-plane-worker-01
 WORKER_OBSERVABILITY_HOST=0.0.0.0
 WORKER_OBSERVABILITY_PORT=9091
 ARTIFACT_ENCRYPTION_KEY=${ARTIFACT_ENCRYPTION_KEY}
+SOLANA_RPC_URL=${SOLANA_RPC_URL:-}
+SOLANA_TOKEN_SYMBOL=${SOLANA_TOKEN_SYMBOL:-USDC}
+SOLANA_TOKEN_MINT=${SOLANA_TOKEN_MINT:-EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v}
+SOLANA_TOKEN_DECIMALS=${SOLANA_TOKEN_DECIMALS:-6}
+SOLANA_TOKEN_BASE_UNITS_PER_BILLING_MINOR=${SOLANA_TOKEN_BASE_UNITS_PER_BILLING_MINOR:-10000}
+SOLANA_TOPUP_RECONCILE_INTERVAL_SECONDS=15
+BILLING_CURRENCY=${BILLING_CURRENCY:-USD}
+BILLING_USAGE_MARKUP_BPS=${BILLING_USAGE_MARKUP_BPS:-1500}
+DOUBLEZERO_METERING_URL=${DOUBLEZERO_METERING_URL:-}
+DOUBLEZERO_METERING_BEARER_TOKEN=${DOUBLEZERO_METERING_BEARER_TOKEN:-}
+DOUBLEZERO_METERING_SOURCE_NAME=${DOUBLEZERO_METERING_SOURCE_NAME:-doublezero-hyperspace}
+DOUBLEZERO_METERING_CLUSTER=${DOUBLEZERO_METERING_CLUSTER:-mainnet-beta}
+DOUBLEZERO_METERING_TENANT=${DOUBLEZERO_METERING_TENANT:-hyperspace}
+DOUBLEZERO_METERING_INTERVAL_SECONDS=${DOUBLEZERO_METERING_INTERVAL_SECONDS:-300}
 BENCHMARK_PROBES_ENABLED=true
 BENCHMARK_INTERVAL_SECONDS=300
 BENCHMARK_PROBE_PORT=19192

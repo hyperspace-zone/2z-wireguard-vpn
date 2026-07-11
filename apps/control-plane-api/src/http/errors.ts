@@ -45,6 +45,7 @@ export type ApplicationErrorCode =
   | "invalid_wallet_challenge"
   | "invalid_wallet_public_key"
   | "invalid_wallet_signature"
+  | "wallet_already_linked"
   | "job_not_found"
   | "oauth_email_not_verified"
   | "oauth_exchange_failed"
@@ -58,6 +59,8 @@ export type ApplicationErrorCode =
   | "session_not_revoked"
   | "session_quota_exceeded"
   | "topup_already_final"
+  | "topup_transaction_reused"
+  | "topup_verification_unavailable"
   | "topup_expired"
   | "topup_not_found"
   | "topup_provider_not_configured"
@@ -84,6 +87,7 @@ function applicationErrorStatus(code: ApplicationErrorCode): number {
     case "artifact_encryption_not_configured":
     case "oauth_not_configured":
     case "topup_provider_not_configured":
+    case "topup_verification_unavailable":
       return 503;
     case "artifact_not_ready":
     case "email_already_registered":
@@ -91,6 +95,8 @@ function applicationErrorStatus(code: ApplicationErrorCode): number {
     case "session_quota_exceeded":
     case "session_not_revoked":
     case "topup_already_final":
+    case "topup_transaction_reused":
+    case "wallet_already_linked":
       return 409;
     case "rate_limited":
     case "session_create_rate_limited":

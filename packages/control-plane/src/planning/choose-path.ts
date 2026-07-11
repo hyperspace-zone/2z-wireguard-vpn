@@ -16,10 +16,13 @@ export async function choosePath(client: Queryable, spec: Record<string, unknown
   const ingressGateName = readOptionalString(spec, "ingressGateName");
   const egressGateName = readOptionalString(spec, "egressGateName");
   const excludedCountries = readExcludedCountries(spec);
+  const excludedCities = readPathPolicyValues(spec, ["excludeCities", "excludedCities", "avoidCities"]);
+  const preferredRegions = readPreferredRegions(spec);
   const ingress = await selectSchedulableGate(client, {
     gateId: ingressGateId,
     gateName: ingressGateName,
-    excludedCountries
+    excludedCountries,
+    excludedCities
   });
   if (!ingress) {
     return null;
@@ -29,7 +32,9 @@ export async function choosePath(client: Queryable, spec: Record<string, unknown
     excludeGateId: ingress.id,
     gateId: egressGateId,
     gateName: egressGateName,
-    excludedCountries
+    excludedCountries,
+    excludedCities,
+    preferredRegions
   });
   if (!egress) {
     return null;
@@ -51,17 +56,23 @@ function readOptionalString(record: Record<string, unknown>, key: string): strin
 }
 
 function readExcludedCountries(spec: Record<string, unknown>): string[] {
+  const values = readPathPolicyValues(spec, ["excludeCountries", "excludedCountries", "avoidCountries"]);
+  return [...new Set(values.map(normalizeCountry).filter(Boolean))];
+}
+
+function readPreferredRegions(spec: Record<string, unknown>): string[] {
+  return [...new Set(readPathPolicyValues(spec, ["preferredRegions", "egressRegions"])
+    .flatMap(normalizeRegion)
+    .filter(Boolean))];
+}
+
+function readPathPolicyValues(spec: Record<string, unknown>, keys: string[]): string[] {
   const policy = spec.pathPolicy;
   if (!policy || typeof policy !== "object" || Array.isArray(policy)) {
     return [];
   }
   const record = policy as Record<string, unknown>;
-  const values = [
-    ...readStringArray(record.excludeCountries),
-    ...readStringArray(record.excludedCountries),
-    ...readStringArray(record.avoidCountries)
-  ];
-  return [...new Set(values.map(normalizeCountry).filter(Boolean))];
+  return keys.flatMap((key) => readStringArray(record[key])).map((value) => value.toLowerCase());
 }
 
 function readStringArray(value: unknown): string[] {
@@ -77,4 +88,28 @@ function normalizeCountry(value: string): string {
     return "germany";
   }
   return normalized;
+}
+
+function normalizeRegion(value: string): string[] {
+  switch (value.trim().toLowerCase()) {
+    case "eu":
+    case "europe":
+      return ["eu"];
+    case "na":
+    case "north america":
+    case "us":
+      return ["na"];
+    case "ap":
+    case "apac":
+    case "asia pacific":
+      return ["ap"];
+    case "sa":
+    case "latam":
+    case "south america":
+      return ["sa"];
+    case "emea":
+      return ["eu", "me", "af"];
+    default:
+      return [];
+  }
 }

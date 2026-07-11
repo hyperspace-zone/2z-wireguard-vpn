@@ -139,7 +139,7 @@ tbody td {
 }
 
 .status-column {
-  min-width: 150px;
+  min-width: 104px;
 }
 
 .status-cell {
@@ -166,18 +166,26 @@ tbody td {
 }
 
 .actions-column {
-  text-align: right;
-  white-space: nowrap;
+  min-width: 180px;
+  text-align: left;
+  white-space: normal;
+  width: 180px;
 }
 
 .action-buttons {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
-  justify-content: flex-end;
+  justify-content: flex-start;
 }
 
 .action-buttons button + button {
   margin-left: 0;
+}
+
+.action-buttons button {
+  font-size: 12px;
+  padding: 6px 8px;
 }
 
 .table-sort {
@@ -699,6 +707,27 @@ small {
   grid-column: 1 / -1;
 }
 
+.route-policy-group details {
+  border-top: 1px solid #d8dee8;
+  padding-top: 8px;
+}
+
+.route-policy-group summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.policy-option-grid {
+  display: grid;
+  gap: 6px 12px;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  padding-top: 8px;
+}
+
+.compact-checkbox {
+  font-size: 13px;
+}
+
 .checkbox-line {
   display: flex;
   align-items: center;
@@ -893,6 +922,7 @@ small {
   border-radius: 8px;
   display: grid;
   gap: 10px;
+  min-width: 0;
   padding: 14px;
 }
 
@@ -915,6 +945,8 @@ small {
 
 .wallet-row {
   margin: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .inline-form {
@@ -930,6 +962,33 @@ small {
   margin-top: 14px;
 }
 
+.billing-ledger {
+  border-top: 1px solid #d8dee8;
+  display: grid;
+  gap: 8px;
+  margin-top: 16px;
+  padding-top: 14px;
+}
+
+.billing-ledger h3 {
+  font-size: 15px;
+  margin: 0;
+}
+
+.billing-ledger-row {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+}
+
+.billing-ledger-row small {
+  color: #57606a;
+  display: block;
+}
+
+.amount-credit { color: #1a7f37; }
+.amount-debit { color: #cf222e; }
+
 .topup-row {
   align-items: center;
   border-top: 1px solid #d8dee8;
@@ -937,6 +996,36 @@ small {
   gap: 12px;
   grid-template-columns: minmax(220px, 1fr) minmax(280px, 1.5fr);
   padding-top: 12px;
+}
+
+.qr-overlay {
+  align-items: center;
+  background: rgba(22, 27, 34, 0.72);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  padding: 20px;
+  position: fixed;
+  z-index: 1000;
+}
+
+.qr-dialog {
+  background: #ffffff;
+  border-radius: 8px;
+  max-width: 480px;
+  padding: 16px;
+  width: min(100%, 480px);
+}
+
+.config-qr {
+  margin: 12px auto;
+  max-width: 420px;
+}
+
+.config-qr svg {
+  display: block;
+  height: auto;
+  width: 100%;
 }
 
 .session-form button {

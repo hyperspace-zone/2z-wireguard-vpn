@@ -1,4 +1,5 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import QRCode from "qrcode";
 import {
   errorResponseSchema,
   publicArtifactDownloadResponseSchema,
@@ -13,7 +14,7 @@ import {
 import type { Database } from "@hyperspace-zone/db";
 import type { PublicAuthUser } from "../../http/auth.js";
 import { sendApplicationError } from "../../http/errors.js";
-import { readParam, readString } from "../../http/request.js";
+import { readParam, readQuery, readString } from "../../http/request.js";
 import { shouldReturnRawWireGuardConfig } from "../../resources/artifacts/downloads.js";
 
 export function registerPublicArtifactRoutes(
@@ -62,6 +63,9 @@ export function registerPublicArtifactRoutes(
             },
             "text/plain": {
               schema: publicRawWireGuardConfigResponseSchema
+            },
+            "image/svg+xml": {
+              schema: { type: "string" }
             }
           }
         },
@@ -82,6 +86,23 @@ export function registerPublicArtifactRoutes(
     }
     if (result === "encryption_not_configured") {
       return sendApplicationError(reply, "artifact_encryption_not_configured");
+    }
+
+    if (readQuery(request, "format") === "qr") {
+      const configText = readString(result.payload, "configText");
+      if (!configText) {
+        return sendApplicationError(reply, "raw_config_not_available");
+      }
+      const svg = await QRCode.toString(configText, {
+        type: "svg",
+        errorCorrectionLevel: "L",
+        margin: 2,
+        width: 420
+      });
+      return reply
+        .type("image/svg+xml; charset=utf-8")
+        .header("cache-control", "no-store, max-age=0")
+        .send(svg);
     }
 
     if (shouldReturnRawWireGuardConfig(request)) {

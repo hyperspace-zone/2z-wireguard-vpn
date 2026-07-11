@@ -37,7 +37,7 @@ export function registerPublicBillingRoutes(
     if (!user) {
       return;
     }
-    return reply.send(await readAccountBillingSummary(deps.db, user.accountId));
+    return reply.send(await readAccountBillingSummary(deps.db, user.accountId, deps.billing));
   });
 
   app.post("/v1/public/billing/topups", {
@@ -99,6 +99,10 @@ export function registerPublicBillingRoutes(
           return sendApplicationError(reply, "topup_expired");
         case "topup_already_final":
           return sendApplicationError(reply, "topup_already_final");
+        case "topup_transaction_reused":
+          return sendApplicationError(reply, "topup_transaction_reused");
+        case "topup_verification_unavailable":
+          return sendApplicationError(reply, "topup_verification_unavailable");
         default:
           return sendApplicationError(reply, "invalid_transaction_signature");
       }

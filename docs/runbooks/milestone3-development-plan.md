@@ -45,17 +45,24 @@ Implemented in `milestone3-mainnet-scaleout`:
 - Google OAuth start/callback endpoints with configuration-gated activation.
 - Solana wallet link flow with nonce challenge and server-side Ed25519
   signature verification.
+- Automatic account-scoped custodial Solana deposit wallets with encrypted
+  private key material; external wallet linking remains optional.
 - User billing account, immutable balance ledger, Solana top-up intents, and
-  a testnet-only unverified top-up credit mode.
+  finalized Solana RPC verification with transaction replay protection.
 - Admin ingestion endpoint for raw DoubleZero tenant billing snapshots.
 - Replay-safe DoubleZero usage import endpoint with configurable Hyperspace
   markup and immutable balance-ledger debit entries.
-- Self-service UI account panel with balance, top-up intent creation, top-up
-  signature submission, linked Solana wallet display, and wallet link action.
-- Route policy support for `pathPolicy.excludeCountries`, including the UI
-  "Avoid Germany" control for censorship-resistant routing.
+- Self-service UI account panel with balance, Solana Pay top-up initiation,
+  automatic finalized-status polling, custodial deposit address, and optional
+  external wallet linking.
+- Generic route policy support for excluded countries, excluded cities, and
+  preferred egress regions. Germany is a selectable catalog value, not a
+  special-case policy.
+- One-time WireGuard QR output and OS-specific Linux, macOS, and Windows helper
+  downloads for a near-one-step connection path.
 - Chromium/Playwright UI smoke test covering email-code login, account panel,
-  Create config, and `pathPolicy.excludeCountries=["Germany"]`.
+  injected external Solana wallet linking, Solana Pay top-up, generalized route
+  policy, WireGuard QR, helper download, and config creation.
 
 ## Implementation Slice 2
 
@@ -72,12 +79,12 @@ Implemented in `milestone3-mainnet-scaleout`:
 
 Still pending for later Milestone 3 work:
 
-- Production Solana RPC confirmation of top-up transactions before ledger
-  credit.
-- Full DoubleZero metering adapter and rated usage debit pipeline.
+- The provider-specific mapper for the final DoubleZero tenant metering format;
+  the periodic normalized importer, rating, markup, ledger, cursors, metrics,
+  and alerts are implemented.
+- DoubleZero confirmation of the Hyperspace tenant billing token account,
+  flat-per-epoch rate/output, and production 2Z quote-signature contract.
 - Broader deployment automation and the final PoP expansion wave.
-- Native WireGuard wrapper or install helper beyond the current generated
-  platform run scripts.
 
 ## Workstream 1: Mainnet Footprint Scale-Out
 
@@ -347,7 +354,7 @@ Tasks:
 
 3. Add UI controls.
    - Add an advanced routing section.
-   - Include a simple "Avoid Germany" option.
+   - Populate excluded countries and cities from the live gate catalog.
    - Show when the policy makes route selection impossible.
 
 4. Add validation.

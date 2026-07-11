@@ -49,6 +49,7 @@ export interface ControlPlaneApiRuntimeConfig {
   walletAuth: {
     challengeHashSecret: string;
     challengeTtlSeconds: number;
+    custodialEncryptionKey: Buffer | null;
   };
   billing: BillingConfig & {
     enforcePositiveBalance: boolean;

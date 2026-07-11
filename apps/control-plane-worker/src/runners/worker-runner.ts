@@ -2,8 +2,10 @@ import type { Database } from "@hyperspace-zone/db";
 import type { HealthRegistry, RuntimeMetrics } from "@hyperspace-zone/shared";
 import type { ControlPlaneWorkerConfig } from "../config.js";
 import { createCleanupLoop } from "../loops/cleanup-loop.js";
+import { createDoubleZeroMeteringLoop } from "../loops/doublezero-metering-loop.js";
 import { collectControlPlaneSnapshotMetrics } from "../observability/control-plane-snapshot.js";
 import { createRetryLoop } from "../loops/retry-loop.js";
+import { createSolanaTopupLoop } from "../loops/solana-topup-loop.js";
 import { createReconcileRunner } from "./reconcile-runner.js";
 import { log, sleep } from "../support/runtime.js";
 
@@ -25,16 +27,39 @@ export function createWorkerRunner(input: {
   });
   const retryLoop = createRetryLoop(input.db);
   const cleanupLoop = createCleanupLoop(input.db);
+  const solanaTopupLoop = createSolanaTopupLoop(input.db, input.config);
+  const doubleZeroMeteringLoop = createDoubleZeroMeteringLoop(input.db, input.config);
   let stopping = false;
 
   return {
     async start(): Promise<void> {
       log({ event: "worker_started", workerId: input.config.workerId, pollMs: input.config.pollMs });
+      input.metrics.gauge("billing_metering_import_enabled", input.config.doubleZeroMetering.url ? 1 : 0, {
+        help: "Whether periodic DoubleZero metering import is configured."
+      });
       input.health.setComponent("worker-runner", { state: "ready", message: "Worker runner loop started." });
       while (!stopping) {
         await runMeasuredLoop("reconcile", input, () => reconcileRunner.runOnce());
         await runMeasuredLoop("retry", input, () => retryLoop.runOnce());
         await runMeasuredLoop("cleanup", input, () => cleanupLoop.runOnce());
+        await runMeasuredLoop("solana-topups", input, () => solanaTopupLoop.runOnce());
+        if (doubleZeroMeteringLoop.due()) {
+          const metering = await runMeasuredLoop("doublezero-metering", input, () => doubleZeroMeteringLoop.runOnce());
+          if (metering) {
+            input.metrics.counter("billing_metering_records_total", metering.imported, {
+              help: "Total imported DoubleZero metering records.",
+              labels: { result: "imported" }
+            });
+            input.metrics.counter("billing_metering_records_total", metering.duplicates, {
+              help: "Total imported DoubleZero metering records.",
+              labels: { result: "duplicate" }
+            });
+            input.metrics.counter("billing_metering_records_total", metering.rejected, {
+              help: "Total imported DoubleZero metering records.",
+              labels: { result: "rejected" }
+            });
+          }
+        }
         const snapshotReady = await runMeasuredLoop("snapshot", input, () => collectControlPlaneSnapshotMetrics(input));
         if (snapshotReady) {
           input.onSnapshotReady?.();

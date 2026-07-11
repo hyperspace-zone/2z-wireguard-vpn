@@ -35,6 +35,11 @@ export interface TopupIntentRow {
   submittedAt: string | null;
   confirmedAt: string | null;
   createdAt: string;
+  paymentUrl?: string;
+}
+
+export interface SubmittedTopupIntentRow extends TopupIntentRow {
+  accountId: string;
 }
 
 export async function ensureBillingAccount(db: Queryable, accountId: string, currency = "USD"): Promise<void> {
@@ -233,8 +238,9 @@ export async function submitTopupIntent(
   input: {
     intentId: string;
     status: string;
-    transactionSignature: string;
+    transactionSignature: string | null;
     confirmed: boolean;
+    metadata?: Record<string, unknown>;
   }
 ): Promise<void> {
   await db.query(
@@ -244,11 +250,63 @@ export async function submitTopupIntent(
           transaction_signature = $3,
           submitted_at = COALESCE(submitted_at, now()),
           confirmed_at = CASE WHEN $4::boolean THEN COALESCE(confirmed_at, now()) ELSE confirmed_at END,
+          metadata = metadata || $5::jsonb,
           updated_at = now()
       WHERE id = $1
     `,
-    [input.intentId, input.status, input.transactionSignature, input.confirmed]
+    [input.intentId, input.status, input.transactionSignature, input.confirmed, JSON.stringify(input.metadata ?? {})]
   );
+}
+
+export async function findTopupByTransactionSignature(
+  db: Queryable,
+  transactionSignature: string
+): Promise<{ id: string; accountId: string } | null> {
+  const result = await db.query<{ id: string; accountId: string }>(
+    `
+      SELECT id, account_id AS "accountId"
+      FROM topup_intents
+      WHERE transaction_signature = $1
+      LIMIT 1
+    `,
+    [transactionSignature]
+  );
+  return result.rows[0] ?? null;
+}
+
+export async function listOpenTopupIntents(
+  db: Queryable,
+  limit = 100
+): Promise<SubmittedTopupIntentRow[]> {
+  const result = await db.query<SubmittedTopupIntentRow>(
+    `
+      SELECT
+        id,
+        account_id AS "accountId",
+        provider,
+        status,
+        amount_minor::text::int AS "amountMinor",
+        currency,
+        chain,
+        token_symbol AS "tokenSymbol",
+        token_mint AS "tokenMint",
+        treasury_address AS "treasuryAddress",
+        reference,
+        expected_sender AS "expectedSender",
+        transaction_signature AS "transactionSignature",
+        expires_at AS "expiresAt",
+        submitted_at AS "submittedAt",
+        confirmed_at AS "confirmedAt",
+        created_at AS "createdAt"
+      FROM topup_intents
+      WHERE status IN ('pending', 'submitted')
+        AND expires_at > now()
+      ORDER BY updated_at
+      LIMIT $1
+    `,
+    [limit]
+  );
+  return result.rows;
 }
 
 export async function insertLedgerEntry(
@@ -445,4 +503,67 @@ export async function insertRatedUsageEvent(
     ]
   );
   return result.rows[0] ?? null;
+}
+
+export interface BillingImportCursorRow {
+  sourceName: string;
+  etag: string | null;
+  lastModified: string | null;
+  lastSuccessAt: string | null;
+  lastErrorAt: string | null;
+  lastError: string | null;
+}
+
+export async function readBillingImportCursor(db: Queryable, sourceName: string): Promise<BillingImportCursorRow | null> {
+  const result = await db.query<BillingImportCursorRow>(
+    `
+      SELECT
+        source_name AS "sourceName",
+        etag,
+        last_modified AS "lastModified",
+        last_success_at AS "lastSuccessAt",
+        last_error_at AS "lastErrorAt",
+        last_error AS "lastError"
+      FROM billing_import_cursors
+      WHERE source_name = $1
+    `,
+    [sourceName]
+  );
+  return result.rows[0] ?? null;
+}
+
+export async function recordBillingImportSuccess(
+  db: Queryable,
+  input: { sourceName: string; importId?: string; etag?: string | null; lastModified?: string | null }
+): Promise<void> {
+  await db.query(
+    `
+      INSERT INTO billing_import_cursors (
+        source_name, etag, last_modified, last_import_id, last_success_at
+      )
+      VALUES ($1, $2, $3, $4::uuid, now())
+      ON CONFLICT (source_name) DO UPDATE
+      SET etag = COALESCE(EXCLUDED.etag, billing_import_cursors.etag),
+          last_modified = COALESCE(EXCLUDED.last_modified, billing_import_cursors.last_modified),
+          last_import_id = COALESCE(EXCLUDED.last_import_id, billing_import_cursors.last_import_id),
+          last_success_at = now(),
+          last_error = NULL,
+          updated_at = now()
+    `,
+    [input.sourceName, input.etag ?? null, input.lastModified ?? null, input.importId ?? null]
+  );
+}
+
+export async function recordBillingImportFailure(db: Queryable, sourceName: string, error: string): Promise<void> {
+  await db.query(
+    `
+      INSERT INTO billing_import_cursors (source_name, last_error_at, last_error)
+      VALUES ($1, now(), $2)
+      ON CONFLICT (source_name) DO UPDATE
+      SET last_error_at = now(),
+          last_error = EXCLUDED.last_error,
+          updated_at = now()
+    `,
+    [sourceName, error.slice(0, 2000)]
+  );
 }

@@ -153,6 +153,8 @@ interface WalletLink {
   publicKey: string;
   label?: string | null;
   linkedAt: string;
+  custody: "hyperspace" | "external";
+  canReceive: boolean;
 }
 
 interface TopupIntent {
@@ -168,6 +170,7 @@ interface TopupIntent {
   reference: string;
   expectedSender?: string | null;
   transactionSignature?: string | null;
+  paymentUrl?: string;
   expiresAt: string;
   submittedAt?: string | null;
   confirmedAt?: string | null;
@@ -229,6 +232,8 @@ let emailOtpBusy = false;
 let googleLoginBusy = false;
 let walletLinkBusy = false;
 let topupBusy = false;
+let activeConfigQrSvg = "";
+let activeConfigQrSessionId = "";
 let ingressGateManuallySelected = false;
 let keyInstructionPlatform: KeyInstructionPlatform = "linux";
 let runInstructionPlatform: KeyInstructionPlatform = "linux";
@@ -245,7 +250,9 @@ const sessionDraft = {
   egressGateName: "",
   useClientPublicKey: false,
   clientPublicKey: "",
-  avoidGermany: false
+  excludeCountries: [] as string[],
+  excludeCities: [] as string[],
+  preferredRegion: ""
 };
 
 const root = document.getElementById("app");
@@ -597,6 +604,8 @@ function registerView(): string {
 }
 
 function accountPanel(billing: BillingSummary | null, wallets: WalletLink[]): string {
+  const depositWallet = wallets.find((wallet) => wallet.custody === "hyperspace");
+  const externalWallets = wallets.filter((wallet) => wallet.custody === "external");
   return `
     <div class="account-grid">
       <div class="account-card">
@@ -605,11 +614,13 @@ function accountPanel(billing: BillingSummary | null, wallets: WalletLink[]): st
         <small>Applies to new and active VPN configs when billing enforcement is enabled.</small>
       </div>
       <div class="account-card">
-        <h3>Solana wallet</h3>
-        ${wallets.length > 0
-          ? wallets.map((wallet) => `<p class="mono wallet-row">${escapeHtml(shortWallet(wallet.publicKey))}</p>`).join("")
-          : '<p class="empty-marker">No wallet linked</p>'}
-        <button id="link-solana-wallet" type="button" ${walletLinkBusy ? "disabled" : ""}>${walletLinkBusy ? "Linking..." : "Link Solana wallet"}</button>
+        <h3>Solana deposit wallet</h3>
+        ${depositWallet
+          ? `<p class="mono wallet-row" title="${escapeHtml(depositWallet.publicKey)}">${escapeHtml(depositWallet.publicKey)}</p>
+             <button type="button" data-copy-wallet="${escapeHtml(depositWallet.publicKey)}">Copy address</button>`
+          : '<p class="empty-marker">Deposit wallet is being prepared</p>'}
+        ${externalWallets.map((wallet) => `<p class="mono wallet-row">External: ${escapeHtml(shortWallet(wallet.publicKey))}</p>`).join("")}
+        <button id="link-solana-wallet" type="button" ${walletLinkBusy ? "disabled" : ""}>${walletLinkBusy ? "Connecting..." : "Connect external wallet (optional)"}</button>
       </div>
       <div class="account-card topup-card">
         <h3>Top up</h3>
@@ -620,6 +631,24 @@ function accountPanel(billing: BillingSummary | null, wallets: WalletLink[]): st
       </div>
     </div>
     ${topupIntentsPanel(billing?.topups ?? [])}
+    ${billingLedgerPanel(billing?.ledger ?? [], billing?.currency ?? "USD")}
+  `;
+}
+
+function billingLedgerPanel(entries: BillingLedgerEntry[], currency: string): string {
+  if (entries.length === 0) {
+    return "";
+  }
+  return `
+    <div class="billing-ledger">
+      <h3>Recent balance activity</h3>
+      ${entries.slice(0, 10).map((entry) => `
+        <div class="billing-ledger-row">
+          <div><strong>${escapeHtml(entry.description || entry.entryType)}</strong><small>${escapeHtml(relativeTime(entry.createdAt))}</small></div>
+          <strong class="${entry.amountMinor < 0 ? "amount-debit" : "amount-credit"}">${entry.amountMinor > 0 ? "+" : ""}${escapeHtml(formatMoneyMinor(entry.amountMinor, entry.currency || currency))}</strong>
+        </div>
+      `).join("")}
+    </div>
   `;
 }
 
@@ -636,11 +665,9 @@ function topupIntentsPanel(topups: TopupIntent[]): string {
             <small>${escapeHtml(topup.status)} · ${escapeHtml(topup.reference)}</small>
             ${topup.treasuryAddress ? `<small>Send ${escapeHtml(topup.tokenSymbol ?? "USDC")} to <span class="mono">${escapeHtml(topup.treasuryAddress)}</span></small>` : ""}
           </div>
-          ${topup.status === "pending" ? `
-            <form class="submit-topup-form inline-form" data-topup-id="${escapeHtml(topup.id)}">
-              <input name="transactionSignature" placeholder="Solana transaction signature" required />
-              <button type="submit">Submit</button>
-            </form>
+          ${topup.status === "pending" && topup.paymentUrl ? `
+            <a class="button-link" href="${escapeHtml(topup.paymentUrl)}">Pay with Solana wallet</a>
+            <small>Balance updates automatically after finalized confirmation.</small>
           ` : ""}
         </div>
       `).join("")}
@@ -660,6 +687,7 @@ function gatesPanel(gates: Gate[], benchmarkMatrix: BenchmarkMatrix | null): str
   const measureButtonDisabled = gateLatencyMeasurementInFlight ? "disabled" : "";
   const sortLabel = effectiveSortDirection === "desc" ? "high to low" : "low to high";
   return `
+    <div class="table-scroll">
     <table>
       <thead>
         <tr>
@@ -701,6 +729,7 @@ function gatesPanel(gates: Gate[], benchmarkMatrix: BenchmarkMatrix | null): str
           .join("")}
       </tbody>
     </table>
+    </div>
     <div class="panel-actions">
       <button id="measure-gates" type="button" ${measureButtonDisabled}>${measureButtonLabel}</button>
       <small>Sorted by ${gateSortLabel(effectiveSortField)}, ${sortLabel}.</small>
@@ -1440,14 +1469,21 @@ function relativeTime(value: string): string {
 
 function createSessionPanel(gates: Gate[]): string {
   const schedulableGates = gates.filter((gate) => gate.ready && gate.schedulable);
-  const ingressGates = sortIngressGates(schedulableGates);
-  ensureSessionDraftGateSelection(ingressGates, schedulableGates);
+  const policyGates = schedulableGates.filter((gate) => !gateExcludedByDraftPolicy(gate));
+  const ingressGates = sortIngressGates(policyGates);
+  ensureSessionDraftGateSelection(ingressGates, policyGates);
   const ingressOptions = ingressGates.length === 0
     ? '<option value="" disabled selected>No ingress gates available</option>'
     : ingressGates
     .map((gate) => `<option value="${escapeHtml(gate.name)}" ${sessionDraft.ingressGateName === gate.name ? "selected" : ""}>${escapeHtml(gateOptionLabel(gate, true))}</option>`)
     .join("");
-  const egressCandidates = schedulableGates.filter((gate) => gate.name !== sessionDraft.ingressGateName);
+  const egressCandidates = policyGates.filter((gate) =>
+    gate.name !== sessionDraft.ingressGateName &&
+    (!sessionDraft.preferredRegion || gateRegion(gate) === sessionDraft.preferredRegion)
+  );
+  if (!egressCandidates.some((gate) => gate.name === sessionDraft.egressGateName)) {
+    sessionDraft.egressGateName = "";
+  }
   const egressOptions = egressCandidates.length === 0
     ? '<option value="" disabled selected>No distinct egress gate available</option>'
     : [
@@ -1457,6 +1493,8 @@ function createSessionPanel(gates: Gate[]): string {
   syncSessionDraftMode();
   const targetChecked = sessionDraft.restrictTarget;
   const modeLabel = draftRouteTypeLabel();
+  const countries = uniqueSorted(schedulableGates.map((gate) => gate.country).filter((value): value is string => Boolean(value)));
+  const cities = uniqueSorted(schedulableGates.map((gate) => gate.city).filter((value): value is string => Boolean(value)));
   return `
     <div class="configure-step">
       <p class="step-caption">Create VPN config - Step 1: Configure route and keys</p>
@@ -1517,11 +1555,28 @@ function createSessionPanel(gates: Gate[]): string {
           ` : "<small>The control plane will generate a client key pair when this is off.</small>"}
         </fieldset>
         <fieldset class="form-group route-policy-group">
-          <label class="checkbox-line">
-            <input name="avoidGermany" type="checkbox" ${sessionDraft.avoidGermany ? "checked" : ""} />
-            <span>Avoid Germany</span>
+          <legend>Routing policy</legend>
+          <label>Egress region
+            <select name="preferredRegion">
+              ${regionOption("", "Any region")}
+              ${regionOption("eu", "Europe")}
+              ${regionOption("na", "North America")}
+              ${regionOption("ap", "Asia Pacific")}
+              ${regionOption("sa", "South America")}
+            </select>
           </label>
-          <small>Exclude German gates from this route when selecting ingress and egress.</small>
+          <details>
+            <summary>Excluded countries</summary>
+            <div class="policy-option-grid">
+              ${countries.map((country) => policyCheckbox("excludeCountry", country, sessionDraft.excludeCountries)).join("")}
+            </div>
+          </details>
+          <details>
+            <summary>Excluded cities</summary>
+            <div class="policy-option-grid">
+              ${cities.map((city) => policyCheckbox("excludeCity", city, sessionDraft.excludeCities)).join("")}
+            </div>
+          </details>
         </fieldset>
         <button type="submit">Review config</button>
       </form>
@@ -1536,7 +1591,7 @@ function createConfigConfirmationPanel(gates: Gate[]): string {
   const egress = gateSummary(sessionDraft.egressGateName, gates);
   const modeLabel = draftRouteTypeLabel();
   const clientKeyLabel = sessionDraft.useClientPublicKey ? "Provided by client" : "Generated by control plane";
-  const routePolicyLabel = sessionDraft.avoidGermany ? "Avoid Germany" : "Default";
+  const routePolicyLabel = routePolicySummary();
   const policyText = sessionDraft.mode === "FullTunnel"
     ? `${sourceLabel} enters through the selected ingress, crosses DoubleZero, and exits to the Internet through the selected egress.`
     : `${sourceLabel} can reach only ${destinationLabel} through the selected ingress, DoubleZero transit, and selected egress.`;
@@ -1569,7 +1624,7 @@ function createConfigConfirmationPanel(gates: Gate[]): string {
             ${reviewField("Allowed source", sourceLabel, sessionDraft.restrictSource)}
             ${reviewField("Destination", destinationLabel, sessionDraft.mode === "IpToIp")}
             ${reviewField("Client public key", clientKeyLabel)}
-            ${reviewField("Route policy", routePolicyLabel, sessionDraft.avoidGermany)}
+            ${reviewField("Route policy", routePolicyLabel, routePolicyLabel !== "Default")}
           </div>
         </div>
       </div>
@@ -1589,6 +1644,49 @@ function createConfigConfirmationPanel(gates: Gate[]): string {
       </div>
     </div>
   `;
+}
+
+function regionOption(value: string, label: string): string {
+  return `<option value="${escapeHtml(value)}" ${sessionDraft.preferredRegion === value ? "selected" : ""}>${escapeHtml(label)}</option>`;
+}
+
+function policyCheckbox(name: string, value: string, selected: string[]): string {
+  return `
+    <label class="checkbox-line compact-checkbox">
+      <input name="${name}" type="checkbox" value="${escapeHtml(value)}" ${selected.includes(value) ? "checked" : ""} />
+      <span>${escapeHtml(value)}</span>
+    </label>
+  `;
+}
+
+function uniqueSorted(values: string[]): string[] {
+  return [...new Set(values.map((value) => value.trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+}
+
+function gateExcludedByDraftPolicy(gate: Gate): boolean {
+  return Boolean(
+    (gate.country && sessionDraft.excludeCountries.includes(gate.country)) ||
+    (gate.city && sessionDraft.excludeCities.includes(gate.city))
+  );
+}
+
+function gateRegion(gate: Gate): string {
+  return gate.name.split("-")[1]?.toLowerCase() ?? "";
+}
+
+function routePolicySummary(): string {
+  const parts: string[] = [];
+  if (sessionDraft.preferredRegion) {
+    const labels: Record<string, string> = { eu: "Europe", na: "North America", ap: "Asia Pacific", sa: "South America" };
+    parts.push(`Egress: ${labels[sessionDraft.preferredRegion] ?? sessionDraft.preferredRegion}`);
+  }
+  if (sessionDraft.excludeCountries.length > 0) {
+    parts.push(`Avoid countries: ${sessionDraft.excludeCountries.join(", ")}`);
+  }
+  if (sessionDraft.excludeCities.length > 0) {
+    parts.push(`Avoid cities: ${sessionDraft.excludeCities.join(", ")}`);
+  }
+  return parts.join("; ") || "Default";
 }
 
 function clientKeyReplacementNotice(): string {
@@ -1904,6 +2002,18 @@ function vpnConfigsPanel(sessions: Session[]): string {
         </tbody>
       </table>
     </div>
+    ${activeConfigQrSvg ? `
+      <div class="qr-overlay" role="dialog" aria-modal="true" aria-label="WireGuard configuration QR code">
+        <div class="qr-dialog">
+          <div class="panel-heading">
+            <h3>Scan with WireGuard</h3>
+            <button id="close-config-qr" class="secondary-button" type="button">Close</button>
+          </div>
+          <div class="config-qr">${activeConfigQrSvg}</div>
+          <small>Session ${escapeHtml(activeConfigQrSessionId.slice(0, 8))}. Treat this QR code as a private key.</small>
+        </div>
+      </div>
+    ` : ""}
   `;
 }
 
@@ -1919,6 +2029,8 @@ function vpnConfigActions(session: Session): string {
   const deleteLabel = isDeleting ? "Deleting..." : "Delete";
   return `
     <button data-download="${escapeHtml(session.id)}" ${downloadDisabled}>Download</button>
+    <button data-qr="${escapeHtml(session.id)}" ${downloadDisabled}>QR</button>
+    <button data-connect-helper="${escapeHtml(session.id)}" ${downloadDisabled}>Connect</button>
     <button data-revoke="${escapeHtml(session.id)}" ${revokeDisabled}>${revokeLabel}</button>
     <button class="danger-button" data-delete="${escapeHtml(session.id)}" ${deleteDisabled}>${deleteLabel}</button>
   `;
@@ -2058,7 +2170,7 @@ function bindHandlers(): void {
       }
       clearSessionValidationErrors();
       updateSessionDraftFromForm(sessionForm);
-      if (fieldName === "ingressGateName") {
+      if (["ingressGateName", "preferredRegion", "excludeCountry", "excludeCity"].includes(fieldName ?? "")) {
         render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
         return;
       }
@@ -2124,13 +2236,10 @@ function bindHandlers(): void {
     event.preventDefault();
     void createTopup(new FormData(event.target as HTMLFormElement));
   });
-  for (const form of document.querySelectorAll(".submit-topup-form")) {
-    form.addEventListener("submit", (event) => {
-      event.preventDefault();
-      const topupId = (event.currentTarget as HTMLElement).dataset.topupId;
-      if (topupId) {
-        void submitTopupSignature(topupId, new FormData(event.target as HTMLFormElement));
-      }
+  for (const button of document.querySelectorAll("[data-copy-wallet]")) {
+    button.addEventListener("click", () => {
+      const value = (button as HTMLElement).dataset.copyWallet ?? "";
+      void navigator.clipboard.writeText(value).then(() => log("Deposit address copied."));
     });
   }
   document.getElementById("measure-gates")?.addEventListener("click", () => {
@@ -2209,6 +2318,23 @@ function bindHandlers(): void {
       if (id) void downloadArtifact(id);
     });
   }
+  for (const button of document.querySelectorAll("[data-qr]")) {
+    button.addEventListener("click", () => {
+      const id = (button as HTMLElement).dataset.qr;
+      if (id) void showConfigQr(id);
+    });
+  }
+  for (const button of document.querySelectorAll("[data-connect-helper]")) {
+    button.addEventListener("click", () => {
+      const id = (button as HTMLElement).dataset.connectHelper;
+      if (id) void downloadConnectHelper(id);
+    });
+  }
+  document.getElementById("close-config-qr")?.addEventListener("click", () => {
+    activeConfigQrSvg = "";
+    activeConfigQrSessionId = "";
+    render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
+  });
 }
 
 async function registerWithPassword(form: FormData): Promise<void> {
@@ -2426,8 +2552,8 @@ async function createTopup(form: FormData): Promise<void> {
   topupBusy = true;
   render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
   try {
-    const expectedSender = latestWallets.find((wallet) => wallet.chain === "solana")?.publicKey;
-    await api("/v1/public/billing/topups", {
+    const expectedSender = latestWallets.find((wallet) => wallet.chain === "solana" && wallet.custody === "external")?.publicKey;
+    const response = await api("/v1/public/billing/topups", {
       method: "POST",
       body: {
         amountMinor,
@@ -2436,6 +2562,7 @@ async function createTopup(form: FormData): Promise<void> {
     });
     log("Top-up intent created.");
     await refresh({ skipAutoMeasure: true });
+    void pollTopupStatus(response.topup?.id);
   } catch (error) {
     log(error instanceof Error ? error.message : "Could not create top-up intent.");
   } finally {
@@ -2444,21 +2571,23 @@ async function createTopup(form: FormData): Promise<void> {
   }
 }
 
-async function submitTopupSignature(topupId: string, form: FormData): Promise<void> {
-  const transactionSignature = String(form.get("transactionSignature") ?? "").trim();
-  if (!transactionSignature) {
-    log("Paste the Solana transaction signature.");
+async function pollTopupStatus(topupId: string | undefined): Promise<void> {
+  if (!topupId) {
     return;
   }
-  try {
-    await api(`/v1/public/billing/topups/${topupId}/submit`, {
-      method: "POST",
-      body: { transactionSignature }
-    });
-    log("Top-up transaction submitted.");
-    await refresh({ skipAutoMeasure: true });
-  } catch (error) {
-    log(error instanceof Error ? error.message : "Could not submit top-up transaction.");
+  for (let attempt = 0; attempt < 60; attempt += 1) {
+    await wait(3000);
+    const billing = await getBilling().catch(() => null);
+    if (!billing) {
+      continue;
+    }
+    latestBilling = billing;
+    render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
+    const topup = billing.topups.find((candidate) => candidate.id === topupId);
+    if (!topup || ["confirmed", "rejected", "expired", "cancelled"].includes(topup.status)) {
+      log(topup?.status === "confirmed" ? "Top-up confirmed." : `Top-up status: ${topup?.status ?? "not found"}.`);
+      return;
+    }
   }
 }
 
@@ -2524,10 +2653,12 @@ function sessionPayloadFromDraft(): Record<string, unknown> {
   if (sessionDraft.mode === "IpToIp") {
     payload.targetIp = sessionDraft.restrictTarget ? optionalDraftString(sessionDraft.targetIp) : undefined;
   }
-  if (sessionDraft.avoidGermany) {
+  if (sessionDraft.excludeCountries.length > 0 || sessionDraft.excludeCities.length > 0 || sessionDraft.preferredRegion) {
     payload.pathPolicy = {
-      excludeCountries: ["Germany"],
-      reason: "avoid-germany"
+      excludeCountries: sessionDraft.excludeCountries,
+      excludeCities: sessionDraft.excludeCities,
+      preferredRegions: sessionDraft.preferredRegion ? [sessionDraft.preferredRegion] : [],
+      reason: "user-routing-policy"
     };
   }
   return payload;
@@ -2593,6 +2724,95 @@ async function downloadArtifact(id: string): Promise<void> {
     payload.configText
   );
   log("Client configuration downloaded.");
+}
+
+async function showConfigQr(id: string): Promise<void> {
+  try {
+    const tokenResponse = await api(`/v1/public/sessions/${id}/artifacts/client-config/download-token`, { method: "POST" });
+    const response = await fetch(apiUrl(`${tokenResponse.downloadUrl}?format=qr`), {
+      headers: { accept: "image/svg+xml" },
+      cache: "no-store"
+    });
+    if (!response.ok) {
+      throw new Error("Could not generate WireGuard QR code.");
+    }
+    activeConfigQrSvg = await response.text();
+    activeConfigQrSessionId = id;
+    render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
+  } catch (error) {
+    log(error instanceof Error ? error.message : "Could not generate WireGuard QR code.");
+  }
+}
+
+async function downloadConnectHelper(id: string): Promise<void> {
+  try {
+    const tokenResponse = await api(`/v1/public/sessions/${id}/artifacts/client-config/download-token`, { method: "POST" });
+    const configUrl = apiUrl(tokenResponse.downloadConfigUrl);
+    const platform = detectedHelperPlatform();
+    downloadTextFile(
+      platform === "windows" ? "hyperspace-connect.ps1" : platform === "macos" ? "hyperspace-connect.command" : "hyperspace-connect.sh",
+      connectHelperScript(platform, configUrl)
+    );
+    log(`Downloaded ${platformLabel(platform)} connect helper. Run it within five minutes.`);
+  } catch (error) {
+    log(error instanceof Error ? error.message : "Could not create connect helper.");
+  }
+}
+
+function detectedHelperPlatform(): "linux" | "macos" | "windows" {
+  const value = `${navigator.userAgent} ${(navigator as Navigator & { platform?: string }).platform ?? ""}`.toLowerCase();
+  if (value.includes("win")) return "windows";
+  if (value.includes("mac")) return "macos";
+  return "linux";
+}
+
+function platformLabel(platform: "linux" | "macos" | "windows"): string {
+  return platform === "windows" ? "Windows" : platform === "macos" ? "macOS" : "Linux";
+}
+
+function apiUrl(path: string): string {
+  return new URL(`${apiBase}${path}`, window.location.origin).toString();
+}
+
+function connectHelperScript(platform: "linux" | "macos" | "windows", configUrl: string): string {
+  if (platform === "windows") {
+    return [
+      "$ErrorActionPreference = 'Stop'",
+      "$configPath = Join-Path $env:TEMP 'hyperspace.conf'",
+      `Invoke-WebRequest -UseBasicParsing -Uri '${configUrl}' -OutFile $configPath`,
+      "$wireGuard = Join-Path $env:ProgramFiles 'WireGuard\\wireguard.exe'",
+      "if (-not (Test-Path $wireGuard)) { winget install --id WireGuard.WireGuard -e --accept-package-agreements --accept-source-agreements }",
+      "Start-Process -FilePath $wireGuard -ArgumentList @('/installtunnelservice', $configPath) -Verb RunAs -Wait",
+      "Write-Host 'Hyperspace tunnel installed and started.'"
+    ].join("\r\n");
+  }
+  if (platform === "macos") {
+    return [
+      "#!/usr/bin/env bash",
+      "set -euo pipefail",
+      "config_path=\"$HOME/Downloads/hyperspace.conf\"",
+      `curl -fsSL '${configUrl}' -o \"$config_path\"`,
+      "chmod 600 \"$config_path\"",
+      "if [ -d /Applications/WireGuard.app ]; then open -a WireGuard \"$config_path\"; else echo 'Install WireGuard from the App Store, then open hyperspace.conf.'; open -R \"$config_path\"; fi"
+    ].join("\n");
+  }
+  return [
+    "#!/usr/bin/env bash",
+    "set -euo pipefail",
+    "if ! command -v wg-quick >/dev/null; then",
+    "  if command -v apt-get >/dev/null; then sudo apt-get update && sudo apt-get install -y wireguard-tools;",
+    "  elif command -v dnf >/dev/null; then sudo dnf install -y wireguard-tools;",
+    "  elif command -v pacman >/dev/null; then sudo pacman -Sy --noconfirm wireguard-tools;",
+    "  else echo 'Install WireGuard tools first.' >&2; exit 1; fi",
+    "fi",
+    "tmp_config=$(mktemp)",
+    "trap 'rm -f \"$tmp_config\"' EXIT",
+    `curl -fsSL '${configUrl}' -o \"$tmp_config\"`,
+    "sudo install -m 600 \"$tmp_config\" /etc/wireguard/hyperspace.conf",
+    "sudo wg-quick down hyperspace >/dev/null 2>&1 || true",
+    "sudo wg-quick up hyperspace",
+    "echo 'Hyperspace tunnel is connected.'"
+  ].join("\n");
 }
 
 async function getMe(): Promise<{ email: string }> {
@@ -2741,7 +2961,9 @@ function updateSessionDraftFromForm(form: HTMLFormElement): void {
   if (formData.has("clientPublicKey")) {
     sessionDraft.clientPublicKey = String(formData.get("clientPublicKey") ?? "");
   }
-  sessionDraft.avoidGermany = formData.get("avoidGermany") === "on";
+  sessionDraft.excludeCountries = formData.getAll("excludeCountry").map(String);
+  sessionDraft.excludeCities = formData.getAll("excludeCity").map(String);
+  sessionDraft.preferredRegion = String(formData.get("preferredRegion") ?? "");
 }
 
 function syncSessionDraftMode(): void {

@@ -478,10 +478,10 @@ export async function insertWalletLink(
       INSERT INTO wallet_links (account_id, user_id, chain, public_key, label, metadata)
       VALUES ($1, $2, $3, $4, $5, $6::jsonb)
       ON CONFLICT (chain, public_key) WHERE revoked_at IS NULL DO UPDATE
-      SET account_id = EXCLUDED.account_id,
-          user_id = EXCLUDED.user_id,
+      SET user_id = EXCLUDED.user_id,
           label = COALESCE(EXCLUDED.label, wallet_links.label),
           metadata = EXCLUDED.metadata
+      WHERE wallet_links.account_id = EXCLUDED.account_id
       RETURNING id, chain, public_key AS "publicKey", label, linked_at AS "linkedAt"
     `,
     [
@@ -494,6 +494,24 @@ export async function insertWalletLink(
     ]
   );
   return mustRow(result);
+}
+
+export async function findActiveWalletLinkOwner(
+  db: Queryable,
+  chain: string,
+  publicKey: string
+): Promise<string | null> {
+  const result = await db.query<{ accountId: string }>(
+    `
+      SELECT account_id AS "accountId"
+      FROM wallet_links
+      WHERE chain = $1
+        AND public_key = $2
+        AND revoked_at IS NULL
+    `,
+    [chain, publicKey]
+  );
+  return result.rows[0]?.accountId ?? null;
 }
 
 export async function listWalletLinks(db: Queryable, accountId: string): Promise<WalletLinkRow[]> {
