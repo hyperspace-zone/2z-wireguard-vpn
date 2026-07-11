@@ -1004,13 +1004,27 @@ Authorized JavaScript origins:
 - https://app.hyperspace.zone
 
 Authorized redirect URIs:
-- https://control-plane.testnet.hyperspace.zone/v1/public/auth/google/callback
-- https://control-plane.hyperspace.zone/v1/public/auth/google/callback
+- https://app.testnet.hyperspace.zone/api/v1/public/auth/google/callback
+- https://app.hyperspace.zone/api/v1/public/auth/google/callback
 
 Copy the Client ID and Client Secret, then update GOOGLE_CLIENT_ID,
 GOOGLE_CLIENT_SECRET, GOOGLE_OAUTH_REDIRECT_URL, and APP_PUBLIC_URL in
 /etc/hyperspace/control-plane-api.env for testnet or mainnet. Do not print the
 secret into the chat.
+```
+
+The callback uses the public app origin. Caddy proxies `/api/*` to the control
+plane, where the authorization code is exchanged without exposing the Google
+client secret to the browser. Configure the exact matching value per cluster:
+
+```text
+# testnet
+APP_PUBLIC_URL=https://app.testnet.hyperspace.zone
+GOOGLE_OAUTH_REDIRECT_URL=https://app.testnet.hyperspace.zone/api/v1/public/auth/google/callback
+
+# mainnet
+APP_PUBLIC_URL=https://app.hyperspace.zone
+GOOGLE_OAUTH_REDIRECT_URL=https://app.hyperspace.zone/api/v1/public/auth/google/callback
 ```
 
 DoubleZero tenant billing snapshots can be ingested by an operator with

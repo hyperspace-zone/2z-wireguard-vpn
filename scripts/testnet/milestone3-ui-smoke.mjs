@@ -39,6 +39,7 @@ const baseUrl = `http://127.0.0.1:${address.port}`;
 
 let createdSessionPayload = null;
 let authenticated = false;
+let googleRedirectAfter = null;
 const gates = [
   {
     id: "00000000-0000-4000-8000-000000000001",
@@ -87,6 +88,13 @@ try {
         devCode: "123456"
       });
     }
+    if (path === "/v1/public/auth/google/start" && method === "GET") {
+      googleRedirectAfter = url.searchParams.get("redirect");
+      return json(route, {
+        authorizationUrl: `${baseUrl}/mock-google-authorization`,
+        expiresAt: new Date(Date.now() + 600_000).toISOString()
+      });
+    }
     if (path === "/v1/public/auth/email/verify-code" && method === "POST") {
       authenticated = true;
       return json(route, {
@@ -124,6 +132,13 @@ try {
     }
     return json(route, { error: "not_mocked", path, method }, 404);
   });
+
+  await page.goto(`${baseUrl}/login`);
+  await page.getByRole("button", { name: "Continue with Google" }).click();
+  await page.waitForURL(`${baseUrl}/mock-google-authorization`);
+  if (googleRedirectAfter !== "/login") {
+    throw new Error(`expected Google redirect after /login, got ${JSON.stringify(googleRedirectAfter)}`);
+  }
 
   await page.goto(`${baseUrl}/login`);
   await page.locator("#email-code-request-form input[name=email]").fill("pilot@example.com");

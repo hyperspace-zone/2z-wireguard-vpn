@@ -2282,7 +2282,8 @@ async function startGoogleLogin(): Promise<void> {
   googleLoginBusy = true;
   render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
   try {
-    const response = await api(`/v1/public/auth/google/start?redirect=${encodeURIComponent("/")}`, { method: "GET" });
+    const redirectAfter = `${window.location.pathname}${window.location.search}`;
+    const response = await api(`/v1/public/auth/google/start?redirect=${encodeURIComponent(redirectAfter)}`, { method: "GET" });
     window.location.href = response.authorizationUrl;
   } catch (error) {
     googleLoginBusy = false;
@@ -3222,7 +3223,7 @@ function consumeOauthTokenFromLocation(): string {
   if (!accessToken) {
     return "";
   }
-  window.history.replaceState({}, "", viewPath("dashboard"));
+  window.history.replaceState({}, "", `${window.location.pathname}${window.location.search}`);
   localStorage.setItem("hyperspaceAccessToken", accessToken);
   return accessToken;
 }
