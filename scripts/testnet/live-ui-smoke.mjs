@@ -2,6 +2,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { chromium } from "playwright-core";
+import { createResendAuthHelper, uniqueResendAddress } from "./resend-auth-helper.mjs";
 
 const webBase = stripTrailingSlash(process.env.HS_WEB_BASE || "https://app.testnet.hyperspace.zone");
 const apiBase = stripTrailingSlash(process.env.HS_API_BASE || `${webBase}/api`);
@@ -12,13 +13,14 @@ const preferredIngress = process.env.HS_TEST_INGRESS || "gate-eu-fra-01";
 const preferredEgress = process.env.HS_TEST_EGRESS || "gate-eu-lon-01";
 const headless = process.env.HS_HEADLESS !== "false";
 const runId = new Date().toISOString().replace(/[:.]/g, "-");
-const email = process.env.HS_TEST_EMAIL || `codex-live-${Date.now()}@example.com`;
+const email = process.env.HS_TEST_EMAIL || uniqueResendAddress("codex-live");
 const password = process.env.HS_TEST_PASSWORD || `Codex-live-${Date.now()}-strong-password`;
 const label = `codex-live-${runId}`;
 
 await mkdir(outputDir, { recursive: true });
 
 const api = makeApiClient(apiBase);
+const resendAuth = createResendAuthHelper({ api });
 const health = await api("/health");
 assert(health?.ok === true, "API health did not return ok=true");
 
@@ -70,18 +72,27 @@ try {
   await expectText(page, "Register");
   await page.getByLabel("Email").fill(email);
   await page.getByLabel("Password").fill(password);
+  const registrationResponsePromise = page.waitForResponse((response) =>
+    response.url().includes("/v1/public/auth/register") && response.request().method() === "POST"
+  );
   await page.getByRole("button", { name: "Register" }).click();
+  const registrationResponse = await registrationResponsePromise;
+  const registration = await registrationResponse.json();
+  await page.waitForURL(`${webBase}/login`, { timeout: 30000 });
+  const verificationCode = registration.devCode || await resendAuth.waitForOtp(email);
+  await page.locator("#email-code-verify-form input[name=code]").fill(verificationCode);
+  await page.locator("#email-code-verify-form button[type=submit]").click();
   await page.waitForURL(`${webBase}/`, { timeout: 30000 });
   await expectText(page, "Dashboard");
-  result.steps.push("registered");
+  result.steps.push("registered_and_verified");
 
   await page.getByRole("button", { name: "Log out" }).click();
   await page.waitForURL(`${webBase}/login`, { timeout: 30000 });
   await expectText(page, "Log in");
   assert(await page.locator("#event-log").count() === 0, "event log must not be visible on login page");
-  await page.getByLabel("Email").fill(email);
-  await page.getByLabel("Password").fill(password);
-  await page.getByRole("button", { name: "Log in" }).click();
+  await page.locator('#login-form input[name="email"]').fill(email);
+  await page.locator('#login-form input[name="password"]').fill(password);
+  await page.locator('#login-form button[type="submit"]').click();
   await page.waitForURL(`${webBase}/`, { timeout: 30000 });
   await expectText(page, "VPN configs");
   await expectText(page, "Benchmarks");

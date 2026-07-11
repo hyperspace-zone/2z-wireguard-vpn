@@ -157,7 +157,7 @@ verifies the resulting Hyperspace session.
 
 ```bash
 cd /root/hyperspace/2z-wireguard-vpn
-node --env-file=.env scripts/testnet/resend-otp-e2e.mjs
+npm run test:live:email
 ```
 
 Optional overrides:
@@ -174,6 +174,22 @@ login, repeated OTP login on the same password account, and OTP-first account
 creation followed by another OTP login. It asserts stable account IDs across
 all repeated methods. See the [Resend Receiving documentation](https://resend.com/docs/dashboard/receiving/introduction)
 and [Receiving API](https://resend.com/docs/api-reference/emails/list-received-emails).
+
+Run the identity-order integration scenarios against a disposable test database
+or the testnet database. The script uses unique addresses, a fake Google
+provider at the fetch boundary, and removes every account it creates:
+
+```bash
+set -a
+. /etc/hyperspace/control-plane-api.env
+set +a
+cd /opt/2z-wireguard-vpn
+npm run test:live:identity-db
+```
+
+This verifies Google-first then OTP, verified password then Google with the
+password preserved, and Google claiming an unverified password account with
+the old password and sessions revoked.
 
 ## Live Testnet Smoke
 

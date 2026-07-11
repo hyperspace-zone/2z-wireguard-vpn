@@ -2,6 +2,7 @@
 import { spawn } from "node:child_process";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { createResendAuthHelper, uniqueResendAddress } from "./resend-auth-helper.mjs";
 
 const apiBase = stripTrailingSlash(requiredEnv("HS_API_BASE"));
 const outputDir = process.env.HS_TEST_OUTPUT_DIR || "m1-results/live-testnet";
@@ -32,9 +33,10 @@ const nonTarget = {
 };
 
 const runId = new Date().toISOString().replace(/[:.]/g, "-");
-const email = process.env.HS_POLICY_EMAIL || `policy-smoke-${Date.now()}@example.com`;
+const email = process.env.HS_POLICY_EMAIL || uniqueResendAddress("policy-smoke");
 const password = process.env.HS_POLICY_PASSWORD || `Policy-smoke-${Date.now()}-strong-password`;
 const api = makeApiClient(apiBase);
+const resendAuth = createResendAuthHelper({ api });
 const result = {
   runId,
   apiBase,
@@ -194,15 +196,12 @@ async function assertProbeServersReachable() {
 }
 
 async function register() {
-  const response = await api("/v1/public/auth/register", {
-    method: "POST",
-    body: {
-      email,
-      password,
-      displayName: "Live Policy Smoke"
-    }
+  const response = await resendAuth.registerPassword({
+    email,
+    password,
+    displayName: "Live Policy Smoke"
   });
-  result.steps.push("registered");
+  result.steps.push("registered_and_verified");
   return String(response.accessToken);
 }
 

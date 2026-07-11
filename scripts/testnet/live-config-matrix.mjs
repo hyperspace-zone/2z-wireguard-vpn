@@ -2,6 +2,7 @@
 import { spawn } from "node:child_process";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { createResendAuthHelper, uniqueResendAddress } from "./resend-auth-helper.mjs";
 
 const apiBase = stripTrailingSlash(requiredEnv("HS_API_BASE"));
 const outputDir = process.env.HS_TEST_OUTPUT_DIR || "m2-results/live-config-matrix";
@@ -15,9 +16,10 @@ const deniedSource = nodeFromEnv("HS_DENIED_SOURCE", "denied-source");
 const target = nodeFromEnv("HS_TARGET", "target");
 const nonTarget = nodeFromEnv("HS_NON_TARGET", "non-target");
 const runId = new Date().toISOString().replace(/[:.]/g, "-");
-const email = process.env.HS_CONFIG_MATRIX_EMAIL || `config-matrix-${Date.now()}@example.com`;
+const email = process.env.HS_CONFIG_MATRIX_EMAIL || uniqueResendAddress("config-matrix");
 const password = process.env.HS_CONFIG_MATRIX_PASSWORD || `Config-matrix-${Date.now()}-strong-password`;
 const api = makeApiClient(apiBase);
+const resendAuth = createResendAuthHelper({ api });
 const sessionsToCleanup = [];
 const result = {
   runId,
@@ -226,13 +228,10 @@ async function assertProbeServersReachable() {
 }
 
 async function register() {
-  const response = await api("/v1/public/auth/register", {
-    method: "POST",
-    body: {
-      email,
-      password,
-      displayName: "Live Config Matrix"
-    }
+  const response = await resendAuth.registerPassword({
+    email,
+    password,
+    displayName: "Live Config Matrix"
   });
   return String(response.accessToken);
 }
