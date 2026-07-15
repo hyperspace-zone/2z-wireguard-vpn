@@ -812,8 +812,9 @@ install -m 0755 "$HS_REPO_DIR/scripts/hyperspace-disk-janitor.sh" \
   /usr/local/sbin/hyperspace-disk-janitor
 
 install -d -m 0755 /etc/systemd/journald.conf.d
-install -m 0644 "$HS_REPO_DIR/infra/journald/hyperspace-gate-limits.conf" \
-  /etc/systemd/journald.conf.d/90-hyperspace-gate-limits.conf
+rm -f /etc/systemd/journald.conf.d/90-hyperspace-gate-limits.conf
+install -m 0644 "$HS_REPO_DIR/infra/journald/zz-hyperspace-gate-limits.conf" \
+  /etc/systemd/journald.conf.d/zz-hyperspace-gate-limits.conf
 
 install -d -m 2755 -o root -g systemd-journal /var/log/journal
 
