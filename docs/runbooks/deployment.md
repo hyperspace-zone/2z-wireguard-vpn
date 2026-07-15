@@ -813,12 +813,19 @@ install -m 0755 "$HS_REPO_DIR/scripts/hyperspace-disk-janitor.sh" \
   /usr/local/sbin/hyperspace-disk-janitor
 
 install -d -m 0755 /etc/systemd/journald.conf.d
-install -m 0644 "$HS_REPO_DIR/infra/journald/hyperspace-gate-limits.conf" \
-  /etc/systemd/journald.conf.d/90-hyperspace-gate-limits.conf
+rm -f /etc/systemd/journald.conf.d/90-hyperspace-gate-limits.conf
+install -m 0644 "$HS_REPO_DIR/infra/journald/zz-hyperspace-gate-limits.conf" \
+  /etc/systemd/journald.conf.d/zz-hyperspace-gate-limits.conf
 
-install -d -m 0755 /etc/logrotate.d
-install -m 0644 "$HS_REPO_DIR/infra/logrotate/hyperspace-gate-logs" \
-  /etc/logrotate.d/hyperspace-gate-logs
+install -d -m 2755 -o root -g systemd-journal /var/log/journal
+
+# Remove the obsolete file from deployments made before 2026-07-15. It
+# duplicates the distribution rsyslog entries and makes logrotate fail.
+rm -f /etc/logrotate.d/hyperspace-gate-logs
+
+install -d -m 0755 /etc/systemd/system/doublezerod.service.d
+install -m 0644 "$HS_REPO_DIR/infra/systemd/doublezerod-log-filter.conf" \
+  /etc/systemd/system/doublezerod.service.d/20-log-filter.conf
 
 install -d -m 0755 /var/lib/node_exporter/textfile_collector
 cat >/etc/default/prometheus-node-exporter <<'EOF'
@@ -832,18 +839,34 @@ install -m 0644 "$HS_REPO_DIR/infra/systemd/hyperspace-disk-janitor.timer" \
 
 systemctl daemon-reload
 systemctl restart systemd-journald
+journalctl --flush
 systemctl enable --now prometheus-node-exporter
 systemctl restart prometheus-node-exporter
 systemctl enable --now hyperspace-disk-janitor.timer
 systemctl start hyperspace-disk-janitor.service
+systemctl restart doublezerod
 systemctl list-timers --all | grep hyperspace-disk-janitor
 ```
 
-The janitor runs every five minutes. If `/` is at least 85% used, it vacuums
-journald to 200MiB, runs `apt-get clean`, and forces logrotate. If `/` is still
-at least 95% used after that soft cleanup, it truncates only known system log
-files (`/var/log/syslog*` and `/var/log/kern.log*`) and reloads/restarts
-`rsyslog`.
+The janitor runs every minute. It checks both the root filesystem and the
+RAM-backed `/run` filesystem. At 70% `/run` usage it rotates and vacuums only
+runtime journals to 8MiB; at 85% it restarts journald and retries. If `/` is at
+least 85% used, it vacuums persistent journald to 200MiB, runs `apt-get clean`,
+and forces logrotate. If `/` is still at least 95% used after that soft cleanup,
+it truncates only known system log files (`/var/log/syslog*` and
+`/var/log/kern.log*`) and reloads/restarts `rsyslog`.
+
+Gate journald uses persistent storage with a 200MiB cap. Runtime journals are
+limited to 16MiB and must leave at least 32MiB free in `/run`; this is critical
+on 1GiB VMs where `/run` itself can be only about 100MiB. The DoubleZero unit
+filters the high-volume passive no-op liveness message while retaining errors,
+warnings, connection changes, and other service logs. `ForwardToSyslog=no`
+avoids writing every service log to both journald and `/var/log/syslog`.
+
+The textfile collector exports root and `/run` before/after values. Prometheus
+raises a warning at 70% `/run` usage and an immediate critical alert at 85%,
+even when the janitor recovered the host before the next run. It also alerts on
+low available RAM and Linux OOM kills.
 
 It must not remove or mutate `/etc/hyperspace`, `/var/lib/hyperspace-gate`,
 WireGuard state, DoubleZero identity files, or control-plane data.
@@ -1516,12 +1539,18 @@ heartbeats:
   scrapeable.
 - `HyperspaceGateRootFilesystemCritical` pages when `/` has less than 5% or
   512MiB available.
-- `HyperspaceGateMemoryCritical` pages when RAM has less than 10% and 128MiB
+- `HyperspaceGateMemoryPressure` warns when RAM has less than 20% or 256MiB
+  available for five minutes.
+- `HyperspaceGateMemoryCritical` pages when RAM has less than 10% or 128MiB
   available for 30 seconds. Prometheus keeps it firing for 10 minutes so a
   rapid host stall cannot erase the notification as soon as node exporter
   becomes unreachable.
+- `HyperspaceGateOOMKill` pages immediately when Linux reports an OOM kill.
+- `HyperspaceGateRuntimeFilesystemPressure` warns when `/run` reaches 70%.
+- `HyperspaceGateRuntimeFilesystemCritical` pages immediately when `/run`
+  reaches 85%, even when the janitor recovers it on the same run.
 - `HyperspaceGateDiskJanitorStale` warns when the local disk janitor has not
-  reported a run for more than 30 minutes.
+  reported a run for more than five minutes.
 - `HyperspaceGateDiskJanitorFailed` warns when the local disk janitor reports
   its last run as failed.
 
@@ -1535,6 +1564,10 @@ The janitor publishes these textfile metrics through node exporter:
 - `hyperspace_gate_disk_janitor_last_success`
 - `hyperspace_gate_disk_janitor_last_action{action="..."}`
 - `hyperspace_gate_disk_janitor_runs_total`
+- `hyperspace_gate_runtime_filesystem_last_before_used_percent`
+- `hyperspace_gate_runtime_filesystem_last_after_used_percent`
+- `hyperspace_gate_runtime_filesystem_last_before_avail_bytes`
+- `hyperspace_gate_runtime_filesystem_last_after_avail_bytes`
 
 Provision Alertmanager Telegram notifications. Create a Telegram bot with
 BotFather, add it to the target chats, send one message in each chat, then
