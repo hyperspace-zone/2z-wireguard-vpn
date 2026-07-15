@@ -1,0 +1,13 @@
+[Unit]
+Description=Refresh Hyperspace gate resource metrics
+
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=1min
+AccuracySec=10s
+RandomizedDelaySec=10s
+Persistent=true
+Unit=hyperspace-gate-resource-exporter.service
+
+[Install]
+WantedBy=timers.target

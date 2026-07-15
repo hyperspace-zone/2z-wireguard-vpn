@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"net"
+	"strings"
 	"testing"
 	"time"
 )
@@ -338,6 +339,68 @@ func TestProbeManagerBindStateReflectsLiveListener(t *testing.T) {
 	}
 	if got := manager.bindState("missing"); got != "unavailable" {
 		t.Fatalf("missing bind state = %q, expected unavailable", got)
+	}
+}
+
+func TestIngressForwardRulesEnforceSourceAndDestination(t *testing.T) {
+	state := assignmentState{
+		Handle:   "hs-assignment-00000000-0000-0000-0000-000000000001",
+		Material: localMaterial{Interfaces: materialInterfaces{Client: "hsc0001", Transit: "hsti0001"}},
+	}
+	rules := ingressForwardRules(state, publicMaterial{
+		ClientAddress:    "10.77.0.2/32",
+		DestinationCidrs: []string{"198.51.100.0/24"},
+	})
+	if len(rules) != 4 {
+		t.Fatalf("rules = %d, expected two accepts and two scoped drops", len(rules))
+	}
+	joined := strings.Join(rules[0], " ")
+	if !strings.Contains(joined, "ip saddr 10.77.0.2/32") || !strings.Contains(joined, "ip daddr 198.51.100.0/24") {
+		t.Fatalf("forward allow rule does not enforce source and destination: %s", joined)
+	}
+	if !strings.Contains(strings.Join(rules[1], " "), "ct state established,related") {
+		t.Fatalf("reverse rule does not require established state: %v", rules[1])
+	}
+	if !strings.Contains(strings.Join(rules[2], " "), "counter drop") || !strings.Contains(strings.Join(rules[3], " "), "counter drop") {
+		t.Fatalf("expected final scoped drop rules: %#v", rules)
+	}
+}
+
+func TestEgressForwardRulesEnforceDestinationAndExposeCounters(t *testing.T) {
+	state := assignmentState{
+		Handle:   "hs-assignment-00000000-0000-0000-0000-000000000002",
+		Material: localMaterial{Interfaces: materialInterfaces{Transit: "hste0002"}},
+	}
+	rules := egressForwardRules(state, publicMaterial{
+		ClientAddress:    "10.77.0.2/32",
+		DestinationCidrs: []string{"203.0.113.0/24", "2001:db8::/32"},
+	}, "eth0")
+	if len(rules) != 6 {
+		t.Fatalf("rules = %d, expected four accepts and two scoped drops", len(rules))
+	}
+	if !strings.Contains(strings.Join(rules[0], " "), "comment "+state.Handle+":accept:to_destination") {
+		t.Fatalf("accept counter comment missing: %v", rules[0])
+	}
+	if !strings.Contains(strings.Join(rules[len(rules)-1], " "), "comment "+state.Handle+":drop:from_destination") {
+		t.Fatalf("drop counter comment missing: %v", rules[len(rules)-1])
+	}
+}
+
+func TestParseNftAssignmentCounters(t *testing.T) {
+	data := []byte(`{"nftables":[{"rule":{"comment":"hs-assignment-a:accept:to_destination","expr":[{"counter":{"packets":7,"bytes":700}},{"accept":null}]}},{"rule":{"comment":"other:accept:to_destination","expr":[{"counter":{"packets":99,"bytes":999}}]}}]}`)
+	counters := parseNftAssignmentCounters(data, "hs-assignment-a")
+	if len(counters) != 1 || counters[0].Packets != 7 || counters[0].Bytes != 700 {
+		t.Fatalf("unexpected counters: %#v", counters)
+	}
+}
+
+func TestAddAssignmentCountersPreservesMonotonicTotals(t *testing.T) {
+	total := addAssignmentCounters(
+		assignmentCounterSnapshot{AssignmentID: "a", ForwardedToDestinationBytes: 100, DroppedToDestinationPackets: 2},
+		assignmentCounterSnapshot{AssignmentID: "a", ForwardedToDestinationBytes: 40, DroppedToDestinationPackets: 1},
+	)
+	if total.ForwardedToDestinationBytes != 140 || total.DroppedToDestinationPackets != 3 {
+		t.Fatalf("unexpected accumulated counter: %#v", total)
 	}
 }
 

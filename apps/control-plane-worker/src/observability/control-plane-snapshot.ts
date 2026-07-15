@@ -10,6 +10,7 @@ export async function collectControlPlaneSnapshotMetrics(input: {
   try {
     await collectGateMetrics(input.db, input.metrics);
     await collectSessionMetrics(input.db, input.metrics);
+    await collectAssignmentUsageMetrics(input.db, input.metrics);
     await collectJobMetrics(input.db, input.metrics);
     await collectBenchmarkMetrics(input.db, input.metrics);
     input.metrics.gauge("control_plane_snapshot_ready", 1, {
@@ -36,6 +37,87 @@ export async function collectControlPlaneSnapshotMetrics(input: {
       message: error instanceof Error ? error.message : String(error)
     });
     throw error;
+  }
+}
+
+async function collectAssignmentUsageMetrics(db: Database, metrics: RuntimeMetrics): Promise<void> {
+  const result = await db.query<{
+    assignmentId: string;
+    gate: string;
+    role: string;
+    generation: number;
+    active: boolean;
+    sampledAtAgeSeconds: number;
+    forwardedToDestinationBytes: string;
+    forwardedFromDestinationBytes: string;
+    droppedToDestinationBytes: string;
+    droppedFromDestinationBytes: string;
+    wireGuardClientReceiveBytes: string;
+    wireGuardClientTransmitBytes: string;
+    wireGuardTransitReceiveBytes: string;
+    wireGuardTransitTransmitBytes: string;
+  }>(`
+    SELECT DISTINCT ON (samples.assignment_id)
+      samples.assignment_id AS "assignmentId",
+      gates.name AS gate,
+      samples.role,
+      samples.generation,
+      (gate_assignments.desired_state = 'Applied') AS active,
+      EXTRACT(EPOCH FROM now() - samples.sampled_at)::float AS "sampledAtAgeSeconds",
+      samples.forwarded_to_destination_bytes::text AS "forwardedToDestinationBytes",
+      samples.forwarded_from_destination_bytes::text AS "forwardedFromDestinationBytes",
+      samples.dropped_to_destination_bytes::text AS "droppedToDestinationBytes",
+      samples.dropped_from_destination_bytes::text AS "droppedFromDestinationBytes",
+      samples.wireguard_client_receive_bytes::text AS "wireGuardClientReceiveBytes",
+      samples.wireguard_client_transmit_bytes::text AS "wireGuardClientTransmitBytes",
+      samples.wireguard_transit_receive_bytes::text AS "wireGuardTransitReceiveBytes",
+      samples.wireguard_transit_transmit_bytes::text AS "wireGuardTransitTransmitBytes"
+    FROM gate_assignment_counter_samples samples
+    JOIN gates ON gates.id = samples.gate_id
+    JOIN gate_assignments ON gate_assignments.id = samples.assignment_id
+    ORDER BY samples.assignment_id, samples.sampled_at DESC
+  `);
+  for (const row of result.rows) {
+    const labels = {
+      assignment_id: row.assignmentId,
+      gate: row.gate,
+      role: row.role,
+      generation: row.generation,
+      active: row.active
+    };
+    metrics.gauge("control_plane_assignment_counter_age_seconds", row.sampledAtAgeSeconds, {
+      help: "Age of the latest centrally persisted gate assignment counter sample.",
+      labels
+    });
+    for (const [direction, value] of [
+      ["to_destination", row.forwardedToDestinationBytes],
+      ["from_destination", row.forwardedFromDestinationBytes]
+    ] as const) {
+      metrics.gauge("control_plane_assignment_forwarded_bytes_total", Number(value), {
+        help: "Latest monotonic forwarded payload byte counter reported by a gate assignment.",
+        labels: { ...labels, direction }
+      });
+    }
+    for (const [direction, value] of [
+      ["to_destination", row.droppedToDestinationBytes],
+      ["from_destination", row.droppedFromDestinationBytes]
+    ] as const) {
+      metrics.gauge("control_plane_assignment_dropped_bytes_total", Number(value), {
+        help: "Latest monotonic policy drop byte counter reported by a gate assignment.",
+        labels: { ...labels, direction }
+      });
+    }
+    for (const [interfaceRole, direction, value] of [
+      ["client", "receive", row.wireGuardClientReceiveBytes],
+      ["client", "transmit", row.wireGuardClientTransmitBytes],
+      ["transit", "receive", row.wireGuardTransitReceiveBytes],
+      ["transit", "transmit", row.wireGuardTransitTransmitBytes]
+    ] as const) {
+      metrics.gauge("control_plane_assignment_wireguard_bytes_total", Number(value), {
+        help: "Latest monotonic WireGuard byte counter reported by a gate assignment.",
+        labels: { ...labels, interface_role: interfaceRole, direction }
+      });
+    }
   }
 }
 

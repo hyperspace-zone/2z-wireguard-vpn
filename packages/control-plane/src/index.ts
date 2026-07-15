@@ -54,7 +54,11 @@ export {
   scheduleSessionsForProvisioning,
   type SessionReconcileConfig
 } from "./reconciler/session-controller.js";
-export { recordGateActualState, type GateActualStateReport } from "./resources/actual-state/snapshots.js";
+export {
+  recordGateActualState,
+  type GateActualStateReport,
+  type GateAssignmentCounterReport
+} from "./resources/actual-state/snapshots.js";
 export {
   attachmentFileName,
   redeemArtifactDownloadToken,

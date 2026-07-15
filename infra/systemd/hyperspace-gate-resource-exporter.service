@@ -1,0 +1,10 @@
+[Unit]
+Description=Export Hyperspace gate resource and traffic metrics
+Documentation=https://github.com/hyperspace-zone/2z-wireguard-vpn
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/usr/local/sbin/hyperspace-gate-resource-exporter
+Nice=10

@@ -11,6 +11,32 @@ export const gateActualSnapshotSchema = {
     managedHandles: { type: "array", items: { type: "string" } },
     stateHash: { type: "string" },
     capabilities: { type: "array", items: { type: "string" } },
+    assignmentCounters: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["assignmentId", "role", "generation", "sampledAt"],
+        properties: {
+          assignmentId: { type: "string", format: "uuid" },
+          role: { enum: ["Ingress", "Egress"] },
+          generation: { type: "integer", minimum: 0 },
+          sampledAt: { type: "string", format: "date-time" },
+          wireGuardClientReceiveBytes: { type: "integer", minimum: 0 },
+          wireGuardClientTransmitBytes: { type: "integer", minimum: 0 },
+          wireGuardTransitReceiveBytes: { type: "integer", minimum: 0 },
+          wireGuardTransitTransmitBytes: { type: "integer", minimum: 0 },
+          forwardedToDestinationPackets: { type: "integer", minimum: 0 },
+          forwardedToDestinationBytes: { type: "integer", minimum: 0 },
+          forwardedFromDestinationPackets: { type: "integer", minimum: 0 },
+          forwardedFromDestinationBytes: { type: "integer", minimum: 0 },
+          droppedToDestinationPackets: { type: "integer", minimum: 0 },
+          droppedToDestinationBytes: { type: "integer", minimum: 0 },
+          droppedFromDestinationPackets: { type: "integer", minimum: 0 },
+          droppedFromDestinationBytes: { type: "integer", minimum: 0 }
+        }
+      }
+    },
     diagnosticSummary: { type: "object", additionalProperties: true },
     reportedAt: { type: "string", format: "date-time" }
   }

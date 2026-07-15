@@ -26,7 +26,7 @@ import (
 	"time"
 )
 
-const version = "0.1.4"
+const version = "0.2.0"
 
 var defaultNTPDiscoveryHosts = []string{
 	"0.pool.ntp.org",
@@ -117,12 +117,15 @@ func main() {
 	}
 
 	client := &http.Client{Timeout: 20 * time.Second}
+	rehydrate := rehydrateAssignments(cfg)
 	logJSON("agent_started", map[string]any{
-		"gate":          cfg.GateName,
-		"version":       version,
-		"executionMode": cfg.ExecutionMode,
-		"stateDir":      cfg.StateDir,
-		"probePort":     cfg.ProbePort,
+		"gate":            cfg.GateName,
+		"version":         version,
+		"executionMode":   cfg.ExecutionMode,
+		"stateDir":        cfg.StateDir,
+		"probePort":       cfg.ProbePort,
+		"rehydrated":      rehydrate.Rehydrated,
+		"rehydrateFailed": rehydrate.Failed,
 	})
 
 	lastHeartbeat := time.Time{}
@@ -299,19 +302,48 @@ type materialWireGuard struct {
 }
 
 type assignmentState struct {
-	AssignmentID      string        `json:"assignmentId"`
-	Role              string        `json:"role"`
-	Handle            string        `json:"handle"`
-	SessionID         string        `json:"sessionId"`
-	SourceCidr        string        `json:"sourceCidr,omitempty"`
-	ClientAddress     string        `json:"clientAddress"`
-	DestinationCidrs  []string      `json:"destinationCidrs"`
-	RoutingTable      int           `json:"routingTable"`
-	RulePriority      int           `json:"rulePriority"`
-	ClientPrivateKey  string        `json:"clientPrivateKey,omitempty"`
-	TransitPrivateKey string        `json:"transitPrivateKey"`
-	Material          localMaterial `json:"material"`
-	CreatedAt         string        `json:"createdAt"`
+	AssignmentID      string                     `json:"assignmentId"`
+	Role              string                     `json:"role"`
+	Handle            string                     `json:"handle"`
+	SessionID         string                     `json:"sessionId"`
+	SourceCidr        string                     `json:"sourceCidr,omitempty"`
+	ClientAddress     string                     `json:"clientAddress"`
+	DestinationCidrs  []string                   `json:"destinationCidrs"`
+	RoutingTable      int                        `json:"routingTable"`
+	RulePriority      int                        `json:"rulePriority"`
+	ClientPrivateKey  string                     `json:"clientPrivateKey,omitempty"`
+	TransitPrivateKey string                     `json:"transitPrivateKey"`
+	Material          localMaterial              `json:"material"`
+	NetworkPlan       *networkPlan               `json:"networkPlan,omitempty"`
+	CounterOffset     assignmentCounterSnapshot  `json:"counterOffset,omitempty"`
+	CounterCheckpoint *assignmentCounterSnapshot `json:"counterCheckpoint,omitempty"`
+	CreatedAt         string                     `json:"createdAt"`
+	CommittedAt       string                     `json:"committedAt,omitempty"`
+	RevokedAt         string                     `json:"revokedAt,omitempty"`
+}
+
+type rehydrateResult struct {
+	Rehydrated int
+	Failed     int
+}
+
+type assignmentCounterSnapshot struct {
+	AssignmentID                    string `json:"assignmentId"`
+	Role                            string `json:"role"`
+	Generation                      int    `json:"generation"`
+	SampledAt                       string `json:"sampledAt"`
+	WireGuardClientReceiveBytes     uint64 `json:"wireGuardClientReceiveBytes"`
+	WireGuardClientTransmitBytes    uint64 `json:"wireGuardClientTransmitBytes"`
+	WireGuardTransitReceiveBytes    uint64 `json:"wireGuardTransitReceiveBytes"`
+	WireGuardTransitTransmitBytes   uint64 `json:"wireGuardTransitTransmitBytes"`
+	ForwardedToDestinationPackets   uint64 `json:"forwardedToDestinationPackets"`
+	ForwardedToDestinationBytes     uint64 `json:"forwardedToDestinationBytes"`
+	ForwardedFromDestinationPackets uint64 `json:"forwardedFromDestinationPackets"`
+	ForwardedFromDestinationBytes   uint64 `json:"forwardedFromDestinationBytes"`
+	DroppedToDestinationPackets     uint64 `json:"droppedToDestinationPackets"`
+	DroppedToDestinationBytes       uint64 `json:"droppedToDestinationBytes"`
+	DroppedFromDestinationPackets   uint64 `json:"droppedFromDestinationPackets"`
+	DroppedFromDestinationBytes     uint64 `json:"droppedFromDestinationBytes"`
 }
 
 func executeApplyAssignment(cfg config, item job) jobResult {
@@ -1695,17 +1727,32 @@ func commitAssignment(cfg config, payload assignmentPayload) (assignmentState, e
 	if err := ensureNftBase(); err != nil {
 		return state, err
 	}
+	// Preserve counters from complete or partially drifted kernel state before
+	// replacing interfaces and rules. Missing objects contribute zero.
+	state.CounterOffset = addAssignmentCounters(state.CounterOffset, readAssignmentCounter(state))
+	if err := writeAssignmentState(cfg, state); err != nil {
+		return state, err
+	}
 	deleteNftRules("inet", "hyperspace", "input", state.Handle)
 	deleteNftRules("inet", "hyperspace", "forward", state.Handle)
 	deleteNftRules("ip", "hyperspace_nat", "postrouting", state.Handle)
 
 	if state.Role == "Ingress" {
-		return state, commitIngress(state, payload.NetworkPlan)
+		err = commitIngress(state, payload.NetworkPlan)
+	} else if state.Role == "Egress" {
+		err = commitEgress(state, payload.NetworkPlan)
+	} else {
+		return state, fmt.Errorf("unsupported role %q", state.Role)
 	}
-	if state.Role == "Egress" {
-		return state, commitEgress(state, payload.NetworkPlan)
+	if err != nil {
+		return state, err
 	}
-	return state, fmt.Errorf("unsupported role %q", state.Role)
+	state.NetworkPlan = &payload.NetworkPlan
+	state.CommittedAt = time.Now().UTC().Format(time.RFC3339)
+	if err := writeAssignmentState(cfg, state); err != nil {
+		return state, err
+	}
+	return state, nil
 }
 
 func commitIngress(state assignmentState, plan networkPlan) error {
@@ -1739,7 +1786,7 @@ func commitIngress(state assignmentState, plan networkPlan) error {
 		return err
 	}
 	if state.SourceCidr != "" {
-		if err := runCommand("nft", "add", "rule", "inet", "hyperspace", "input", "udp", "dport", strconv.Itoa(state.Material.WireGuard.ClientListenPort), "ip", "saddr", "!=", state.SourceCidr, "counter", "drop", "comment", state.Handle); err != nil {
+		if err := runCommand("nft", "add", "rule", "inet", "hyperspace", "input", "udp", "dport", strconv.Itoa(state.Material.WireGuard.ClientListenPort), "ip", "saddr", "!=", state.SourceCidr, "counter", "drop", "comment", nftRuleComment(state.Handle, "drop", "source_policy")); err != nil {
 			return err
 		}
 	}
@@ -1769,10 +1816,12 @@ func commitIngress(state assignmentState, plan networkPlan) error {
 	if err := runCommand("ip", "rule", "add", "from", pm.ClientAddress, "table", strconv.Itoa(state.RoutingTable), "priority", strconv.Itoa(state.RulePriority)); err != nil {
 		return err
 	}
-	if err := runCommand("nft", "add", "rule", "inet", "hyperspace", "forward", "iifname", state.Material.Interfaces.Client, "oifname", state.Material.Interfaces.Transit, "counter", "accept", "comment", state.Handle); err != nil {
-		return err
+	for _, rule := range ingressForwardRules(state, pm) {
+		if err := runCommand("nft", rule...); err != nil {
+			return err
+		}
 	}
-	return runCommand("nft", "add", "rule", "inet", "hyperspace", "forward", "iifname", state.Material.Interfaces.Transit, "oifname", state.Material.Interfaces.Client, "counter", "accept", "comment", state.Handle)
+	return nil
 }
 
 func commitEgress(state assignmentState, plan networkPlan) error {
@@ -1810,13 +1859,44 @@ func commitEgress(state assignmentState, plan networkPlan) error {
 	if err := runCommand("ip", "route", "replace", pm.ClientAddress, "dev", state.Material.Interfaces.Transit); err != nil {
 		return err
 	}
-	if err := runCommand("nft", "add", "rule", "inet", "hyperspace", "forward", "iifname", state.Material.Interfaces.Transit, "oifname", defaultIface, "counter", "accept", "comment", state.Handle); err != nil {
-		return err
+	for _, rule := range egressForwardRules(state, pm, defaultIface) {
+		if err := runCommand("nft", rule...); err != nil {
+			return err
+		}
 	}
-	if err := runCommand("nft", "add", "rule", "inet", "hyperspace", "forward", "iifname", defaultIface, "oifname", state.Material.Interfaces.Transit, "counter", "accept", "comment", state.Handle); err != nil {
-		return err
+	return runCommand("nft", "add", "rule", "ip", "hyperspace_nat", "postrouting", "oifname", defaultIface, "ip", "saddr", pm.ClientAddress, "counter", "masquerade", "comment", nftRuleComment(state.Handle, "accept", "nat"))
+}
+
+func ingressForwardRules(state assignmentState, material publicMaterial) [][]string {
+	rules := make([][]string, 0, len(material.DestinationCidrs)*2+2)
+	for _, cidr := range material.DestinationCidrs {
+		rules = append(rules,
+			[]string{"add", "rule", "inet", "hyperspace", "forward", "iifname", state.Material.Interfaces.Client, "oifname", state.Material.Interfaces.Transit, "ip", "saddr", material.ClientAddress, "ip", "daddr", cidr, "counter", "accept", "comment", nftRuleComment(state.Handle, "accept", "to_destination")},
+			[]string{"add", "rule", "inet", "hyperspace", "forward", "iifname", state.Material.Interfaces.Transit, "oifname", state.Material.Interfaces.Client, "ct", "state", "established,related", "ip", "saddr", cidr, "ip", "daddr", material.ClientAddress, "counter", "accept", "comment", nftRuleComment(state.Handle, "accept", "from_destination")},
+		)
 	}
-	return runCommand("nft", "add", "rule", "ip", "hyperspace_nat", "postrouting", "oifname", defaultIface, "ip", "saddr", pm.ClientAddress, "counter", "masquerade", "comment", state.Handle)
+	return append(rules,
+		[]string{"add", "rule", "inet", "hyperspace", "forward", "iifname", state.Material.Interfaces.Client, "oifname", state.Material.Interfaces.Transit, "counter", "drop", "comment", nftRuleComment(state.Handle, "drop", "to_destination")},
+		[]string{"add", "rule", "inet", "hyperspace", "forward", "iifname", state.Material.Interfaces.Transit, "oifname", state.Material.Interfaces.Client, "counter", "drop", "comment", nftRuleComment(state.Handle, "drop", "from_destination")},
+	)
+}
+
+func egressForwardRules(state assignmentState, material publicMaterial, physicalInterface string) [][]string {
+	rules := make([][]string, 0, len(material.DestinationCidrs)*2+2)
+	for _, cidr := range material.DestinationCidrs {
+		rules = append(rules,
+			[]string{"add", "rule", "inet", "hyperspace", "forward", "iifname", state.Material.Interfaces.Transit, "oifname", physicalInterface, "ip", "saddr", material.ClientAddress, "ip", "daddr", cidr, "counter", "accept", "comment", nftRuleComment(state.Handle, "accept", "to_destination")},
+			[]string{"add", "rule", "inet", "hyperspace", "forward", "iifname", physicalInterface, "oifname", state.Material.Interfaces.Transit, "ct", "state", "established,related", "ip", "saddr", cidr, "ip", "daddr", material.ClientAddress, "counter", "accept", "comment", nftRuleComment(state.Handle, "accept", "from_destination")},
+		)
+	}
+	return append(rules,
+		[]string{"add", "rule", "inet", "hyperspace", "forward", "iifname", state.Material.Interfaces.Transit, "oifname", physicalInterface, "counter", "drop", "comment", nftRuleComment(state.Handle, "drop", "to_destination")},
+		[]string{"add", "rule", "inet", "hyperspace", "forward", "iifname", physicalInterface, "oifname", state.Material.Interfaces.Transit, "counter", "drop", "comment", nftRuleComment(state.Handle, "drop", "from_destination")},
+	)
+}
+
+func nftRuleComment(handle string, verdict string, direction string) string {
+	return strings.Join([]string{handle, verdict, direction}, ":")
 }
 
 func sendHeartbeat(client *http.Client, cfg config, probeManager *probeServerManager) error {
@@ -1844,6 +1924,8 @@ func sendHeartbeat(client *http.Client, cfg config, probeManager *probeServerMan
 			"udp-probe-hmac:" + hmacState(cfg),
 			"chrony:" + chronyState(),
 			"ntp-discovery:" + ntpDiscoveryState(),
+			"assignment-rehydrate:enabled",
+			"assignment-kernel-validation:enabled",
 		},
 		"reportedAt": time.Now().UTC().Format(time.RFC3339),
 	}
@@ -1854,16 +1936,23 @@ func sendHeartbeat(client *http.Client, cfg config, probeManager *probeServerMan
 }
 
 func sendActualState(client *http.Client, cfg config) error {
+	counters := assignmentCounters(cfg)
 	body := map[string]any{
-		"gateId":         cfg.GateName,
-		"bootId":         bootID(),
-		"agentVersion":   version,
-		"stateHash":      actualStateHash(),
-		"managedHandles": managedHandles(cfg),
+		"gateId":             cfg.GateName,
+		"bootId":             bootID(),
+		"agentVersion":       version,
+		"stateHash":          actualStateHash(),
+		"managedHandles":     actualManagedHandles(cfg),
+		"assignmentCounters": counters,
+		"diagnosticSummary": map[string]any{
+			"assignmentCounters": len(counters),
+		},
 		"capabilities": []string{
 			"actual-state-report",
 			"host-mutation:" + cfg.ExecutionMode,
 			"doublezero0:" + linkState("doublezero0"),
+			"assignment-rehydrate:enabled",
+			"assignment-kernel-validation:enabled",
 		},
 		"reportedAt": time.Now().UTC().Format(time.RFC3339),
 	}
@@ -2266,6 +2355,12 @@ func revokeAssignment(cfg config, payload assignmentPayload) error {
 	if err != nil {
 		state = derivedAssignmentState(payload.AssignmentID, payload.Role)
 	}
+	checkpoint := addAssignmentCounters(state.CounterOffset, readAssignmentCounter(state))
+	checkpoint.SampledAt = time.Now().UTC().Format(time.RFC3339Nano)
+	state.CounterCheckpoint = &checkpoint
+	state.ClientPrivateKey = ""
+	state.TransitPrivateKey = ""
+	state.RevokedAt = time.Now().UTC().Format(time.RFC3339)
 	deleteNftRules("inet", "hyperspace", "input", state.Handle)
 	deleteNftRules("inet", "hyperspace", "forward", state.Handle)
 	deleteNftRules("ip", "hyperspace_nat", "postrouting", state.Handle)
@@ -2283,7 +2378,49 @@ func revokeAssignment(cfg config, payload assignmentPayload) error {
 	if state.Material.Interfaces.Transit != "" {
 		runIgnore("ip", "link", "delete", "dev", state.Material.Interfaces.Transit)
 	}
-	return os.RemoveAll(assignmentDir(cfg, payload.AssignmentID))
+	return writeAssignmentState(cfg, state)
+}
+
+func rehydrateAssignments(cfg config) rehydrateResult {
+	result := rehydrateResult{}
+	root := filepath.Join(cfg.StateDir, "assignments")
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return result
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		state, err := readAssignmentState(cfg, entry.Name())
+		if err != nil || state.CommittedAt == "" || state.NetworkPlan == nil {
+			continue
+		}
+		if assignmentKernelStatePresent(state) {
+			continue
+		}
+		_, err = commitAssignment(cfg, assignmentPayload{
+			AssignmentID: state.AssignmentID,
+			Operation:    "commit",
+			Role:         state.Role,
+			NetworkPlan:  *state.NetworkPlan,
+		})
+		if err != nil {
+			result.Failed++
+			logJSON("assignment_rehydrate_failed", map[string]any{
+				"assignmentId": state.AssignmentID,
+				"role":         state.Role,
+				"error":        err.Error(),
+			})
+			continue
+		}
+		result.Rehydrated++
+		logJSON("assignment_rehydrated", map[string]any{
+			"assignmentId": state.AssignmentID,
+			"role":         state.Role,
+		})
+	}
+	return result
 }
 
 func derivedAssignmentState(assignmentID string, role string) assignmentState {
@@ -2326,7 +2463,9 @@ func deleteNftRules(family string, table string, chain string, comment string) {
 	}
 	handlePattern := regexp.MustCompile(`handle ([0-9]+)`)
 	for _, line := range strings.Split(output, "\n") {
-		if !strings.Contains(line, `comment "`+comment+`"`) && !strings.Contains(line, "comment "+comment) {
+		if !strings.Contains(line, `comment "`+comment+`"`) &&
+			!strings.Contains(line, `comment "`+comment+`:`) &&
+			!strings.Contains(line, "comment "+comment) {
 			continue
 		}
 		match := handlePattern.FindStringSubmatch(line)
@@ -2446,7 +2585,7 @@ func writeAssignmentState(cfg config, state assignmentState) error {
 	return os.WriteFile(filepath.Join(dir, "assignment.json"), encoded, 0o600)
 }
 
-func managedHandles(cfg config) []string {
+func actualManagedHandles(cfg config) []string {
 	root := filepath.Join(cfg.StateDir, "assignments")
 	entries, err := os.ReadDir(root)
 	if err != nil {
@@ -2458,12 +2597,217 @@ func managedHandles(cfg config) []string {
 			continue
 		}
 		state, err := readAssignmentState(cfg, entry.Name())
-		if err != nil || state.Handle == "" {
+		if err != nil || state.Handle == "" || state.CommittedAt == "" || !assignmentKernelStatePresent(state) {
 			continue
 		}
 		handles = append(handles, state.Handle)
 	}
 	return handles
+}
+
+func assignmentKernelStatePresent(state assignmentState) bool {
+	if state.CommittedAt == "" || state.Material.Interfaces.Transit == "" {
+		return false
+	}
+	interfaces := []string{state.Material.Interfaces.Transit}
+	if state.Role == "Ingress" {
+		if state.Material.Interfaces.Client == "" {
+			return false
+		}
+		interfaces = append(interfaces, state.Material.Interfaces.Client)
+	}
+	for _, interfaceName := range interfaces {
+		if commandOutput("ip", "link", "show", "dev", interfaceName) == "" || commandOutput("wg", "show", interfaceName) == "" {
+			return false
+		}
+	}
+	forwardRules := commandOutput("nft", "list", "chain", "inet", "hyperspace", "forward")
+	if !strings.Contains(forwardRules, `comment "`+state.Handle+`:`) {
+		return false
+	}
+	if state.Role == "Egress" {
+		natRules := commandOutput("nft", "list", "chain", "ip", "hyperspace_nat", "postrouting")
+		if !strings.Contains(natRules, `comment "`+state.Handle+`:`) {
+			return false
+		}
+	}
+	return true
+}
+
+func assignmentCounters(cfg config) []assignmentCounterSnapshot {
+	root := filepath.Join(cfg.StateDir, "assignments")
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return []assignmentCounterSnapshot{}
+	}
+	counters := make([]assignmentCounterSnapshot, 0, len(entries))
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		state, err := readAssignmentState(cfg, entry.Name())
+		if err != nil || state.AssignmentID == "" {
+			continue
+		}
+		if state.CounterCheckpoint != nil {
+			counters = append(counters, *state.CounterCheckpoint)
+			continue
+		}
+		if state.CommittedAt == "" {
+			continue
+		}
+		counter := addAssignmentCounters(state.CounterOffset, readAssignmentCounter(state))
+		counter.SampledAt = time.Now().UTC().Format(time.RFC3339Nano)
+		counters = append(counters, counter)
+	}
+	sort.Slice(counters, func(i, j int) bool {
+		return counters[i].AssignmentID < counters[j].AssignmentID
+	})
+	return counters
+}
+
+func readAssignmentCounter(state assignmentState) assignmentCounterSnapshot {
+	generation := 0
+	if state.NetworkPlan != nil {
+		generation = state.NetworkPlan.Generation
+	}
+	counter := assignmentCounterSnapshot{
+		AssignmentID: state.AssignmentID,
+		Role:         state.Role,
+		Generation:   generation,
+		SampledAt:    time.Now().UTC().Format(time.RFC3339Nano),
+	}
+	if state.Material.Interfaces.Client != "" {
+		counter.WireGuardClientReceiveBytes, counter.WireGuardClientTransmitBytes = wireGuardTransfer(state.Material.Interfaces.Client)
+	}
+	counter.WireGuardTransitReceiveBytes, counter.WireGuardTransitTransmitBytes = wireGuardTransfer(state.Material.Interfaces.Transit)
+
+	for _, nftCounter := range nftAssignmentCounters(state.Handle) {
+		switch {
+		case nftCounter.Verdict == "accept" && nftCounter.Direction == "to_destination":
+			counter.ForwardedToDestinationPackets += nftCounter.Packets
+			counter.ForwardedToDestinationBytes += nftCounter.Bytes
+		case nftCounter.Verdict == "accept" && nftCounter.Direction == "from_destination":
+			counter.ForwardedFromDestinationPackets += nftCounter.Packets
+			counter.ForwardedFromDestinationBytes += nftCounter.Bytes
+		case nftCounter.Verdict == "drop" && nftCounter.Direction == "to_destination":
+			counter.DroppedToDestinationPackets += nftCounter.Packets
+			counter.DroppedToDestinationBytes += nftCounter.Bytes
+		case nftCounter.Verdict == "drop" && nftCounter.Direction == "from_destination":
+			counter.DroppedFromDestinationPackets += nftCounter.Packets
+			counter.DroppedFromDestinationBytes += nftCounter.Bytes
+		}
+	}
+	return counter
+}
+
+func addAssignmentCounters(left assignmentCounterSnapshot, right assignmentCounterSnapshot) assignmentCounterSnapshot {
+	result := right
+	if result.AssignmentID == "" {
+		result.AssignmentID = left.AssignmentID
+	}
+	if result.Role == "" {
+		result.Role = left.Role
+	}
+	if result.Generation == 0 {
+		result.Generation = left.Generation
+	}
+	result.WireGuardClientReceiveBytes += left.WireGuardClientReceiveBytes
+	result.WireGuardClientTransmitBytes += left.WireGuardClientTransmitBytes
+	result.WireGuardTransitReceiveBytes += left.WireGuardTransitReceiveBytes
+	result.WireGuardTransitTransmitBytes += left.WireGuardTransitTransmitBytes
+	result.ForwardedToDestinationPackets += left.ForwardedToDestinationPackets
+	result.ForwardedToDestinationBytes += left.ForwardedToDestinationBytes
+	result.ForwardedFromDestinationPackets += left.ForwardedFromDestinationPackets
+	result.ForwardedFromDestinationBytes += left.ForwardedFromDestinationBytes
+	result.DroppedToDestinationPackets += left.DroppedToDestinationPackets
+	result.DroppedToDestinationBytes += left.DroppedToDestinationBytes
+	result.DroppedFromDestinationPackets += left.DroppedFromDestinationPackets
+	result.DroppedFromDestinationBytes += left.DroppedFromDestinationBytes
+	return result
+}
+
+func wireGuardTransfer(interfaceName string) (uint64, uint64) {
+	if interfaceName == "" {
+		return 0, 0
+	}
+	output := commandOutput("wg", "show", interfaceName, "transfer")
+	var receiveTotal uint64
+	var transmitTotal uint64
+	for _, line := range strings.Split(output, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) != 3 {
+			continue
+		}
+		receive, receiveErr := strconv.ParseUint(fields[1], 10, 64)
+		transmit, transmitErr := strconv.ParseUint(fields[2], 10, 64)
+		if receiveErr == nil {
+			receiveTotal += receive
+		}
+		if transmitErr == nil {
+			transmitTotal += transmit
+		}
+	}
+	return receiveTotal, transmitTotal
+}
+
+type nftAssignmentCounter struct {
+	Verdict   string
+	Direction string
+	Packets   uint64
+	Bytes     uint64
+}
+
+func nftAssignmentCounters(handle string) []nftAssignmentCounter {
+	if handle == "" {
+		return nil
+	}
+	output := commandOutput("nft", "-j", "list", "chain", "inet", "hyperspace", "forward")
+	return parseNftAssignmentCounters([]byte(output), handle)
+}
+
+func parseNftAssignmentCounters(data []byte, handle string) []nftAssignmentCounter {
+	var document struct {
+		Nftables []map[string]json.RawMessage `json:"nftables"`
+	}
+	if len(data) == 0 || json.Unmarshal(data, &document) != nil {
+		return nil
+	}
+	result := []nftAssignmentCounter{}
+	for _, item := range document.Nftables {
+		rawRule, ok := item["rule"]
+		if !ok {
+			continue
+		}
+		var rule struct {
+			Comment string                       `json:"comment"`
+			Expr    []map[string]json.RawMessage `json:"expr"`
+		}
+		if json.Unmarshal(rawRule, &rule) != nil || !strings.HasPrefix(rule.Comment, handle+":") {
+			continue
+		}
+		parts := strings.Split(rule.Comment, ":")
+		if len(parts) < 3 {
+			continue
+		}
+		counter := nftAssignmentCounter{Verdict: parts[len(parts)-2], Direction: parts[len(parts)-1]}
+		for _, expression := range rule.Expr {
+			rawCounter, ok := expression["counter"]
+			if !ok {
+				continue
+			}
+			var values struct {
+				Packets uint64 `json:"packets"`
+				Bytes   uint64 `json:"bytes"`
+			}
+			if json.Unmarshal(rawCounter, &values) == nil {
+				counter.Packets += values.Packets
+				counter.Bytes += values.Bytes
+			}
+		}
+		result = append(result, counter)
+	}
+	return result
 }
 
 func assignmentDir(cfg config, assignmentID string) string {

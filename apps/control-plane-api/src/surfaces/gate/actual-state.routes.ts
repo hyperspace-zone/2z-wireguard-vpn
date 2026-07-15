@@ -4,6 +4,7 @@ import { recordGateActualState } from "@hyperspace-zone/control-plane";
 import type { Database } from "@hyperspace-zone/db";
 import type { GateAuthContext } from "../../http/auth.js";
 import { asRecord, readString, readStringArray } from "../../http/request.js";
+import type { GateAssignmentCounterReport } from "@hyperspace-zone/control-plane";
 
 export function registerGateActualStateRoutes(
   app: FastifyInstance,
@@ -28,6 +29,7 @@ export function registerGateActualStateRoutes(
       agentVersion: readString(body, "agentVersion"),
       stateHash: readString(body, "stateHash"),
       managedHandles: readStringArray(body, "managedHandles"),
+      assignmentCounters: readAssignmentCounters(body.assignmentCounters),
       capabilities: readStringArray(body, "capabilities"),
       diagnosticSummary: asRecord(body.diagnosticSummary ?? {}),
       reportedAt: readString(body, "reportedAt")
@@ -35,4 +37,37 @@ export function registerGateActualStateRoutes(
 
     return reply.send({ ok: true });
   });
+}
+
+function readAssignmentCounters(value: unknown): GateAssignmentCounterReport[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.map((item) => {
+    const counter = asRecord(item);
+    const role = readString(counter, "role");
+    return {
+      assignmentId: readString(counter, "assignmentId"),
+      role: role === "Egress" ? "Egress" : "Ingress",
+      generation: readCounter(counter, "generation"),
+      sampledAt: readString(counter, "sampledAt"),
+      wireGuardClientReceiveBytes: readCounter(counter, "wireGuardClientReceiveBytes"),
+      wireGuardClientTransmitBytes: readCounter(counter, "wireGuardClientTransmitBytes"),
+      wireGuardTransitReceiveBytes: readCounter(counter, "wireGuardTransitReceiveBytes"),
+      wireGuardTransitTransmitBytes: readCounter(counter, "wireGuardTransitTransmitBytes"),
+      forwardedToDestinationPackets: readCounter(counter, "forwardedToDestinationPackets"),
+      forwardedToDestinationBytes: readCounter(counter, "forwardedToDestinationBytes"),
+      forwardedFromDestinationPackets: readCounter(counter, "forwardedFromDestinationPackets"),
+      forwardedFromDestinationBytes: readCounter(counter, "forwardedFromDestinationBytes"),
+      droppedToDestinationPackets: readCounter(counter, "droppedToDestinationPackets"),
+      droppedToDestinationBytes: readCounter(counter, "droppedToDestinationBytes"),
+      droppedFromDestinationPackets: readCounter(counter, "droppedFromDestinationPackets"),
+      droppedFromDestinationBytes: readCounter(counter, "droppedFromDestinationBytes")
+    };
+  });
+}
+
+function readCounter(record: Record<string, unknown>, key: string): number {
+  const value = record[key];
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : 0;
 }

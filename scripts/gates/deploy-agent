@@ -1,0 +1,215 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat >&2 <<'EOF'
+usage: scripts/gates/deploy-agent --host HOST --gate-name NAME --control-plane-url URL --gate-token-file FILE --probe-secret-file FILE [options]
+       scripts/gates/deploy-agent --host HOST --reuse-existing-env [options]
+
+Options:
+  --ssh-key PATH        SSH private key.
+  --ssh-user USER       SSH user, default root.
+  --known-hosts-file PATH  Pinned SSH known_hosts file, default ~/.ssh/known_hosts.
+  --binary PATH         Prebuilt hyperspace-gate-agent binary. If omitted, build to /tmp.
+  --reuse-existing-env  Update the binary/unit without reading or replacing gate secrets.
+  --gate-host HOSTNAME  Optional public HTTPS probe hostname for Caddy.
+  --web-origin ORIGIN   Web origin allowed to read the browser probe.
+  --poll-interval DUR   Default 2s.
+  --heartbeat DUR       Default 10s.
+  --dry-run             Print commands and redacted env instead of executing.
+EOF
+}
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+host=""
+gate_name=""
+control_plane_url=""
+gate_token_file=""
+probe_secret_file=""
+ssh_key=""
+ssh_user="root"
+known_hosts_file="${HOME}/.ssh/known_hosts"
+binary_path=""
+gate_host=""
+web_origin=""
+poll_interval="2s"
+heartbeat_interval="10s"
+dry_run=false
+reuse_existing_env=false
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --host) host="${2:-}"; shift 2 ;;
+    --gate-name) gate_name="${2:-}"; shift 2 ;;
+    --control-plane-url) control_plane_url="${2:-}"; shift 2 ;;
+    --gate-token-file) gate_token_file="${2:-}"; shift 2 ;;
+    --probe-secret-file) probe_secret_file="${2:-}"; shift 2 ;;
+    --ssh-key) ssh_key="${2:-}"; shift 2 ;;
+    --ssh-user) ssh_user="${2:-}"; shift 2 ;;
+    --known-hosts-file) known_hosts_file="${2:-}"; shift 2 ;;
+    --binary) binary_path="${2:-}"; shift 2 ;;
+    --reuse-existing-env) reuse_existing_env=true; shift ;;
+    --gate-host) gate_host="${2:-}"; shift 2 ;;
+    --web-origin) web_origin="${2:-}"; shift 2 ;;
+    --poll-interval) poll_interval="${2:-}"; shift 2 ;;
+    --heartbeat) heartbeat_interval="${2:-}"; shift 2 ;;
+    --dry-run) dry_run=true; shift ;;
+    -h|--help) usage; exit 0 ;;
+    *) echo "unknown argument: $1" >&2; usage; exit 2 ;;
+  esac
+done
+
+if [[ -z "$host" ]]; then
+  usage
+  exit 2
+fi
+if [[ "$reuse_existing_env" != true && ( -z "$gate_name" || -z "$control_plane_url" || -z "$gate_token_file" || -z "$probe_secret_file" ) ]]; then
+  usage
+  exit 2
+fi
+if [[ "$dry_run" != true && "$reuse_existing_env" != true ]]; then
+  [[ -s "$gate_token_file" ]] || { echo "missing gate token file: $gate_token_file" >&2; exit 2; }
+  [[ -s "$probe_secret_file" ]] || { echo "missing probe secret file: $probe_secret_file" >&2; exit 2; }
+fi
+if [[ "$dry_run" != true && ! -r "$known_hosts_file" ]]; then
+  echo "known_hosts file is not readable: $known_hosts_file" >&2
+  exit 2
+fi
+
+ssh_args=(-o StrictHostKeyChecking=yes -o UserKnownHostsFile="$known_hosts_file" -o ServerAliveInterval=15 -o ServerAliveCountMax=4)
+scp_args=(-o StrictHostKeyChecking=yes -o UserKnownHostsFile="$known_hosts_file")
+if [[ -n "$ssh_key" ]]; then
+  ssh_args+=(-i "$ssh_key")
+  scp_args+=(-i "$ssh_key")
+fi
+
+if [[ -z "$binary_path" ]]; then
+  binary_path="/tmp/hyperspace-gate-agent"
+  if [[ "$dry_run" != true ]]; then
+    go_bin="${GO_BIN:-go}"
+    if [[ -x /usr/local/go/bin/go ]]; then
+      go_bin="${GO_BIN:-/usr/local/go/bin/go}"
+    fi
+    (cd "$repo_root/apps/gate-agent" && "$go_bin" test ./... && "$go_bin" build -buildvcs=false -o "$binary_path" ./cmd/hyperspace-gate-agent)
+    chmod 0755 "$binary_path"
+  fi
+fi
+
+if [[ "$dry_run" == true ]]; then
+  cat <<EOF
+scp $binary_path ${ssh_user}@${host}:/usr/local/bin/hyperspace-gate-agent.new
+scp $repo_root/infra/systemd/hyperspace-gate-agent.service ${ssh_user}@${host}:/etc/systemd/system/hyperspace-gate-agent.service.new
+atomically replace the installed binary and unit, then restart the service
+EOF
+  if [[ "$reuse_existing_env" == true ]]; then
+    cat <<EOF
+require existing /etc/hyperspace/gate-agent.env; do not read or replace it
+systemctl daemon-reload && systemctl restart hyperspace-gate-agent
+EOF
+  else
+    cat <<EOF
+write /etc/hyperspace/gate-agent.env with:
+CONTROL_PLANE_URL=$control_plane_url
+GATE_NAME=$gate_name
+GATE_TOKEN=<redacted from $gate_token_file>
+POLL_INTERVAL=$poll_interval
+HEARTBEAT_INTERVAL=$heartbeat_interval
+GATE_AGENT_EXECUTION_MODE=apply
+GATE_AGENT_STATE_DIR=/var/lib/hyperspace-gate
+GATE_PROBE_LISTEN_ADDRESS=0.0.0.0
+GATE_PROBE_PORT=19192
+GATE_PROBE_SHARED_SECRET=<redacted from $probe_secret_file>
+systemctl daemon-reload && systemctl enable --now hyperspace-gate-agent
+EOF
+  fi
+  if [[ -n "$gate_host" && -n "$web_origin" ]]; then
+    cat <<EOF
+write /etc/caddy/Caddyfile with HTTPS probe host $gate_host and Access-Control-Allow-Origin $web_origin
+systemctl reload caddy
+EOF
+  fi
+  exit 0
+fi
+
+tmp_env=""
+if [[ "$reuse_existing_env" != true ]]; then
+  gate_token="$(tr -d '\r\n' <"$gate_token_file")"
+  probe_secret="$(tr -d '\r\n' <"$probe_secret_file")"
+  tmp_env="$(mktemp)"
+  trap 'rm -f "$tmp_env"' EXIT
+  cat >"$tmp_env" <<EOF
+CONTROL_PLANE_URL=${control_plane_url}
+GATE_NAME=${gate_name}
+GATE_TOKEN=${gate_token}
+POLL_INTERVAL=${poll_interval}
+HEARTBEAT_INTERVAL=${heartbeat_interval}
+GATE_AGENT_EXECUTION_MODE=apply
+GATE_AGENT_STATE_DIR=/var/lib/hyperspace-gate
+GATE_PROBE_LISTEN_ADDRESS=0.0.0.0
+GATE_PROBE_PORT=19192
+GATE_PROBE_SHARED_SECRET=${probe_secret}
+EOF
+  chmod 0600 "$tmp_env"
+fi
+
+scp "${scp_args[@]}" "$binary_path" "${ssh_user}@${host}:/usr/local/bin/hyperspace-gate-agent.new"
+scp "${scp_args[@]}" "$repo_root/infra/systemd/hyperspace-gate-agent.service" "${ssh_user}@${host}:/etc/systemd/system/hyperspace-gate-agent.service.new"
+if [[ "$reuse_existing_env" != true ]]; then
+  scp "${scp_args[@]}" "$tmp_env" "${ssh_user}@${host}:/etc/hyperspace/gate-agent.env.new"
+fi
+ssh "${ssh_args[@]}" "${ssh_user}@${host}" 'set -euo pipefail
+test -s /etc/hyperspace/gate-agent.env
+chown root:root /usr/local/bin/hyperspace-gate-agent.new /etc/systemd/system/hyperspace-gate-agent.service.new
+chmod 0755 /usr/local/bin/hyperspace-gate-agent.new
+chmod 0644 /etc/systemd/system/hyperspace-gate-agent.service.new
+mv -f /usr/local/bin/hyperspace-gate-agent.new /usr/local/bin/hyperspace-gate-agent
+mv -f /etc/systemd/system/hyperspace-gate-agent.service.new /etc/systemd/system/hyperspace-gate-agent.service
+if [[ -e /etc/hyperspace/gate-agent.env.new ]]; then
+  chown root:root /etc/hyperspace/gate-agent.env.new
+  chmod 0600 /etc/hyperspace/gate-agent.env.new
+  mv -f /etc/hyperspace/gate-agent.env.new /etc/hyperspace/gate-agent.env
+fi
+chown root:root /etc/hyperspace/gate-agent.env
+chmod 0600 /etc/hyperspace/gate-agent.env
+systemctl daemon-reload
+systemctl enable --now hyperspace-gate-agent
+systemctl restart hyperspace-gate-agent
+systemctl is-active hyperspace-gate-agent
+'
+
+if [[ -n "$gate_host" && -n "$web_origin" ]]; then
+  ssh "${ssh_args[@]}" "${ssh_user}@${host}" \
+    "GATE_HOST=$(printf '%q' "$gate_host") WEB_ORIGIN=$(printf '%q' "$web_origin") GATE_NAME=$(printf '%q' "$gate_name") bash -s" <<'REMOTE'
+set -euo pipefail
+cat >/etc/caddy/Caddyfile <<EOF
+{
+	auto_https disable_redirects
+}
+
+:80 {
+	@acme path /.well-known/acme-challenge/*
+	handle @acme {
+		root * /var/www/acme-challenges
+		file_server
+	}
+
+	handle {
+		redir https://{host}{uri} permanent
+	}
+}
+
+${GATE_HOST} {
+	@probe path /.well-known/hyperspace-probe
+	header @probe Access-Control-Allow-Origin "${WEB_ORIGIN}"
+	header @probe Access-Control-Allow-Methods "GET, HEAD, OPTIONS"
+	header @probe Access-Control-Max-Age "86400"
+	header @probe Timing-Allow-Origin "${WEB_ORIGIN}"
+	respond @probe "" 204
+
+	respond "${GATE_NAME}" 200
+}
+EOF
+caddy validate --config /etc/caddy/Caddyfile
+systemctl reload caddy
+REMOTE
+fi
