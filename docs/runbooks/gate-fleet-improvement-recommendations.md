@@ -23,7 +23,9 @@
   samples and idempotent deltas;
 - startup rehydration and kernel drift validation before an assignment is
   reported as Applied;
-- aggregate DoubleZero metrics without per-peer cardinality.
+- aggregate DoubleZero metrics without per-peer cardinality;
+- billing usage schema from migration `0020` in both mainnet and testnet,
+  alongside centrally persisted assignment counters from `0024`.
 
 Фактический rollout завершён на 14 mainnet и 5 testnet gates. На всех узлах
 работают gate-agent `0.2.1`, DoubleZero, node exporter, resource exporter,
@@ -89,6 +91,11 @@ per-assignment nftables/WireGuard counters и сохранении интерв�
 testnet `5/5` Enabled gate targets; resource, conntrack, vnstat и DoubleZero
 metrics присутствуют для каждого target. London после повышения лимита держал
 около 9-10 тысяч conntrack entries из 65 536 вместо прежних 100%.
+
+Migration `0020_doublezero_usage_billing.sql` перенесена в stable `main` без
+изменений из Milestone 3 и применена в mainnet. Это устраняет обнаруженный
+schema gap до будущего merge: повторный migration run пропустит уже записанную
+версию `0020` через `schema_migrations`.
 
 ## P0: изменения, необходимые в первую очередь
 
