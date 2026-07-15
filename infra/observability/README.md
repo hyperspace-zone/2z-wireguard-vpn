@@ -61,3 +61,7 @@ Render `/etc/prometheus/alertmanager.yml` with
 `scripts/render-alertmanager-telegram-config` after editing
 `/etc/prometheus/alertmanager_telegram_receivers.json`, then validate it with
 `amtool check-config` and restart `prometheus-alertmanager`.
+
+Telegram notifications include the Alertmanager `started UTC` timestamp for
+every alert and an additional `resolved UTC` timestamp after recovery. These
+timestamps come from the alert payload rather than the Telegram delivery time.
