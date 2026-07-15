@@ -1290,6 +1290,19 @@ SOLANA_TOKEN_BASE_UNITS_PER_BILLING_MINOR=${SOLANA_TOKEN_BASE_UNITS_PER_BILLING_
 SOLANA_TOPUP_RECONCILE_INTERVAL_SECONDS=15
 BILLING_CURRENCY=${BILLING_CURRENCY:-USD}
 BILLING_USAGE_MARKUP_BPS=${BILLING_USAGE_MARKUP_BPS:-1500}
+RETAIL_BILLING_ENABLED=${RETAIL_BILLING_ENABLED:-false}
+RETAIL_BILLING_MODE=${RETAIL_BILLING_MODE:-shadow}
+RETAIL_BILLING_INTERVAL_SECONDS=${RETAIL_BILLING_INTERVAL_SECONDS:-300}
+RETAIL_BILLING_SETTLEMENT_LAG_SECONDS=${RETAIL_BILLING_SETTLEMENT_LAG_SECONDS:-120}
+RETAIL_BILLING_BATCH_SIZE=${RETAIL_BILLING_BATCH_SIZE:-250}
+EMAIL_PROVIDER=${EMAIL_PROVIDER:-resend}
+RESEND_API_KEY=${RESEND_API_KEY:-}
+EMAIL_FROM=${EMAIL_FROM:-Hyperspace <no-reply@hyperspace.zone>}
+EMAIL_REPLY_TO=${EMAIL_REPLY_TO:-gatekeepers@hyperspace.zone}
+SOLANA_WITHDRAWALS_ENABLED=${SOLANA_WITHDRAWALS_ENABLED:-false}
+SOLANA_WITHDRAWAL_INTERVAL_SECONDS=${SOLANA_WITHDRAWAL_INTERVAL_SECONDS:-30}
+CUSTODIAL_WALLET_ENCRYPTION_KEY=${CUSTODIAL_WALLET_ENCRYPTION_KEY:-}
+SOLANA_FEE_PAYER_SECRET_KEY=${SOLANA_FEE_PAYER_SECRET_KEY:-}
 DOUBLEZERO_METERING_URL=${DOUBLEZERO_METERING_URL:-}
 DOUBLEZERO_METERING_BEARER_TOKEN=${DOUBLEZERO_METERING_BEARER_TOKEN:-}
 DOUBLEZERO_METERING_SOURCE_NAME=${DOUBLEZERO_METERING_SOURCE_NAME:-doublezero-hyperspace}
@@ -1309,6 +1322,14 @@ chmod 0640 /etc/hyperspace/control-plane-worker.env
 
 `ARTIFACT_ENCRYPTION_KEY` must be identical for API and worker. Do not rotate it
 without a migration plan for existing artifacts.
+
+`CUSTODIAL_WALLET_ENCRYPTION_KEY` must also be identical for API and worker
+when withdrawals are enabled. Start retail billing with `shadow`; inspect
+ratings and assign an explicit priced plan before changing it to `enforce`.
+Keep withdrawals disabled until the dedicated fee payer is funded with SOL and
+the configured SPL mint has passed a live top-up/withdrawal test. See
+`docs/architecture/retail-billing.md` for the accounting invariants and admin
+role command.
 
 Install and start the API and worker units:
 

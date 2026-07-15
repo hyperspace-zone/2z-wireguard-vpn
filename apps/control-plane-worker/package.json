@@ -11,10 +11,11 @@
     "test": "npm run build && node --test \"dist/**/*.test.js\""
   },
   "dependencies": {
-    "@hyperspace-zone/control-plane": "0.1.0",
     "@hyperspace-zone/contracts": "0.1.0",
+    "@hyperspace-zone/control-plane": "0.1.0",
     "@hyperspace-zone/db": "0.1.0",
-    "@hyperspace-zone/shared": "0.1.0"
+    "@hyperspace-zone/shared": "0.1.0",
+    "@solana/web3.js": "^1.98.4"
   },
   "devDependencies": {
     "typescript": "^5.9.0"

@@ -57,9 +57,29 @@ enabled.
 `SOLANA_RPC_URL` is a secret. Configure the same endpoint on the API and worker;
 never commit a provider URL containing a credential.
 
-## Metering Import
+## Retail usage and DoubleZero wholesale reconciliation
 
-The worker can poll an authenticated HTTPS metering feed. The adapter expects:
+Customer charges are produced from Hyperspace gate counters and the account's
+versioned retail plan. See `docs/architecture/retail-billing.md`. They are not a
+copy of a provider invoice and are not calculated from physical interface
+traffic.
+
+DoubleZero currently charges the complete `hyperspace` tenant a fixed 2Z rate
+per DoubleZero epoch. Record each observed epoch charge through:
+
+```text
+POST /v1/admin/billing/doublezero/cost-events
+```
+
+The request includes `cluster`, `tenant`, `dzEpoch`, `tokenSymbol`, `tokenMint`,
+`amountBaseUnits`, and optionally `usdCostMinor` plus the signed quote evidence.
+The epoch key is idempotent. These events support wholesale cost, revenue, and
+margin reconciliation; they never debit one arbitrary customer account.
+
+## Legacy normalized metering adapter
+
+The earlier MS3 adapter can poll an authenticated per-customer metering feed.
+It expects:
 
 ```json
 {
@@ -90,15 +110,16 @@ DOUBLEZERO_METERING_INTERVAL_SECONDS=300
 BILLING_USAGE_MARKUP_BPS=1500
 ```
 
-The worker persists raw payloads, uses ETag/Last-Modified cursors, deduplicates
+The adapter persists raw payloads, uses ETag/Last-Modified cursors, deduplicates
 provider record IDs, resolves each record to an account or session, applies the
 configured basis-point markup, and writes immutable usage debits. Prometheus
 alerts cover a never-successful or stale feed and rejected records.
 
-Until DoubleZero publishes the tenant's exact metering response, an adapter in
-front of this endpoint must map their payload to the documented normalized
-record shape. The ledger/rating/reconciliation path does not depend on that
-provider-specific shape.
+Keep `DOUBLEZERO_METERING_URL` empty for the current fixed-per-epoch tenant
+contract. This legacy path is only appropriate if DoubleZero later provides a
+contractually authoritative per-Hyperspace-account allocation. It must not be
+fed aggregate tenant bytes, because doing so would conflict with retail rating
+and double-charge customers.
 
 ## Verification
 
@@ -119,8 +140,9 @@ npm run test:live:ui
 ```
 
 The billing DB E2E creates an account wallet, confirms a fixture-backed
-finalized transaction, checks the balance credit, proves signature replay is
-rejected, and removes its account afterwards.
+finalized transaction, checks the cash and promotional buckets, proves
+signature replay and manual-credit replay are rejected, exercises withdrawal
+reservation/cancellation, and removes its account afterwards.
 
 The live UI test covers the real testnet API, PostgreSQL, gates, Solana Pay
 intent, custodial wallet display, config activation, one-time QR, OS helper,

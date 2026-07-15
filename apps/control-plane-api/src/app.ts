@@ -119,7 +119,7 @@ export function createApp(input: CreateControlPlaneApiAppInput): FastifyInstance
   registerAdminSessionRoutes(app, { db, requireAdmin: auth.requireAdmin });
   registerAdminJobRoutes(app, { db, requireAdmin: auth.requireAdmin });
   registerAdminAuditRoutes(app, { db, requireAdmin: auth.requireAdmin });
-  registerAdminBillingRoutes(app, { db, requireAdmin: auth.requireAdmin, billing: config.billing });
+  registerAdminBillingRoutes(app, { db, requireAdmin: auth.requireBillingAdmin, billing: config.billing });
   registerAgentSessionRoutes(app);
   registerAgentEntitlementRoutes(app);
   registerGateActualStateRoutes(app, { db, requireGate: auth.requireGate });

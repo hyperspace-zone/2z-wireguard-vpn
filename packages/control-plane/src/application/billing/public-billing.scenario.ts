@@ -16,6 +16,23 @@ import {
 } from "../../resources/billing/repository.js";
 import { findCustodialWallet } from "../../resources/wallets/repository.js";
 import type { SessionOwner } from "../../resources/sessions/repository.js";
+import {
+  applyBucketCredit,
+  availableBillingBalance
+} from "./prepaid-billing.scenario.js";
+import {
+  readBillingAccountState,
+  readBillingBuckets,
+  readCurrentBillingPlan,
+  listAccountUsageSummaries,
+  listWithdrawalRequests,
+  type AccountUsageSummaryRow,
+  type BillingAccountStateRow,
+  type BillingBucketsRow,
+  type BillingPlanVersionRow,
+  type WithdrawalRequestRow,
+  writeBillingBuckets
+} from "../../resources/billing/prepaid-repository.js";
 import { encodeBase58 } from "../auth/custodial-wallet.scenario.js";
 import {
   findFinalizedSolanaSignaturesForReference,
@@ -42,6 +59,13 @@ export interface BillingSummary {
   currency: string;
   ledger: LedgerEntryRow[];
   topups: TopupIntentRow[];
+  buckets: BillingBucketsRow;
+  state: BillingAccountStateRow;
+  plan: BillingPlanVersionRow;
+  availableBalanceMinor: number;
+  withdrawableBalanceMinor: number;
+  usage: AccountUsageSummaryRow[];
+  withdrawals: WithdrawalRequestRow[];
 }
 
 export type CreateTopupResult =
@@ -64,10 +88,15 @@ export async function readAccountBillingSummary(
   config?: BillingConfig
 ): Promise<BillingSummary> {
   await ensureBillingAccount(db, accountId);
-  const [balance, ledger, topups] = await Promise.all([
+  const [balance, ledger, topups, buckets, state, plan, usage, withdrawals] = await Promise.all([
     readBillingBalance(db, accountId),
     listLedgerEntries(db, accountId),
-    listTopupIntents(db, accountId)
+    listTopupIntents(db, accountId),
+    readBillingBuckets(db, accountId),
+    readBillingAccountState(db, accountId),
+    readCurrentBillingPlan(db, accountId),
+    listAccountUsageSummaries(db, accountId),
+    listWithdrawalRequests(db, accountId)
   ]);
   return {
     accountId,
@@ -77,7 +106,14 @@ export async function readAccountBillingSummary(
     topups: config ? topups.map((topup) => withPaymentUrl(topup, {
       tokenDecimals: config.solanaTokenDecimals,
       tokenBaseUnitsPerBillingMinor: config.solanaTokenBaseUnitsPerBillingMinor
-    })) : topups
+    })) : topups,
+    buckets,
+    state,
+    plan,
+    availableBalanceMinor: availableBillingBalance(buckets),
+    withdrawableBalanceMinor: Math.max(0, buckets.cashMinor - buckets.reservedWithdrawalMinor - buckets.debtMinor),
+    usage,
+    withdrawals
   };
 }
 
@@ -339,7 +375,7 @@ async function finalizeVerifiedTopup(
         confirmed: true,
         metadata: { verificationStatus: "confirmed", verificationEvidence: evidence }
       });
-      await insertLedgerEntry(client, {
+      const inserted = await insertLedgerEntry(client, {
         accountId,
         entryType: "topup",
         amountMinor: locked.amountMinor,
@@ -349,6 +385,10 @@ async function finalizeVerifiedTopup(
         description: "Solana balance top-up",
         metadata: { provider: locked.provider, transactionSignature, ...evidence }
       });
+      if (inserted) {
+        const buckets = await readBillingBuckets(client, accountId, true);
+        await writeBillingBuckets(client, accountId, applyBucketCredit(buckets, locked.amountMinor, "cash"));
+      }
       const updated = await findTopupIntentForUpdate(client, accountId, locked.id);
       if (!updated) {
         throw new Error("top-up disappeared after confirmation");
@@ -388,8 +428,11 @@ export async function accountHasSufficientBalance(
   if (minBalanceMinor <= 0) {
     return true;
   }
-  const balance = await readBillingBalance(db, accountId);
-  return balance.balanceMinor >= minBalanceMinor;
+  const [buckets, state] = await Promise.all([
+    readBillingBuckets(db, accountId),
+    readBillingAccountState(db, accountId)
+  ]);
+  return state.state === "active" && availableBillingBalance(buckets) >= minBalanceMinor;
 }
 
 function isLikelySolanaSignature(value: string): boolean {

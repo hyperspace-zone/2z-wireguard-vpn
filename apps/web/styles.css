@@ -998,6 +998,39 @@ small {
   padding-top: 12px;
 }
 
+.support-contact,
+.compact-copy {
+  color: #57606a;
+  font-size: 13px;
+  margin: 14px 0 0;
+}
+
+.admin-actions {
+  min-width: 260px;
+}
+
+.admin-actions form {
+  display: grid;
+  gap: 6px;
+  grid-template-columns: minmax(70px, 1fr) minmax(90px, 1.3fr) auto;
+  margin-bottom: 8px;
+}
+
+.admin-actions form:last-child {
+  grid-template-columns: minmax(140px, 1fr) auto;
+  margin-bottom: 0;
+}
+
+.admin-plan-create {
+  align-items: end;
+  border-bottom: 1px solid #d8dee8;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(5, minmax(120px, 1fr)) auto;
+  margin-bottom: 14px;
+  padding-bottom: 14px;
+}
+
 .qr-overlay {
   align-items: center;
   background: rgba(22, 27, 34, 0.72);
@@ -1298,6 +1331,7 @@ small {
   .topbar,
   .grid,
   .account-grid,
+  .admin-plan-create,
   .gate-select-row,
   .inline-form,
   .review-grid,

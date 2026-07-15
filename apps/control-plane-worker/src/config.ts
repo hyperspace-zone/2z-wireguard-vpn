@@ -1,4 +1,5 @@
 import { parseAes256GcmKey } from "@hyperspace-zone/shared";
+import { Keypair } from "@solana/web3.js";
 import type { BillingConfig } from "@hyperspace-zone/control-plane";
 import type { ReconcileLoopRuntimeConfig } from "./loops/reconcile-loop.js";
 
@@ -10,6 +11,25 @@ export interface ControlPlaneWorkerConfig extends ReconcileLoopRuntimeConfig {
   observabilityPort: number;
   solanaTopupReconcileIntervalSeconds: number;
   billing: BillingConfig;
+  retailBilling: {
+    enabled: boolean;
+    mode: "shadow" | "enforce";
+    intervalSeconds: number;
+    settlementLagSeconds: number;
+    batchSize: number;
+  };
+  billingNotifications: {
+    provider: "disabled" | "resend";
+    resendApiKey: string;
+    from: string;
+    replyTo: string;
+  };
+  solanaWithdrawals: {
+    enabled: boolean;
+    intervalSeconds: number;
+    custodialEncryptionKey: Buffer | null;
+    feePayer: Keypair | null;
+  };
   doubleZeroMetering: {
     url: string;
     bearerToken: string;
@@ -50,6 +70,27 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ControlPlaneWo
       allowUnverifiedTopups: false,
       usageMarkupBps: Number(env.BILLING_USAGE_MARKUP_BPS ?? 1500)
     },
+    retailBilling: {
+      enabled: env.RETAIL_BILLING_ENABLED === "true",
+      mode: env.RETAIL_BILLING_MODE === "enforce" ? "enforce" : "shadow",
+      intervalSeconds: Number(env.RETAIL_BILLING_INTERVAL_SECONDS ?? 300),
+      settlementLagSeconds: Number(env.RETAIL_BILLING_SETTLEMENT_LAG_SECONDS ?? 120),
+      batchSize: Number(env.RETAIL_BILLING_BATCH_SIZE ?? 250)
+    },
+    billingNotifications: {
+      provider: env.EMAIL_PROVIDER === "resend" ? "resend" : "disabled",
+      resendApiKey: env.RESEND_API_KEY ?? "",
+      from: env.EMAIL_FROM ?? "Hyperspace <no-reply@hyperspace.zone>",
+      replyTo: env.EMAIL_REPLY_TO ?? "gatekeepers@hyperspace.zone"
+    },
+    solanaWithdrawals: {
+      enabled: env.SOLANA_WITHDRAWALS_ENABLED === "true",
+      intervalSeconds: Number(env.SOLANA_WITHDRAWAL_INTERVAL_SECONDS ?? 30),
+      custodialEncryptionKey: env.CUSTODIAL_WALLET_ENCRYPTION_KEY
+        ? parseAes256GcmKey(env.CUSTODIAL_WALLET_ENCRYPTION_KEY, "CUSTODIAL_WALLET_ENCRYPTION_KEY")
+        : null,
+      feePayer: parseSolanaFeePayer(env.SOLANA_FEE_PAYER_SECRET_KEY)
+    },
     doubleZeroMetering: {
       url: env.DOUBLEZERO_METERING_URL ?? "",
       bearerToken: env.DOUBLEZERO_METERING_BEARER_TOKEN ?? "",
@@ -71,4 +112,18 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ControlPlaneWo
     ntpDiscoverySampleSeconds: Number(env.NTP_DISCOVERY_SAMPLE_SECONDS ?? 30),
     ntpDiscoveryMaxCandidates: Number(env.NTP_DISCOVERY_MAX_CANDIDATES ?? 96)
   };
+}
+
+function parseSolanaFeePayer(value: string | undefined): Keypair | null {
+  if (!value) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    throw new Error("SOLANA_FEE_PAYER_SECRET_KEY must be a JSON array of 64 bytes");
+  }
+  if (!Array.isArray(parsed) || parsed.length !== 64 || parsed.some((byte) => !Number.isInteger(byte) || byte < 0 || byte > 255)) {
+    throw new Error("SOLANA_FEE_PAYER_SECRET_KEY must be a JSON array of 64 bytes");
+  }
+  return Keypair.fromSecretKey(Uint8Array.from(parsed as number[]));
 }

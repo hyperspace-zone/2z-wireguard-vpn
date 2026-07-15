@@ -3,6 +3,9 @@ import { randomBytes } from "node:crypto";
 import { createDatabase } from "../../packages/db/dist/index.js";
 import {
   createSolanaTopupIntent,
+  applyBillingCredit,
+  cancelOwnedWithdrawal,
+  createWithdrawalRequest,
   ensureCustodialSolanaWallet,
   readAccountBillingSummary,
   registerUser,
@@ -59,6 +62,45 @@ try {
   }
   const summary = await readAccountBillingSummary(db, accountId, config);
   assertEqual(summary.balanceMinor, 2500, "verified top-up balance");
+  assertEqual(summary.buckets.cashMinor, 2500, "verified top-up is withdrawable cash");
+
+  await applyBillingCredit(db, {
+    accountId,
+    amountMinor: 500,
+    kind: "promotional",
+    sourceType: "billing_e2e_credit",
+    sourceId: runId,
+    description: "Billing E2E promotional credit"
+  });
+  await applyBillingCredit(db, {
+    accountId,
+    amountMinor: 500,
+    kind: "promotional",
+    sourceType: "billing_e2e_credit",
+    sourceId: runId,
+    description: "Idempotency replay"
+  });
+  const credited = await readAccountBillingSummary(db, accountId, config);
+  assertEqual(credited.buckets.promotionalMinor, 500, "manual credit is promotional and idempotent");
+  assertEqual(credited.withdrawableBalanceMinor, 2500, "promotional credit is not withdrawable");
+
+  const externalWallet = "11111111111111111111111111111111";
+  await db.query(
+    `INSERT INTO wallet_links (account_id, user_id, chain, public_key, label)
+     VALUES ($1, $2, 'solana', $3, 'Billing E2E destination')`,
+    [accountId, actor.id, externalWallet]
+  );
+  const withdrawal = await createWithdrawalRequest(db, actor, {
+    amountMinor: 1000,
+    destinationAddress: externalWallet
+  }, config);
+  if (typeof withdrawal === "string") throw new Error(`withdrawal creation failed: ${withdrawal}`);
+  const reserved = await readAccountBillingSummary(db, accountId, config);
+  assertEqual(reserved.buckets.reservedWithdrawalMinor, 1000, "withdrawal reserves paid cash");
+  assertEqual(reserved.availableBalanceMinor, 2000, "reserved cash is unavailable for usage");
+  assertEqual(await cancelOwnedWithdrawal(db, actor, withdrawal.withdrawal.id), "cancelled", "withdrawal cancellation");
+  const cancelled = await readAccountBillingSummary(db, accountId, config);
+  assertEqual(cancelled.buckets.reservedWithdrawalMinor, 0, "cancellation releases reserved cash");
 
   const second = await createSolanaTopupIntent(db, actor, { amountMinor: 2500 }, config);
   if (typeof second === "string") throw new Error(`second top-up creation failed: ${second}`);
@@ -74,7 +116,15 @@ try {
   }, config);
   assertEqual(replay, "topup_transaction_reused", "transaction replay protection");
 
-  console.log(JSON.stringify({ ok: true, wallet: wallet.publicKey, balanceMinor: summary.balanceMinor, replayProtected: true }, null, 2));
+  console.log(JSON.stringify({
+    ok: true,
+    wallet: wallet.publicKey,
+    balanceMinor: cancelled.balanceMinor,
+    cashMinor: cancelled.buckets.cashMinor,
+    promotionalMinor: cancelled.buckets.promotionalMinor,
+    replayProtected: true,
+    withdrawalLifecycle: true
+  }, null, 2));
 } finally {
   if (accountId) {
     await db.query("DELETE FROM audit_events WHERE account_id = $1", [accountId]);

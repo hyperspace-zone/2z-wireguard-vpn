@@ -6,6 +6,9 @@ import { createDoubleZeroMeteringLoop } from "../loops/doublezero-metering-loop.
 import { collectControlPlaneSnapshotMetrics } from "../observability/control-plane-snapshot.js";
 import { createRetryLoop } from "../loops/retry-loop.js";
 import { createSolanaTopupLoop } from "../loops/solana-topup-loop.js";
+import { createRetailBillingLoop } from "../loops/retail-billing-loop.js";
+import { createBillingNotificationLoop } from "../loops/billing-notification-loop.js";
+import { createSolanaWithdrawalLoop } from "../loops/solana-withdrawal-loop.js";
 import { createReconcileRunner } from "./reconcile-runner.js";
 import { log, sleep } from "../support/runtime.js";
 
@@ -29,6 +32,9 @@ export function createWorkerRunner(input: {
   const cleanupLoop = createCleanupLoop(input.db);
   const solanaTopupLoop = createSolanaTopupLoop(input.db, input.config);
   const doubleZeroMeteringLoop = createDoubleZeroMeteringLoop(input.db, input.config);
+  const retailBillingLoop = createRetailBillingLoop(input.db, input.config);
+  const billingNotificationLoop = createBillingNotificationLoop(input.db, input.config);
+  const solanaWithdrawalLoop = createSolanaWithdrawalLoop(input.db, input.config);
   let stopping = false;
 
   return {
@@ -37,12 +43,33 @@ export function createWorkerRunner(input: {
       input.metrics.gauge("billing_metering_import_enabled", input.config.doubleZeroMetering.url ? 1 : 0, {
         help: "Whether periodic DoubleZero metering import is configured."
       });
+      input.metrics.gauge("retail_billing_enabled", input.config.retailBilling.enabled ? 1 : 0, {
+        help: "Whether Hyperspace retail billing settlement is enabled.",
+        labels: { mode: input.config.retailBilling.mode }
+      });
       input.health.setComponent("worker-runner", { state: "ready", message: "Worker runner loop started." });
       while (!stopping) {
         await runMeasuredLoop("reconcile", input, () => reconcileRunner.runOnce());
         await runMeasuredLoop("retry", input, () => retryLoop.runOnce());
         await runMeasuredLoop("cleanup", input, () => cleanupLoop.runOnce());
         await runMeasuredLoop("solana-topups", input, () => solanaTopupLoop.runOnce());
+        if (retailBillingLoop.due()) {
+          const settlement = await runMeasuredLoop("retail-billing", input, () => retailBillingLoop.runOnce());
+          if (settlement) {
+            input.metrics.counter("retail_billing_rated_windows_total", settlement.ratedWindows, {
+              help: "Total idempotently rated VPN usage windows.",
+              labels: { mode: settlement.mode }
+            });
+            input.metrics.counter("retail_billing_posted_minor_total", settlement.postedMinor, {
+              help: "Total posted retail billing minor units.",
+              labels: { mode: settlement.mode, currency: input.config.billing.currency }
+            });
+          }
+        }
+        await runMeasuredLoop("billing-notifications", input, () => billingNotificationLoop.runOnce());
+        if (solanaWithdrawalLoop.due()) {
+          await runMeasuredLoop("solana-withdrawals", input, () => solanaWithdrawalLoop.runOnce());
+        }
         if (doubleZeroMeteringLoop.due()) {
           const metering = await runMeasuredLoop("doublezero-metering", input, () => doubleZeroMeteringLoop.runOnce());
           if (metering) {

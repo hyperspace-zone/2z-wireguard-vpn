@@ -321,8 +321,8 @@ export async function insertLedgerEntry(
     description: string;
     metadata?: Record<string, unknown>;
   }
-): Promise<void> {
-  await db.query(
+): Promise<boolean> {
+  const result = await db.query<{ id: string }>(
     `
       INSERT INTO balance_ledger_entries (
         account_id,
@@ -336,6 +336,7 @@ export async function insertLedgerEntry(
       )
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)
       ON CONFLICT (source_type, source_id) DO NOTHING
+      RETURNING id
     `,
     [
       input.accountId,
@@ -348,6 +349,7 @@ export async function insertLedgerEntry(
       JSON.stringify(input.metadata ?? {})
     ]
   );
+  return Boolean(result.rows[0]);
 }
 
 export async function insertDoubleZeroTenantBillingSnapshot(

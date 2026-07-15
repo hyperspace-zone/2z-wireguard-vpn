@@ -8,7 +8,7 @@ export function registerAdminAuditRoutes(
   app: FastifyInstance,
   deps: {
     db: Database;
-    requireAdmin: (request: FastifyRequest, reply: FastifyReply) => AdminAuthContext | null;
+    requireAdmin: (request: FastifyRequest, reply: FastifyReply) => Promise<AdminAuthContext | null>;
   }
 ): void {
   app.get("/v1/admin/audit", {
@@ -18,7 +18,7 @@ export function registerAdminAuditRoutes(
       }
     }
   }, async (request, reply) => {
-    const admin = deps.requireAdmin(request, reply);
+    const admin = await deps.requireAdmin(request, reply);
     if (!admin) {
       return;
     }

@@ -220,14 +220,80 @@ export const publicTopupIntentSchema = {
 export const publicBillingSummaryResponseSchema = {
   type: "object",
   additionalProperties: false,
-  required: ["accountId", "balanceMinor", "currency", "ledger", "topups"],
+  required: ["accountId", "balanceMinor", "currency", "ledger", "topups", "buckets", "state", "plan", "availableBalanceMinor", "withdrawableBalanceMinor", "usage", "withdrawals"],
   properties: {
     accountId: { type: "string" },
     balanceMinor: { type: "number" },
     currency: { type: "string" },
     ledger: { type: "array", items: publicBillingLedgerEntrySchema },
-    topups: { type: "array", items: publicTopupIntentSchema }
+    topups: { type: "array", items: publicTopupIntentSchema },
+    availableBalanceMinor: { type: "number" },
+    withdrawableBalanceMinor: { type: "number" },
+    buckets: {
+      type: "object",
+      additionalProperties: false,
+      required: ["cashMinor", "promotionalMinor", "reservedWithdrawalMinor", "debtMinor"],
+      properties: {
+        cashMinor: { type: "number" },
+        promotionalMinor: { type: "number" },
+        reservedWithdrawalMinor: { type: "number" },
+        debtMinor: { type: "number" }
+      }
+    },
+    state: {
+      type: "object",
+      additionalProperties: false,
+      required: ["state", "overdrawnAt", "suspensionDueAt", "suspendedAt", "withdrawalEligibleAt", "lastSettledAt"],
+      properties: {
+        state: { type: "string" },
+        overdrawnAt: { type: ["string", "null"], format: "date-time" },
+        suspensionDueAt: { type: ["string", "null"], format: "date-time" },
+        suspendedAt: { type: ["string", "null"], format: "date-time" },
+        withdrawalEligibleAt: { type: ["string", "null"], format: "date-time" },
+        lastSettledAt: { type: ["string", "null"], format: "date-time" }
+      }
+    },
+    plan: {
+      type: "object",
+      additionalProperties: false,
+      required: ["id", "code", "version", "displayName", "currency", "activeConfigMonthlyMinor", "trafficPerGbMinor", "gracePeriodSeconds", "withdrawalCooldownSeconds", "minimumWithdrawalMinor"],
+      properties: {
+        id: { type: "string" }, code: { type: "string" }, version: { type: "number" }, displayName: { type: "string" }, currency: { type: "string" },
+        activeConfigMonthlyMinor: { type: "number" }, trafficPerGbMinor: { type: "number" }, gracePeriodSeconds: { type: "number" },
+        withdrawalCooldownSeconds: { type: "number" }, minimumWithdrawalMinor: { type: "number" }
+      }
+    },
+    usage: {
+      type: "array",
+      items: {
+        type: "object", additionalProperties: false,
+        required: ["sessionId", "sessionLabel", "activeSeconds", "bytesToDestination", "bytesFromDestination", "chargeMinor", "estimatedChargeMicrominor", "lastRatedAt"],
+        properties: {
+          sessionId: { type: "string" }, sessionLabel: { type: ["string", "null"] }, activeSeconds: { type: "number" },
+          bytesToDestination: { type: "string" }, bytesFromDestination: { type: "string" }, chargeMinor: { type: "number" },
+          estimatedChargeMicrominor: { type: "string" }, lastRatedAt: { type: "string", format: "date-time" }
+        }
+      }
+    },
+    withdrawals: {
+      type: "array",
+      items: {
+        type: "object", additionalProperties: false,
+        required: ["id", "status", "amountMinor", "currency", "tokenSymbol", "tokenMint", "tokenAmountBaseUnits", "destinationAddress", "eligibleAt", "transactionSignature", "failureReason", "requestedAt", "submittedAt", "confirmedAt"],
+        properties: {
+          id: { type: "string" }, status: { type: "string" }, amountMinor: { type: "number" }, currency: { type: "string" },
+          tokenSymbol: { type: "string" }, tokenMint: { type: "string" }, tokenAmountBaseUnits: { type: "string" }, destinationAddress: { type: "string" },
+          eligibleAt: { type: "string", format: "date-time" }, transactionSignature: { type: ["string", "null"] }, failureReason: { type: ["string", "null"] },
+          requestedAt: { type: "string", format: "date-time" }, submittedAt: { type: ["string", "null"], format: "date-time" }, confirmedAt: { type: ["string", "null"], format: "date-time" }
+        }
+      }
+    }
   }
+} as const;
+
+export const publicCreateWithdrawalRequestSchema = {
+  type: "object", additionalProperties: false, required: ["amountMinor", "destinationAddress"],
+  properties: { amountMinor: { type: "number", minimum: 1 }, destinationAddress: { type: "string", minLength: 32 } }
 } as const;
 
 export const publicCreateTopupRequestSchema = {

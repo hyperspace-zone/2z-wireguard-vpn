@@ -60,6 +60,32 @@ export {
   type DoubleZeroUsageImportResult,
   type DoubleZeroUsageRecordInput
 } from "./application/billing/doublezero-usage-import.scenario.js";
+export {
+  applyBillingCredit,
+  applyBucketCredit,
+  availableBillingBalance,
+  calculateRetailChargeMicrominor,
+  consumeBillingCharge,
+  settleRetailBilling,
+  type RetailBillingRuntimeConfig,
+  type RetailBillingSettlementResult
+} from "./application/billing/prepaid-billing.scenario.js";
+export {
+  cancelOwnedWithdrawal,
+  claimWithdrawalSigningJob,
+  confirmWithdrawal,
+  createWithdrawalRequest,
+  failWithdrawalSubmission,
+  listWithdrawalConfirmations,
+  recordWithdrawalSubmission,
+  type WithdrawalSigningJob,
+  type CreateWithdrawalResult
+} from "./application/billing/withdrawal.scenario.js";
+export {
+  deliverNextBillingNotification,
+  renderBillingNotification,
+  type BillingEmailSender
+} from "./application/billing/billing-notifications.scenario.js";
 export { issueClientConfigDownloadToken } from "./application/artifacts/issue-download-token.scenario.js";
 export { drainGate } from "./application/operator/drain-gate.scenario.js";
 export { forceReconcile } from "./application/operator/force-reconcile.scenario.js";
@@ -119,6 +145,19 @@ export {
   recordBillingImportFailure,
   recordBillingImportSuccess
 } from "./resources/billing/repository.js";
+export {
+  assignBillingPlan,
+  createBillingPlanVersion,
+  grantUserRoleByEmail,
+  listBillingCustomers,
+  listAdminBillingConfigs,
+  listBillingPlans,
+  listWithdrawalRequests,
+  insertDoubleZeroTenantCostEvent,
+  type WithdrawalRequestRow,
+  userHasRole,
+  type BillingCustomerRow
+} from "./resources/billing/prepaid-repository.js";
 export {
   defaultSessionAbuseControlConfig,
   type SessionAbuseControlConfig

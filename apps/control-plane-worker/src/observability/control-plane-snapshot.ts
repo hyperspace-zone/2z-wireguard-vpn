@@ -13,6 +13,7 @@ export async function collectControlPlaneSnapshotMetrics(input: {
     await collectAssignmentUsageMetrics(input.db, input.metrics);
     await collectJobMetrics(input.db, input.metrics);
     await collectBenchmarkMetrics(input.db, input.metrics);
+    await collectBillingMetrics(input.db, input.metrics);
     input.metrics.gauge("control_plane_snapshot_ready", 1, {
       help: "Whether the worker has collected a complete control-plane business metrics snapshot."
     });
@@ -38,6 +39,47 @@ export async function collectControlPlaneSnapshotMetrics(input: {
     });
     throw error;
   }
+}
+
+async function collectBillingMetrics(db: Database, metrics: RuntimeMetrics): Promise<void> {
+  const stateResult = await db.query<{ state: string; accounts: number; debtMinor: string }>(`
+    WITH states AS (
+      SELECT unnest(ARRAY['active', 'grace', 'suspended']) AS state
+    )
+    SELECT
+      states.state,
+      COUNT(billing_account_states.account_id)::int AS accounts,
+      COALESCE(SUM(billing_balance_buckets.debt_minor), 0)::text AS "debtMinor"
+    FROM states
+    LEFT JOIN billing_account_states ON billing_account_states.state = states.state
+    LEFT JOIN billing_balance_buckets ON billing_balance_buckets.account_id = billing_account_states.account_id
+    GROUP BY states.state
+  `);
+  for (const row of stateResult.rows) {
+    metrics.gauge("control_plane_billing_accounts", row.accounts, {
+      help: "Hyperspace billing accounts by lifecycle state.", labels: { state: row.state }
+    });
+    metrics.gauge("control_plane_billing_debt_minor", Number(row.debtMinor), {
+      help: "Outstanding retail billing debt in currency minor units.", labels: { state: row.state, currency: "USD" }
+    });
+  }
+  const queue = await db.query<{ pending: number; oldestAgeSeconds: number; failedWithdrawals: number }>(`
+    SELECT
+      (SELECT COUNT(*)::int FROM billing_notification_outbox WHERE status IN ('pending', 'failed')) AS pending,
+      COALESCE((SELECT EXTRACT(EPOCH FROM now() - MIN(created_at))::float FROM billing_notification_outbox WHERE status IN ('pending', 'failed')), 0) AS "oldestAgeSeconds",
+      (SELECT COUNT(*)::int FROM withdrawal_requests WHERE status = 'failed') AS "failedWithdrawals"
+  `);
+  const row = queue.rows[0];
+  if (!row) return;
+  metrics.gauge("control_plane_billing_notification_backlog", row.pending, {
+    help: "Pending or failed billing notification emails."
+  });
+  metrics.gauge("control_plane_billing_notification_oldest_age_seconds", row.oldestAgeSeconds, {
+    help: "Age in seconds of the oldest pending billing notification."
+  });
+  metrics.gauge("control_plane_billing_failed_withdrawals", row.failedWithdrawals, {
+    help: "Solana withdrawal requests currently requiring retry or operator review."
+  });
 }
 
 async function collectAssignmentUsageMetrics(db: Database, metrics: RuntimeMetrics): Promise<void> {

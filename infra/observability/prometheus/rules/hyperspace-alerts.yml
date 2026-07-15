@@ -253,6 +253,45 @@ groups:
           summary: Hyperspace gate traffic is approaching a 1 Gbit/s host limit
           description: Gate {{ $labels.gate }} has sustained more than 750 Mbit/s aggregate physical traffic for 10 minutes.
 
+      - alert: HyperspaceRetailBillingLoopStale
+        expr: |
+          retail_billing_enabled{job="hyperspace-control-plane-worker"} == 1
+          and on(instance)
+          time() - worker_loop_last_success_timestamp_seconds{job="hyperspace-control-plane-worker",loop="retail-billing"} > 900
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: Hyperspace retail billing settlement is stale
+          description: The enabled retail billing worker has not completed a settlement for more than 15 minutes.
+
+      - alert: HyperspaceBillingNotificationBacklog
+        expr: control_plane_billing_notification_oldest_age_seconds{job="hyperspace-control-plane-worker"} > 900
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: Hyperspace billing email delivery is delayed
+          description: At least one billing notification has remained undelivered for more than 15 minutes.
+
+      - alert: HyperspaceBillingAccountsInGrace
+        expr: control_plane_billing_accounts{job="hyperspace-control-plane-worker",state="grace"} > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Hyperspace customer accounts exhausted prepaid balance
+          description: One or more customer accounts are in the billing grace period and may have VPN configs revoked.
+
+      - alert: HyperspaceBillingWithdrawalFailed
+        expr: control_plane_billing_failed_withdrawals{job="hyperspace-control-plane-worker"} > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Hyperspace Solana withdrawal requires attention
+          description: At least one customer withdrawal failed and is waiting for retry or operator review.
+
       - alert: HyperspaceGatePacketRatePressure
         expr: |
           sum by (cluster, gate, public_ipv4, probe_host) (

@@ -15,7 +15,7 @@ export function registerAdminJobRoutes(
   app: FastifyInstance,
   deps: {
     db: Database;
-    requireAdmin: (request: FastifyRequest, reply: FastifyReply) => AdminAuthContext | null;
+    requireAdmin: (request: FastifyRequest, reply: FastifyReply) => Promise<AdminAuthContext | null>;
   }
 ): void {
   app.get("/v1/admin/jobs", {
@@ -25,7 +25,7 @@ export function registerAdminJobRoutes(
       }
     }
   }, async (request, reply) => {
-    const admin = deps.requireAdmin(request, reply);
+    const admin = await deps.requireAdmin(request, reply);
     if (!admin) {
       return;
     }
@@ -41,7 +41,7 @@ export function registerAdminJobRoutes(
       }
     }
   }, async (request, reply) => {
-    const admin = deps.requireAdmin(request, reply);
+    const admin = await deps.requireAdmin(request, reply);
     if (!admin) {
       return;
     }

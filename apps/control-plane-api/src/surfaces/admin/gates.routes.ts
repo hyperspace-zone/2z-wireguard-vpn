@@ -15,7 +15,7 @@ export function registerAdminGatesRoutes(
   app: FastifyInstance,
   deps: {
     db: Database;
-    requireAdmin: (request: FastifyRequest, reply: FastifyReply) => AdminAuthContext | null;
+    requireAdmin: (request: FastifyRequest, reply: FastifyReply) => Promise<AdminAuthContext | null>;
   }
 ): void {
   app.get("/v1/admin/gates", {
@@ -25,7 +25,7 @@ export function registerAdminGatesRoutes(
       }
     }
   }, async (request, reply) => {
-    const admin = deps.requireAdmin(request, reply);
+    const admin = await deps.requireAdmin(request, reply);
     if (!admin) {
       return;
     }
@@ -42,7 +42,7 @@ function registerGateDesiredStateRoute(
   app: FastifyInstance,
   deps: {
     db: Database;
-    requireAdmin: (request: FastifyRequest, reply: FastifyReply) => AdminAuthContext | null;
+    requireAdmin: (request: FastifyRequest, reply: FastifyReply) => Promise<AdminAuthContext | null>;
   },
   command: "enable" | "drain" | "disable" | "maintenance",
   desiredState: GateDesiredState
@@ -56,7 +56,7 @@ function registerGateDesiredStateRoute(
       }
     }
   }, async (request, reply) => {
-    const admin = deps.requireAdmin(request, reply);
+    const admin = await deps.requireAdmin(request, reply);
     if (!admin) {
       return;
     }

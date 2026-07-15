@@ -1,5 +1,5 @@
 type SessionMode = "IpToIp" | "FullTunnel";
-type AppView = "dashboard" | "create-config" | "benchmarks" | "login" | "register";
+type AppView = "dashboard" | "create-config" | "benchmarks" | "admin-billing" | "login" | "register";
 type CreateConfigStep = "configure" | "confirm";
 type SortDirection = "desc" | "asc";
 type KeyInstructionPlatform = "linux" | "macos" | "windows";
@@ -194,6 +194,83 @@ interface BillingSummary {
   currency: string;
   ledger: BillingLedgerEntry[];
   topups: TopupIntent[];
+  availableBalanceMinor: number;
+  withdrawableBalanceMinor: number;
+  buckets: { cashMinor: number; promotionalMinor: number; reservedWithdrawalMinor: number; debtMinor: number };
+  state: { state: string; suspensionDueAt?: string | null; withdrawalEligibleAt?: string | null; lastSettledAt?: string | null };
+  plan: { code: string; version: number; displayName: string; activeConfigMonthlyMinor: number; trafficPerGbMinor: number; gracePeriodSeconds: number; withdrawalCooldownSeconds: number; minimumWithdrawalMinor: number };
+  usage: BillingUsageSummary[];
+  withdrawals: WithdrawalRequest[];
+}
+
+interface BillingUsageSummary {
+  sessionId: string;
+  sessionLabel?: string | null;
+  activeSeconds: number;
+  bytesToDestination: string;
+  bytesFromDestination: string;
+  chargeMinor: number;
+  estimatedChargeMicrominor: string;
+  lastRatedAt: string;
+}
+
+interface WithdrawalRequest {
+  id: string;
+  status: string;
+  amountMinor: number;
+  currency: string;
+  tokenSymbol: string;
+  destinationAddress: string;
+  eligibleAt: string;
+  transactionSignature?: string | null;
+  requestedAt: string;
+}
+
+interface AdminBillingCustomer {
+  accountId: string;
+  email: string;
+  displayName: string;
+  state: string;
+  balanceMinor: number;
+  cashMinor: number;
+  promotionalMinor: number;
+  reservedWithdrawalMinor: number;
+  debtMinor: number;
+  activeConfigCount: number;
+  planCode: string;
+  planVersion: number;
+  suspensionDueAt?: string | null;
+  lastSettledAt?: string | null;
+}
+
+interface AdminBillingPlan {
+  code: string;
+  version: number;
+  displayName: string;
+  activeConfigMonthlyMinor: number;
+  trafficPerGbMinor: number;
+}
+
+interface AdminBillingSummary {
+  customers: AdminBillingCustomer[];
+  plans: AdminBillingPlan[];
+  configs: AdminBillingConfig[];
+}
+
+interface AdminBillingConfig {
+  sessionId: string;
+  accountId: string;
+  customerEmail: string;
+  label?: string | null;
+  phase: string;
+  desiredState: string;
+  ingressGateName?: string | null;
+  egressGateName?: string | null;
+  activeSeconds: number;
+  payloadBytes: string;
+  chargeMinor: number;
+  createdAt: string;
+  lastRatedAt?: string | null;
 }
 
 const apiBase = (window as unknown as { HYPERSPACE_API_BASE?: string }).HYPERSPACE_API_BASE ?? "/api";
@@ -206,6 +283,7 @@ let latestMe: Me | null = null;
 let latestBenchmarkMatrix: BenchmarkMatrix | null = null;
 let latestBilling: BillingSummary | null = null;
 let latestWallets: WalletLink[] = [];
+let latestAdminBilling: AdminBillingSummary | null = null;
 const gateLatencyById = new Map<string, { medianMs: number | null; minMs: number | null; maxMs: number | null; sampleCount: number }>();
 const gateLatencyInProgressIds = new Set<string>();
 const revokingConfigIds = new Set<string>();
@@ -232,6 +310,7 @@ let emailOtpBusy = false;
 let googleLoginBusy = false;
 let walletLinkBusy = false;
 let topupBusy = false;
+let withdrawalBusy = false;
 let activeConfigQrSvg = "";
 let activeConfigQrSessionId = "";
 let ingressGateManuallySelected = false;
@@ -288,13 +367,14 @@ function renderLoading(): void {
 }
 
 async function refresh(options: { skipAutoMeasure?: boolean } = {}): Promise<void> {
-  const [gates, sessions, me, benchmarkMatrix, billing, wallets] = await Promise.all([
+  const [gates, sessions, me, benchmarkMatrix, billing, wallets, adminBilling] = await Promise.all([
     getGates().catch(() => [] as Gate[]),
     token ? getSessions().catch(() => [] as Session[]) : Promise.resolve([]),
     token ? getMe().catch(() => null) : Promise.resolve(null),
     getBenchmarkMatrix().catch(() => null),
     token ? getBilling().catch(() => null) : Promise.resolve(null),
-    token ? getWallets().catch(() => [] as WalletLink[]) : Promise.resolve([])
+    token ? getWallets().catch(() => [] as WalletLink[]) : Promise.resolve([]),
+    token ? getAdminBilling().catch(() => null) : Promise.resolve(null)
   ]);
   latestGates = gates;
   latestSessions = sessions;
@@ -302,6 +382,7 @@ async function refresh(options: { skipAutoMeasure?: boolean } = {}): Promise<voi
   latestBenchmarkMatrix = benchmarkMatrix;
   latestBilling = billing;
   latestWallets = wallets;
+  latestAdminBilling = adminBilling;
   render({ gates: decorateGates(gates), sessions, me, benchmarkMatrix, billing, wallets });
   if (!options.skipAutoMeasure && me) {
     maybeMeasureGatesAutomatically();
@@ -376,6 +457,9 @@ function viewFromLocation(): AppView {
   if (window.location.pathname === "/benchmarks") {
     return "benchmarks";
   }
+  if (window.location.pathname === "/admin/billing") {
+    return "admin-billing";
+  }
   if (window.location.pathname === "/register") {
     return "register";
   }
@@ -391,6 +475,9 @@ function viewPath(view: AppView): string {
   }
   if (view === "benchmarks") {
     return "/benchmarks";
+  }
+  if (view === "admin-billing") {
+    return "/admin/billing";
   }
   if (view === "login") {
     return "/login";
@@ -429,6 +516,9 @@ function renderView(state: { view: AppView; gates: Gate[]; sessions: Session[]; 
   if (state.view === "benchmarks") {
     return benchmarksView({ gates: state.gates, benchmarkMatrix: state.benchmarkMatrix });
   }
+  if (state.view === "admin-billing") {
+    return adminBillingView(latestAdminBilling);
+  }
   return dashboardView({ gates: state.gates, sessions: state.sessions, benchmarkMatrix: state.benchmarkMatrix, billing: state.billing, wallets: state.wallets });
 }
 
@@ -437,7 +527,7 @@ function shouldShowEventLog(view: AppView, me: Me | null): boolean {
 }
 
 function isAppView(value: string | undefined): value is AppView {
-  return value === "dashboard" || value === "create-config" || value === "benchmarks" || value === "login" || value === "register";
+  return value === "dashboard" || value === "create-config" || value === "benchmarks" || value === "admin-billing" || value === "login" || value === "register";
 }
 
 function isKeyInstructionPlatform(value: string | undefined): value is KeyInstructionPlatform {
@@ -492,6 +582,7 @@ function appNav(view: AppView): string {
       <a href="/" data-view="dashboard" class="${view === "dashboard" ? "active" : ""}">Dashboard</a>
       <a href="/create-config" data-view="create-config" class="${view === "create-config" ? "active" : ""}">Create config</a>
       <a href="/benchmarks" data-view="benchmarks" class="${view === "benchmarks" ? "active" : ""}">Benchmarks</a>
+      ${latestAdminBilling ? `<a href="/admin/billing" data-view="admin-billing" class="${view === "admin-billing" ? "active" : ""}">Billing admin</a>` : ""}
     </nav>
   `;
 }
@@ -513,6 +604,7 @@ function dashboardView(state: { gates: Gate[]; sessions: Session[]; benchmarkMat
         <h2>Account</h2>
       </div>
       ${accountPanel(state.billing, state.wallets)}
+      <p class="support-contact">Need test credits or billing help? <a href="mailto:gatekeepers@hyperspace.zone">gatekeepers@hyperspace.zone</a></p>
     </section>
 
     <section class="panel primary-panel">
@@ -610,8 +702,9 @@ function accountPanel(billing: BillingSummary | null, wallets: WalletLink[]): st
     <div class="account-grid">
       <div class="account-card">
         <h3>Balance</h3>
-        <strong class="balance-value">${escapeHtml(formatMoneyMinor(billing?.balanceMinor ?? 0, billing?.currency ?? "USD"))}</strong>
-        <small>Applies to new and active VPN configs when billing enforcement is enabled.</small>
+        <strong class="balance-value">${escapeHtml(formatMoneyMinor(billing?.availableBalanceMinor ?? billing?.balanceMinor ?? 0, billing?.currency ?? "USD"))}</strong>
+        <small>${billing ? `${escapeHtml(billing.state.state)} · ${escapeHtml(billing.plan.displayName)} v${billing.plan.version}` : "Billing is loading"}</small>
+        ${billing ? `<small>Paid ${escapeHtml(formatMoneyMinor(billing.buckets.cashMinor, billing.currency))} · Credits ${escapeHtml(formatMoneyMinor(billing.buckets.promotionalMinor, billing.currency))}${billing.buckets.debtMinor ? ` · Debt ${escapeHtml(formatMoneyMinor(billing.buckets.debtMinor, billing.currency))}` : ""}</small>` : ""}
       </div>
       <div class="account-card">
         <h3>Solana deposit wallet</h3>
@@ -631,7 +724,91 @@ function accountPanel(billing: BillingSummary | null, wallets: WalletLink[]): st
       </div>
     </div>
     ${topupIntentsPanel(billing?.topups ?? [])}
+    ${withdrawalPanel(billing, externalWallets)}
+    ${billingUsagePanel(billing?.usage ?? [], billing?.currency ?? "USD")}
     ${billingLedgerPanel(billing?.ledger ?? [], billing?.currency ?? "USD")}
+  `;
+}
+
+function withdrawalPanel(billing: BillingSummary | null, externalWallets: WalletLink[]): string {
+  if (!billing) return "";
+  const destination = externalWallets[0]?.publicKey ?? "";
+  return `
+    <div class="billing-ledger">
+      <h3>Withdraw unused paid balance</h3>
+      <p class="compact-copy">Revoke all VPN configs first. A ${escapeHtml(formatDurationSeconds(billing.plan.withdrawalCooldownSeconds))} cooldown lets final usage settle. Promotional credits cannot be withdrawn.</p>
+      ${destination ? `
+        <form id="withdrawal-form" class="inline-form">
+          <label>Amount, USD <input name="amountUsd" inputmode="decimal" required /></label>
+          <input name="destinationAddress" type="hidden" value="${escapeHtml(destination)}" />
+          <button type="submit" ${withdrawalBusy ? "disabled" : ""}>${withdrawalBusy ? "Requesting..." : "Request withdrawal"}</button>
+        </form>
+        <small>Destination: <span class="mono">${escapeHtml(destination)}</span> · Available ${escapeHtml(formatMoneyMinor(billing.withdrawableBalanceMinor, billing.currency))}</small>
+      ` : `<p>Connect an external Solana wallet to choose a verified withdrawal destination.</p>`}
+      ${billing.withdrawals.map((withdrawal) => `
+        <div class="billing-ledger-row">
+          <div><strong>${escapeHtml(formatMoneyMinor(withdrawal.amountMinor, withdrawal.currency))} · ${escapeHtml(withdrawal.status)}</strong><small>Eligible ${escapeHtml(relativeTime(withdrawal.eligibleAt))} · ${escapeHtml(shortWallet(withdrawal.destinationAddress))}</small></div>
+          ${["cooldown", "ready", "failed"].includes(withdrawal.status) ? `<button type="button" data-cancel-withdrawal="${escapeHtml(withdrawal.id)}">Cancel</button>` : ""}
+        </div>
+      `).join("")}
+    </div>
+  `;
+}
+
+function billingUsagePanel(usage: BillingUsageSummary[], currency: string): string {
+  if (usage.length === 0) return "";
+  return `
+    <div class="billing-ledger">
+      <h3>Usage by VPN config</h3>
+      <div class="table-scroll"><table>
+        <thead><tr><th>Config</th><th>Active time</th><th>Payload traffic</th><th>Charged</th><th>Last rated</th></tr></thead>
+        <tbody>${usage.map((row) => {
+          const bytes = BigInt(row.bytesToDestination) + BigInt(row.bytesFromDestination);
+          return `<tr><td>${escapeHtml(row.sessionLabel || row.sessionId.slice(0, 8))}</td><td>${escapeHtml(formatDurationSeconds(row.activeSeconds))}</td><td>${escapeHtml(formatByteCount(bytes))}</td><td>${escapeHtml(formatMoneyMinor(row.chargeMinor, currency))}</td><td>${escapeHtml(relativeTime(row.lastRatedAt))}</td></tr>`;
+        }).join("")}</tbody>
+      </table></div>
+    </div>
+  `;
+}
+
+function adminBillingView(summary: AdminBillingSummary | null): string {
+  if (!summary) return `<section class="panel primary-panel"><h2>Billing admin</h2><p>Billing administrator access is required.</p></section>`;
+  const planOptions = summary.plans.map((plan) => `<option value="${escapeHtml(`${plan.code}:${plan.version}`)}">${escapeHtml(plan.displayName)} v${plan.version}</option>`).join("");
+  return `
+    <section class="panel primary-panel">
+      <div class="panel-heading"><h2>Billing admin</h2><small>${summary.customers.length} customers</small></div>
+      <form id="admin-plan-create" class="admin-plan-create">
+        <label>Code <input name="code" required /></label><label>Name <input name="displayName" required /></label><label>Version <input name="version" type="number" min="1" value="1" required /></label>
+        <label>Per config / month, USD <input name="activeConfigMonthlyUsd" inputmode="decimal" required /></label><label>Per GB, USD <input name="trafficPerGbUsd" inputmode="decimal" required /></label>
+        <button type="submit">Create plan version</button>
+      </form>
+      <div class="table-scroll"><table>
+        <thead><tr><th>Customer</th><th>Plan</th><th>Configs</th><th>Balance</th><th>Paid</th><th>Credits</th><th>Debt</th><th>State</th><th>Actions</th></tr></thead>
+        <tbody>${summary.customers.map((customer) => `
+          <tr>
+            <td><strong>${escapeHtml(customer.displayName)}</strong><small>${escapeHtml(customer.email)}</small><small class="mono">${escapeHtml(customer.accountId)}</small></td>
+            <td>${escapeHtml(customer.planCode)} v${customer.planVersion}</td>
+            <td>${customer.activeConfigCount}</td>
+            <td>${escapeHtml(formatMoneyMinor(customer.balanceMinor, "USD"))}</td>
+            <td>${escapeHtml(formatMoneyMinor(customer.cashMinor, "USD"))}</td>
+            <td>${escapeHtml(formatMoneyMinor(customer.promotionalMinor, "USD"))}</td>
+            <td>${escapeHtml(formatMoneyMinor(customer.debtMinor, "USD"))}</td>
+            <td>${escapeHtml(customer.state)}</td>
+            <td class="admin-actions">
+              <form data-admin-credit="${escapeHtml(customer.accountId)}"><input name="amountUsd" inputmode="decimal" placeholder="Credits" required /><input name="reason" placeholder="Reason" required /><button type="submit">Add</button></form>
+              <form data-admin-plan="${escapeHtml(customer.accountId)}"><select name="plan">${planOptions}</select><button type="submit">Assign</button></form>
+            </td>
+          </tr>
+        `).join("")}</tbody>
+      </table></div>
+    </section>
+    <section class="panel secondary-panel">
+      <div class="panel-heading"><h2>VPN config usage</h2><small>${summary.configs.length} configs</small></div>
+      <div class="table-scroll"><table>
+        <thead><tr><th>Config</th><th>Customer</th><th>Route</th><th>State</th><th>Active time</th><th>Payload</th><th>Charged</th><th>Last rated</th></tr></thead>
+        <tbody>${summary.configs.map((config) => `<tr><td><strong>${escapeHtml(config.label || config.sessionId.slice(0, 8))}</strong><small class="mono">${escapeHtml(config.sessionId)}</small></td><td>${escapeHtml(config.customerEmail)}</td><td>${escapeHtml(config.ingressGateName || "n/a")} → ${escapeHtml(config.egressGateName || "n/a")}</td><td>${escapeHtml(config.phase)}</td><td>${escapeHtml(formatDurationSeconds(config.activeSeconds))}</td><td>${escapeHtml(formatByteCount(BigInt(config.payloadBytes)))}</td><td>${escapeHtml(formatMoneyMinor(config.chargeMinor, "USD"))}</td><td>${config.lastRatedAt ? escapeHtml(relativeTime(config.lastRatedAt)) : "not rated"}</td></tr>`).join("")}</tbody>
+      </table></div>
+    </section>
   `;
 }
 
@@ -2093,6 +2270,7 @@ function bindHandlers(): void {
     createConfigStep = "configure";
     latestMe = null;
     latestSessions = [];
+    latestAdminBilling = null;
     gateLatencyInProgressIds.clear();
     gateLatencyMeasurementInFlight = false;
     automaticGateLatencyMeasurementStarted = false;
@@ -2235,6 +2413,34 @@ function bindHandlers(): void {
   document.getElementById("topup-form")?.addEventListener("submit", (event) => {
     event.preventDefault();
     void createTopup(new FormData(event.target as HTMLFormElement));
+  });
+  document.getElementById("withdrawal-form")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    void requestWithdrawal(new FormData(event.target as HTMLFormElement));
+  });
+  for (const button of document.querySelectorAll("[data-cancel-withdrawal]")) {
+    button.addEventListener("click", () => {
+      const id = (button as HTMLElement).dataset.cancelWithdrawal;
+      if (id) void cancelWithdrawal(id);
+    });
+  }
+  for (const form of document.querySelectorAll("[data-admin-credit]")) {
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const accountId = (form as HTMLElement).dataset.adminCredit;
+      if (accountId) void addAdminCredit(accountId, new FormData(form as HTMLFormElement));
+    });
+  }
+  for (const form of document.querySelectorAll("[data-admin-plan]")) {
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const accountId = (form as HTMLElement).dataset.adminPlan;
+      if (accountId) void assignAdminPlan(accountId, new FormData(form as HTMLFormElement));
+    });
+  }
+  document.getElementById("admin-plan-create")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    void createAdminPlan(new FormData(event.target as HTMLFormElement));
   });
   for (const button of document.querySelectorAll("[data-copy-wallet]")) {
     button.addEventListener("click", () => {
@@ -2571,6 +2777,90 @@ async function createTopup(form: FormData): Promise<void> {
   }
 }
 
+async function requestWithdrawal(form: FormData): Promise<void> {
+  if (withdrawalBusy) return;
+  const amountMinor = Math.round(Number(String(form.get("amountUsd") ?? "0").replace(",", ".")) * 100);
+  withdrawalBusy = true;
+  render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
+  try {
+    await api("/v1/public/billing/withdrawals", {
+      method: "POST",
+      body: { amountMinor, destinationAddress: String(form.get("destinationAddress") ?? "") }
+    });
+    log("Withdrawal cooldown started.");
+    await refresh({ skipAutoMeasure: true });
+  } catch (error) {
+    log(error instanceof Error ? error.message : "Could not request withdrawal.");
+  } finally {
+    withdrawalBusy = false;
+    render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
+  }
+}
+
+async function cancelWithdrawal(withdrawalId: string): Promise<void> {
+  try {
+    await api(`/v1/public/billing/withdrawals/${encodeURIComponent(withdrawalId)}`, { method: "DELETE" });
+    log("Withdrawal cancelled.");
+    await refresh({ skipAutoMeasure: true });
+  } catch (error) {
+    log(error instanceof Error ? error.message : "Could not cancel withdrawal.");
+  }
+}
+
+async function addAdminCredit(accountId: string, form: FormData): Promise<void> {
+  const amountMinor = Math.round(Number(String(form.get("amountUsd") ?? "0").replace(",", ".")) * 100);
+  try {
+    await api(`/v1/admin/billing/customers/${encodeURIComponent(accountId)}/credits`, {
+      method: "POST",
+      body: { amountMinor, reason: String(form.get("reason") ?? "") }
+    });
+    log("Promotional credits added.");
+    latestAdminBilling = await getAdminBilling();
+    render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
+  } catch (error) {
+    log(error instanceof Error ? error.message : "Could not add credits.");
+  }
+}
+
+async function assignAdminPlan(accountId: string, form: FormData): Promise<void> {
+  const [code, rawVersion] = String(form.get("plan") ?? "").split(":");
+  try {
+    await api(`/v1/admin/billing/customers/${encodeURIComponent(accountId)}/plan`, {
+      method: "POST",
+      body: { code, version: Number(rawVersion), reason: "Assigned in billing admin" }
+    });
+    log("Billing plan assigned.");
+    latestAdminBilling = await getAdminBilling();
+    render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
+  } catch (error) {
+    log(error instanceof Error ? error.message : "Could not assign plan.");
+  }
+}
+
+async function createAdminPlan(form: FormData): Promise<void> {
+  const toMinor = (name: string) => Math.round(Number(String(form.get(name) ?? "0").replace(",", ".")) * 100);
+  try {
+    await api("/v1/admin/billing/plans", {
+      method: "POST",
+      body: {
+        code: String(form.get("code") ?? "").trim(),
+        displayName: String(form.get("displayName") ?? "").trim(),
+        version: Number(form.get("version")),
+        activeConfigMonthlyMinor: toMinor("activeConfigMonthlyUsd"),
+        trafficPerGbMinor: toMinor("trafficPerGbUsd"),
+        gracePeriodSeconds: 86400,
+        withdrawalCooldownSeconds: 86400,
+        minimumWithdrawalMinor: 100
+      }
+    });
+    log("Billing plan version created.");
+    latestAdminBilling = await getAdminBilling();
+    render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
+  } catch (error) {
+    log(error instanceof Error ? error.message : "Could not create plan.");
+  }
+}
+
 async function pollTopupStatus(topupId: string | undefined): Promise<void> {
   if (!topupId) {
     return;
@@ -2841,6 +3131,10 @@ async function getBilling(): Promise<BillingSummary> {
 async function getWallets(): Promise<WalletLink[]> {
   const response = await api("/v1/public/auth/wallets", { method: "GET" });
   return response.wallets;
+}
+
+async function getAdminBilling(): Promise<AdminBillingSummary> {
+  return api("/v1/admin/billing/customers", { method: "GET" });
 }
 
 async function refreshDashboardSessions(): Promise<void> {
@@ -3504,6 +3798,21 @@ function formatMoneyMinor(amountMinor: number, currency: string): string {
   } catch {
     return `${amount.toFixed(2)} ${currency}`;
   }
+}
+
+function formatDurationSeconds(seconds: number): string {
+  const total = Math.max(0, Math.trunc(seconds));
+  if (total < 3600) return `${Math.max(1, Math.round(total / 60))} min`;
+  if (total < 86400) return `${(total / 3600).toFixed(total % 3600 === 0 ? 0 : 1)} h`;
+  return `${(total / 86400).toFixed(total % 86400 === 0 ? 0 : 1)} d`;
+}
+
+function formatByteCount(bytes: bigint): string {
+  const value = Number(bytes);
+  if (!Number.isFinite(value) || value < 0) return "n/a";
+  if (value < 1_000_000) return `${(value / 1_000).toFixed(1)} KB`;
+  if (value < 1_000_000_000) return `${(value / 1_000_000).toFixed(1)} MB`;
+  return `${(value / 1_000_000_000).toFixed(2)} GB`;
 }
 
 function shortWallet(publicKey: string): string {
