@@ -14,7 +14,8 @@ scripts assume a clean Ubuntu gate host reachable over SSH as root.
   unit, writes `/etc/hyperspace/gate-agent.env` from secret files, optionally
   writes a Caddy HTTPS probe host, and restarts the service. For binary-only
   fleet upgrades, `--reuse-existing-env` requires the existing secret env and
-  does not read or replace it.
+  does not read or replace it. Heartbeats default to 10 seconds; actual-state
+  and assignment counter reports default to 60 seconds.
 - `validate-host` prints a JSON readiness summary for operator review.
 - `rollout-wave.mjs` runs the previous scripts for every inventory entry in a
   selected rollout wave. It defaults to dry-run; pass `--execute` after review.

@@ -310,6 +310,7 @@ export async function markAssignmentPreparedFromReport(
           actual_state_hash = $3,
           local_material = $4::jsonb,
           reported_state = $5::jsonb,
+          last_error = NULL,
           last_observed_at = now(),
           updated_at = now()
       FROM gate_assignments
@@ -340,6 +341,7 @@ export async function markAssignmentAppliedFromReport(
           applied_plan_id = gate_assignments.plan_id,
           actual_state_hash = $3,
           reported_state = $4::jsonb,
+          last_error = NULL,
           applied_at = now(),
           last_observed_at = now(),
           updated_at = now()
@@ -363,6 +365,7 @@ export async function markAssignmentRevokedFromReport(
       SET phase = $2::gate_assignment_phase,
           actual_state_hash = $3,
           reported_state = $4::jsonb,
+          last_error = NULL,
           revoked_at = now(),
           last_observed_at = now(),
           updated_at = now()

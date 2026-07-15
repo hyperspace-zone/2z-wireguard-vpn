@@ -26,7 +26,7 @@ import (
 	"time"
 )
 
-const version = "0.2.0"
+const version = "0.2.1"
 
 var defaultNTPDiscoveryHosts = []string{
 	"0.pool.ntp.org",
@@ -80,16 +80,17 @@ var defaultNTPDiscoveryHosts = []string{
 }
 
 type config struct {
-	ControlPlaneURL    string
-	GateName           string
-	GateToken          string
-	PollInterval       time.Duration
-	HeartbeatInterval  time.Duration
-	ExecutionMode      string
-	StateDir           string
-	ProbeListenAddress string
-	ProbePort          int
-	ProbeSharedSecret  string
+	ControlPlaneURL     string
+	GateName            string
+	GateToken           string
+	PollInterval        time.Duration
+	HeartbeatInterval   time.Duration
+	ActualStateInterval time.Duration
+	ExecutionMode       string
+	StateDir            string
+	ProbeListenAddress  string
+	ProbePort           int
+	ProbeSharedSecret   string
 }
 
 type claimResponse struct {
@@ -129,6 +130,7 @@ func main() {
 	})
 
 	lastHeartbeat := time.Time{}
+	lastActualState := time.Time{}
 	for {
 		if time.Since(lastHeartbeat) >= cfg.HeartbeatInterval {
 			if err := sendHeartbeat(client, cfg, probeManager); err != nil {
@@ -136,8 +138,12 @@ func main() {
 			} else {
 				lastHeartbeat = time.Now()
 			}
+		}
+		if time.Since(lastActualState) >= cfg.ActualStateInterval {
 			if err := sendActualState(client, cfg); err != nil {
 				logJSON("actual_state_failed", map[string]any{"error": err.Error()})
+			} else {
+				lastActualState = time.Now()
 			}
 		}
 
@@ -1896,7 +1902,7 @@ func egressForwardRules(state assignmentState, material publicMaterial, physical
 }
 
 func nftRuleComment(handle string, verdict string, direction string) string {
-	return strings.Join([]string{handle, verdict, direction}, ":")
+	return strconv.Quote(strings.Join([]string{handle, verdict, direction}, ":"))
 }
 
 func sendHeartbeat(client *http.Client, cfg config, probeManager *probeServerManager) error {
@@ -2008,16 +2014,17 @@ func readConfig() (config, error) {
 		return config{}, errors.New("CONTROL_PLANE_URL, GATE_NAME, and GATE_TOKEN are required")
 	}
 	return config{
-		ControlPlaneURL:    controlPlaneURL,
-		GateName:           gateName,
-		GateToken:          gateToken,
-		PollInterval:       durationEnv("POLL_INTERVAL", 2*time.Second),
-		HeartbeatInterval:  durationEnv("HEARTBEAT_INTERVAL", 10*time.Second),
-		ExecutionMode:      stringEnv("GATE_AGENT_EXECUTION_MODE", "observe"),
-		StateDir:           stringEnv("GATE_AGENT_STATE_DIR", "/var/lib/hyperspace-gate"),
-		ProbeListenAddress: stringEnv("GATE_PROBE_LISTEN_ADDRESS", "0.0.0.0"),
-		ProbePort:          intEnv("GATE_PROBE_PORT", 19192),
-		ProbeSharedSecret:  os.Getenv("GATE_PROBE_SHARED_SECRET"),
+		ControlPlaneURL:     controlPlaneURL,
+		GateName:            gateName,
+		GateToken:           gateToken,
+		PollInterval:        durationEnv("POLL_INTERVAL", 2*time.Second),
+		HeartbeatInterval:   durationEnv("HEARTBEAT_INTERVAL", 10*time.Second),
+		ActualStateInterval: durationEnv("ACTUAL_STATE_INTERVAL", time.Minute),
+		ExecutionMode:       stringEnv("GATE_AGENT_EXECUTION_MODE", "observe"),
+		StateDir:            stringEnv("GATE_AGENT_STATE_DIR", "/var/lib/hyperspace-gate"),
+		ProbeListenAddress:  stringEnv("GATE_PROBE_LISTEN_ADDRESS", "0.0.0.0"),
+		ProbePort:           intEnv("GATE_PROBE_PORT", 19192),
+		ProbeSharedSecret:   os.Getenv("GATE_PROBE_SHARED_SECRET"),
 	}, nil
 }
 

@@ -3,7 +3,7 @@ set -euo pipefail
 
 usage() {
   cat >&2 <<'EOF'
-usage: install-gate-discovery --cluster mainnet|testnet --catalog-url URL [--retention 90d]
+usage: install-gate-discovery --cluster mainnet|testnet --catalog-url URL [--retention DURATION]
 
 Run this script as root on the cluster observability host from a repository checkout.
 It installs catalog-driven Prometheus gate discovery and keeps the previous target file
@@ -14,7 +14,7 @@ EOF
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cluster=""
 catalog_url=""
-retention="90d"
+retention=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -30,6 +30,13 @@ case "$cluster" in
   mainnet|testnet) ;;
   *) usage; exit 2 ;;
 esac
+if [[ -z "$retention" ]]; then
+  if [[ "$cluster" == "mainnet" ]]; then
+    retention="30d"
+  else
+    retention="90d"
+  fi
+fi
 [[ "$catalog_url" == https://* ]] || { echo "--catalog-url must use HTTPS" >&2; exit 2; }
 [[ "$retention" =~ ^[0-9]+[dwy]$ ]] || { echo "unsupported retention value: $retention" >&2; exit 2; }
 
