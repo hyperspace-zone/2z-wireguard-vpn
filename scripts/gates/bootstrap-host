@@ -8,15 +8,20 @@ usage: scripts/gates/bootstrap-host --host HOST --doublezero-env testnet|mainnet
 Options:
   --ssh-key PATH              SSH private key.
   --ssh-user USER             SSH user, default root.
+  --known-hosts-file PATH     Pinned SSH known_hosts file, default ~/.ssh/known_hosts.
+  --tier standard|hub         Resource tier, default standard. Hub requires at least 2 GiB RAM.
   --doublezero-version VER    Optional pinned doublezero package version.
   --dry-run                   Print the remote command instead of executing it.
 EOF
 }
 
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 host=""
 ssh_key=""
 ssh_user="root"
+known_hosts_file="${HOME}/.ssh/known_hosts"
 dz_env=""
+gate_tier="standard"
 doublezero_version=""
 dry_run=false
 
@@ -25,6 +30,8 @@ while [[ $# -gt 0 ]]; do
     --host) host="${2:-}"; shift 2 ;;
     --ssh-key) ssh_key="${2:-}"; shift 2 ;;
     --ssh-user) ssh_user="${2:-}"; shift 2 ;;
+    --known-hosts-file) known_hosts_file="${2:-}"; shift 2 ;;
+    --tier) gate_tier="${2:-}"; shift 2 ;;
     --doublezero-env) dz_env="${2:-}"; shift 2 ;;
     --doublezero-version) doublezero_version="${2:-}"; shift 2 ;;
     --dry-run) dry_run=true; shift ;;
@@ -41,8 +48,16 @@ case "$dz_env" in
   testnet|mainnet-beta) ;;
   *) echo "unsupported --doublezero-env: $dz_env" >&2; exit 2 ;;
 esac
+case "$gate_tier" in
+  standard|hub) ;;
+  *) echo "unsupported --tier: $gate_tier" >&2; exit 2 ;;
+esac
+if [[ "$dry_run" != true && ! -r "$known_hosts_file" ]]; then
+  echo "known_hosts file is not readable: $known_hosts_file" >&2
+  exit 2
+fi
 
-ssh_args=(-o StrictHostKeyChecking=no -o ServerAliveInterval=15 -o ServerAliveCountMax=4)
+ssh_args=(-o StrictHostKeyChecking=yes -o UserKnownHostsFile="$known_hosts_file" -o ServerAliveInterval=15 -o ServerAliveCountMax=4)
 if [[ -n "$ssh_key" ]]; then
   ssh_args+=(-i "$ssh_key")
 fi
@@ -59,7 +74,7 @@ esac
 
 apt-get update
 apt-get install -y ca-certificates curl git gnupg build-essential gettext-base jq python3 \
-  wireguard-tools iproute2 nftables chrony caddy
+  wireguard-tools iproute2 nftables chrony caddy prometheus-node-exporter vnstat sysstat logrotate kmod
 
 if apt-cache show linux-generic-hwe-24.04 >/dev/null 2>&1; then
   apt-get install -y linux-generic-hwe-24.04
@@ -69,6 +84,8 @@ fi
 
 systemctl disable --now fwupd-refresh.timer fwupd-refresh.service fwupd.service packagekit.service 2>/dev/null || true
 systemctl mask fwupd-refresh.timer fwupd-refresh.service fwupd.service packagekit.service 2>/dev/null || true
+systemctl disable --now apt-daily.timer apt-daily-upgrade.timer unattended-upgrades.service 2>/dev/null || true
+systemctl mask apt-daily.timer apt-daily-upgrade.timer unattended-upgrades.service 2>/dev/null || true
 
 if [ "$DOUBLEZERO_CLOUDSMITH_REPO" = "doublezero-testnet" ]; then
   rm -f /etc/apt/sources.list.d/malbeclabs-doublezero.list
@@ -86,16 +103,82 @@ fi
 install -d -o root -g root -m 0750 /etc/hyperspace
 dpkg-query -W -f='${Package} ${Version}\n' doublezero > /etc/hyperspace/doublezero-version.txt
 
+mem_total_kib="$(awk '/^MemTotal:/ {print $2}' /proc/meminfo)"
+case "$GATE_TIER" in
+  standard) conntrack_max=65536 ;;
+  hub)
+    if [ "${mem_total_kib:-0}" -lt 2097152 ]; then
+      echo "hub tier requires at least 2 GiB RAM; found ${mem_total_kib:-0} KiB" >&2
+      exit 2
+    fi
+    conntrack_max=262144
+    ;;
+esac
+printf '%s\n' "$GATE_TIER" >/etc/hyperspace/gate-tier
+cat >/etc/sysctl.d/90-hyperspace-gate.conf <<EOF
+net.ipv4.ip_forward = 1
+net.netfilter.nf_conntrack_max = ${conntrack_max}
+net.netfilter.nf_conntrack_acct = 1
+EOF
+modprobe nf_conntrack >/dev/null 2>&1 || true
+sysctl --system >/dev/null
+
+if ! swapon --show=NAME --noheadings | grep -q . && [ "$(df -Pk / | awk 'NR == 2 {print $4}')" -ge 4194304 ]; then
+  if [ ! -f /swapfile ]; then
+    fallocate -l 2G /swapfile || dd if=/dev/zero of=/swapfile bs=1M count=2048 status=none
+    chmod 0600 /swapfile
+    mkswap /swapfile >/dev/null
+  fi
+  grep -qE '^/swapfile[[:space:]]' /etc/fstab || printf '/swapfile none swap sw 0 0\n' >>/etc/fstab
+  swapon /swapfile
+fi
+
+install -d -m 0755 /var/lib/node_exporter/textfile_collector
+cat >/etc/default/prometheus-node-exporter <<'EOF'
+ARGS="--collector.textfile.directory=/var/lib/node_exporter/textfile_collector"
+EOF
+
+physical_interface="$(ip -4 route show default | awk 'NR == 1 {for (i = 1; i <= NF; i++) if ($i == "dev") {print $(i + 1); exit}}')"
+if [ -n "$physical_interface" ]; then
+  vnstat --add -i "$physical_interface" >/dev/null 2>&1 || true
+fi
+if ip link show doublezero0 >/dev/null 2>&1; then
+  vnstat --add -i doublezero0 >/dev/null 2>&1 || true
+fi
+sed -ri 's/^[#[:space:]]*DailyDays[[:space:]].*/DailyDays 90/' /etc/vnstat.conf
+grep -qE '^[[:space:]]*DailyDays[[:space:]]' /etc/vnstat.conf || printf '\nDailyDays 90\n' >>/etc/vnstat.conf
+sed -ri 's/^[#[:space:]]*MonthlyMonths[[:space:]].*/MonthlyMonths 24/' /etc/vnstat.conf
+grep -qE '^[[:space:]]*MonthlyMonths[[:space:]]' /etc/vnstat.conf || printf 'MonthlyMonths 24\n' >>/etc/vnstat.conf
+
+install -m 0755 "$ASSET_DIR/scripts/hyperspace-disk-janitor.sh" /usr/local/sbin/hyperspace-disk-janitor
+install -m 0755 "$ASSET_DIR/scripts/hyperspace-gate-resource-exporter.sh" /usr/local/sbin/hyperspace-gate-resource-exporter
+install -m 0644 "$ASSET_DIR/infra/systemd/hyperspace-disk-janitor.service" /etc/systemd/system/hyperspace-disk-janitor.service
+install -m 0644 "$ASSET_DIR/infra/systemd/hyperspace-disk-janitor.timer" /etc/systemd/system/hyperspace-disk-janitor.timer
+install -m 0644 "$ASSET_DIR/infra/systemd/hyperspace-gate-resource-exporter.service" /etc/systemd/system/hyperspace-gate-resource-exporter.service
+install -m 0644 "$ASSET_DIR/infra/systemd/hyperspace-gate-resource-exporter.timer" /etc/systemd/system/hyperspace-gate-resource-exporter.timer
+install -d -m 0755 /etc/systemd/journald.conf.d
+install -m 0644 "$ASSET_DIR/infra/journald/zz-hyperspace-gate-limits.conf" /etc/systemd/journald.conf.d/zz-hyperspace-gate-limits.conf
+
 install -d /etc/systemd/system/doublezerod.service.d
 cat >/etc/systemd/system/doublezerod.service.d/zz-route-liveness-passive-tuning.conf <<EOF
 [Service]
 ExecStart=
-ExecStart=/usr/bin/doublezerod -sock-file /run/doublezerod/doublezerod.sock -env ${DZ_ENV} -route-liveness-tx-min 10s -route-liveness-rx-min 10s -route-liveness-max-tx-ceil 30s
+ExecStart=/usr/bin/doublezerod -sock-file /run/doublezerod/doublezerod.sock -env ${DZ_ENV} -route-liveness-tx-min 10s -route-liveness-rx-min 10s -route-liveness-max-tx-ceil 30s -metrics-enable -metrics-addr 127.0.0.1:2112
 EOF
+install -m 0644 "$ASSET_DIR/infra/systemd/doublezerod-log-filter.conf" /etc/systemd/system/doublezerod.service.d/zz-log-filter.conf
 
 systemctl daemon-reload
-systemctl enable --now chrony nftables caddy
-systemctl enable --now doublezerod || true
+systemctl restart systemd-journald
+systemctl enable --now chrony nftables caddy prometheus-node-exporter vnstat sysstat
+systemctl enable --now hyperspace-disk-janitor.timer hyperspace-gate-resource-exporter.timer
+systemctl start hyperspace-disk-janitor.service hyperspace-gate-resource-exporter.service
+systemctl enable doublezerod
+systemctl restart doublezerod
+for attempt in $(seq 1 30); do
+  systemctl is-active --quiet doublezerod && break
+  sleep 1
+done
+systemctl is-active --quiet doublezerod
 
 if [ -s /root/.config/doublezero/id.json ]; then
   chmod 0600 /root/.config/doublezero/id.json
@@ -108,14 +191,33 @@ command -v doublezero
 command -v wg
 command -v nft
 command -v chronyc
+command -v vnstat
+command -v prometheus-node-exporter
 REMOTE
 )"
 
+assets=(
+  infra/journald/zz-hyperspace-gate-limits.conf
+  infra/systemd/doublezerod-log-filter.conf
+  infra/systemd/hyperspace-disk-janitor.service
+  infra/systemd/hyperspace-disk-janitor.timer
+  infra/systemd/hyperspace-gate-resource-exporter.service
+  infra/systemd/hyperspace-gate-resource-exporter.timer
+  scripts/hyperspace-disk-janitor.sh
+  scripts/hyperspace-gate-resource-exporter.sh
+)
+remote_asset_dir="/tmp/hyperspace-gate-bootstrap-$$"
+
 if [[ "$dry_run" == true ]]; then
-  printf 'ssh %q %q DZ_ENV=%q DOUBLEZERO_VERSION=%q bash -s <<REMOTE\n%s\nREMOTE\n' \
-    "${ssh_args[*]}" "${ssh_user}@${host}" "$dz_env" "$doublezero_version" "$remote_script"
+  printf 'tar -C %q -cf - %s | ssh %q %q %q\n' \
+    "$repo_root" "${assets[*]}" "${ssh_args[*]}" "${ssh_user}@${host}" "install -d $remote_asset_dir && tar -xf - -C $remote_asset_dir"
+  printf 'ssh %q %q DZ_ENV=%q GATE_TIER=%q DOUBLEZERO_VERSION=%q ASSET_DIR=%q bash -s <<REMOTE\n%s\nREMOTE\n' \
+    "${ssh_args[*]}" "${ssh_user}@${host}" "$dz_env" "$gate_tier" "$doublezero_version" "$remote_asset_dir" "$remote_script"
   exit 0
 fi
 
+tar -C "$repo_root" -cf - "${assets[@]}" \
+  | ssh "${ssh_args[@]}" "${ssh_user}@${host}" "install -d -m 0700 '$remote_asset_dir' && tar -xf - -C '$remote_asset_dir'"
 ssh "${ssh_args[@]}" "${ssh_user}@${host}" \
-  "DZ_ENV=$(printf '%q' "$dz_env") DOUBLEZERO_VERSION=$(printf '%q' "$doublezero_version") bash -s" <<<"$remote_script"
+  "DZ_ENV=$(printf '%q' "$dz_env") GATE_TIER=$(printf '%q' "$gate_tier") DOUBLEZERO_VERSION=$(printf '%q' "$doublezero_version") ASSET_DIR=$(printf '%q' "$remote_asset_dir") bash -s" <<<"$remote_script"
+ssh "${ssh_args[@]}" "${ssh_user}@${host}" "rm -rf '$remote_asset_dir'"

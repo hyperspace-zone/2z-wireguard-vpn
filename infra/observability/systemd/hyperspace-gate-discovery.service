@@ -1,0 +1,10 @@
+[Unit]
+Description=Render Prometheus gate targets from the Hyperspace catalog
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=prometheus
+EnvironmentFile=/etc/hyperspace/gate-discovery.env
+ExecStart=/usr/local/lib/hyperspace/render-gate-file-sd.mjs --url ${GATE_CATALOG_URL} --cluster ${HYPERSPACE_CLUSTER} --output /etc/prometheus/file_sd/gates.json

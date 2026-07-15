@@ -1,0 +1,80 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat >&2 <<'EOF'
+usage: install-gate-discovery --cluster mainnet|testnet --catalog-url URL [--retention 90d]
+
+Run this script as root on the cluster observability host from a repository checkout.
+It installs catalog-driven Prometheus gate discovery and keeps the previous target file
+when catalog refresh fails or returns no Enabled gates.
+EOF
+}
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+cluster=""
+catalog_url=""
+retention="90d"
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --cluster) cluster="${2:-}"; shift 2 ;;
+    --catalog-url) catalog_url="${2:-}"; shift 2 ;;
+    --retention) retention="${2:-}"; shift 2 ;;
+    -h|--help) usage; exit 0 ;;
+    *) echo "unknown argument: $1" >&2; usage; exit 2 ;;
+  esac
+done
+
+case "$cluster" in
+  mainnet|testnet) ;;
+  *) usage; exit 2 ;;
+esac
+[[ "$catalog_url" == https://* ]] || { echo "--catalog-url must use HTTPS" >&2; exit 2; }
+[[ "$retention" =~ ^[0-9]+[dwy]$ ]] || { echo "unsupported retention value: $retention" >&2; exit 2; }
+
+prometheus_config="$repo_root/infra/observability/prometheus/prometheus.${cluster}.yml"
+apt-get update
+apt-get install -y nodejs jq
+command -v promtool >/dev/null 2>&1 || {
+  echo "promtool is required; install the prometheus package first" >&2
+  exit 1
+}
+install -d -o prometheus -g prometheus -m 0755 /etc/prometheus/file_sd /etc/prometheus/rules /etc/hyperspace /usr/local/lib/hyperspace
+install -m 0755 "$repo_root/scripts/observability/render-gate-file-sd.mjs" /usr/local/lib/hyperspace/render-gate-file-sd.mjs
+install -m 0644 "$repo_root/infra/observability/systemd/hyperspace-gate-discovery.service" /etc/systemd/system/hyperspace-gate-discovery.service
+install -m 0644 "$repo_root/infra/observability/systemd/hyperspace-gate-discovery.timer" /etc/systemd/system/hyperspace-gate-discovery.timer
+install -m 0644 "$prometheus_config" /etc/prometheus/prometheus.yml
+install -m 0644 "$repo_root/infra/observability/prometheus/rules/hyperspace-alerts.yml" /etc/prometheus/rules/hyperspace-alerts.yml
+if [[ -d /var/lib/grafana/dashboards/hyperspace ]]; then
+  install -o grafana -g grafana -m 0644 \
+    "$repo_root/infra/observability/grafana/dashboards/hyperspace-control-plane.json" \
+    /var/lib/grafana/dashboards/hyperspace/hyperspace-control-plane.json
+fi
+cat >/etc/hyperspace/gate-discovery.env <<EOF
+GATE_CATALOG_URL=${catalog_url}
+HYPERSPACE_CLUSTER=${cluster}
+EOF
+chmod 0644 /etc/hyperspace/gate-discovery.env
+
+if [[ -f /etc/default/prometheus ]]; then
+  current_args="$(sed -n 's/^ARGS=//p' /etc/default/prometheus | tail -n 1 | sed 's/^"//;s/"$//')"
+  current_args="$(printf '%s' "$current_args" | sed -E 's/(^|[[:space:]])--storage\.tsdb\.retention\.time=[^[:space:]]+//g')"
+  sed -i '/^ARGS=/d' /etc/default/prometheus
+  printf 'ARGS="%s --storage.tsdb.retention.time=%s"\n' "${current_args# }" "$retention" >>/etc/default/prometheus
+fi
+
+systemctl daemon-reload
+systemctl start hyperspace-gate-discovery.service
+test -s /etc/prometheus/file_sd/gates.json
+promtool check config /etc/prometheus/prometheus.yml
+promtool check rules /etc/prometheus/rules/hyperspace-alerts.yml
+systemctl enable --now hyperspace-gate-discovery.timer
+systemctl restart prometheus
+if systemctl list-unit-files grafana-server.service >/dev/null 2>&1; then
+  systemctl restart grafana-server
+fi
+systemctl is-active --quiet prometheus hyperspace-gate-discovery.timer
+
+printf 'installed gate discovery cluster=%s targets=%s retention=%s\n' \
+  "$cluster" "$(jq 'length' /etc/prometheus/file_sd/gates.json)" "$retention"

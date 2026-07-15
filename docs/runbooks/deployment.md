@@ -1223,6 +1223,7 @@ npm run gates:rollout-wave -- \
   --inventory infra/gates.mainnet.json \
   --wave 2026-07-a \
   --ssh-key /root/hyperspace/.ssh_keys/hyperspace_mainnet_gatekeeper_20260526 \
+  --known-hosts-file /root/.ssh/known_hosts \
   --control-plane-url https://control-plane.hyperspace.zone \
   --web-origin https://app.hyperspace.zone \
   --gate-token-dir /root/hyperspace/secrets/mainnet-gate-tokens \
@@ -1233,11 +1234,18 @@ npm run gates:rollout-wave -- ... --execute
 ```
 
 The automation installs host packages, HWE kernel where available, DoubleZero,
-chrony, Caddy, WireGuard tooling, the passive DoubleZero route-liveness tuning
-drop-in, the optional Caddy HTTPS probe host, and the `hyperspace-gate-agent`
-systemd service. It never overwrites `/root/.config/doublezero/id.json`; if a
-host does not yet have a DoubleZero identity or access-pass, keep that gate
-`Disabled` or `Maintenance` in the catalog until DoubleZero approves it.
+chrony, Caddy, WireGuard tooling, node exporter, `vnstat`, `sysstat`, journald
+limits, the disk janitor, the gate resource exporter, the passive DoubleZero
+route-liveness tuning and aggregate DoubleZero metrics. It configures a
+`standard` conntrack tier (`65536`) by default. Inventory entries may request
+the `hub` tier (`262144`), but bootstrap rejects that tier below 2 GiB RAM.
+It never overwrites `/root/.config/doublezero/id.json`; if a host does not yet
+have a DoubleZero identity or access-pass, keep that gate `Disabled` or
+`Maintenance` in the catalog until DoubleZero approves it.
+
+All fleet scripts require verified SSH host keys. Populate the selected
+`known_hosts` file out of band and review fingerprints before `--execute`; a
+new or changed key must stop the rollout.
 
 Create `/etc/hyperspace/control-plane-worker.env` with the same
 `ARTIFACT_ENCRYPTION_KEY`:
@@ -1527,10 +1535,27 @@ systemctl restart prometheus-node-exporter
 ```
 
 Prometheus scrapes gate node exporters with the `hyperspace-gate-node` job in
-`infra/observability/prometheus/prometheus.${HS_CLUSTER}.yml`. When adding,
-removing, disabling, or replacing a gate, update that scrape target list with
-the gate `name`, `probe_host`, and `public_ipv4`, then reprovision
-`/etc/prometheus/prometheus.yml` and restart Prometheus.
+`infra/observability/prometheus/prometheus.${HS_CLUSTER}.yml`. Targets are
+generated from Enabled catalog records; do not maintain a second static gate
+list. Install the discovery renderer on the observability host:
+
+```bash
+if [[ "$HS_CLUSTER" == "mainnet" ]]; then
+  GATE_CATALOG_URL=https://control-plane.hyperspace.zone/v1/public/gates
+else
+  GATE_CATALOG_URL=https://control-plane.testnet.hyperspace.zone/v1/public/gates
+fi
+scripts/observability/install-gate-discovery \
+  --cluster "$HS_CLUSTER" \
+  --catalog-url "$GATE_CATALOG_URL" \
+  --retention 90d
+```
+
+For the production cluster use
+`https://control-plane.hyperspace.zone/v1/public/gates`; for testnet use
+`https://control-plane.testnet.hyperspace.zone/v1/public/gates`. The timer
+refreshes `/etc/prometheus/file_sd/gates.json` every minute, refuses an empty
+catalog response, and leaves the last valid target file in place on failure.
 
 The host-resource alerts are intentionally independent from gate-agent
 heartbeats:
@@ -1553,6 +1578,18 @@ heartbeats:
   reported a run for more than five minutes.
 - `HyperspaceGateDiskJanitorFailed` warns when the local disk janitor reports
   its last run as failed.
+- Conntrack alerts fire at 70% and 90%; table-full events are critical.
+- Network, UDP-buffer and softnet drops, sustained CPU/memory pressure, vnstat
+  freshness and aggregate DoubleZero metric availability are monitored
+  independently from the gate-agent heartbeat.
+
+The resource exporter reports physical-interface and `doublezero0` counters
+separately. Never add them together for provider billing: overlay bytes also
+cross the physical interface. `vnstat` and centrally persisted assignment
+forwarding deltas are reconciliation sources. Financial debits are created only
+from idempotent DoubleZero metering imports in `rated_usage_events`, with the
+configured Hyperspace markup; host/interface counters must not create a second
+charge for the same packet.
 
 The janitor publishes these textfile metrics through node exporter:
 

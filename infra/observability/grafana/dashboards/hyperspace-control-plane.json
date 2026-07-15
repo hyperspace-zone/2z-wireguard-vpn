@@ -620,6 +620,144 @@
       ],
       "title": "Benchmark Loss by Transport",
       "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "hyperspace-prometheus" },
+      "fieldConfig": { "defaults": { "unit": "percentunit", "min": 0, "max": 1 }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 36 },
+      "id": 13,
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "hyperspace-prometheus" },
+          "expr": "hyperspace_gate_conntrack_entries{job=\"hyperspace-gate-node\"} / hyperspace_gate_conntrack_limit{job=\"hyperspace-gate-node\"}",
+          "legendFormat": "{{gate}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Gate Conntrack Utilization",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "hyperspace-prometheus" },
+      "fieldConfig": { "defaults": { "unit": "bps" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 36 },
+      "id": 14,
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "hyperspace-prometheus" },
+          "expr": "8 * rate(hyperspace_gate_physical_receive_bytes_total{job=\"hyperspace-gate-node\"}[5m])",
+          "legendFormat": "{{gate}} RX",
+          "refId": "A"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "hyperspace-prometheus" },
+          "expr": "8 * rate(hyperspace_gate_physical_transmit_bytes_total{job=\"hyperspace-gate-node\"}[5m])",
+          "legendFormat": "{{gate}} TX",
+          "refId": "B"
+        }
+      ],
+      "title": "Physical Gate Traffic",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "hyperspace-prometheus" },
+      "fieldConfig": { "defaults": { "unit": "pps" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 44 },
+      "id": 15,
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "hyperspace-prometheus" },
+          "expr": "sum by (gate) (rate(node_network_receive_drop_total{job=\"hyperspace-gate-node\",device!=\"lo\"}[5m]) + rate(node_network_transmit_drop_total{job=\"hyperspace-gate-node\",device!=\"lo\"}[5m]))",
+          "legendFormat": "{{gate}} interface drops",
+          "refId": "A"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "hyperspace-prometheus" },
+          "expr": "rate(hyperspace_gate_softnet_dropped_total{job=\"hyperspace-gate-node\"}[5m])",
+          "legendFormat": "{{gate}} softnet drops",
+          "refId": "B"
+        }
+      ],
+      "title": "Gate Network Drops",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "hyperspace-prometheus" },
+      "fieldConfig": { "defaults": { "unit": "percentunit", "min": 0, "max": 1 }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 44 },
+      "id": 16,
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "hyperspace-prometheus" },
+          "expr": "node_memory_MemAvailable_bytes{job=\"hyperspace-gate-node\"} / node_memory_MemTotal_bytes{job=\"hyperspace-gate-node\"}",
+          "legendFormat": "{{gate}} memory available",
+          "refId": "A"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "hyperspace-prometheus" },
+          "expr": "1 - avg by (gate) (rate(node_cpu_seconds_total{job=\"hyperspace-gate-node\",mode=\"idle\"}[5m]))",
+          "legendFormat": "{{gate}} CPU used",
+          "refId": "B"
+        }
+      ],
+      "title": "Gate CPU and Memory",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "hyperspace-prometheus" },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 52 },
+      "id": 17,
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "hyperspace-prometheus" },
+          "expr": "doublezero_bgp_routes_installed{job=\"hyperspace-gate-node\"}",
+          "legendFormat": "{{gate}} routes",
+          "refId": "A"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "hyperspace-prometheus" },
+          "expr": "rate(doublezero_liveness_control_packets_tx_total{job=\"hyperspace-gate-node\"}[5m])",
+          "legendFormat": "{{gate}} liveness TX/s",
+          "refId": "B"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "hyperspace-prometheus" },
+          "expr": "rate(doublezero_liveness_control_packets_rx_total{job=\"hyperspace-gate-node\"}[5m])",
+          "legendFormat": "{{gate}} liveness RX/s",
+          "refId": "C"
+        }
+      ],
+      "title": "DoubleZero Aggregate State",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "hyperspace-prometheus" },
+      "fieldConfig": { "defaults": { "unit": "Bps" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 52 },
+      "id": 18,
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "hyperspace-prometheus" },
+          "expr": "rate(hyperspace_control_plane_assignment_forwarded_bytes_total[5m])",
+          "legendFormat": "{{gate}} {{assignment_id}} {{role}} {{direction}}",
+          "refId": "A"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "hyperspace-prometheus" },
+          "expr": "rate(hyperspace_control_plane_assignment_dropped_bytes_total[5m])",
+          "legendFormat": "{{gate}} {{assignment_id}} dropped {{direction}}",
+          "refId": "B"
+        }
+      ],
+      "title": "Per-Assignment Forwarded and Dropped Traffic",
+      "type": "timeseries"
     }
   ],
   "refresh": "30s",

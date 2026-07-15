@@ -32,6 +32,7 @@ if (gates.length === 0) {
 const dryRun = args.dryRun !== false;
 const sshKeyArgs = args.sshKey ? ["--ssh-key", args.sshKey] : [];
 const sshUserArgs = args.sshUser ? ["--ssh-user", args.sshUser] : [];
+const knownHostsArgs = args.knownHostsFile ? ["--known-hosts-file", args.knownHostsFile] : [];
 
 for (const gate of gates) {
   const host = gate.sshHost || gate.publicIpv4 || gate.probeHost || gate.name;
@@ -51,6 +52,8 @@ for (const gate of gates) {
     "--doublezero-env", dzEnv,
     ...sshKeyArgs,
     ...sshUserArgs,
+    ...knownHostsArgs,
+    ...(gate.resourceTier ? ["--tier", gate.resourceTier] : []),
     ...(args.doublezeroVersion ? ["--doublezero-version", args.doublezeroVersion] : []),
     ...(dryRun ? ["--dry-run"] : [])
   ]);
@@ -63,6 +66,7 @@ for (const gate of gates) {
     "--probe-secret-file", args.probeSecretFile,
     ...sshKeyArgs,
     ...sshUserArgs,
+    ...knownHostsArgs,
     ...(gateHost && args.webOrigin ? ["--gate-host", gateHost, "--web-origin", args.webOrigin] : []),
     ...(args.binary ? ["--binary", args.binary] : []),
     ...(dryRun ? ["--dry-run"] : [])
@@ -73,6 +77,7 @@ for (const gate of gates) {
     "--doublezero-env", dzEnv,
     ...sshKeyArgs,
     ...sshUserArgs,
+    ...knownHostsArgs,
     ...(dryRun ? ["--dry-run"] : [])
   ]);
 }
@@ -105,6 +110,9 @@ function parseArgs(argv) {
         break;
       case "--ssh-user":
         out.sshUser = argv[++i];
+        break;
+      case "--known-hosts-file":
+        out.knownHostsFile = argv[++i];
         break;
       case "--control-plane-url":
         out.controlPlaneUrl = argv[++i];

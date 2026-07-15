@@ -1,4 +1,38 @@
 groups:
+  - name: hyperspace-gate-recording
+    interval: 1m
+    rules:
+      - record: hyperspace:gate_physical_receive_bytes:rate5m
+        expr: rate(hyperspace_gate_physical_receive_bytes_total{job="hyperspace-gate-node"}[5m])
+
+      - record: hyperspace:gate_physical_transmit_bytes:rate5m
+        expr: rate(hyperspace_gate_physical_transmit_bytes_total{job="hyperspace-gate-node"}[5m])
+
+      - record: hyperspace:gate_physical_receive_bytes:increase1d
+        expr: increase(hyperspace_gate_physical_receive_bytes_total{job="hyperspace-gate-node"}[1d])
+
+      - record: hyperspace:gate_physical_transmit_bytes:increase1d
+        expr: increase(hyperspace_gate_physical_transmit_bytes_total{job="hyperspace-gate-node"}[1d])
+
+      - record: hyperspace:gate_doublezero_receive_bytes:rate5m
+        expr: rate(hyperspace_gate_doublezero_receive_bytes_total{job="hyperspace-gate-node"}[5m])
+
+      - record: hyperspace:gate_doublezero_transmit_bytes:rate5m
+        expr: rate(hyperspace_gate_doublezero_transmit_bytes_total{job="hyperspace-gate-node"}[5m])
+
+      - record: hyperspace:gate_physical_packets:rate5m
+        expr: |
+          sum by (cluster, gate) (
+            rate(node_network_receive_packets_total{job="hyperspace-gate-node",device!="lo"}[5m])
+            + rate(node_network_transmit_packets_total{job="hyperspace-gate-node",device!="lo"}[5m])
+          )
+
+      - record: hyperspace:assignment_forwarded_bytes:increase1h
+        expr: increase(hyperspace_control_plane_assignment_forwarded_bytes_total[1h])
+
+      - record: hyperspace:assignment_dropped_bytes:increase1h
+        expr: increase(hyperspace_control_plane_assignment_dropped_bytes_total[1h])
+
   - name: hyperspace-control-plane
     rules:
       - alert: HyperspaceControlPlaneApiDown
@@ -70,6 +104,234 @@ groups:
         annotations:
           summary: Hyperspace gate host metrics scrape is down
           description: Prometheus cannot scrape node exporter on gate {{ $labels.gate }} for 5 minutes.
+
+      - alert: HyperspaceEnabledGateMissingFromDiscovery
+        expr: |
+          hyperspace_control_plane_gate_agent_connected{enabled="true"}
+          unless on(gate)
+          up{job="hyperspace-gate-node"}
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Enabled Hyperspace gate is missing from Prometheus discovery
+          description: Gate {{ $labels.gate }} is enabled in the control-plane catalog but has no node-exporter target.
+
+      - alert: HyperspaceGateDiscoveryCountMismatch
+        expr: |
+          hyperspace_control_plane_gates_total{state="enabled"}
+            != scalar(count(up{job="hyperspace-gate-node"}) or vector(0))
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Gate catalog and Prometheus discovery counts differ
+          description: The enabled gate count does not match the number of discovered node-exporter targets.
+
+      - alert: HyperspaceGateResourceExporterMissing
+        expr: |
+          (up{job="hyperspace-gate-node"} == 1)
+          unless on(gate)
+          hyperspace_gate_resource_exporter_last_run_timestamp_seconds{job="hyperspace-gate-node"}
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Hyperspace gate resource metrics are missing
+          description: Node exporter is reachable on gate {{ $labels.gate }}, but the Hyperspace resource exporter has not produced metrics.
+
+      - alert: HyperspaceGateResourceExporterStale
+        expr: time() - hyperspace_gate_resource_exporter_last_run_timestamp_seconds{job="hyperspace-gate-node"} > 300
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Hyperspace gate resource metrics are stale
+          description: Gate {{ $labels.gate }} has not refreshed resource metrics for more than 5 minutes.
+
+      - alert: HyperspaceGateConntrackPressure
+        expr: |
+          hyperspace_gate_conntrack_entries{job="hyperspace-gate-node"}
+            / hyperspace_gate_conntrack_limit{job="hyperspace-gate-node"} >= 0.70
+          and
+          hyperspace_gate_conntrack_entries{job="hyperspace-gate-node"}
+            / hyperspace_gate_conntrack_limit{job="hyperspace-gate-node"} < 0.90
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Hyperspace gate conntrack utilization is high
+          description: Gate {{ $labels.gate }} has used at least 70% of its conntrack table.
+
+      - alert: HyperspaceGateConntrackCritical
+        expr: |
+          hyperspace_gate_conntrack_entries{job="hyperspace-gate-node"}
+            / hyperspace_gate_conntrack_limit{job="hyperspace-gate-node"} >= 0.90
+        for: 1m
+        keep_firing_for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: Hyperspace gate conntrack table is critically full
+          description: Gate {{ $labels.gate }} has used at least 90% of its conntrack table and may drop new connections.
+
+      - alert: HyperspaceGateConntrackTableFull
+        expr: hyperspace_gate_conntrack_table_full_events_recent{job="hyperspace-gate-node"} > 0
+        keep_firing_for: 30m
+        labels:
+          severity: critical
+        annotations:
+          summary: Linux dropped packets because a gate conntrack table was full
+          description: Gate {{ $labels.gate }} logged at least one nf_conntrack table-full event in the last two minutes.
+
+      - alert: HyperspaceGateConntrackAccountingDisabled
+        expr: hyperspace_gate_conntrack_accounting_enabled{job="hyperspace-gate-node"} != 1
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Conntrack accounting is disabled on a Hyperspace gate
+          description: Gate {{ $labels.gate }} is not collecting per-flow conntrack byte and packet counters.
+
+      - alert: HyperspaceGateNetworkDrops
+        expr: |
+          sum by (cluster, gate, public_ipv4, probe_host) (
+            rate(node_network_receive_drop_total{job="hyperspace-gate-node",device!="lo"}[5m])
+            + rate(node_network_transmit_drop_total{job="hyperspace-gate-node",device!="lo"}[5m])
+            + rate(node_network_receive_errs_total{job="hyperspace-gate-node",device!="lo"}[5m])
+            + rate(node_network_transmit_errs_total{job="hyperspace-gate-node",device!="lo"}[5m])
+          ) > 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Sustained network drops or errors on a Hyperspace gate
+          description: Gate {{ $labels.gate }} reports more than one network drop or error per second for 5 minutes.
+
+      - alert: HyperspaceGateUdpBufferErrors
+        expr: |
+          increase(hyperspace_gate_udp_receive_buffer_errors_total{job="hyperspace-gate-node"}[5m])
+          + increase(hyperspace_gate_udp_send_buffer_errors_total{job="hyperspace-gate-node"}[5m]) > 0
+        keep_firing_for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: UDP socket buffer errors on a Hyperspace gate
+          description: Gate {{ $labels.gate }} dropped UDP traffic because a receive or send buffer was exhausted.
+
+      - alert: HyperspaceGateSoftnetDrops
+        expr: increase(hyperspace_gate_softnet_dropped_total{job="hyperspace-gate-node"}[5m]) > 0
+        keep_firing_for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: Linux softnet backlog dropped packets on a Hyperspace gate
+          description: Gate {{ $labels.gate }} dropped packets in the kernel network backlog.
+
+      - alert: HyperspaceGateCpuSustained
+        expr: |
+          100 * (1 - avg by (cluster, gate, public_ipv4, probe_host) (
+            rate(node_cpu_seconds_total{job="hyperspace-gate-node",mode="idle"}[5m])
+          )) > 90
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: Sustained CPU saturation on a Hyperspace gate
+          description: Gate {{ $labels.gate }} has used more than 90% CPU for 15 minutes.
+
+      - alert: HyperspaceGateTrafficCapacityPressure
+        expr: |
+          8 * sum by (cluster, gate, public_ipv4, probe_host) (
+            rate(hyperspace_gate_physical_receive_bytes_total{job="hyperspace-gate-node"}[5m])
+            + rate(hyperspace_gate_physical_transmit_bytes_total{job="hyperspace-gate-node"}[5m])
+          ) > 750000000
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Hyperspace gate traffic is approaching a 1 Gbit/s host limit
+          description: Gate {{ $labels.gate }} has sustained more than 750 Mbit/s aggregate physical traffic for 10 minutes.
+
+      - alert: HyperspaceGatePacketRatePressure
+        expr: |
+          sum by (cluster, gate, public_ipv4, probe_host) (
+            rate(node_network_receive_packets_total{job="hyperspace-gate-node",device!="lo"}[5m])
+            + rate(node_network_transmit_packets_total{job="hyperspace-gate-node",device!="lo"}[5m])
+          ) > 200000
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Hyperspace gate packet rate is unusually high
+          description: Gate {{ $labels.gate }} has sustained more than 200,000 aggregate physical packets per second for 10 minutes.
+
+      - alert: HyperspaceGateVnstatUnavailable
+        expr: hyperspace_gate_vnstat_service_up{job="hyperspace-gate-node"} != 1
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Persistent traffic accounting is unavailable on a Hyperspace gate
+          description: vnstatd is not active on gate {{ $labels.gate }}.
+
+      - alert: HyperspaceGateVnstatDatabaseStale
+        expr: time() - hyperspace_gate_vnstat_database_mtime_seconds{job="hyperspace-gate-node"} > 1200
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Persistent traffic accounting is stale on a Hyperspace gate
+          description: The vnstat database on gate {{ $labels.gate }} has not been updated for more than 20 minutes.
+
+      - alert: HyperspaceGateDoubleZeroMetricsUnavailable
+        expr: hyperspace_gate_doublezero_metrics_last_scrape_success{job="hyperspace-gate-node"} != 1
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Aggregate DoubleZero metrics are unavailable on a Hyperspace gate
+          description: Gate {{ $labels.gate }} cannot scrape the local DoubleZero metrics endpoint.
+
+      - alert: HyperspaceGateDoubleZeroRouteErrors
+        expr: |
+          increase(doublezero_liveness_route_install_failures_total{job="hyperspace-gate-node"}[5m])
+          + increase(doublezero_liveness_route_uninstall_failures_total{job="hyperspace-gate-node"}[5m]) > 0
+        keep_firing_for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: DoubleZero route reconciliation errors on a Hyperspace gate
+          description: Gate {{ $labels.gate }} reported a DoubleZero route install or uninstall failure.
+
+      - alert: HyperspaceGateDoubleZeroSocketErrors
+        expr: |
+          increase(doublezero_liveness_read_socket_errors_total{job="hyperspace-gate-node"}[5m])
+          + increase(doublezero_liveness_write_socket_errors_total{job="hyperspace-gate-node"}[5m]) > 0
+        keep_firing_for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: DoubleZero route-liveness socket errors on a Hyperspace gate
+          description: Gate {{ $labels.gate }} reported route-liveness socket read or write errors.
+
+      - alert: HyperspaceAssignmentCountersStale
+        expr: hyperspace_control_plane_assignment_counter_age_seconds{active="true"} > 300
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Active gate assignment counters are stale
+          description: Assignment {{ $labels.assignment_id }} on gate {{ $labels.gate }} has not persisted a counter sample for more than 5 minutes.
+
+      - alert: HyperspaceAssignmentPolicyDrops
+        expr: increase(hyperspace_control_plane_assignment_dropped_bytes_total{active="true"}[5m]) > 0
+        keep_firing_for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: Gate assignment policy dropped traffic
+          description: Assignment {{ $labels.assignment_id }} on gate {{ $labels.gate }} dropped traffic outside its allowed forwarding policy.
 
       - alert: HyperspaceGateRootFilesystemCritical
         expr: |
