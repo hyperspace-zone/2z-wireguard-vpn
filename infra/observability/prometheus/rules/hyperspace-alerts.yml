@@ -92,7 +92,7 @@ groups:
             node_memory_MemAvailable_bytes{job="hyperspace-gate-node"}
               / node_memory_MemTotal_bytes{job="hyperspace-gate-node"} < 0.10
           )
-          and
+          or
           node_memory_MemAvailable_bytes{job="hyperspace-gate-node"} < 134217728
         for: 30s
         keep_firing_for: 10m
@@ -100,16 +100,72 @@ groups:
           severity: critical
         annotations:
           summary: Hyperspace gate memory is critically low
-          description: Gate {{ $labels.gate }} has less than 10% and 128MiB available RAM.
+          description: Gate {{ $labels.gate }} has less than 10% or 128MiB available RAM.
+
+      - alert: HyperspaceGateMemoryPressure
+        expr: |
+          (
+            node_memory_MemAvailable_bytes{job="hyperspace-gate-node"}
+              / node_memory_MemTotal_bytes{job="hyperspace-gate-node"} < 0.20
+          )
+          or
+          node_memory_MemAvailable_bytes{job="hyperspace-gate-node"} < 268435456
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Hyperspace gate memory headroom is low
+          description: Gate {{ $labels.gate }} has less than 20% or 256MiB available RAM.
+
+      - alert: HyperspaceGateOOMKill
+        expr: increase(node_vmstat_oom_kill{job="hyperspace-gate-node"}[5m]) > 0
+        keep_firing_for: 30m
+        labels:
+          severity: critical
+        annotations:
+          summary: Linux OOM killer terminated a process on a Hyperspace gate
+          description: Gate {{ $labels.gate }} reported at least one OOM kill during the last 5 minutes.
+
+      - alert: HyperspaceGateRuntimeFilesystemPressure
+        expr: |
+          (
+            hyperspace_gate_runtime_filesystem_last_before_used_percent{job="hyperspace-gate-node"} >= 70
+          )
+          and
+          (
+            hyperspace_gate_runtime_filesystem_last_before_used_percent{job="hyperspace-gate-node"} < 85
+          )
+        keep_firing_for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Hyperspace gate runtime filesystem is under pressure
+          description: Gate {{ $labels.gate }} reached at least 70% usage on /run; the local janitor attempted recovery.
+
+      - alert: HyperspaceGateRuntimeFilesystemCritical
+        expr: |
+          (
+            hyperspace_gate_runtime_filesystem_last_before_used_percent{job="hyperspace-gate-node"} >= 85
+          )
+          or
+          (
+            hyperspace_gate_runtime_filesystem_last_after_used_percent{job="hyperspace-gate-node"} >= 85
+          )
+        keep_firing_for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: Hyperspace gate runtime filesystem is critically full
+          description: Gate {{ $labels.gate }} reached at least 85% usage on /run, which can prevent login and service operation.
 
       - alert: HyperspaceGateDiskJanitorStale
-        expr: time() - hyperspace_gate_disk_janitor_last_run_timestamp_seconds{job="hyperspace-gate-node"} > 1800
-        for: 10m
+        expr: time() - hyperspace_gate_disk_janitor_last_run_timestamp_seconds{job="hyperspace-gate-node"} > 300
+        for: 5m
         labels:
           severity: warning
         annotations:
           summary: Hyperspace gate disk janitor is stale
-          description: Gate {{ $labels.gate }} has not reported a disk janitor run for more than 30 minutes.
+          description: Gate {{ $labels.gate }} has not reported a disk janitor run for more than 5 minutes.
 
       - alert: HyperspaceGateDiskJanitorFailed
         expr: hyperspace_gate_disk_janitor_last_success{job="hyperspace-gate-node"} == 0

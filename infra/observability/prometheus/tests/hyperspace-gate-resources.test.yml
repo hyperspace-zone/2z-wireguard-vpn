@@ -1,0 +1,45 @@
+rule_files:
+  - ../rules/hyperspace-alerts.yml
+
+evaluation_interval: 15s
+
+tests:
+  - name: low absolute memory fires critical even above ten percent
+    interval: 15s
+    input_series:
+      - series: 'node_memory_MemAvailable_bytes{job="hyperspace-gate-node",gate="gate-test",instance="192.0.2.10:9100"}'
+        values: '120000000x4'
+      - series: 'node_memory_MemTotal_bytes{job="hyperspace-gate-node",gate="gate-test",instance="192.0.2.10:9100"}'
+        values: '888500224x4'
+    alert_rule_test:
+      - eval_time: 45s
+        alertname: HyperspaceGateMemoryCritical
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: hyperspace-gate-node
+              gate: gate-test
+              instance: 192.0.2.10:9100
+            exp_annotations:
+              summary: Hyperspace gate memory is critically low
+              description: Gate gate-test has less than 10% or 128MiB available RAM.
+
+  - name: recovered critical runtime pressure is still reported
+    interval: 15s
+    input_series:
+      - series: 'hyperspace_gate_runtime_filesystem_last_before_used_percent{job="hyperspace-gate-node",gate="gate-test",instance="192.0.2.10:9100"}'
+        values: '90x2'
+      - series: 'hyperspace_gate_runtime_filesystem_last_after_used_percent{job="hyperspace-gate-node",gate="gate-test",instance="192.0.2.10:9100"}'
+        values: '2x2'
+    alert_rule_test:
+      - eval_time: 15s
+        alertname: HyperspaceGateRuntimeFilesystemCritical
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: hyperspace-gate-node
+              gate: gate-test
+              instance: 192.0.2.10:9100
+            exp_annotations:
+              summary: Hyperspace gate runtime filesystem is critically full
+              description: Gate gate-test reached at least 85% usage on /run, which can prevent login and service operation.
