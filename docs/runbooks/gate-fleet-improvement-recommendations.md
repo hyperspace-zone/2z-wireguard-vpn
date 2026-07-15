@@ -2,7 +2,7 @@
 
 Дата аудита: 2026-07-15
 Среда: mainnet
-Статус: реализовано в коде; fleet rollout выполняется волнами
+Статус: безопасная часть реализована и выкачена в mainnet/testnet
 
 ## Статус реализации 2026-07-15
 
@@ -16,7 +16,7 @@
 - idempotent bootstrap observability/log-hygiene stack и verified SSH
   `known_hosts`;
 - control-plane catalog-driven Prometheus `file_sd`, target-count checks,
-  90-day Prometheus retention, recording rules и Grafana panels;
+  configurable Prometheus retention, recording rules и Grafana panels;
 - assignment-scoped nftables allow/drop rules с CIDR enforcement, reverse
   `established,related` path и independent accepted/dropped counters;
 - WireGuard и forwarded-payload counters с boot/generation-aware central
@@ -24,6 +24,19 @@
 - startup rehydration and kernel drift validation before an assignment is
   reported as Applied;
 - aggregate DoubleZero metrics without per-peer cardinality.
+
+Фактический rollout завершён на 14 mainnet и 5 testnet gates. На всех узлах
+работают gate-agent `0.2.1`, DoubleZero, node exporter, resource exporter,
+`vnstat` и conntrack tier `standard` с лимитом 65 536. В mainnet все 22
+активных assignments после контролируемого replay находятся в `Applied`, а
+11 пользовательских sessions остались `Active`. Actual-state и assignment
+counters отправляются раз в 60 секунд независимо от 10-секундного heartbeat.
+
+Mainnet Prometheus временно ограничен retention `30d`: при текущей скорости
+роста его 19 GB системного диска недостаточно для безопасных `90d` вместе с
+операционной свободой для compaction. Testnet использует `90d`. Для выполнения
+критерия в mainnet нужно увеличить диск observability host либо подключить
+remote write; выставлять `90d` на текущем диске небезопасно.
 
 Осознанно не включены fleet-wide `NOTRACK`, active route-liveness и глобальная
 смена base-chain policy на `DROP`. Assignment traffic уже заканчивается
@@ -71,6 +84,11 @@ per-assignment nftables/WireGuard counters и сохранении интерв�
 
 Все числа выше являются point-in-time evidence от 2026-07-15 и должны быть
 перепроверены перед production rollout.
+
+После rollout значения перепроверены: mainnet Prometheus видит `14/14`, а
+testnet `5/5` Enabled gate targets; resource, conntrack, vnstat и DoubleZero
+metrics присутствуют для каждого target. London после повышения лимита держал
+около 9-10 тысяч conntrack entries из 65 536 вместо прежних 100%.
 
 ## P0: изменения, необходимые в первую очередь
 

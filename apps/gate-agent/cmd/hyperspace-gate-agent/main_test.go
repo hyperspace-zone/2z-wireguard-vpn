@@ -378,10 +378,10 @@ func TestEgressForwardRulesEnforceDestinationAndExposeCounters(t *testing.T) {
 	if len(rules) != 6 {
 		t.Fatalf("rules = %d, expected four accepts and two scoped drops", len(rules))
 	}
-	if !strings.Contains(strings.Join(rules[0], " "), "comment "+state.Handle+":accept:to_destination") {
+	if !strings.Contains(strings.Join(rules[0], " "), "comment "+nftRuleComment(state.Handle, "accept", "to_destination")) {
 		t.Fatalf("accept counter comment missing: %v", rules[0])
 	}
-	if !strings.Contains(strings.Join(rules[len(rules)-1], " "), "comment "+state.Handle+":drop:from_destination") {
+	if !strings.Contains(strings.Join(rules[len(rules)-1], " "), "comment "+nftRuleComment(state.Handle, "drop", "from_destination")) {
 		t.Fatalf("drop counter comment missing: %v", rules[len(rules)-1])
 	}
 }
@@ -391,6 +391,14 @@ func TestParseNftAssignmentCounters(t *testing.T) {
 	counters := parseNftAssignmentCounters(data, "hs-assignment-a")
 	if len(counters) != 1 || counters[0].Packets != 7 || counters[0].Bytes != 700 {
 		t.Fatalf("unexpected counters: %#v", counters)
+	}
+}
+
+func TestNftRuleCommentIsQuotedForNftParser(t *testing.T) {
+	got := nftRuleComment("hs-assignment-a", "accept", "to_destination")
+	want := `"hs-assignment-a:accept:to_destination"`
+	if got != want {
+		t.Fatalf("nftRuleComment() = %q, want %q", got, want)
 	}
 }
 

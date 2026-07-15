@@ -119,7 +119,9 @@ ss -ltnup | grep -E ':(80|443|9443)\b' || true
 ```
 
 Current gate-agent env names are `CONTROL_PLANE_URL`, `GATE_NAME`,
-`POLL_INTERVAL`, and `HEARTBEAT_INTERVAL`. Legacy names such as `API_URL`,
+`POLL_INTERVAL`, `HEARTBEAT_INTERVAL`, and `ACTUAL_STATE_INTERVAL`. Heartbeats
+default to 10 seconds while actual-state/counter reports default to 60 seconds
+to avoid unnecessary database growth. Legacy names such as `API_URL`,
 `GATE_ID`, and `POLL_INTERVAL_SEC` are not used by the current agent.
 
 Gate hosts must be dedicated network hosts. Do not run Docker/containerd or
@@ -135,15 +137,13 @@ desktop-oriented maintenance daemons wake up and consume memory. On cloud
 servers, guest firmware updates are normally not actionable from inside the VM;
 the provider owns host firmware.
 
-Disable and mask `fwupd`/`PackageKit` background activation:
+Disable and mask `fwupd` background activation:
 
 ```bash
 for unit in \
   fwupd-refresh.timer \
   fwupd-refresh.service \
-  fwupd.service \
-  packagekit.service \
-  packagekit-offline-update.service
+  fwupd.service
 do
   systemctl stop "$unit" 2>/dev/null || true
   systemctl disable "$unit" 2>/dev/null || true
@@ -153,10 +153,34 @@ done
 systemctl reset-failed \
   fwupd-refresh.timer \
   fwupd-refresh.service \
-  fwupd.service \
-  packagekit.service \
-  packagekit-offline-update.service 2>/dev/null || true
+  fwupd.service 2>/dev/null || true
 ```
+
+Divert PackageKit's apt hook before masking its services. The hook can return
+`UnitMasked` and fail an otherwise successful manual package transaction. Do
+not purge PackageKit directly: on Ubuntu that also removes the `ubuntu-server`
+metapackage.
+
+```bash
+systemctl unmask packagekit.service packagekit-offline-update.service 2>/dev/null || true
+systemctl disable --now packagekit.service packagekit-offline-update.service 2>/dev/null || true
+install -d -m 0750 /etc/hyperspace/disabled-apt-hooks
+if dpkg-divert --list /etc/apt/apt.conf.d/20packagekit 2>/dev/null \
+  | grep -q '20packagekit.distrib'; then
+  dpkg-divert --local --rename --remove /etc/apt/apt.conf.d/20packagekit
+fi
+if ! dpkg-divert --list /etc/apt/apt.conf.d/20packagekit 2>/dev/null \
+  | grep -q '/etc/hyperspace/disabled-apt-hooks/20packagekit'; then
+  dpkg-divert --local --rename \
+    --divert /etc/hyperspace/disabled-apt-hooks/20packagekit \
+    --add /etc/apt/apt.conf.d/20packagekit
+fi
+systemctl mask packagekit.service packagekit-offline-update.service
+```
+
+The diversion persists across PackageKit package upgrades. During an explicit
+maintenance window, temporarily unmasking the service is not required because
+apt no longer loads the diverted hook.
 
 Disable unattended APT activity as well. A 1 GB gate can enter sustained
 memory and I/O pressure while `unattended-upgrade` reads package metadata;
@@ -1375,17 +1399,22 @@ list. Install the discovery renderer on the observability host:
 ```bash
 if [[ "$HS_CLUSTER" == "mainnet" ]]; then
   GATE_CATALOG_URL=https://control-plane.hyperspace.zone/v1/public/gates
+  PROMETHEUS_RETENTION=30d
 else
   GATE_CATALOG_URL=https://control-plane.testnet.hyperspace.zone/v1/public/gates
+  PROMETHEUS_RETENTION=90d
 fi
 scripts/observability/install-gate-discovery \
   --cluster "$HS_CLUSTER" \
   --catalog-url "$GATE_CATALOG_URL" \
-  --retention 90d
+  --retention "$PROMETHEUS_RETENTION"
 ```
 
 The timer refreshes `/etc/prometheus/file_sd/gates.json` every minute, refuses
 an empty catalog response, and retains the last valid file on failure.
+Mainnet uses `30d` until its observability disk is enlarged or remote write is
+configured; do not select `90d` unless the projected TSDB size plus compaction
+headroom fits the host.
 
 The host-resource alerts are intentionally independent from gate-agent
 heartbeats:
@@ -1796,6 +1825,7 @@ GATE_NAME=${GATE_NAME}
 GATE_TOKEN=${GATE_TOKEN}
 POLL_INTERVAL=2s
 HEARTBEAT_INTERVAL=10s
+ACTUAL_STATE_INTERVAL=60s
 GATE_AGENT_EXECUTION_MODE=apply
 GATE_AGENT_STATE_DIR=/var/lib/hyperspace-gate
 GATE_PROBE_LISTEN_ADDRESS=0.0.0.0

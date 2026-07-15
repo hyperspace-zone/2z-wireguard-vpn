@@ -66,6 +66,12 @@ remote_script="$(cat <<'REMOTE'
 set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
 
+# A masked PackageKit unit makes apt's PackageKit post-invoke hook fail. Unmask
+# it before the first apt transaction; the hook is diverted before the unit is
+# masked again.
+systemctl unmask packagekit.service packagekit-offline-update.service 2>/dev/null || true
+systemctl disable --now packagekit.service packagekit-offline-update.service 2>/dev/null || true
+
 case "$DZ_ENV" in
   testnet) DOUBLEZERO_CLOUDSMITH_REPO=doublezero-testnet ;;
   mainnet-beta) DOUBLEZERO_CLOUDSMITH_REPO=doublezero ;;
@@ -76,14 +82,27 @@ apt-get update
 apt-get install -y ca-certificates curl git gnupg build-essential gettext-base jq python3 \
   wireguard-tools iproute2 nftables chrony caddy prometheus-node-exporter vnstat sysstat logrotate kmod
 
+install -d -m 0750 /etc/hyperspace/disabled-apt-hooks
+if dpkg-divert --list /etc/apt/apt.conf.d/20packagekit 2>/dev/null | grep -q '20packagekit.distrib'; then
+  dpkg-divert --local --rename --remove /etc/apt/apt.conf.d/20packagekit
+fi
+if ! dpkg-divert --list /etc/apt/apt.conf.d/20packagekit 2>/dev/null \
+  | grep -q '/etc/hyperspace/disabled-apt-hooks/20packagekit'; then
+  dpkg-divert --local --rename \
+    --divert /etc/hyperspace/disabled-apt-hooks/20packagekit \
+    --add /etc/apt/apt.conf.d/20packagekit
+fi
+systemctl disable --now packagekit.service packagekit-offline-update.service 2>/dev/null || true
+systemctl mask packagekit.service packagekit-offline-update.service 2>/dev/null || true
+
 if apt-cache show linux-generic-hwe-24.04 >/dev/null 2>&1; then
   apt-get install -y linux-generic-hwe-24.04
 else
   apt-get install -y linux-generic
 fi
 
-systemctl disable --now fwupd-refresh.timer fwupd-refresh.service fwupd.service packagekit.service 2>/dev/null || true
-systemctl mask fwupd-refresh.timer fwupd-refresh.service fwupd.service packagekit.service 2>/dev/null || true
+systemctl disable --now fwupd-refresh.timer fwupd-refresh.service fwupd.service 2>/dev/null || true
+systemctl mask fwupd-refresh.timer fwupd-refresh.service fwupd.service 2>/dev/null || true
 systemctl disable --now apt-daily.timer apt-daily-upgrade.timer unattended-upgrades.service 2>/dev/null || true
 systemctl mask apt-daily.timer apt-daily-upgrade.timer unattended-upgrades.service 2>/dev/null || true
 
@@ -92,7 +111,13 @@ if [ "$DOUBLEZERO_CLOUDSMITH_REPO" = "doublezero-testnet" ]; then
 else
   rm -f /etc/apt/sources.list.d/malbeclabs-doublezero-testnet.list
 fi
-curl -1sLf "https://dl.cloudsmith.io/public/malbeclabs/${DOUBLEZERO_CLOUDSMITH_REPO}/setup.deb.sh" | bash
+doublezero_repo_file="/etc/apt/sources.list.d/malbeclabs-${DOUBLEZERO_CLOUDSMITH_REPO}.list"
+if ! grep -qs "dl.cloudsmith.io/public/malbeclabs/${DOUBLEZERO_CLOUDSMITH_REPO}/" "$doublezero_repo_file"; then
+  curl --proto '=https' --tlsv1.2 --fail --show-error --location \
+    --connect-timeout 15 --max-time 180 --retry 3 --retry-delay 2 \
+    "https://dl.cloudsmith.io/public/malbeclabs/${DOUBLEZERO_CLOUDSMITH_REPO}/setup.deb.sh" \
+    | bash
+fi
 apt-get update
 if [ -n "${DOUBLEZERO_VERSION:-}" ]; then
   apt-get install -y "doublezero=${DOUBLEZERO_VERSION}"
