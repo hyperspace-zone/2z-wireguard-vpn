@@ -9,6 +9,7 @@ import { createSolanaTopupLoop } from "../loops/solana-topup-loop.js";
 import { createRetailBillingLoop } from "../loops/retail-billing-loop.js";
 import { createBillingNotificationLoop } from "../loops/billing-notification-loop.js";
 import { createSolanaWithdrawalLoop } from "../loops/solana-withdrawal-loop.js";
+import { createSolanaRevenueSweepLoop } from "../loops/solana-revenue-sweep-loop.js";
 import { createReconcileRunner } from "./reconcile-runner.js";
 import { log, sleep } from "../support/runtime.js";
 
@@ -35,10 +36,17 @@ export function createWorkerRunner(input: {
   const retailBillingLoop = createRetailBillingLoop(input.db, input.config);
   const billingNotificationLoop = createBillingNotificationLoop(input.db, input.config);
   const solanaWithdrawalLoop = createSolanaWithdrawalLoop(input.db, input.config);
+  const solanaRevenueSweepLoop = createSolanaRevenueSweepLoop(input.db, input.config);
   let stopping = false;
+  let started = false;
+  let resolveStopped: (() => void) | null = null;
+  const stopped = new Promise<void>((resolve) => {
+    resolveStopped = resolve;
+  });
 
   return {
     async start(): Promise<void> {
+      started = true;
       log({ event: "worker_started", workerId: input.config.workerId, pollMs: input.config.pollMs });
       input.metrics.gauge("billing_metering_import_enabled", input.config.doubleZeroMetering.url ? 1 : 0, {
         help: "Whether periodic DoubleZero metering import is configured."
@@ -47,53 +55,63 @@ export function createWorkerRunner(input: {
         help: "Whether Hyperspace retail billing settlement is enabled.",
         labels: { mode: input.config.retailBilling.mode }
       });
+      input.metrics.gauge("solana_revenue_sweeps_enabled", input.config.solanaRevenueSweeps.enabled ? 1 : 0, {
+        help: "Whether spent paid balance is swept to the configured Solana revenue treasury."
+      });
       input.health.setComponent("worker-runner", { state: "ready", message: "Worker runner loop started." });
-      while (!stopping) {
-        await runMeasuredLoop("reconcile", input, () => reconcileRunner.runOnce());
-        await runMeasuredLoop("retry", input, () => retryLoop.runOnce());
-        await runMeasuredLoop("cleanup", input, () => cleanupLoop.runOnce());
-        await runMeasuredLoop("solana-topups", input, () => solanaTopupLoop.runOnce());
-        if (retailBillingLoop.due()) {
-          const settlement = await runMeasuredLoop("retail-billing", input, () => retailBillingLoop.runOnce());
-          if (settlement) {
-            input.metrics.counter("retail_billing_rated_windows_total", settlement.ratedWindows, {
-              help: "Total idempotently rated VPN usage windows.",
-              labels: { mode: settlement.mode }
-            });
-            input.metrics.counter("retail_billing_posted_minor_total", settlement.postedMinor, {
-              help: "Total posted retail billing minor units.",
-              labels: { mode: settlement.mode, currency: input.config.billing.currency }
-            });
+      try {
+        while (!stopping) {
+          await runMeasuredLoop("reconcile", input, () => reconcileRunner.runOnce());
+          await runMeasuredLoop("retry", input, () => retryLoop.runOnce());
+          await runMeasuredLoop("cleanup", input, () => cleanupLoop.runOnce());
+          await runMeasuredLoop("solana-topups", input, () => solanaTopupLoop.runOnce());
+          if (retailBillingLoop.due()) {
+            const settlement = await runMeasuredLoop("retail-billing", input, () => retailBillingLoop.runOnce());
+            if (settlement) {
+              input.metrics.counter("retail_billing_rated_windows_total", settlement.ratedWindows, {
+                help: "Total idempotently rated VPN usage windows.",
+                labels: { mode: settlement.mode }
+              });
+              input.metrics.counter("retail_billing_posted_minor_total", settlement.postedMinor, {
+                help: "Total posted retail billing minor units.",
+                labels: { mode: settlement.mode, currency: input.config.billing.currency }
+              });
+            }
+          }
+          await runMeasuredLoop("billing-notifications", input, () => billingNotificationLoop.runOnce());
+          if (solanaWithdrawalLoop.due()) {
+            await runMeasuredLoop("solana-withdrawals", input, () => solanaWithdrawalLoop.runOnce());
+          }
+          if (solanaRevenueSweepLoop.due()) {
+            await runMeasuredLoop("solana-revenue-sweeps", input, () => solanaRevenueSweepLoop.runOnce());
+          }
+          if (doubleZeroMeteringLoop.due()) {
+            const metering = await runMeasuredLoop("doublezero-metering", input, () => doubleZeroMeteringLoop.runOnce());
+            if (metering) {
+              input.metrics.counter("billing_metering_records_total", metering.imported, {
+                help: "Total imported DoubleZero metering records.",
+                labels: { result: "imported" }
+              });
+              input.metrics.counter("billing_metering_records_total", metering.duplicates, {
+                help: "Total imported DoubleZero metering records.",
+                labels: { result: "duplicate" }
+              });
+              input.metrics.counter("billing_metering_records_total", metering.rejected, {
+                help: "Total imported DoubleZero metering records.",
+                labels: { result: "rejected" }
+              });
+            }
+          }
+          const snapshotReady = await runMeasuredLoop("snapshot", input, () => collectControlPlaneSnapshotMetrics(input));
+          if (snapshotReady) {
+            input.onSnapshotReady?.();
+          }
+          if (!stopping) {
+            await sleep(input.config.pollMs);
           }
         }
-        await runMeasuredLoop("billing-notifications", input, () => billingNotificationLoop.runOnce());
-        if (solanaWithdrawalLoop.due()) {
-          await runMeasuredLoop("solana-withdrawals", input, () => solanaWithdrawalLoop.runOnce());
-        }
-        if (doubleZeroMeteringLoop.due()) {
-          const metering = await runMeasuredLoop("doublezero-metering", input, () => doubleZeroMeteringLoop.runOnce());
-          if (metering) {
-            input.metrics.counter("billing_metering_records_total", metering.imported, {
-              help: "Total imported DoubleZero metering records.",
-              labels: { result: "imported" }
-            });
-            input.metrics.counter("billing_metering_records_total", metering.duplicates, {
-              help: "Total imported DoubleZero metering records.",
-              labels: { result: "duplicate" }
-            });
-            input.metrics.counter("billing_metering_records_total", metering.rejected, {
-              help: "Total imported DoubleZero metering records.",
-              labels: { result: "rejected" }
-            });
-          }
-        }
-        const snapshotReady = await runMeasuredLoop("snapshot", input, () => collectControlPlaneSnapshotMetrics(input));
-        if (snapshotReady) {
-          input.onSnapshotReady?.();
-        }
-        if (!stopping) {
-          await sleep(input.config.pollMs);
-        }
+      } finally {
+        resolveStopped?.();
       }
     },
     async stop(): Promise<void> {
@@ -103,6 +121,9 @@ export function createWorkerRunner(input: {
       stopping = true;
       log({ event: "worker_stopping", workerId: input.config.workerId });
       input.health.setComponent("worker-runner", { state: "stopped", message: "Worker runner is stopping." });
+      if (started) {
+        await stopped;
+      }
       await input.db.close();
     }
   };

@@ -71,6 +71,14 @@ export {
   type RetailBillingSettlementResult
 } from "./application/billing/prepaid-billing.scenario.js";
 export {
+  claimCashSweepSigningJob,
+  confirmCashSweep,
+  failCashSweep,
+  listCashSweepConfirmations,
+  recordCashSweepSubmission,
+  type CashSweepSigningJob
+} from "./application/billing/cash-sweep.scenario.js";
+export {
   cancelOwnedWithdrawal,
   claimWithdrawalSigningJob,
   confirmWithdrawal,

@@ -136,7 +136,7 @@ export function associatedTokenAddress(mint: PublicKey, owner: PublicKey): Publi
   )[0];
 }
 
-function createAssociatedTokenAccountIdempotentInstruction(
+export function createAssociatedTokenAccountIdempotentInstruction(
   payer: PublicKey,
   associatedAccount: PublicKey,
   owner: PublicKey,
@@ -183,7 +183,7 @@ export function createTransferCheckedInstruction(
   });
 }
 
-function encodeBase58(value: Uint8Array): string {
+export function encodeBase58(value: Uint8Array): string {
   const alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
   const digits = [0];
   for (const byte of value) {

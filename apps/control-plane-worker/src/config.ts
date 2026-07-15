@@ -1,5 +1,5 @@
 import { parseAes256GcmKey } from "@hyperspace-zone/shared";
-import { Keypair } from "@solana/web3.js";
+import { Keypair, PublicKey } from "@solana/web3.js";
 import type { BillingConfig } from "@hyperspace-zone/control-plane";
 import type { ReconcileLoopRuntimeConfig } from "./loops/reconcile-loop.js";
 
@@ -30,6 +30,11 @@ export interface ControlPlaneWorkerConfig extends ReconcileLoopRuntimeConfig {
     custodialEncryptionKey: Buffer | null;
     feePayer: Keypair | null;
   };
+  solanaRevenueSweeps: {
+    enabled: boolean;
+    intervalSeconds: number;
+    treasuryAddress: string;
+  };
   doubleZeroMetering: {
     url: string;
     bearerToken: string;
@@ -50,7 +55,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ControlPlaneWo
     throw new Error("ARTIFACT_ENCRYPTION_KEY is required");
   }
 
-  return {
+  const config: ControlPlaneWorkerConfig = {
     databaseUrl,
     artifactEncryptionKey: parseAes256GcmKey(artifactEncryptionKeyRaw),
     pollMs: Number(env.WORKER_POLL_MS ?? 2000),
@@ -91,6 +96,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ControlPlaneWo
         : null,
       feePayer: parseSolanaFeePayer(env.SOLANA_FEE_PAYER_SECRET_KEY)
     },
+    solanaRevenueSweeps: {
+      enabled: env.SOLANA_REVENUE_SWEEPS_ENABLED === "true",
+      intervalSeconds: Number(env.SOLANA_REVENUE_SWEEP_INTERVAL_SECONDS ?? 30),
+      treasuryAddress: env.SOLANA_REVENUE_TREASURY_ADDRESS ?? ""
+    },
     doubleZeroMetering: {
       url: env.DOUBLEZERO_METERING_URL ?? "",
       bearerToken: env.DOUBLEZERO_METERING_BEARER_TOKEN ?? "",
@@ -112,6 +122,31 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ControlPlaneWo
     ntpDiscoverySampleSeconds: Number(env.NTP_DISCOVERY_SAMPLE_SECONDS ?? 30),
     ntpDiscoveryMaxCandidates: Number(env.NTP_DISCOVERY_MAX_CANDIDATES ?? 96)
   };
+  validateSolanaPayoutConfig(config);
+  return config;
+}
+
+function validateSolanaPayoutConfig(config: ControlPlaneWorkerConfig): void {
+  if (!config.solanaWithdrawals.enabled && !config.solanaRevenueSweeps.enabled) return;
+  if (!config.billing.solanaRpcUrl) {
+    throw new Error("SOLANA_RPC_URL is required when Solana withdrawals or revenue sweeps are enabled");
+  }
+  if (!config.solanaWithdrawals.custodialEncryptionKey) {
+    throw new Error("CUSTODIAL_WALLET_ENCRYPTION_KEY is required when Solana withdrawals or revenue sweeps are enabled");
+  }
+  if (!config.solanaWithdrawals.feePayer) {
+    throw new Error("SOLANA_FEE_PAYER_SECRET_KEY is required when Solana withdrawals or revenue sweeps are enabled");
+  }
+  if (config.solanaRevenueSweeps.enabled) {
+    if (!config.solanaRevenueSweeps.treasuryAddress) {
+      throw new Error("SOLANA_REVENUE_TREASURY_ADDRESS is required when Solana revenue sweeps are enabled");
+    }
+    try {
+      new PublicKey(config.solanaRevenueSweeps.treasuryAddress);
+    } catch {
+      throw new Error("SOLANA_REVENUE_TREASURY_ADDRESS must be a valid Solana public key");
+    }
+  }
 }
 
 function parseSolanaFeePayer(value: string | undefined): Keypair | null {

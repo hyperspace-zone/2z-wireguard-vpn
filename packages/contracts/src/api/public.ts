@@ -63,9 +63,14 @@ export const publicAuthResponseSchema = {
 export const publicAuthMeResponseSchema = {
   type: "object",
   additionalProperties: false,
-  required: ["user"],
+  required: ["user", "capabilities"],
   properties: {
-    user: publicUserSchema
+    user: publicUserSchema,
+    capabilities: {
+      type: "array",
+      items: { enum: ["billing:admin"] },
+      uniqueItems: true
+    }
   }
 } as const;
 

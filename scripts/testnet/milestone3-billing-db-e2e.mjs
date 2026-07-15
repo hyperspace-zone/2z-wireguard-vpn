@@ -33,6 +33,18 @@ try {
   accountId = actor.accountId;
 
   const wallet = await ensureCustodialSolanaWallet(db, accountId, walletEncryptionKey);
+  await readAccountBillingSummary(db, accountId);
+  const debtFixture = await db.query(
+    "UPDATE billing_balance_buckets SET debt_minor = 300, updated_at = now() WHERE account_id = $1",
+    [accountId]
+  );
+  assertEqual(debtFixture.rowCount, 1, "debt fixture updates the initialized billing bucket");
+  await db.query(
+    `INSERT INTO balance_ledger_entries (
+       account_id, entry_type, amount_minor, currency, source_type, source_id, description
+     ) VALUES ($1, 'usage_charge', -300, 'USD', 'billing_e2e_debt', $2, 'Billing E2E debt fixture')`,
+    [accountId, runId]
+  );
   const config = {
     currency: "USD",
     solanaTreasuryAddress: "",
@@ -61,8 +73,19 @@ try {
     throw new Error(`top-up confirmation failed: ${JSON.stringify(confirmed)}`);
   }
   const summary = await readAccountBillingSummary(db, accountId, config);
-  assertEqual(summary.balanceMinor, 2500, "verified top-up balance");
-  assertEqual(summary.buckets.cashMinor, 2500, "verified top-up is withdrawable cash");
+  assertEqual(summary.balanceMinor, 2200, "verified top-up repays debt before increasing balance");
+  assertEqual(summary.buckets.cashMinor, 2200, "only the unused top-up remains withdrawable cash");
+  assertEqual(summary.buckets.debtMinor, 0, "verified top-up clears existing debt");
+  const sweepResult = await db.query(
+    `SELECT status, amount_minor::text::int AS "amountMinor",
+            token_amount_base_units::text AS "tokenAmountBaseUnits"
+     FROM billing_cash_sweep_requests
+     WHERE account_id = $1 AND source_type = 'topup_debt_repayment'`,
+    [accountId]
+  );
+  assertEqual(sweepResult.rows[0]?.status, "pending", "debt repayment creates a revenue sweep");
+  assertEqual(sweepResult.rows[0]?.amountMinor, 300, "revenue sweep contains only repaid debt");
+  assertEqual(sweepResult.rows[0]?.tokenAmountBaseUnits, "3000000", "revenue sweep preserves SPL base units");
 
   await applyBillingCredit(db, {
     accountId,
@@ -82,7 +105,7 @@ try {
   });
   const credited = await readAccountBillingSummary(db, accountId, config);
   assertEqual(credited.buckets.promotionalMinor, 500, "manual credit is promotional and idempotent");
-  assertEqual(credited.withdrawableBalanceMinor, 2500, "promotional credit is not withdrawable");
+  assertEqual(credited.withdrawableBalanceMinor, 2200, "promotional credit is not withdrawable");
 
   const externalWallet = "11111111111111111111111111111111";
   await db.query(
@@ -97,7 +120,7 @@ try {
   if (typeof withdrawal === "string") throw new Error(`withdrawal creation failed: ${withdrawal}`);
   const reserved = await readAccountBillingSummary(db, accountId, config);
   assertEqual(reserved.buckets.reservedWithdrawalMinor, 1000, "withdrawal reserves paid cash");
-  assertEqual(reserved.availableBalanceMinor, 2000, "reserved cash is unavailable for usage");
+  assertEqual(reserved.availableBalanceMinor, 1700, "reserved cash is unavailable for usage");
   assertEqual(await cancelOwnedWithdrawal(db, actor, withdrawal.withdrawal.id), "cancelled", "withdrawal cancellation");
   const cancelled = await readAccountBillingSummary(db, accountId, config);
   assertEqual(cancelled.buckets.reservedWithdrawalMinor, 0, "cancellation releases reserved cash");
@@ -128,6 +151,7 @@ try {
 } finally {
   if (accountId) {
     await db.query("DELETE FROM audit_events WHERE account_id = $1", [accountId]);
+    await db.query("DELETE FROM withdrawal_requests WHERE account_id = $1", [accountId]);
     await db.query("DELETE FROM accounts WHERE id = $1", [accountId]);
   }
   await db.close();

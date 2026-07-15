@@ -84,6 +84,21 @@ export interface ClaimedWithdrawalRow extends WithdrawalRequestRow {
   accountId: string;
 }
 
+export interface CashSweepRequestRow {
+  id: string;
+  accountId: string;
+  status: string;
+  amountMinor: number;
+  currency: string;
+  tokenSymbol: string;
+  tokenMint: string;
+  tokenAmountBaseUnits: string;
+  transactionSignature: string | null;
+  attemptCount: number;
+  failureReason: string | null;
+  submittedAt: string | null;
+}
+
 export interface AccountUsageSummaryRow {
   sessionId: string;
   sessionLabel: string | null;
@@ -865,6 +880,138 @@ export async function insertWithdrawalRequest(
     ]
   );
   return mustRow(result);
+}
+
+export async function insertCashSweepRequest(
+  db: Queryable,
+  input: {
+    accountId: string;
+    sourceType: string;
+    sourceId: string;
+    amountMinor: number;
+    tokenSymbol: string;
+    tokenMint: string;
+    tokenAmountBaseUnits: bigint;
+    metadata?: Record<string, unknown>;
+  }
+): Promise<void> {
+  if (input.amountMinor <= 0 || input.tokenAmountBaseUnits <= 0n) return;
+  await db.query(
+    `
+      INSERT INTO billing_cash_sweep_requests (
+        account_id, source_type, source_id, amount_minor, token_symbol,
+        token_mint, token_amount_base_units, metadata
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)
+      ON CONFLICT (source_type, source_id) DO NOTHING
+    `,
+    [
+      input.accountId,
+      input.sourceType,
+      input.sourceId,
+      input.amountMinor,
+      input.tokenSymbol,
+      input.tokenMint,
+      input.tokenAmountBaseUnits.toString(),
+      JSON.stringify(input.metadata ?? {})
+    ]
+  );
+}
+
+export async function claimCashSweepRequest(db: Queryable): Promise<CashSweepRequestRow | null> {
+  const result = await db.query<CashSweepRequestRow>(
+    `
+      WITH candidate AS (
+        SELECT id
+        FROM billing_cash_sweep_requests
+        WHERE status IN ('pending', 'failed')
+          AND next_attempt_at <= now()
+        ORDER BY next_attempt_at, created_at
+        FOR UPDATE SKIP LOCKED
+        LIMIT 1
+      )
+      UPDATE billing_cash_sweep_requests
+      SET status = 'processing', failure_reason = NULL, updated_at = now()
+      FROM candidate
+      WHERE billing_cash_sweep_requests.id = candidate.id
+      RETURNING
+        billing_cash_sweep_requests.id,
+        billing_cash_sweep_requests.account_id AS "accountId",
+        billing_cash_sweep_requests.status,
+        billing_cash_sweep_requests.amount_minor::text::int AS "amountMinor",
+        billing_cash_sweep_requests.currency,
+        billing_cash_sweep_requests.token_symbol AS "tokenSymbol",
+        billing_cash_sweep_requests.token_mint AS "tokenMint",
+        billing_cash_sweep_requests.token_amount_base_units::text AS "tokenAmountBaseUnits",
+        billing_cash_sweep_requests.transaction_signature AS "transactionSignature",
+        billing_cash_sweep_requests.attempt_count AS "attemptCount",
+        billing_cash_sweep_requests.failure_reason AS "failureReason",
+        billing_cash_sweep_requests.submitted_at AS "submittedAt"
+    `
+  );
+  return result.rows[0] ?? null;
+}
+
+export async function listSubmittedCashSweeps(db: Queryable, limit = 100): Promise<CashSweepRequestRow[]> {
+  const result = await db.query<CashSweepRequestRow>(
+    `
+      SELECT
+        id, account_id AS "accountId", status,
+        amount_minor::text::int AS "amountMinor", currency,
+        token_symbol AS "tokenSymbol", token_mint AS "tokenMint",
+        token_amount_base_units::text AS "tokenAmountBaseUnits",
+        transaction_signature AS "transactionSignature",
+        attempt_count AS "attemptCount", failure_reason AS "failureReason",
+        submitted_at AS "submittedAt"
+      FROM billing_cash_sweep_requests
+      WHERE status = 'submitted'
+      ORDER BY submitted_at
+      LIMIT $1
+    `,
+    [limit]
+  );
+  return result.rows;
+}
+
+export async function markCashSweepSubmitted(
+  db: Queryable,
+  id: string,
+  signature: string,
+  metadata: Record<string, unknown>
+): Promise<void> {
+  await db.query(
+    `
+      UPDATE billing_cash_sweep_requests
+      SET status = 'submitted', transaction_signature = $2,
+          metadata = metadata || $3::jsonb, submitted_at = now(), updated_at = now()
+      WHERE id = $1 AND status = 'processing'
+    `,
+    [id, signature, JSON.stringify(metadata)]
+  );
+}
+
+export async function markCashSweepFailed(db: Queryable, id: string, reason: string): Promise<void> {
+  await db.query(
+    `
+      UPDATE billing_cash_sweep_requests
+      SET status = 'failed', attempt_count = attempt_count + 1,
+          next_attempt_at = now() + (LEAST(3600, 15 * power(2, LEAST(attempt_count, 8)))::text || ' seconds')::interval,
+          failure_reason = $2, updated_at = now()
+      WHERE id = $1 AND status IN ('processing', 'submitted')
+    `,
+    [id, reason.slice(0, 1000)]
+  );
+}
+
+export async function markCashSweepConfirmed(db: Queryable, id: string): Promise<void> {
+  await db.query(
+    `
+      UPDATE billing_cash_sweep_requests
+      SET status = 'confirmed', confirmed_at = now(), failure_reason = NULL, updated_at = now()
+      WHERE id = $1 AND status = 'submitted'
+    `,
+    [id]
+  );
 }
 
 export async function listWithdrawalRequests(

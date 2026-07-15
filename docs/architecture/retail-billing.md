@@ -58,6 +58,14 @@ debt. New cash or promotional credits repay debt before becoming available.
 All VPN configs belonging to one account share these buckets. Accounts are not
 merged into organizations.
 
+The USDC remains on the account custodial wallet until paid cash is actually
+consumed. Each cash-funded usage rating creates an idempotent revenue sweep;
+the same happens when a new cash top-up repays existing debt. A worker transfers
+only that spent cash to the platform revenue treasury. Promotional spend never
+creates an on-chain sweep. Sweep state and transaction signatures are retained
+separately from the immutable customer ledger, so an RPC outage cannot roll
+back or duplicate a customer charge.
+
 The initial settlement token is USDC on Solana. Internally all prices and
 ledger entries use USD cents. Adding 2Z deposits later requires a signed,
 expiring 2Z/USD quote at deposit time; historical entries must retain the quote.
@@ -127,6 +135,8 @@ RESEND_API_KEY=secret
 EMAIL_FROM=Hyperspace <no-reply@hyperspace.zone>
 EMAIL_REPLY_TO=gatekeepers@hyperspace.zone
 SOLANA_WITHDRAWALS_ENABLED=false
+SOLANA_REVENUE_SWEEPS_ENABLED=false
+SOLANA_REVENUE_TREASURY_ADDRESS=platform-wallet-public-key
 CUSTODIAL_WALLET_ENCRYPTION_KEY=the-same-key-as-the-api
 SOLANA_FEE_PAYER_SECRET_KEY=[64-byte Solana secret-key JSON array]
 ```

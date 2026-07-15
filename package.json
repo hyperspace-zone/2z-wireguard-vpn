@@ -24,6 +24,7 @@
     "test:live:email": "node --env-file-if-exists=.env scripts/testnet/resend-otp-e2e.mjs",
     "test:live:identity-db": "node --env-file-if-exists=.env scripts/testnet/identity-linking-db-e2e.mjs",
     "test:live:billing-db": "node --env-file-if-exists=.env scripts/testnet/milestone3-billing-db-e2e.mjs",
+    "test:live:billing-ui": "node --env-file-if-exists=.env scripts/testnet/retail-billing-ui-e2e.mjs",
     "test:live:ui": "node --env-file-if-exists=.env scripts/testnet/live-ui-smoke.mjs",
     "test:live:policy": "node --env-file-if-exists=.env scripts/testnet/live-policy-smoke.mjs",
     "test:live": "npm run test:live:ui && npm run test:live:policy",

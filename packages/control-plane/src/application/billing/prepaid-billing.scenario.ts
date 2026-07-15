@@ -2,6 +2,7 @@ import type { TransactionalQueryable } from "../../db/queryable.js";
 import { insertLedgerEntry } from "../../resources/billing/repository.js";
 import {
   enqueueBillingNotification,
+  insertCashSweepRequest,
   insertRetailUsageRating,
   listBillingAccountsNeedingStateCheck,
   listNonTerminalAccountSessions,
@@ -27,6 +28,9 @@ export interface RetailBillingRuntimeConfig {
   mode: "shadow" | "enforce";
   settlementLagSeconds: number;
   batchSize?: number;
+  tokenSymbol: string;
+  tokenMint: string;
+  tokenBaseUnitsPerBillingMinor: number;
 }
 
 export interface RetailBillingSettlementResult {
@@ -144,7 +148,7 @@ export async function settleRetailBilling(
   const touchedAccounts = new Set<string>();
 
   for (const candidate of candidates) {
-    const posted = await settleRatingCandidate(db, candidate, config.mode);
+    const posted = await settleRatingCandidate(db, candidate, config);
     if (posted !== null) {
       result.ratedWindows += 1;
       result.postedMinor += posted;
@@ -169,7 +173,7 @@ export async function settleRetailBilling(
 async function settleRatingCandidate(
   db: TransactionalQueryable,
   candidate: RetailRatingCandidateRow,
-  mode: "shadow" | "enforce"
+  config: RetailBillingRuntimeConfig
 ): Promise<number | null> {
   const bytesToDestination = BigInt(candidate.bytesToDestination);
   const bytesFromDestination = BigInt(candidate.bytesFromDestination);
@@ -192,7 +196,7 @@ async function settleRatingCandidate(
       bytesToDestination,
       bytesFromDestination,
       chargeMicrominor,
-      mode,
+      mode: config.mode,
       metadata: {
         sessionLabel: candidate.sessionLabel,
         planCode: candidate.planCode,
@@ -203,7 +207,7 @@ async function settleRatingCandidate(
     if (!rating) {
       return null;
     }
-    if (mode === "shadow") {
+    if (config.mode === "shadow") {
       return 0;
     }
 
@@ -240,7 +244,23 @@ async function settleRatingCandidate(
     if (!inserted) {
       return 0;
     }
-    await writeBillingBuckets(client, candidate.accountId, consumeBillingCharge(buckets, postedMinor));
+    const nextBuckets = consumeBillingCharge(buckets, postedMinor);
+    const cashSpentMinor = buckets.cashMinor - nextBuckets.cashMinor;
+    await writeBillingBuckets(client, candidate.accountId, nextBuckets);
+    await insertCashSweepRequest(client, {
+      accountId: candidate.accountId,
+      sourceType: "retail_usage_rating",
+      sourceId: rating.id,
+      amountMinor: cashSpentMinor,
+      tokenSymbol: config.tokenSymbol,
+      tokenMint: config.tokenMint,
+      tokenAmountBaseUnits: BigInt(cashSpentMinor) * BigInt(config.tokenBaseUnitsPerBillingMinor),
+      metadata: {
+        sessionId: candidate.sessionId,
+        windowStart: candidate.windowStart,
+        windowEnd: candidate.windowEnd
+      }
+    });
     await markRatingPosted(client, rating.id, postedMinor);
     return postedMinor;
   });

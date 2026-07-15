@@ -145,6 +145,7 @@ interface Me {
   email: string;
   displayName?: string;
   avatarUrl?: string | null;
+  billingAdmin: boolean;
 }
 
 interface WalletLink {
@@ -367,15 +368,17 @@ function renderLoading(): void {
 }
 
 async function refresh(options: { skipAutoMeasure?: boolean } = {}): Promise<void> {
-  const [gates, sessions, me, benchmarkMatrix, billing, wallets, adminBilling] = await Promise.all([
+  const [gates, sessions, me, benchmarkMatrix, billing, wallets] = await Promise.all([
     getGates().catch(() => [] as Gate[]),
     token ? getSessions().catch(() => [] as Session[]) : Promise.resolve([]),
     token ? getMe().catch(() => null) : Promise.resolve(null),
     getBenchmarkMatrix().catch(() => null),
     token ? getBilling().catch(() => null) : Promise.resolve(null),
-    token ? getWallets().catch(() => [] as WalletLink[]) : Promise.resolve([]),
-    token ? getAdminBilling().catch(() => null) : Promise.resolve(null)
+    token ? getWallets().catch(() => [] as WalletLink[]) : Promise.resolve([])
   ]);
+  const adminBilling = token && me?.billingAdmin
+    ? await getAdminBilling().catch(() => null)
+    : null;
   latestGates = gates;
   latestSessions = sessions;
   latestMe = me;
@@ -3105,9 +3108,12 @@ function connectHelperScript(platform: "linux" | "macos" | "windows", configUrl:
   ].join("\n");
 }
 
-async function getMe(): Promise<{ email: string }> {
+async function getMe(): Promise<Me> {
   const response = await api("/v1/public/auth/me", { method: "GET" });
-  return response.user;
+  return {
+    ...response.user,
+    billingAdmin: Array.isArray(response.capabilities) && response.capabilities.includes("billing:admin")
+  };
 }
 
 async function getGates(): Promise<Gate[]> {
@@ -3416,7 +3422,7 @@ async function measureAndRefreshGates(): Promise<void> {
     return;
   }
   const renderMeasurementState = () => {
-    if (latestMe?.email === measurementEmail && currentView !== "login" && currentView !== "register") {
+    if (latestMe?.email === measurementEmail && currentView === "dashboard") {
       render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
     }
   };
@@ -3439,7 +3445,7 @@ async function measureAndRefreshGates(): Promise<void> {
     gateLatencyMeasurementInFlight = false;
     renderMeasurementState();
   }
-  if (latestMe?.email !== measurementEmail || currentView === "login" || currentView === "register") {
+  if (latestMe?.email !== measurementEmail || currentView !== "dashboard") {
     return;
   }
   await refresh({ skipAutoMeasure: true });
@@ -3447,7 +3453,7 @@ async function measureAndRefreshGates(): Promise<void> {
 }
 
 function maybeMeasureGatesAutomatically(): void {
-  if (!latestMe || automaticGateLatencyMeasurementStarted || gateLatencyMeasurementInFlight || latestGates.length === 0) {
+  if (!latestMe || currentView !== "dashboard" || automaticGateLatencyMeasurementStarted || gateLatencyMeasurementInFlight || latestGates.length === 0) {
     return;
   }
   automaticGateLatencyMeasurementStarted = true;

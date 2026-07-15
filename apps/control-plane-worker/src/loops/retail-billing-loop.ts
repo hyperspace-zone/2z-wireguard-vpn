@@ -16,7 +16,10 @@ export function createRetailBillingLoop(db: Database, config: ControlPlaneWorker
       return settleRetailBilling(db, {
         mode: config.retailBilling.mode,
         settlementLagSeconds: config.retailBilling.settlementLagSeconds,
-        batchSize: config.retailBilling.batchSize
+        batchSize: config.retailBilling.batchSize,
+        tokenSymbol: config.billing.solanaTokenSymbol,
+        tokenMint: config.billing.solanaTokenMint,
+        tokenBaseUnitsPerBillingMinor: config.billing.solanaTokenBaseUnitsPerBillingMinor
       });
     }
   };

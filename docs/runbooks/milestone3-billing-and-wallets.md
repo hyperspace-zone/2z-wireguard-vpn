@@ -33,6 +33,9 @@ optional and cannot replace or claim a wallet linked to another account.
      transfer.
 6. `topup_intents.transaction_signature` is unique, preventing replay across
    intents. A verified transaction creates one immutable ledger credit.
+7. When paid cash is consumed by usage or repays debt, an idempotent sweep
+   transfers that amount from the account wallet to the configured Hyperspace
+   revenue treasury. Unused cash stays available for withdrawal.
 
 The default documented mapping is mainnet USDC:
 
@@ -130,6 +133,14 @@ npm run test:milestone3:ui
 # Against a migrated PostgreSQL environment:
 npm run test:live:identity-db
 npm run test:live:billing-db
+
+# Browser billing/admin/withdrawal flow. DATABASE_URL may be provided through
+# an SSH tunnel to the testnet database.
+npm run test:live:billing-ui
+
+# Real OTP delivery requires a separate Resend Full Access key, not the
+# send-only production key.
+RESEND_RECEIVING_API_KEY=<full-access-key> npm run test:live:email
 
 # Full browser flow against testnet. Use a pre-verified test account when the
 # Resend receiving key is not available.

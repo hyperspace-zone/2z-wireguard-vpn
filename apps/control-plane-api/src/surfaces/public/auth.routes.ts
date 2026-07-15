@@ -25,6 +25,7 @@ import {
   loginUser,
   registerUser,
   requestEmailLoginCode,
+  userHasRole,
   verifyEmailLoginCode,
   type EmailSender,
   type GoogleOAuthConfig
@@ -227,7 +228,14 @@ export function registerPublicAuthRoutes(
     if (!user) {
       return;
     }
-    return reply.send({ user });
+    const [billingAdmin, platformAdmin] = await Promise.all([
+      userHasRole(deps.db, user.id, "billing_admin"),
+      userHasRole(deps.db, user.id, "platform_admin")
+    ]);
+    return reply.send({
+      user,
+      capabilities: billingAdmin || platformAdmin ? ["billing:admin"] : []
+    });
   });
 
   app.get("/v1/public/auth/wallets", {

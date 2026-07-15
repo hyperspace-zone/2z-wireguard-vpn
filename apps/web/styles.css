@@ -967,7 +967,12 @@ small {
   display: grid;
   gap: 8px;
   margin-top: 16px;
+  min-width: 0;
   padding-top: 14px;
+}
+
+.billing-ledger > * {
+  min-width: 0;
 }
 
 .billing-ledger h3 {
@@ -978,12 +983,25 @@ small {
 .billing-ledger-row {
   align-items: center;
   display: flex;
+  gap: 10px;
   justify-content: space-between;
+}
+
+.billing-ledger-row > div,
+.topup-row > div {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .billing-ledger-row small {
   color: #57606a;
   display: block;
+  overflow-wrap: anywhere;
+}
+
+.billing-ledger .mono {
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .amount-credit { color: #1a7f37; }

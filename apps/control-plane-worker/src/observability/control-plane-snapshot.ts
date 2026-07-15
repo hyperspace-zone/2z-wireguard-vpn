@@ -63,11 +63,23 @@ async function collectBillingMetrics(db: Database, metrics: RuntimeMetrics): Pro
       help: "Outstanding retail billing debt in currency minor units.", labels: { state: row.state, currency: "USD" }
     });
   }
-  const queue = await db.query<{ pending: number; oldestAgeSeconds: number; failedWithdrawals: number }>(`
+  const queue = await db.query<{
+    pending: number;
+    oldestAgeSeconds: number;
+    failedWithdrawals: number;
+    pendingSweeps: number;
+    failedSweeps: number;
+    pendingSweepMinor: string;
+    oldestSweepAgeSeconds: number;
+  }>(`
     SELECT
       (SELECT COUNT(*)::int FROM billing_notification_outbox WHERE status IN ('pending', 'failed')) AS pending,
       COALESCE((SELECT EXTRACT(EPOCH FROM now() - MIN(created_at))::float FROM billing_notification_outbox WHERE status IN ('pending', 'failed')), 0) AS "oldestAgeSeconds",
-      (SELECT COUNT(*)::int FROM withdrawal_requests WHERE status = 'failed') AS "failedWithdrawals"
+      (SELECT COUNT(*)::int FROM withdrawal_requests WHERE status = 'failed') AS "failedWithdrawals",
+      (SELECT COUNT(*)::int FROM billing_cash_sweep_requests WHERE status IN ('pending', 'processing', 'submitted', 'failed')) AS "pendingSweeps",
+      (SELECT COUNT(*)::int FROM billing_cash_sweep_requests WHERE status = 'failed') AS "failedSweeps",
+      COALESCE((SELECT SUM(amount_minor)::text FROM billing_cash_sweep_requests WHERE status IN ('pending', 'processing', 'submitted', 'failed')), '0') AS "pendingSweepMinor",
+      COALESCE((SELECT EXTRACT(EPOCH FROM now() - MIN(created_at))::float FROM billing_cash_sweep_requests WHERE status IN ('pending', 'processing', 'submitted', 'failed')), 0) AS "oldestSweepAgeSeconds"
   `);
   const row = queue.rows[0];
   if (!row) return;
@@ -79,6 +91,19 @@ async function collectBillingMetrics(db: Database, metrics: RuntimeMetrics): Pro
   });
   metrics.gauge("control_plane_billing_failed_withdrawals", row.failedWithdrawals, {
     help: "Solana withdrawal requests currently requiring retry or operator review."
+  });
+  metrics.gauge("control_plane_billing_pending_cash_sweeps", row.pendingSweeps, {
+    help: "Paid customer balance waiting to be settled into the Solana revenue treasury."
+  });
+  metrics.gauge("control_plane_billing_failed_cash_sweeps", row.failedSweeps, {
+    help: "Solana revenue cash sweeps currently requiring retry or operator review."
+  });
+  metrics.gauge("control_plane_billing_pending_cash_sweep_minor", Number(row.pendingSweepMinor), {
+    help: "Currency minor units waiting to be swept into the Solana revenue treasury.",
+    labels: { currency: "USD" }
+  });
+  metrics.gauge("control_plane_billing_oldest_cash_sweep_age_seconds", row.oldestSweepAgeSeconds, {
+    help: "Age in seconds of the oldest unconfirmed Solana revenue cash sweep."
   });
 }
 

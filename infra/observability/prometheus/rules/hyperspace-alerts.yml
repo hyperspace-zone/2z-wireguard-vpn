@@ -255,9 +255,9 @@ groups:
 
       - alert: HyperspaceRetailBillingLoopStale
         expr: |
-          retail_billing_enabled{job="hyperspace-control-plane-worker"} == 1
+          hyperspace_retail_billing_enabled{job="hyperspace-control-plane-worker"} == 1
           and on(instance)
-          time() - worker_loop_last_success_timestamp_seconds{job="hyperspace-control-plane-worker",loop="retail-billing"} > 900
+          time() - hyperspace_worker_loop_last_success_timestamp_seconds{job="hyperspace-control-plane-worker",loop="retail-billing"} > 900
         for: 5m
         labels:
           severity: critical
@@ -266,7 +266,7 @@ groups:
           description: The enabled retail billing worker has not completed a settlement for more than 15 minutes.
 
       - alert: HyperspaceBillingNotificationBacklog
-        expr: control_plane_billing_notification_oldest_age_seconds{job="hyperspace-control-plane-worker"} > 900
+        expr: hyperspace_control_plane_billing_notification_oldest_age_seconds{job="hyperspace-control-plane-worker"} > 900
         for: 5m
         labels:
           severity: critical
@@ -275,7 +275,7 @@ groups:
           description: At least one billing notification has remained undelivered for more than 15 minutes.
 
       - alert: HyperspaceBillingAccountsInGrace
-        expr: control_plane_billing_accounts{job="hyperspace-control-plane-worker",state="grace"} > 0
+        expr: hyperspace_control_plane_billing_accounts{job="hyperspace-control-plane-worker",state="grace"} > 0
         for: 5m
         labels:
           severity: warning
@@ -284,13 +284,34 @@ groups:
           description: One or more customer accounts are in the billing grace period and may have VPN configs revoked.
 
       - alert: HyperspaceBillingWithdrawalFailed
-        expr: control_plane_billing_failed_withdrawals{job="hyperspace-control-plane-worker"} > 0
+        expr: hyperspace_control_plane_billing_failed_withdrawals{job="hyperspace-control-plane-worker"} > 0
         for: 5m
         labels:
           severity: warning
         annotations:
           summary: Hyperspace Solana withdrawal requires attention
           description: At least one customer withdrawal failed and is waiting for retry or operator review.
+
+      - alert: HyperspaceBillingCashSweepFailed
+        expr: hyperspace_control_plane_billing_failed_cash_sweeps{job="hyperspace-control-plane-worker"} > 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: Hyperspace paid usage settlement requires attention
+          description: At least one transfer of spent paid balance to the Solana revenue treasury failed.
+
+      - alert: HyperspaceBillingCashSweepBacklog
+        expr: |
+          hyperspace_solana_revenue_sweeps_enabled{job="hyperspace-control-plane-worker"} == 1
+          and on(instance)
+          hyperspace_control_plane_billing_oldest_cash_sweep_age_seconds{job="hyperspace-control-plane-worker"} > 900
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: Hyperspace paid usage settlement is delayed
+          description: Spent paid balance has remained outside the Solana revenue treasury for more than 15 minutes.
 
       - alert: HyperspaceGatePacketRatePressure
         expr: |

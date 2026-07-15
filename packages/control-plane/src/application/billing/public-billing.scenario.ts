@@ -24,6 +24,7 @@ import {
   readBillingAccountState,
   readBillingBuckets,
   readCurrentBillingPlan,
+  insertCashSweepRequest,
   listAccountUsageSummaries,
   listWithdrawalRequests,
   type AccountUsageSummaryRow,
@@ -187,7 +188,7 @@ export async function submitSolanaTopupSignature(
   if (config.allowUnverifiedTopups && !config.solanaRpcUrl) {
     return finalizeVerifiedTopup(db, actor.accountId, topup, transactionSignature, {
       verificationMode: "explicit-unverified-testnet"
-    });
+    }, config);
   }
   if (!config.solanaRpcUrl) {
     return "topup_verification_unavailable";
@@ -230,7 +231,7 @@ export async function submitSolanaTopupSignature(
   return finalizeVerifiedTopup(db, actor.accountId, topup, transactionSignature, {
     verificationMode: "solana-rpc-finalized",
     ...verification.evidence
-  });
+  }, config);
 }
 
 export async function reconcileSubmittedSolanaTopups(
@@ -286,7 +287,7 @@ export async function reconcileSubmittedSolanaTopups(
           const finalized = await finalizeVerifiedTopup(db, topup.accountId, topup, transactionSignature, {
             verificationMode: "solana-rpc-finalized-worker",
             ...verification.evidence
-          });
+          }, config);
           if (typeof finalized !== "string") {
             result.confirmed += 1;
             matched = true;
@@ -353,7 +354,8 @@ async function finalizeVerifiedTopup(
   accountId: string,
   topup: TopupIntentRow,
   transactionSignature: string,
-  evidence: Record<string, unknown>
+  evidence: Record<string, unknown>,
+  config: BillingConfig
 ): Promise<SubmitTopupResult> {
   try {
     return await db.transaction(async (client) => {
@@ -387,7 +389,19 @@ async function finalizeVerifiedTopup(
       });
       if (inserted) {
         const buckets = await readBillingBuckets(client, accountId, true);
-        await writeBillingBuckets(client, accountId, applyBucketCredit(buckets, locked.amountMinor, "cash"));
+        const nextBuckets = applyBucketCredit(buckets, locked.amountMinor, "cash");
+        const debtRepaidMinor = buckets.debtMinor - nextBuckets.debtMinor;
+        await writeBillingBuckets(client, accountId, nextBuckets);
+        await insertCashSweepRequest(client, {
+          accountId,
+          sourceType: "topup_debt_repayment",
+          sourceId: locked.id,
+          amountMinor: debtRepaidMinor,
+          tokenSymbol: locked.tokenSymbol ?? config.solanaTokenSymbol,
+          tokenMint: locked.tokenMint ?? config.solanaTokenMint,
+          tokenAmountBaseUnits: BigInt(debtRepaidMinor) * BigInt(config.solanaTokenBaseUnitsPerBillingMinor),
+          metadata: { transactionSignature, reason: "prepaid debt repayment" }
+        });
       }
       const updated = await findTopupIntentForUpdate(client, accountId, locked.id);
       if (!updated) {
