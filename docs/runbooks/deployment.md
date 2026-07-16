@@ -799,15 +799,42 @@ contact the DoubleZero team through the official New Tenant contact form:
 
 https://docs.malbeclabs.com/New%20Tenant/
 
-On each gate, run only the following shell block to enable IPv4 forwarding:
+On each gate, apply the forwarding and UDP receive-buffer profile below. The
+receive-buffer settings protect `doublezerod` UDP/44880 from bursts that would
+otherwise increment `UdpRcvbufErrors` and drop route-liveness traffic. The
+default is 4 MiB and applications may request up to 16 MiB; these limits do not
+preallocate that amount for every UDP socket.
 
 ```bash
 cat >/etc/sysctl.d/99-hyperspace-gate.conf <<'EOF'
 net.ipv4.ip_forward=1
+net.core.rmem_default=4194304
+net.core.rmem_max=16777216
 EOF
 sysctl --system
 sysctl net.ipv4.ip_forward
+sysctl net.core.rmem_default net.core.rmem_max
 ```
+
+`scripts/gates/bootstrap-host` installs the same values in
+`/etc/sysctl.d/90-hyperspace-gate.conf` for all new or repaired gates. After
+restarting `doublezerod`, verify its UDP socket and record the cumulative UDP
+error counters twice. Existing non-zero counters are historical; they are not
+a rollout failure unless they continue to increase.
+
+```bash
+systemctl restart doublezerod
+ss -uapm 'sport = :44880'
+nstat -az UdpRcvbufErrors UdpSndbufErrors
+sleep 120
+nstat -az UdpRcvbufErrors UdpSndbufErrors
+```
+
+The `ss` output should show `rb4194304` for the `doublezerod` socket. Confirm
+that BGP and DoubleZero readiness recover after the restart and that neither
+UDP buffer-error counter grows. If only `UdpSndbufErrors` grows, investigate
+the send path separately; increasing receive buffers does not correct a send
+queue problem.
 
 Open the required firewall/security-group paths:
 
