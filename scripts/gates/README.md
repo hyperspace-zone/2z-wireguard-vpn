@@ -46,6 +46,25 @@ sets `nf_conntrack_max=65536`. `hub` sets `262144` and is rejected on hosts with
 less than 2 GiB RAM. Promote a gate to `hub` only after resizing the VM and a
 testnet or single-host mainnet canary.
 
+`bootstrap-host` makes the conntrack tier reboot-safe. It writes
+`nf_conntrack` to `/etc/modules-load.d/90-hyperspace-gate.conf` so the kernel
+module is loaded before `systemd-sysctl` processes
+`/etc/sysctl.d/90-hyperspace-gate.conf`. Without the modules-load entry, a gate
+may start with the kernel default (for example `7168`) even though the sysctl
+file requests `65536`. The bootstrap also loads the module and applies the
+selected limit immediately during installation.
+
+After installation, and again after any reboot, verify the standard tier with:
+
+```bash
+grep -x nf_conntrack /etc/modules-load.d/90-hyperspace-gate.conf
+sysctl net.netfilter.nf_conntrack_max net.netfilter.nf_conntrack_acct
+```
+
+The expected standard-tier values are `65536` and `1`. Treat a lower limit or
+disabled accounting as a failed gate bootstrap; do not wait for the conntrack
+table to fill before repairing it.
+
 Prometheus gate targets are not maintained in this inventory. Run
 `scripts/observability/install-gate-discovery` on each observability host; its
 timer renders Enabled gates from the public control-plane catalog into

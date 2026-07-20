@@ -798,20 +798,26 @@ contact the DoubleZero team through the official New Tenant contact form:
 
 https://docs.malbeclabs.com/New%20Tenant/
 
-On each gate, apply the forwarding and UDP receive-buffer profile below. The
-receive-buffer settings protect `doublezerod` UDP/44880 from bursts that would
-otherwise increment `UdpRcvbufErrors` and drop route-liveness traffic. The
-default is 4 MiB and applications may request up to 16 MiB; these limits do not
-preallocate that amount for every UDP socket.
+On each standard-tier gate, apply the forwarding, conntrack and UDP
+receive-buffer profile below. The receive-buffer settings protect `doublezerod`
+UDP/44880 from bursts that would otherwise increment `UdpRcvbufErrors` and drop
+route-liveness traffic. The default is 4 MiB and applications may request up to
+16 MiB; these limits do not preallocate that amount for every UDP socket.
 
 ```bash
+install -d -m 0755 /etc/modules-load.d
+printf 'nf_conntrack\n' >/etc/modules-load.d/90-hyperspace-gate.conf
+modprobe nf_conntrack
 cat >/etc/sysctl.d/99-hyperspace-gate.conf <<'EOF'
 net.ipv4.ip_forward=1
+net.netfilter.nf_conntrack_max=65536
+net.netfilter.nf_conntrack_acct=1
 net.core.rmem_default=4194304
 net.core.rmem_max=16777216
 EOF
 sysctl --system
 sysctl net.ipv4.ip_forward
+sysctl net.netfilter.nf_conntrack_max net.netfilter.nf_conntrack_acct
 sysctl net.core.rmem_default net.core.rmem_max
 ```
 
@@ -1138,7 +1144,24 @@ Bootstrap installs HWE where available, DoubleZero, WireGuard, chrony, Caddy,
 node exporter, `vnstat`, `sysstat`, journald limits, the disk janitor and the
 resource exporter. It configures `standard` conntrack (`65536`) by default.
 The `hub` tier (`262144`) is rejected below 2 GiB RAM and requires a canary.
+The bootstrap persists both the tier and module ordering: it installs
+`nf_conntrack` in `/etc/modules-load.d/90-hyperspace-gate.conf` before storing
+the tier values in `/etc/sysctl.d/90-hyperspace-gate.conf`. This ordering is
+required because `systemd-sysctl` runs early during boot and otherwise may skip
+`nf_conntrack_max` and `nf_conntrack_acct` while the module-owned sysctls do not
+yet exist.
 It does not replace `/root/.config/doublezero/id.json`.
+
+Validate every new or rebooted standard-tier gate before enabling traffic:
+
+```bash
+grep -x nf_conntrack /etc/modules-load.d/90-hyperspace-gate.conf
+sysctl net.netfilter.nf_conntrack_max net.netfilter.nf_conntrack_acct
+```
+
+Expected output is `nf_conntrack_max = 65536` and `nf_conntrack_acct = 1`.
+Anything lower is a bootstrap failure and can cause new flows, including SSH,
+to be dropped when the default conntrack table fills.
 
 All fleet scripts require verified SSH host keys. Populate the selected
 `known_hosts` out of band and review fingerprints before execution. Use
