@@ -140,6 +140,8 @@ case "$GATE_TIER" in
     ;;
 esac
 printf '%s\n' "$GATE_TIER" >/etc/hyperspace/gate-tier
+install -d -m 0755 /etc/modules-load.d
+printf '%s\n' nf_conntrack >/etc/modules-load.d/90-hyperspace-gate.conf
 cat >/etc/sysctl.d/90-hyperspace-gate.conf <<EOF
 net.ipv4.ip_forward = 1
 net.netfilter.nf_conntrack_max = ${conntrack_max}
