@@ -7,4 +7,5 @@ Wants=network-online.target
 Type=oneshot
 User=prometheus
 EnvironmentFile=/etc/hyperspace/gate-discovery.env
+TimeoutStartSec=30s
 ExecStart=/usr/local/lib/hyperspace/render-gate-file-sd.mjs --url ${GATE_CATALOG_URL} --cluster ${HYPERSPACE_CLUSTER} --output /etc/prometheus/file_sd/gates.json

@@ -29,3 +29,17 @@ test("runtime metrics aggregate raw events into prometheus exposition", () => {
   assert.match(rendered, /hyperspace_gates_total\{service="test-service",state="ready"\} 5/);
   assert.match(rendered, /hyperspace_request_duration_seconds_bucket\{route="\/health",service="test-service",le="0.01"\} 1/);
 });
+
+test("runtime metrics can replace a dynamic gauge family", () => {
+  const metrics = createRuntimeMetrics({ service: "test-service", flushIntervalMs: 60_000 });
+  metrics.gauge("gate_ready", 1, { labels: { gate: "old-gate" } });
+  metrics.renderPrometheus();
+
+  metrics.resetGauge("gate_ready");
+  metrics.gauge("gate_ready", 1, { labels: { gate: "new-gate" } });
+  const rendered = metrics.renderPrometheus();
+  metrics.stop();
+
+  assert.doesNotMatch(rendered, /old-gate/);
+  assert.match(rendered, /hyperspace_gate_ready\{gate="new-gate",service="test-service"\} 1/);
+});
