@@ -163,7 +163,10 @@ if [[ "$reuse_existing_env" != true ]]; then
   scp "${scp_args[@]}" "$tmp_env" "${ssh_user}@${host}:/etc/hyperspace/gate-agent.env.new"
 fi
 ssh "${ssh_args[@]}" "${ssh_user}@${host}" 'set -euo pipefail
-test -s /etc/hyperspace/gate-agent.env
+if [[ ! -s /etc/hyperspace/gate-agent.env && ! -s /etc/hyperspace/gate-agent.env.new ]]; then
+  echo "missing gate agent environment" >&2
+  exit 1
+fi
 chown root:root /usr/local/bin/hyperspace-gate-agent.new /etc/systemd/system/hyperspace-gate-agent.service.new
 chmod 0755 /usr/local/bin/hyperspace-gate-agent.new
 chmod 0644 /etc/systemd/system/hyperspace-gate-agent.service.new
@@ -174,6 +177,7 @@ if [[ -e /etc/hyperspace/gate-agent.env.new ]]; then
   chmod 0600 /etc/hyperspace/gate-agent.env.new
   mv -f /etc/hyperspace/gate-agent.env.new /etc/hyperspace/gate-agent.env
 fi
+test -s /etc/hyperspace/gate-agent.env
 chown root:root /etc/hyperspace/gate-agent.env
 chmod 0600 /etc/hyperspace/gate-agent.env
 systemctl daemon-reload
