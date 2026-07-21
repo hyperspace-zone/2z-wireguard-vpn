@@ -40,6 +40,7 @@ export interface RuntimeMetrics {
   record(event: RawMetricEvent): void;
   counter(name: string, value?: number, input?: MetricInput): void;
   gauge(name: string, value: number, input?: MetricInput): void;
+  resetGauge(name: string): void;
   histogram(name: string, value: number, input?: MetricInput & { buckets?: number[] }): void;
   renderPrometheus(): string;
   stop(): void;
@@ -207,6 +208,15 @@ export function createRuntimeMetrics(config: RuntimeMetricsConfig): RuntimeMetri
     },
     gauge(name, value, input = {}): void {
       record({ kind: "gauge", name, value, ...input });
+    },
+    resetGauge(name): void {
+      flush();
+      const metricName = normalizeMetricName(name);
+      for (const [key, metric] of series.entries()) {
+        if (metric.kind === "gauge" && metric.name === metricName) {
+          series.delete(key);
+        }
+      }
     },
     histogram(name, value, input = {}): void {
       record({ kind: "histogram", name, value, ...input });

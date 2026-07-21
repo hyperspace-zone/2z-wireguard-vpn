@@ -77,6 +77,12 @@ async function collectAssignmentUsageMetrics(db: Database, metrics: RuntimeMetri
     JOIN gate_assignments ON gate_assignments.id = samples.assignment_id
     ORDER BY samples.assignment_id, samples.sampled_at DESC
   `);
+  resetGauges(metrics, [
+    "control_plane_assignment_counter_age_seconds",
+    "control_plane_assignment_forwarded_bytes_total",
+    "control_plane_assignment_dropped_bytes_total",
+    "control_plane_assignment_wireguard_bytes_total"
+  ]);
   for (const row of result.rows) {
     const labels = {
       assignment_id: row.assignmentId,
@@ -165,6 +171,7 @@ async function collectGateMetrics(db: Database, metrics: RuntimeMetrics): Promis
   if (!row) {
     return;
   }
+  metrics.resetGauge("control_plane_gates_total");
   for (const [state, value] of Object.entries(row)) {
     metrics.gauge("control_plane_gates_total", Number(value), {
       help: "Gate catalog counts by operational state.",
@@ -220,6 +227,14 @@ async function collectGateMetrics(db: Database, metrics: RuntimeMetrics): Promis
     LEFT JOIN gate_conditions schedulable ON schedulable.gate_id = gates.id AND schedulable.type = 'Schedulable'
     ORDER BY gates.name
   `);
+  resetGauges(metrics, [
+    "control_plane_gate_agent_connected",
+    "control_plane_gate_ready",
+    "control_plane_gate_schedulable",
+    "control_plane_gate_doublezero_ready",
+    "control_plane_gate_last_seen_age_seconds",
+    "control_plane_gate_lease_seconds_until_expiry"
+  ]);
   for (const gate of gateResult.rows) {
     const labels = {
       gate: gate.name,
@@ -358,6 +373,13 @@ async function collectBenchmarkMetrics(db: Database, metrics: RuntimeMetrics): P
     GROUP BY transport, status
     ORDER BY transport, status
   `);
+  resetGauges(metrics, [
+    "control_plane_benchmark_routes_total",
+    "control_plane_benchmark_rtt_p50_ms",
+    "control_plane_benchmark_jitter_ms",
+    "control_plane_benchmark_loss_percent",
+    "control_plane_benchmark_max_age_seconds"
+  ]);
   for (const row of result.rows) {
     const labels = { transport: row.transport, status: row.status };
     metrics.gauge("control_plane_benchmark_routes_total", row.routes, {
@@ -423,6 +445,13 @@ async function collectBenchmarkMetrics(db: Database, metrics: RuntimeMetrics): P
     JOIN gates target ON target.id = latest.target_gate_id
     ORDER BY source.name, target.name, latest.transport
   `);
+  resetGauges(metrics, [
+    "control_plane_benchmark_route_failed",
+    "control_plane_benchmark_route_age_seconds",
+    "control_plane_benchmark_route_rtt_p50_ms",
+    "control_plane_benchmark_route_jitter_ms",
+    "control_plane_benchmark_route_loss_percent"
+  ]);
   for (const row of routeResult.rows) {
     const labels = {
       route: `${row.sourceGate} -> ${row.targetGate}`,
@@ -450,5 +479,11 @@ async function collectBenchmarkMetrics(db: Database, metrics: RuntimeMetrics): P
       help: "Latest gate benchmark route packet loss percent.",
       labels
     });
+  }
+}
+
+function resetGauges(metrics: RuntimeMetrics, names: string[]): void {
+  for (const name of names) {
+    metrics.resetGauge(name);
   }
 }
