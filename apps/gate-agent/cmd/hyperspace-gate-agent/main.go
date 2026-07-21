@@ -767,16 +767,20 @@ func ntpDiscoveryHostsForGate(gateName string) []string {
 	cityCountryPools := map[string][]string{
 		"ams": {"nl.pool.ntp.org"},
 		"chi": {"us.pool.ntp.org"},
+		"dfw": {"us.pool.ntp.org"},
+		"dub": {"ie.pool.ntp.org"},
 		"fra": {"de.pool.ntp.org"},
+		"hkg": {"hk.pool.ntp.org"},
 		"lon": {"uk.pool.ntp.org"},
 		"mad": {"es.pool.ntp.org"},
 		"nyc": {"us.pool.ntp.org"},
 		"osl": {"no.pool.ntp.org"},
 		"sjc": {"us.pool.ntp.org"},
-		"sia": {"lt.pool.ntp.org"},
 		"sin": {"sg.pool.ntp.org"},
+		"sqq": {"lt.pool.ntp.org"},
 		"sto": {"se.pool.ntp.org"},
 		"tyo": {"jp.pool.ntp.org"},
+		"ymq": {"ca.pool.ntp.org"},
 	}
 	for token, pools := range cityCountryPools {
 		if strings.Contains(gateName, "-"+token+"-") {

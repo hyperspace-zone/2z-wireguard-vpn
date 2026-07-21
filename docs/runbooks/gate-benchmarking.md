@@ -292,9 +292,26 @@ name is the best source for a gate; provider routing and peering dominate.
 | `gate-ap-tyo-21` | Existing Tokyo-local pool source | NICT, JST mfeed, Japan pool, Cloudflare, Google, Apple | Existing source stayed better than public official candidates, about 1.5ms Clock Error. |
 | `gate-ap-sin-21` | Existing Singapore-local pool source | Singapore pool, Asia pool, Cloudflare, Google, Apple, Ubuntu | Existing source stayed better than tested candidates, about 1.2ms Clock Error. |
 | `gate-ap-hkg-21` | `223.255.185.2` | Hong Kong Observatory, Hong Kong pool, Cloudflare, Google | Improved from about 7.3ms to about 3.4ms, still close to the yellow threshold. |
-| `gate-eu-sia-21` | `5.20.0.21`, `5.20.0.20` | Lithuania pool, LITNET/Lithuania candidates, Cloudflare, Google, Apple | Best public reachable sources are still yellow, about 4.9ms. |
+| `gate-eu-sqq-21` | `5.20.0.21`, `5.20.0.20` | Lithuania pool, LITNET/Lithuania candidates, Cloudflare, Google, Apple | Best public reachable sources are still yellow, about 4.9ms. |
 | `gate-na-chi-21` | `72.30.35.89` | US pool, NIST WWV, Cloudflare, Google, Apple | Best public reachable sources are still yellow, about 7.1ms. |
 | `gate-na-slc-21` | NIST WWV sources | XMission Salt Lake City, NIST WWV, US pool, Cloudflare, Google, Apple | XMission routed worse from this VM; best public reachable sources are still yellow, about 7.6ms. |
+
+### Mainnet NTP Tuning, 2026-07-21
+
+The 2026-07-21 pass used the same `chronyc ... noselect` discovery procedure
+for newly added `-31` gates and for Tokyo, whose selected pool member had
+accumulated high root dispersion. The active Ubuntu pools were disabled on
+these hosts, the selected sources use `minpoll 4 maxpoll 6`, and rollback
+copies are stored as `/etc/chrony/chrony.conf.hyperspace-pre-ntp-tuning` and,
+where applicable, `90-hyperspace-benchmark-time.conf.pre-clock-tuning-20260721.bak`.
+
+| Gate | Preferred source after tuning | Clock Error before | Clock Error after | Result |
+| --- | --- | ---: | ---: | --- |
+| `gate-na-dfw-31` | Google NTP four-endpoint pool | 47.60ms | about 1.3ms | Green. Google leap smear is used consistently; normal UTC sources and `leapsectz` are disabled on this host. |
+| `gate-na-ymq-31` | `23.159.16.194` (`ntp.netlinkify.com`) with Canadian fallbacks | 21.10ms | about 5.7ms | Improved from pink to yellow; no sampled public source was below the 3ms green threshold. |
+| `gate-ap-hkg-31` | `223.255.185.2` (Hong Kong Observatory) | 18.17ms | about 3.3ms | Improved from pink to yellow. The lower-delay `47.243.51.23` was rejected because its own root dispersion was about 36ms. |
+| `gate-ap-tyo-21` | `ntp.nict.jp` four-endpoint pool | 16.04ms | about 0.9ms | Green; replaces the previous random Japan pool member. |
+| `gate-eu-dub-31` | `23.95.167.124` with HEAnet and Irish pool fallbacks | 10.59ms | about 1.4ms | Green. |
 
 If a gate remains yellow after this process, the next fix is not more public NTP
 names. Ask the infrastructure provider for provider-local NTP/PTP, better

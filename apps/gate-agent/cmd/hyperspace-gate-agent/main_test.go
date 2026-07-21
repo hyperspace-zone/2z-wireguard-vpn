@@ -8,6 +8,29 @@ import (
 	"time"
 )
 
+func TestNTPDiscoveryHostsUseCurrentGateMetroCodes(t *testing.T) {
+	tests := []struct {
+		gateName string
+		pool     string
+	}{
+		{gateName: "gate-na-dfw-31", pool: "us.pool.ntp.org"},
+		{gateName: "gate-eu-dub-31", pool: "ie.pool.ntp.org"},
+		{gateName: "gate-ap-hkg-31", pool: "hk.pool.ntp.org"},
+		{gateName: "gate-eu-sqq-21", pool: "lt.pool.ntp.org"},
+		{gateName: "gate-na-ymq-31", pool: "ca.pool.ntp.org"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.gateName, func(t *testing.T) {
+			hosts := strings.Join(ntpDiscoveryHostsForGate(test.gateName), " ")
+			if !strings.Contains(hosts, test.pool) {
+				t.Fatalf("NTP discovery hosts %q do not include %q", hosts, test.pool)
+			}
+		})
+	}
+
+}
+
 func TestParseDoubleZeroStatus(t *testing.T) {
 	output := " Tunnel Status  | Last Session Update     | Tunnel Name | Tunnel Src   | Tunnel Dst     | Doublezero IP | User Type | Reconciler | Tenant | Current Device | Lowest Latency Device | Metro     | Network | Multicast Groups\n" +
 		" BGP Session Up | 2026-06-05 12:00:08 UTC | doublezero0 | 85.9.219.252 | 195.219.138.96 | 85.9.219.252  | IBRL      | true       |        | ams-dz001      | ✅ ams-dz001          | Amsterdam | testnet |"
