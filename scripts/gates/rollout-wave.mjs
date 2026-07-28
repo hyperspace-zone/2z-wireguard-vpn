@@ -67,7 +67,9 @@ for (const gate of gates) {
     ...sshKeyArgs,
     ...sshUserArgs,
     ...knownHostsArgs,
-    ...(gateHost && args.webOrigin ? ["--gate-host", gateHost, "--web-origin", args.webOrigin] : []),
+    ...(gateHost && args.webOrigins.length > 0
+      ? ["--gate-host", gateHost, ...args.webOrigins.flatMap((origin) => ["--web-origin", origin])]
+      : []),
     ...(args.binary ? ["--binary", args.binary] : []),
     ...(dryRun ? ["--dry-run"] : [])
   ]);
@@ -95,7 +97,7 @@ function run(script, scriptArgs) {
 }
 
 function parseArgs(argv) {
-  const out = { dryRun: true };
+  const out = { dryRun: true, webOrigins: [] };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     switch (arg) {
@@ -118,7 +120,7 @@ function parseArgs(argv) {
         out.controlPlaneUrl = argv[++i];
         break;
       case "--web-origin":
-        out.webOrigin = argv[++i];
+        out.webOrigins.push(argv[++i]);
         break;
       case "--gate-token-dir":
         out.gateTokenDir = argv[++i];
@@ -153,7 +155,7 @@ function parseArgs(argv) {
 }
 
 function usage() {
-  console.error(`usage: scripts/gates/rollout-wave.mjs --inventory gates.json --wave WAVE --control-plane-url URL --gate-token-dir DIR --probe-secret-file FILE [--web-origin URL] [--execute]
+  console.error(`usage: scripts/gates/rollout-wave.mjs --inventory gates.json --wave WAVE --control-plane-url URL --gate-token-dir DIR --probe-secret-file FILE [--web-origin URL ...] [--execute]
 
 Default mode is dry-run. Use --execute only after reviewing the rendered host commands.
 Inventory entries are selected by rolloutWave or wave and can include sshHost, publicIpv4,

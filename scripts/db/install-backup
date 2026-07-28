@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then
+  echo "run as root on the PostgreSQL host" >&2
+  exit 2
+fi
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+
+install -d -o postgres -g postgres -m 0700 /var/backups/hyperspace
+install -d -o root -g root -m 0750 /etc/hyperspace
+install -o root -g root -m 0755 \
+  "$repo_root/scripts/db/hyperspace-pg-backup" \
+  /usr/local/sbin/hyperspace-pg-backup
+install -o root -g root -m 0644 \
+  "$repo_root/infra/systemd/hyperspace-db-backup.service" \
+  /etc/systemd/system/hyperspace-db-backup.service
+install -o root -g root -m 0644 \
+  "$repo_root/infra/systemd/hyperspace-db-backup.timer" \
+  /etc/systemd/system/hyperspace-db-backup.timer
+
+if [[ ! -e /etc/hyperspace/db-backup.env ]]; then
+  install -o root -g postgres -m 0640 /dev/stdin /etc/hyperspace/db-backup.env <<'EOF'
+HS_DB_NAME=hyperspace
+HS_DB_BACKUP_DIR=/var/backups/hyperspace
+HS_DB_BACKUP_RETENTION_DAYS=14
+EOF
+fi
+
+systemctl daemon-reload
+systemctl enable --now hyperspace-db-backup.timer
+systemctl start hyperspace-db-backup.service
+systemctl is-active --quiet hyperspace-db-backup.timer

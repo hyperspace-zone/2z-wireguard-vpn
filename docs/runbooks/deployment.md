@@ -1544,8 +1544,11 @@ gate agents are reporting `ready=true` and `schedulable=true`; see
 
 ## Observability
 
-Run this section on the observability host. Set `HS_CLUSTER` to either
-`testnet` or `mainnet`; set `OBSERVABILITY_DOMAIN` to the public Grafana host.
+The deployed mainnet-backed staging topology and its gate transfer procedure are
+documented in [staging-cluster.md](staging-cluster.md).
+
+Run this section on the observability host. Set `HS_CLUSTER` to `testnet`,
+`staging`, or `mainnet`; set `OBSERVABILITY_DOMAIN` to the public Grafana host.
 
 Grafana 13 plus Prometheus should run on a host with at least 2 GB RAM. On
 1 GB disposable validation hosts, add a 2 GB swap file before starting Grafana;
@@ -1635,13 +1638,24 @@ generated from Enabled catalog records; do not maintain a second static gate
 list. Install the discovery renderer on the observability host:
 
 ```bash
-if [[ "$HS_CLUSTER" == "mainnet" ]]; then
-  GATE_CATALOG_URL=https://control-plane.hyperspace.zone/v1/public/gates
-  PROMETHEUS_RETENTION=30d
-else
-  GATE_CATALOG_URL=https://control-plane.testnet.hyperspace.zone/v1/public/gates
-  PROMETHEUS_RETENTION=90d
-fi
+case "$HS_CLUSTER" in
+  mainnet)
+    GATE_CATALOG_URL=https://control-plane.hyperspace.zone/v1/public/gates
+    PROMETHEUS_RETENTION=30d
+    ;;
+  staging)
+    GATE_CATALOG_URL=https://control-plane.staging.hyperspace.zone/v1/public/gates
+    PROMETHEUS_RETENTION=14d
+    ;;
+  testnet)
+    GATE_CATALOG_URL=https://control-plane.testnet.hyperspace.zone/v1/public/gates
+    PROMETHEUS_RETENTION=90d
+    ;;
+  *)
+    echo "unsupported HS_CLUSTER: $HS_CLUSTER" >&2
+    exit 2
+    ;;
+esac
 scripts/observability/install-gate-discovery \
   --cluster "$HS_CLUSTER" \
   --catalog-url "$GATE_CATALOG_URL" \
@@ -1649,8 +1663,9 @@ scripts/observability/install-gate-discovery \
 ```
 
 For the production cluster use
-`https://control-plane.hyperspace.zone/v1/public/gates`; for testnet use
-`https://control-plane.testnet.hyperspace.zone/v1/public/gates`. The timer
+`https://control-plane.hyperspace.zone/v1/public/gates`; for staging use
+`https://control-plane.staging.hyperspace.zone/v1/public/gates`; for testnet
+use `https://control-plane.testnet.hyperspace.zone/v1/public/gates`. The timer
 refreshes `/etc/prometheus/file_sd/gates.json` every minute, refuses an empty
 catalog response, and leaves the last valid target file in place on failure.
 Mainnet uses `30d` until its observability disk is enlarged or remote write is

@@ -26,6 +26,8 @@ export interface HttpAuth {
   requireBillingAdmin(request: FastifyRequest, reply: FastifyReply): Promise<AdminAuthContext | null>;
 }
 
+export const operatorTokenAdminId = "00000000-0000-4000-8000-000000000001";
+
 export function createHttpAuth(input: { db: Database; adminToken: string | undefined }): HttpAuth {
   async function requireUser(request: FastifyRequest, reply: FastifyReply): Promise<PublicAuthUser | null> {
     const token = bearerToken(request);
@@ -65,7 +67,7 @@ export function createHttpAuth(input: { db: Database; adminToken: string | undef
     allowedRoles: string[]
   ): Promise<AdminAuthContext | null> {
     if (input.adminToken && headerValue(request, "x-admin-token") === input.adminToken) {
-      return { kind: "admin", id: "operator-token" };
+      return { kind: "admin", id: operatorTokenAdminId };
     }
     const token = bearerToken(request);
     const user = token ? await authenticatePublicAuthSession(input.db, token) : null;

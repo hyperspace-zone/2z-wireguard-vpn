@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+backup_dir="${HS_DB_BACKUP_DIR:-/var/backups/hyperspace}"
+database="${HS_DB_NAME:-hyperspace}"
+retention_days="${HS_DB_BACKUP_RETENTION_DAYS:-14}"
+stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+tmp="${backup_dir}/.${database}-${stamp}.dump.tmp"
+final="${backup_dir}/${database}-${stamp}.dump"
+
+[[ "$retention_days" =~ ^[1-9][0-9]*$ ]] || {
+  echo "HS_DB_BACKUP_RETENTION_DAYS must be a positive integer" >&2
+  exit 2
+}
+
+umask 077
+install -d -m 0700 "$backup_dir"
+trap 'test ! -e "$tmp" || rm "$tmp"' EXIT
+
+pg_dump --format=custom --dbname="$database" --file="$tmp"
+pg_restore --list "$tmp" >/dev/null
+mv "$tmp" "$final"
+find "$backup_dir" -maxdepth 1 -type f -name "${database}-*.dump" -mtime "+${retention_days}" -delete
+
+printf '%s\n' "$final"

@@ -1,7 +1,9 @@
 # Gate HTTPS probe endpoint.
 # Required environment:
 # - GATE_HOST: public DNS name or public IP address.
-# - WEB_ORIGIN: web UI origin, for example https://app.testnet.hyperspace.zone.
+# - WEB_ORIGIN_EXPRESSION: a CEL allowlist generated from trusted HTTPS origins.
+#   Example: {http.request.header.Origin}=="https://app.hyperspace.zone"||
+#     {http.request.header.Origin}=="https://app.staging.hyperspace.zone"
 # - TLS_FULLCHAIN: path to fullchain.pem copied from Let's Encrypt.
 # - TLS_PRIVKEY: path to privkey.pem copied from Let's Encrypt.
 # - GATE_NAME: gate name returned on non-probe requests.
@@ -25,10 +27,15 @@ https://${GATE_HOST} {
 	tls ${TLS_FULLCHAIN} ${TLS_PRIVKEY}
 
 	@probe path /.well-known/hyperspace-probe
-	header @probe Access-Control-Allow-Origin "${WEB_ORIGIN}"
-	header @probe Access-Control-Allow-Methods "GET, HEAD, OPTIONS"
-	header @probe Access-Control-Max-Age "86400"
-	header @probe Timing-Allow-Origin "${WEB_ORIGIN}"
+
+	@allowed_probe {
+		path /.well-known/hyperspace-probe
+		expression ${WEB_ORIGIN_EXPRESSION}
+	}
+	header @allowed_probe Access-Control-Allow-Origin "{http.request.header.Origin}"
+	header @allowed_probe Access-Control-Allow-Methods "GET, HEAD, OPTIONS"
+	header @allowed_probe Access-Control-Max-Age "86400"
+	header @allowed_probe Timing-Allow-Origin "{http.request.header.Origin}"
 	respond @probe "" 204
 
 	respond "${GATE_NAME}" 200

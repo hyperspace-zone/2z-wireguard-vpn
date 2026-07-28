@@ -30,6 +30,7 @@ scripts/gates/rollout-wave.mjs \
   --known-hosts-file /root/.ssh/known_hosts \
   --control-plane-url https://control-plane.hyperspace.zone \
   --web-origin https://app.hyperspace.zone \
+  --web-origin https://app.staging.hyperspace.zone \
   --gate-token-dir /root/hyperspace/secrets/mainnet-gate-tokens \
   --probe-secret-file /root/hyperspace/secrets/mainnet-gate-probe-secret
 
@@ -40,6 +41,9 @@ scripts/gates/rollout-wave.mjs ... --execute
 Each gate token is read from `${gateTokenDir}/${gateName}.token`. Secrets are
 not printed in dry-run output. Fleet execution requires a populated, verified
 `known_hosts` file; the scripts do not accept unknown or changed host keys.
+Repeat `--web-origin` for every web application allowed to run browser RTT
+probes. The generated Caddy configuration reflects the request origin only
+after it matches this explicit allowlist; it never enables wildcard CORS.
 
 Inventory entries may set `resourceTier` to `standard` or `hub`. `standard`
 sets `nf_conntrack_max=65536`. `hub` sets `262144` and is rejected on hosts with

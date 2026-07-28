@@ -3,8 +3,5 @@
 }
 
 control-plane.testnet.hyperspace.zone {
-  reverse_proxy 127.0.0.1:8080 {
-    header_up X-Forwarded-For {http.request.header.X-Forwarded-For}
-    header_up X-Real-IP {http.request.header.X-Real-IP}
-  }
+  reverse_proxy 127.0.0.1:8080
 }

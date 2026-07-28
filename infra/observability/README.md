@@ -19,6 +19,7 @@ Runtime endpoints:
 Deployment artifacts:
 
 - `prometheus/prometheus.testnet.yml`
+- `prometheus/prometheus.staging.yml`
 - `prometheus/prometheus.mainnet.yml`
 - `prometheus/rules/hyperspace-alerts.yml`
 - `alertmanager/alertmanager.yml.template`

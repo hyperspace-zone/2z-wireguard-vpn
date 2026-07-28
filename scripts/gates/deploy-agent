@@ -13,7 +13,7 @@ Options:
   --binary PATH         Prebuilt hyperspace-gate-agent binary. If omitted, build to /tmp.
   --reuse-existing-env  Update the binary/unit without reading or replacing gate secrets.
   --gate-host HOSTNAME  Optional public HTTPS probe hostname for Caddy.
-  --web-origin ORIGIN   Web origin allowed to read the browser probe.
+  --web-origin ORIGIN   Web origin allowed to read the browser probe. Repeatable.
   --poll-interval DUR   Default 2s.
   --heartbeat DUR       Default 10s.
   --actual-state-interval DUR  Default 60s.
@@ -32,7 +32,7 @@ ssh_user="root"
 known_hosts_file="${HOME}/.ssh/known_hosts"
 binary_path=""
 gate_host=""
-web_origin=""
+web_origins=()
 poll_interval="2s"
 heartbeat_interval="10s"
 actual_state_interval="60s"
@@ -52,7 +52,7 @@ while [[ $# -gt 0 ]]; do
     --binary) binary_path="${2:-}"; shift 2 ;;
     --reuse-existing-env) reuse_existing_env=true; shift ;;
     --gate-host) gate_host="${2:-}"; shift 2 ;;
-    --web-origin) web_origin="${2:-}"; shift 2 ;;
+    --web-origin) web_origins+=("${2:-}"); shift 2 ;;
     --poll-interval) poll_interval="${2:-}"; shift 2 ;;
     --heartbeat) heartbeat_interval="${2:-}"; shift 2 ;;
     --actual-state-interval) actual_state_interval="${2:-}"; shift 2 ;;
@@ -78,6 +78,12 @@ if [[ "$dry_run" != true && ! -r "$known_hosts_file" ]]; then
   echo "known_hosts file is not readable: $known_hosts_file" >&2
   exit 2
 fi
+for web_origin in "${web_origins[@]}"; do
+  if [[ ! "$web_origin" =~ ^https://[A-Za-z0-9.-]+(:[0-9]+)?$ ]]; then
+    echo "invalid HTTPS web origin: $web_origin" >&2
+    exit 2
+  fi
+done
 
 ssh_args=(-o StrictHostKeyChecking=yes -o UserKnownHostsFile="$known_hosts_file" -o ServerAliveInterval=15 -o ServerAliveCountMax=4)
 scp_args=(-o StrictHostKeyChecking=yes -o UserKnownHostsFile="$known_hosts_file")
@@ -126,9 +132,10 @@ GATE_PROBE_SHARED_SECRET=<redacted from $probe_secret_file>
 systemctl daemon-reload && systemctl enable --now hyperspace-gate-agent
 EOF
   fi
-  if [[ -n "$gate_host" && -n "$web_origin" ]]; then
+  if [[ -n "$gate_host" && ${#web_origins[@]} -gt 0 ]]; then
     cat <<EOF
-write /etc/caddy/Caddyfile with HTTPS probe host $gate_host and Access-Control-Allow-Origin $web_origin
+write /etc/caddy/Caddyfile with HTTPS probe host $gate_host and this CORS allowlist:
+$(printf '  %s\n' "${web_origins[@]}")
 systemctl reload caddy
 EOF
   fi
@@ -186,10 +193,19 @@ systemctl restart hyperspace-gate-agent
 systemctl is-active hyperspace-gate-agent
 '
 
-if [[ -n "$gate_host" && -n "$web_origin" ]]; then
+if [[ -n "$gate_host" && ${#web_origins[@]} -gt 0 ]]; then
+  web_origins_csv="$(IFS=,; printf '%s' "${web_origins[*]}")"
   ssh "${ssh_args[@]}" "${ssh_user}@${host}" \
-    "GATE_HOST=$(printf '%q' "$gate_host") WEB_ORIGIN=$(printf '%q' "$web_origin") GATE_NAME=$(printf '%q' "$gate_name") bash -s" <<'REMOTE'
+    "GATE_HOST=$(printf '%q' "$gate_host") WEB_ORIGINS_CSV=$(printf '%q' "$web_origins_csv") GATE_NAME=$(printf '%q' "$gate_name") bash -s" <<'REMOTE'
 set -euo pipefail
+IFS=, read -r -a web_origins <<<"$WEB_ORIGINS_CSV"
+origin_expression=""
+for web_origin in "${web_origins[@]}"; do
+	if [[ -n "$origin_expression" ]]; then
+		origin_expression+="||"
+	fi
+	origin_expression+="{http.request.header.Origin}==\"${web_origin}\""
+done
 cat >/etc/caddy/Caddyfile <<EOF
 {
 	auto_https disable_redirects
@@ -209,10 +225,15 @@ cat >/etc/caddy/Caddyfile <<EOF
 
 ${GATE_HOST} {
 	@probe path /.well-known/hyperspace-probe
-	header @probe Access-Control-Allow-Origin "${WEB_ORIGIN}"
-	header @probe Access-Control-Allow-Methods "GET, HEAD, OPTIONS"
-	header @probe Access-Control-Max-Age "86400"
-	header @probe Timing-Allow-Origin "${WEB_ORIGIN}"
+
+	@allowed_probe {
+		path /.well-known/hyperspace-probe
+		expression ${origin_expression}
+	}
+	header @allowed_probe Access-Control-Allow-Origin "{http.request.header.Origin}"
+	header @allowed_probe Access-Control-Allow-Methods "GET, HEAD, OPTIONS"
+	header @allowed_probe Access-Control-Max-Age "86400"
+	header @allowed_probe Timing-Allow-Origin "{http.request.header.Origin}"
 	respond @probe "" 204
 
 	respond "${GATE_NAME}" 200
