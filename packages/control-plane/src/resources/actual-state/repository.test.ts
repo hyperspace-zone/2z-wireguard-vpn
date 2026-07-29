@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { Queryable } from "../../db/queryable.js";
-import { listGateActualStateDriftInputs, updateGateActualState } from "./repository.js";
+import {
+  deleteExpiredGateActualStateSnapshots,
+  listGateActualStateDriftInputs,
+  updateGateActualState
+} from "./repository.js";
 
 test("drift inputs ignore desired handles newer than latest actual snapshot", async () => {
   const calls: Array<{ sql: string; params: readonly unknown[] | undefined }> = [];
@@ -20,6 +24,10 @@ test("drift inputs ignore desired handles newer than latest actual snapshot", as
   assert.match(query.sql, /gate_assignment_status\.phase IN \('applied', 'drifted'\)/);
   assert.doesNotMatch(query.sql, /'prepared'/);
   assert.match(query.sql, /latest_snapshot\."receivedAt"\s+>=\s+gate_assignment_status\.applied_at/);
+  assert.match(query.sql, /JOIN LATERAL/);
+  assert.match(query.sql, /WHERE gate_actual_state_snapshots\.gate_id = gates\.id/);
+  assert.match(query.sql, /ORDER BY received_at DESC\s+LIMIT 1/);
+  assert.doesNotMatch(query.sql, /DISTINCT ON \(gate_id\)/);
 });
 
 test("actual-state updates do not overwrite heartbeat capabilities", async () => {
@@ -48,6 +56,25 @@ test("actual-state updates do not overwrite heartbeat capabilities", async () =>
   assert.match(updateGateStatusSql, /actual_state_hash = \$2/);
   assert.doesNotMatch(updateGateStatusSql, /observed_capabilities\s*=/);
   assert.equal(updateGateStatusValues.length, 4);
+});
+
+test("actual-state snapshot cleanup is bounded and retains a recent window", async () => {
+  const calls: Array<{ sql: string; params: readonly unknown[] | undefined }> = [];
+  const db: Queryable = {
+    async query<Row extends object>(sql: string, params?: readonly unknown[]) {
+      calls.push({ sql, params });
+      return { rows: [] as Row[], rowCount: 37 };
+    }
+  };
+
+  const deleted = await deleteExpiredGateActualStateSnapshots(db);
+
+  assert.equal(deleted, 37);
+  assert.equal(calls.length, 1);
+  assert.deepEqual(calls[0]?.params, [24, 1_000]);
+  assert.match(calls[0]?.sql ?? "", /make_interval\(hours => \$1::int\)/);
+  assert.match(calls[0]?.sql ?? "", /LIMIT \$2::int/);
+  assert.match(calls[0]?.sql ?? "", /FOR UPDATE SKIP LOCKED/);
 });
 
 test("assignment counter persistence is idempotent and derives interval deltas", async () => {

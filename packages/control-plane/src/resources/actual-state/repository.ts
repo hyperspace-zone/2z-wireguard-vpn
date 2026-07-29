@@ -160,26 +160,46 @@ export interface GateActualStateDriftRow {
   reportedAt: string | null;
 }
 
+export async function deleteExpiredGateActualStateSnapshots(
+  db: Queryable,
+  retentionHours = 24,
+  batchSize = 1_000
+): Promise<number> {
+  const result = await db.query(
+    `
+      WITH expired AS (
+        SELECT id
+        FROM gate_actual_state_snapshots
+        WHERE received_at < now() - make_interval(hours => $1::int)
+        ORDER BY received_at
+        LIMIT $2::int
+        FOR UPDATE SKIP LOCKED
+      )
+      DELETE FROM gate_actual_state_snapshots snapshots
+      USING expired
+      WHERE snapshots.id = expired.id
+    `,
+    [retentionHours, batchSize]
+  );
+  return result.rowCount ?? 0;
+}
+
 export async function listGateActualStateDriftInputs(db: Queryable): Promise<GateActualStateDriftRow[]> {
   const result = await db.query<GateActualStateDriftRow>(
     `
-      WITH latest_snapshot AS (
-        SELECT DISTINCT ON (gate_id)
-          gate_id,
-          state_hash AS "actualStateHash",
-          managed_handles AS "actualHandles",
-          reported_at AS "reportedAt",
-          received_at AS "receivedAt"
-        FROM gate_actual_state_snapshots
-        ORDER BY gate_id, received_at DESC
-      ),
-      desired AS (
+      WITH desired AS (
         SELECT
           gate_assignments.gate_id,
           array_agg(gate_assignments.external_handle ORDER BY gate_assignments.external_handle) AS "desiredHandles"
         FROM gate_assignments
         JOIN gate_assignment_status ON gate_assignment_status.assignment_id = gate_assignments.id
-        JOIN latest_snapshot ON latest_snapshot.gate_id = gate_assignments.gate_id
+        JOIN LATERAL (
+          SELECT received_at AS "receivedAt"
+          FROM gate_actual_state_snapshots
+          WHERE gate_actual_state_snapshots.gate_id = gate_assignments.gate_id
+          ORDER BY received_at DESC
+          LIMIT 1
+        ) latest_snapshot ON true
         WHERE gate_assignments.desired_state = 'Applied'
           AND gate_assignment_status.phase IN ('applied', 'drifted')
           AND gate_assignment_status.applied_at IS NOT NULL
@@ -194,7 +214,16 @@ export async function listGateActualStateDriftInputs(db: Queryable): Promise<Gat
         latest_snapshot."actualStateHash",
         latest_snapshot."reportedAt"
       FROM gates
-      LEFT JOIN latest_snapshot ON latest_snapshot.gate_id = gates.id
+      LEFT JOIN LATERAL (
+        SELECT
+          state_hash AS "actualStateHash",
+          managed_handles AS "actualHandles",
+          reported_at AS "reportedAt"
+        FROM gate_actual_state_snapshots
+        WHERE gate_actual_state_snapshots.gate_id = gates.id
+        ORDER BY received_at DESC
+        LIMIT 1
+      ) latest_snapshot ON true
       LEFT JOIN desired ON desired.gate_id = gates.id
     `
   );
