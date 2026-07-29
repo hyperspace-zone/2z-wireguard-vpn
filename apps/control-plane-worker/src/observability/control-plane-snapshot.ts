@@ -346,20 +346,37 @@ async function collectBenchmarkMetrics(db: Database, metrics: RuntimeMetrics): P
     avgLossPercent: number | null;
     maxAgeSeconds: number | null;
   }>(`
-    WITH latest AS (
-      SELECT DISTINCT ON (source_gate_id, target_gate_id, transport)
-        transport,
-        status,
-        rtt_p50_ms,
-        jitter_ms,
-        loss_percent,
-        measured_at
-      FROM gate_benchmark_results
-      JOIN gates source ON source.id = gate_benchmark_results.source_gate_id
-      JOIN gates target ON target.id = gate_benchmark_results.target_gate_id
-      WHERE source.desired_state = 'Enabled'
-        AND target.desired_state = 'Enabled'
-      ORDER BY source_gate_id, target_gate_id, transport, measured_at DESC
+    WITH enabled_gates AS (
+      SELECT id
+      FROM gates
+      WHERE desired_state = 'Enabled'
+    ),
+    latest AS (
+      SELECT
+        transports.transport,
+        sample.status,
+        sample.rtt_p50_ms,
+        sample.jitter_ms,
+        sample.loss_percent,
+        sample.measured_at
+      FROM enabled_gates source
+      CROSS JOIN enabled_gates target
+      CROSS JOIN (VALUES ('public'), ('doublezero')) AS transports(transport)
+      JOIN LATERAL (
+        SELECT
+          status,
+          rtt_p50_ms,
+          jitter_ms,
+          loss_percent,
+          measured_at
+        FROM gate_benchmark_results
+        WHERE source_gate_id = source.id
+          AND target_gate_id = target.id
+          AND transport = transports.transport
+        ORDER BY measured_at DESC
+        LIMIT 1
+      ) sample ON true
+      WHERE source.id <> target.id
     )
     SELECT
       transport,
@@ -414,26 +431,43 @@ async function collectBenchmarkMetrics(db: Database, metrics: RuntimeMetrics): P
     lossPercent: number | null;
     ageSeconds: number | null;
   }>(`
-    WITH latest AS (
-      SELECT DISTINCT ON (source_gate_id, target_gate_id, transport)
-        source_gate_id,
-        target_gate_id,
-        transport,
-        status,
-        rtt_p50_ms,
-        jitter_ms,
-        loss_percent,
-        measured_at
-      FROM gate_benchmark_results
-      JOIN gates source ON source.id = gate_benchmark_results.source_gate_id
-      JOIN gates target ON target.id = gate_benchmark_results.target_gate_id
-      WHERE source.desired_state = 'Enabled'
-        AND target.desired_state = 'Enabled'
-      ORDER BY source_gate_id, target_gate_id, transport, measured_at DESC
+    WITH enabled_gates AS (
+      SELECT id, name
+      FROM gates
+      WHERE desired_state = 'Enabled'
+    ),
+    latest AS (
+      SELECT
+        source.name AS "sourceGate",
+        target.name AS "targetGate",
+        transports.transport,
+        sample.status,
+        sample.rtt_p50_ms,
+        sample.jitter_ms,
+        sample.loss_percent,
+        sample.measured_at
+      FROM enabled_gates source
+      CROSS JOIN enabled_gates target
+      CROSS JOIN (VALUES ('public'), ('doublezero')) AS transports(transport)
+      JOIN LATERAL (
+        SELECT
+          status,
+          rtt_p50_ms,
+          jitter_ms,
+          loss_percent,
+          measured_at
+        FROM gate_benchmark_results
+        WHERE source_gate_id = source.id
+          AND target_gate_id = target.id
+          AND transport = transports.transport
+        ORDER BY measured_at DESC
+        LIMIT 1
+      ) sample ON true
+      WHERE source.id <> target.id
     )
     SELECT
-      source.name AS "sourceGate",
-      target.name AS "targetGate",
+      latest."sourceGate",
+      latest."targetGate",
       latest.transport,
       latest.status,
       latest.rtt_p50_ms AS "rttP50Ms",
@@ -441,9 +475,7 @@ async function collectBenchmarkMetrics(db: Database, metrics: RuntimeMetrics): P
       latest.loss_percent AS "lossPercent",
       EXTRACT(EPOCH FROM now() - latest.measured_at)::float AS "ageSeconds"
     FROM latest
-    JOIN gates source ON source.id = latest.source_gate_id
-    JOIN gates target ON target.id = latest.target_gate_id
-    ORDER BY source.name, target.name, latest.transport
+    ORDER BY latest."sourceGate", latest."targetGate", latest.transport
   `);
   resetGauges(metrics, [
     "control_plane_benchmark_route_failed",
