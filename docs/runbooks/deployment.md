@@ -932,6 +932,59 @@ WireGuard state, DoubleZero identity files, or control-plane data.
 Run these steps on the host that will run the web UI, API, worker, and
 PostgreSQL for the minimum three-server deployment.
 
+### Control-plane log and disk maintenance
+
+Install the control-plane maintenance timer before starting application
+services. API and worker stdout remains available in the persistent journal,
+but is not duplicated into `/var/log/syslog`. The journal keeps at most seven
+days and 256 MiB while reserving 2 GiB on the root filesystem.
+
+```bash
+apt-get update
+apt-get install -y logrotate util-linux
+
+install -d -m 0755 /usr/local/sbin
+install -m 0755 "$HS_REPO_DIR/scripts/hyperspace-control-plane-log-maintenance.sh" \
+  /usr/local/sbin/hyperspace-control-plane-log-maintenance
+
+install -d -m 0755 /etc/systemd/journald.conf.d
+install -m 0644 "$HS_REPO_DIR/infra/journald/zz-hyperspace-control-plane-limits.conf" \
+  /etc/systemd/journald.conf.d/zz-hyperspace-control-plane-limits.conf
+install -d -m 2755 -o root -g systemd-journal /var/log/journal
+
+install -m 0644 "$HS_REPO_DIR/infra/systemd/hyperspace-control-plane-log-maintenance.service" \
+  /etc/systemd/system/hyperspace-control-plane-log-maintenance.service
+install -m 0644 "$HS_REPO_DIR/infra/systemd/hyperspace-control-plane-log-maintenance.timer" \
+  /etc/systemd/system/hyperspace-control-plane-log-maintenance.timer
+
+systemctl daemon-reload
+systemctl restart systemd-journald
+journalctl --flush
+systemctl enable --now hyperspace-control-plane-log-maintenance.timer
+systemctl start hyperspace-control-plane-log-maintenance.service
+
+systemctl is-active hyperspace-control-plane-log-maintenance.timer
+systemctl status hyperspace-control-plane-log-maintenance.service --no-pager
+df -h /
+journalctl --disk-usage
+```
+
+The timer runs every ten minutes. Every run rotates and vacuums journald and
+runs normal logrotate processing. At 80% root usage it also clears the apt
+package cache and forces log rotation. At 95%, it first truncates only the
+duplicated `/var/log/syslog*` and `/var/log/kern.log*` files, reloads rsyslog,
+then clears the package cache without trying to compress multi-gigabyte logs on
+an already full filesystem. It never removes PostgreSQL data, `/etc/hyperspace`,
+application artifacts, WireGuard state, or backups.
+
+If the service still exits unsuccessfully, identify the remaining large files
+instead of expanding the cleanup allowlist blindly:
+
+```bash
+find /var -xdev -type f -printf '%s %p\n' | sort -nr | head -n 30
+journalctl -u hyperspace-control-plane-log-maintenance.service -n 50 --no-pager
+```
+
 Install base packages:
 
 ```bash
