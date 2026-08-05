@@ -312,6 +312,7 @@ let googleLoginBusy = false;
 let walletLinkBusy = false;
 let topupBusy = false;
 let withdrawalBusy = false;
+let gateCatalogLoadError = false;
 let activeConfigQrSvg = "";
 let activeConfigQrSessionId = "";
 let ingressGateManuallySelected = false;
@@ -368,8 +369,10 @@ function renderLoading(): void {
 }
 
 async function refresh(options: { skipAutoMeasure?: boolean } = {}): Promise<void> {
-  const [gates, sessions, me, benchmarkMatrix, billing, wallets] = await Promise.all([
-    getGates().catch(() => [] as Gate[]),
+  const [gateResult, sessions, me, benchmarkMatrix, billing, wallets] = await Promise.all([
+    getGates()
+      .then((gates) => ({ gates, error: null }))
+      .catch((error: unknown) => ({ gates: null, error })),
     token ? getSessions().catch(() => [] as Session[]) : Promise.resolve([]),
     token ? getMe().catch(() => null) : Promise.resolve(null),
     getBenchmarkMatrix().catch(() => null),
@@ -379,6 +382,11 @@ async function refresh(options: { skipAutoMeasure?: boolean } = {}): Promise<voi
   const adminBilling = token && me?.billingAdmin
     ? await getAdminBilling().catch(() => null)
     : null;
+  const gates = gateResult.gates ?? benchmarkMatrix?.gates ?? latestGates;
+  gateCatalogLoadError = gateResult.error !== null && gates.length === 0;
+  if (gateCatalogLoadError) {
+    log("Could not load the gate catalog. Retry after checking the control-plane connection.");
+  }
   latestGates = gates;
   latestSessions = sessions;
   latestMe = me;
@@ -1652,8 +1660,13 @@ function createSessionPanel(gates: Gate[]): string {
   const policyGates = schedulableGates.filter((gate) => !gateExcludedByDraftPolicy(gate));
   const ingressGates = sortIngressGates(policyGates);
   ensureSessionDraftGateSelection(ingressGates, policyGates);
+  const emptyIngressLabel = gateCatalogLoadError
+    ? "Unable to load ingress gates"
+    : schedulableGates.length > 0
+      ? "No ingress gates match routing policy"
+      : "No ingress gates available";
   const ingressOptions = ingressGates.length === 0
-    ? '<option value="" disabled selected>No ingress gates available</option>'
+    ? `<option value="" disabled selected>${emptyIngressLabel}</option>`
     : ingressGates
     .map((gate) => `<option value="${escapeHtml(gate.name)}" ${sessionDraft.ingressGateName === gate.name ? "selected" : ""}>${escapeHtml(gateOptionLabel(gate, true))}</option>`)
     .join("");
@@ -1757,6 +1770,7 @@ function createSessionPanel(gates: Gate[]): string {
               ${cities.map((city) => policyCheckbox("excludeCity", city, sessionDraft.excludeCities)).join("")}
             </div>
           </details>
+          ${hasDraftRoutingPolicy() ? '<button id="reset-route-policy" class="secondary-button" type="button">Clear routing policy</button>' : ""}
         </fieldset>
         <button type="submit">Review config</button>
       </form>
@@ -1867,6 +1881,32 @@ function routePolicySummary(): string {
     parts.push(`Avoid cities: ${sessionDraft.excludeCities.join(", ")}`);
   }
   return parts.join("; ") || "Default";
+}
+
+function hasDraftRoutingPolicy(): boolean {
+  return Boolean(
+    sessionDraft.preferredRegion ||
+    sessionDraft.excludeCountries.length > 0 ||
+    sessionDraft.excludeCities.length > 0
+  );
+}
+
+function resetSessionDraft(): void {
+  sessionDraft.mode = "IpToIp";
+  sessionDraft.label = "";
+  sessionDraft.restrictSource = false;
+  sessionDraft.sourceIp = "";
+  sessionDraft.restrictTarget = true;
+  sessionDraft.targetIp = "";
+  sessionDraft.ingressGateName = "";
+  sessionDraft.egressGateName = "";
+  sessionDraft.useClientPublicKey = false;
+  sessionDraft.clientPublicKey = "";
+  sessionDraft.excludeCountries = [];
+  sessionDraft.excludeCities = [];
+  sessionDraft.preferredRegion = "";
+  ingressGateManuallySelected = false;
+  sessionValidationErrors = {};
 }
 
 function clientKeyReplacementNotice(): string {
@@ -2271,6 +2311,7 @@ function bindHandlers(): void {
     token = "";
     currentView = "login";
     createConfigStep = "configure";
+    resetSessionDraft();
     latestMe = null;
     latestSessions = [];
     latestAdminBilling = null;
@@ -2409,6 +2450,13 @@ function bindHandlers(): void {
   });
   document.getElementById("confirm-create-config")?.addEventListener("click", () => {
     void createSession();
+  });
+  document.getElementById("reset-route-policy")?.addEventListener("click", () => {
+    sessionDraft.excludeCountries = [];
+    sessionDraft.excludeCities = [];
+    sessionDraft.preferredRegion = "";
+    sessionValidationErrors = {};
+    render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
   });
   document.getElementById("link-solana-wallet")?.addEventListener("click", () => {
     void linkSolanaWalletFromBrowser();
@@ -2675,6 +2723,7 @@ function completeAuth(response: { accessToken: string }): void {
   token = response.accessToken;
   currentView = "dashboard";
   createConfigStep = "configure";
+  resetSessionDraft();
   localStorage.setItem("hyperspaceAccessToken", token);
   window.history.replaceState({}, "", viewPath("dashboard"));
 }
@@ -2698,6 +2747,7 @@ async function createSession(): Promise<void> {
     await api("/v1/public/sessions", { method: "POST", body: sessionPayloadFromDraft() });
     createConfigSubmitting = false;
     createConfigStep = "configure";
+    resetSessionDraft();
     navigateToView("dashboard");
     log("VPN config requested.");
     await refresh();

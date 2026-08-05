@@ -27,6 +27,7 @@
     "test:live:billing-ui": "node --env-file-if-exists=.env scripts/testnet/retail-billing-ui-e2e.mjs",
     "test:live:ui": "node --env-file-if-exists=.env scripts/testnet/live-ui-smoke.mjs",
     "test:live:policy": "node --env-file-if-exists=.env scripts/testnet/live-policy-smoke.mjs",
+    "test:live:staging-gate-selector": "node scripts/live/gate-selector-ui-smoke.mjs",
     "test:live": "npm run test:live:ui && npm run test:live:policy",
     "gates:rollout-wave": "node scripts/gates/rollout-wave.mjs",
     "test:gate-discovery": "node --test scripts/observability/render-gate-file-sd.test.mjs",
