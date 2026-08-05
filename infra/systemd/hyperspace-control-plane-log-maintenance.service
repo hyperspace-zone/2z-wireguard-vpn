@@ -1,0 +1,12 @@
+[Unit]
+Description=Hyperspace control-plane log and disk maintenance
+Documentation=https://github.com/hyperspace-zone/2z-wireguard-vpn
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/usr/local/sbin/hyperspace-control-plane-log-maintenance
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+TimeoutStartSec=5min
