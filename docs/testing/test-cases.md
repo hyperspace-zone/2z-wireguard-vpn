@@ -64,7 +64,7 @@ Do not include them in routine `npm test` or live smoke runs.
 | ID | Case | Steps | Expected | Coverage |
 | --- | --- | --- | --- | --- |
 | UI-001 | Separate auth pages | Open `/register` and `/login`. | Register and login are separate pages; event console is not shown on auth pages. | `scripts/testnet/live-ui-smoke.mjs` |
-| UI-002 | Dashboard layout | Log in with no configs. | Dashboard shows VPN configs area, Create config action, Gates table as secondary information, and a Benchmarks navigation item. Benchmark route table is not rendered on Dashboard. | `scripts/testnet/live-ui-smoke.mjs` |
+| UI-002 | Dashboard layout | Log in with no configs. | Dashboard shows VPN configs, Create config action, and Gates as secondary information. Billing controls and benchmark route tables are not rendered on Dashboard. | `scripts/testnet/live-ui-smoke.mjs`, `scripts/testnet/milestone3-ui-smoke.mjs` |
 | UI-003 | Gates table columns | Open dashboard. | Columns include Name, City, Country, Public IPv4, Ready, Browser RTT, Schedulable, DoubleZero node. | `scripts/testnet/live-ui-smoke.mjs` |
 | UI-004 | Browser RTT measurement | Click Measure browser RTT. | Rows update per gate as measurements finish; sort is low-to-high by default; measured rows keep stable row height. | UI smoke plus visual/manual |
 | UI-005 | Create config Step 1 | Open `/create-config`. | Header says Step 1; ingress and egress selectors are aligned; no Ingress Auto/Egress Auto option exists. | `scripts/testnet/live-ui-smoke.mjs` |
@@ -79,6 +79,7 @@ Do not include them in routine `npm test` or live smoke runs.
 | UI-014 | Action buttons state | While requested/provisioning/failed/revoking/active. | Download and Revoke are enabled only when active; Delete revokes first when needed and then hides the config. | `scripts/testnet/live-ui-smoke.mjs` |
 | UI-015 | Console cleanliness | Run happy path in Chromium/Brave. | No uncaught promise errors such as `AbortError: signal is aborted without reason`. | `scripts/testnet/live-ui-smoke.mjs` |
 | UI-016 | Gate benchmark page | Open the `Benchmarks` navigation item after benchmark jobs have reported. | The page shows `Gate benchmark routes — RTT` and `Gate benchmark routes — One-Way` under `DZ vs Internet`, with sortable columns, City filter, freshness coverage, and green/yellow/pink legend. Rows use a directed `City1 → City2` route column and show RTT metrics separately from forward one-way metrics. | Live dashboard/manual screenshot |
+| UI-017 | Billing page and header balance | Log in, inspect the header, then open `/billing`. | A compact available balance appears immediately before the identity. Billing is a primary navigation item and contains balance details, deposit address and QR, deposit history, usage, ledger, withdrawals, and support contact. Desktop and mobile layouts do not overflow the viewport. | `scripts/testnet/milestone3-ui-smoke.mjs`, `scripts/testnet/retail-billing-ui-e2e.mjs` |
 
 ## WireGuard Traffic Policy
 

@@ -110,8 +110,9 @@ try {
   await page.getByRole("button", { name: "Log out" }).click();
   await page.waitForURL(`${webBase}/login`);
   await login(customerEmail);
-  await page.getByRole("heading", { name: "Account" }).waitFor();
-  await page.getByText("$30.00", { exact: true }).first().waitFor();
+  await page.getByLabel("Billing balance $30.00").waitFor();
+  await page.getByLabel("Primary").getByRole("link", { name: "Billing", exact: true }).click();
+  await page.getByRole("heading", { name: "Billing", exact: true }).waitFor();
   await page.getByText(/Paid \$25\.00.*Credits \$5\.00/).waitFor();
   await page.getByRole("link", { name: "gatekeepers@hyperspace.zone" }).waitFor();
   await page.getByText("Billing E2E Plan v1", { exact: false }).waitFor();
@@ -180,7 +181,7 @@ try {
   result.mobileOverflow = mobileOverflow;
   assert(
     mobileOverflow.documentWidth <= mobileOverflow.viewportWidth,
-    `billing dashboard overflows mobile viewport: ${JSON.stringify(mobileOverflow)}`
+    `billing page overflows mobile viewport: ${JSON.stringify(mobileOverflow)}`
   );
   await screenshot("03-customer-billing-mobile");
   assert(consoleErrors.length === 0, `browser console errors: ${consoleErrors.join(" | ")}`);

@@ -102,6 +102,9 @@ try {
   await expectText(page, "Benchmarks");
   result.steps.push("logged_in");
 
+  assert(await page.getByRole("heading", { name: "Deposit USDC" }).count() === 0, "billing controls must not be rendered on dashboard");
+  await page.getByLabel("Primary").getByRole("link", { name: "Billing", exact: true }).click();
+  await page.waitForURL(`${webBase}/billing`, { timeout: 30000 });
   await expectText(page, "Deposit USDC");
   const depositAddress = (await page.locator(".wallet-row").first().textContent())?.trim() || "";
   assert(/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(depositAddress), "custodial Solana deposit address is missing or invalid");
@@ -114,6 +117,8 @@ try {
   result.custodialWallet = depositAddress;
   result.steps.push("custodial_deposit_wallet_checked");
 
+  await page.getByLabel("Primary").getByRole("link", { name: "Dashboard", exact: true }).click();
+  await page.waitForURL(`${webBase}/`, { timeout: 30000 });
   await expectText(page, "Ready");
   await expectText(page, "Schedulable");
   await expectText(page, "DoubleZero node");

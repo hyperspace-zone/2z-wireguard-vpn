@@ -532,6 +532,29 @@ small {
   align-items: center;
 }
 
+.identity-balance {
+  border-right: 1px solid #d8dee8;
+  color: #161b22;
+  display: grid;
+  gap: 1px;
+  padding-right: 12px;
+  text-align: right;
+  text-decoration: none;
+}
+
+.identity-balance small {
+  font-size: 11px;
+  margin: 0;
+}
+
+.identity-balance strong {
+  font-size: 15px;
+}
+
+.identity-balance:hover strong {
+  color: #0a58ca;
+}
+
 .identity-avatar {
   width: 32px;
   height: 32px;
@@ -1380,6 +1403,16 @@ small {
   .session-form {
     grid-template-columns: 1fr;
     display: grid;
+  }
+
+  .identity {
+    display: flex;
+    flex-wrap: wrap;
+  }
+
+  .identity-balance {
+    margin-right: auto;
+    text-align: left;
   }
 
   .deposit-qr {

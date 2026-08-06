@@ -1,5 +1,5 @@
 type SessionMode = "IpToIp" | "FullTunnel";
-type AppView = "dashboard" | "create-config" | "benchmarks" | "admin-billing" | "login" | "register";
+type AppView = "dashboard" | "create-config" | "benchmarks" | "billing" | "admin-billing" | "login" | "register";
 type CreateConfigStep = "configure" | "confirm";
 type SortDirection = "desc" | "asc";
 type KeyInstructionPlatform = "linux" | "macos" | "windows";
@@ -404,7 +404,7 @@ function render(state: { gates?: Gate[]; sessions?: Session[]; me?: Me | null; b
           <p>DoubleZero-backed WireGuard configs across Hyperspace gates.</p>
         </div>
         <div class="identity">
-          ${me ? `${me.avatarUrl ? `<img class="identity-avatar" src="${escapeHtml(me.avatarUrl)}" alt="" referrerpolicy="no-referrer" />` : ""}<span>${escapeHtml(me.displayName || me.email)}</span><button id="logout">Log out</button>` : '<a class="button-link secondary-button" href="/login" data-view="login">Log in</a>'}
+          ${me ? `${headerBalance(billing)}${me.avatarUrl ? `<img class="identity-avatar" src="${escapeHtml(me.avatarUrl)}" alt="" referrerpolicy="no-referrer" />` : ""}<span>${escapeHtml(me.displayName || me.email)}</span><button id="logout">Log out</button>` : '<a class="button-link secondary-button" href="/login" data-view="login">Log in</a>'}
         </div>
       </section>
 
@@ -456,6 +456,9 @@ function viewFromLocation(): AppView {
   if (window.location.pathname === "/benchmarks") {
     return "benchmarks";
   }
+  if (window.location.pathname === "/billing") {
+    return "billing";
+  }
   if (window.location.pathname === "/admin/billing") {
     return "admin-billing";
   }
@@ -474,6 +477,9 @@ function viewPath(view: AppView): string {
   }
   if (view === "benchmarks") {
     return "/benchmarks";
+  }
+  if (view === "billing") {
+    return "/billing";
   }
   if (view === "admin-billing") {
     return "/admin/billing";
@@ -515,10 +521,13 @@ function renderView(state: { view: AppView; gates: Gate[]; sessions: Session[]; 
   if (state.view === "benchmarks") {
     return benchmarksView({ gates: state.gates, benchmarkMatrix: state.benchmarkMatrix });
   }
+  if (state.view === "billing") {
+    return billingView(state.billing);
+  }
   if (state.view === "admin-billing") {
     return adminBillingView(latestAdminBilling);
   }
-  return dashboardView({ gates: state.gates, sessions: state.sessions, benchmarkMatrix: state.benchmarkMatrix, billing: state.billing });
+  return dashboardView({ gates: state.gates, sessions: state.sessions, benchmarkMatrix: state.benchmarkMatrix });
 }
 
 function shouldShowEventLog(view: AppView, me: Me | null): boolean {
@@ -526,7 +535,7 @@ function shouldShowEventLog(view: AppView, me: Me | null): boolean {
 }
 
 function isAppView(value: string | undefined): value is AppView {
-  return value === "dashboard" || value === "create-config" || value === "benchmarks" || value === "admin-billing" || value === "login" || value === "register";
+  return value === "dashboard" || value === "create-config" || value === "benchmarks" || value === "billing" || value === "admin-billing" || value === "login" || value === "register";
 }
 
 function isKeyInstructionPlatform(value: string | undefined): value is KeyInstructionPlatform {
@@ -581,6 +590,7 @@ function appNav(view: AppView): string {
       <a href="/" data-view="dashboard" class="${view === "dashboard" ? "active" : ""}">Dashboard</a>
       <a href="/create-config" data-view="create-config" class="${view === "create-config" ? "active" : ""}">Create config</a>
       <a href="/benchmarks" data-view="benchmarks" class="${view === "benchmarks" ? "active" : ""}">Benchmarks</a>
+      <a href="/billing" data-view="billing" class="${view === "billing" ? "active" : ""}">Billing</a>
       ${latestAdminBilling ? `<a href="/admin/billing" data-view="admin-billing" class="${view === "admin-billing" ? "active" : ""}">Billing admin</a>` : ""}
     </nav>
   `;
@@ -596,17 +606,8 @@ function authNav(view: AppView): string {
   `;
 }
 
-function dashboardView(state: { gates: Gate[]; sessions: Session[]; benchmarkMatrix: BenchmarkMatrix | null; billing: BillingSummary | null }): string {
+function dashboardView(state: { gates: Gate[]; sessions: Session[]; benchmarkMatrix: BenchmarkMatrix | null }): string {
   return `
-    <section class="panel primary-panel">
-      <div class="panel-heading">
-        <h2>Account</h2>
-        <button id="refresh-billing" class="secondary-button" type="button">Refresh deposits</button>
-      </div>
-      ${accountPanel(state.billing)}
-      <p class="support-contact">Need test credits or billing help? <a href="mailto:gatekeepers@hyperspace.zone">gatekeepers@hyperspace.zone</a></p>
-    </section>
-
     <section class="panel primary-panel">
       <div class="panel-heading">
         <h2>VPN configs</h2>
@@ -621,6 +622,29 @@ function dashboardView(state: { gates: Gate[]; sessions: Session[]; benchmarkMat
       </div>
       ${gatesPanel(state.gates, state.benchmarkMatrix)}
     </section>
+  `;
+}
+
+function billingView(billing: BillingSummary | null): string {
+  return `
+    <section class="panel primary-panel">
+      <div class="panel-heading">
+        <h2>Billing</h2>
+        <button id="refresh-billing" class="secondary-button" type="button">Refresh deposits</button>
+      </div>
+      ${accountPanel(billing)}
+      <p class="support-contact">Need test credits or billing help? <a href="mailto:gatekeepers@hyperspace.zone">gatekeepers@hyperspace.zone</a></p>
+    </section>
+  `;
+}
+
+function headerBalance(billing: BillingSummary | null): string {
+  const amount = formatMoneyMinor(billing?.availableBalanceMinor ?? billing?.balanceMinor ?? 0, billing?.currency ?? "USD");
+  return `
+    <a class="identity-balance" href="/billing" data-view="billing" aria-label="Billing balance ${escapeHtml(amount)}">
+      <small>Balance</small>
+      <strong>${escapeHtml(amount)}</strong>
+    </a>
   `;
 }
 

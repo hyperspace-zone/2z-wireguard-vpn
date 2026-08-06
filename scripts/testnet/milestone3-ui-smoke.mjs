@@ -2,7 +2,7 @@
 import { execFileSync } from "node:child_process";
 import { randomBytes, randomInt } from "node:crypto";
 import { createServer } from "node:http";
-import { readFile } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import { extname, join, resolve } from "node:path";
 import { chromium } from "playwright-core";
 
@@ -11,6 +11,8 @@ const webDir = join(repoRoot, "apps/web");
 const distDir = join(webDir, "dist");
 const chromiumExecutable = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE || "/snap/bin/chromium";
 const headless = process.env.PLAYWRIGHT_HEADLESS !== "0";
+const requestedBaseUrl = process.env.HS_WEB_BASE?.replace(/\/$/, "") || "";
+const screenshotDir = process.env.HS_TEST_OUTPUT_DIR || "";
 const testEmail = "pilot-ui-smoke@ostealmar.resend.app";
 const testPassword = `Ui-${randomBytes(18).toString("base64url")}`;
 const mockedOtp = String(randomInt(100_000, 1_000_000));
@@ -39,7 +41,10 @@ const address = server.address();
 if (!address || typeof address === "string") {
   throw new Error("could not start local web server");
 }
-const baseUrl = `http://127.0.0.1:${address.port}`;
+const baseUrl = requestedBaseUrl || `http://127.0.0.1:${address.port}`;
+if (screenshotDir) {
+  await mkdir(screenshotDir, { recursive: true });
+}
 
 let createdSessionPayload = null;
 let registeredUserPayload = null;
@@ -208,8 +213,9 @@ try {
   await page.locator("#email-code-verify-form input[name=code]").fill(mockedOtp);
   await page.locator("#email-code-verify-form button[type=submit]").click();
 
-  await page.getByRole("heading", { name: "Account" }).waitFor();
-  await page.getByText("$25.00", { exact: true }).first().waitFor();
+  await page.getByLabel("Billing balance $25.00").waitFor();
+  await page.getByLabel("Primary").getByRole("link", { name: "Billing", exact: true }).click();
+  await page.getByRole("heading", { name: "Billing", exact: true }).waitFor();
   await page.getByText(depositWalletPublicKey, { exact: true }).waitFor();
   await page.locator(".deposit-qr svg").waitFor();
   await page.getByText("1.81944 USDC", { exact: true }).waitFor();
@@ -222,6 +228,18 @@ try {
   if (await page.locator("#topup-form").count()) {
     throw new Error("fixed-amount top-up intents must not be exposed");
   }
+  await capture(page, "billing-desktop");
+  await page.setViewportSize({ width: 390, height: 844 });
+  if (await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)) {
+    throw new Error("billing page overflows the mobile viewport");
+  }
+  await capture(page, "billing-mobile");
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.getByLabel("Primary").getByRole("link", { name: "Dashboard", exact: true }).click();
+  if (await page.getByRole("heading", { name: "Deposit USDC" }).count()) {
+    throw new Error("billing controls must not be rendered on the dashboard");
+  }
+  await capture(page, "dashboard-without-billing");
 
   await page.getByLabel("Primary").getByRole("link", { name: "Create config" }).click();
   await page.locator("input[name=targetIp]").fill("1.1.1.1");
@@ -269,6 +287,11 @@ function json(route, body, status = 200) {
     contentType: "application/json",
     body: JSON.stringify(body)
   });
+}
+
+async function capture(page, name) {
+  if (!screenshotDir) return;
+  await page.screenshot({ path: join(screenshotDir, `${name}.png`), fullPage: true });
 }
 
 function contentType(filePath) {

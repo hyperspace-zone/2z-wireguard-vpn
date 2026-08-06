@@ -18,12 +18,17 @@ Solana account.
 
 ## Solana Deposit Flow
 
-The dashboard follows the deposit model used by centralized exchanges: it
+The first-class `/billing` page follows the deposit model used by centralized exchanges: it
 shows one permanent address, a QR containing that raw address, the accepted
 network and asset, and finalized deposit history. There is no amount selector,
 payment intent, memo, sender restriction, or browser-wallet connection.
-The dashboard reloads balance and history when the user selects `Refresh
+The Billing page reloads balance and history when the user selects `Refresh
 deposits`; it does not submit or mutate an on-chain payment.
+
+The available balance is also shown as a compact link immediately before the
+authenticated identity in the application header. The Dashboard contains only
+VPN config management and the gate catalog, so billing activity does not crowd
+the primary network workflow.
 
 1. The worker finds the configured SPL token account owned by each active
    custodial wallet.
