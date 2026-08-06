@@ -115,72 +115,6 @@ export const publicGoogleOAuthStartResponseSchema = {
   }
 } as const;
 
-export const publicWalletLinkSchema = {
-  type: "object",
-  additionalProperties: false,
-  required: ["id", "chain", "publicKey", "linkedAt", "custody", "canReceive"],
-  properties: {
-    id: { type: "string" },
-    chain: { type: "string" },
-    publicKey: { type: "string" },
-    label: { type: ["string", "null"] },
-    linkedAt: { type: "string", format: "date-time" },
-    custody: { enum: ["hyperspace", "external"] },
-    canReceive: { type: "boolean" }
-  }
-} as const;
-
-export const publicWalletLinksResponseSchema = {
-  type: "object",
-  additionalProperties: false,
-  required: ["wallets"],
-  properties: {
-    wallets: { type: "array", items: publicWalletLinkSchema }
-  }
-} as const;
-
-export const publicCreateSolanaWalletChallengeRequestSchema = {
-  type: "object",
-  additionalProperties: false,
-  required: ["publicKey"],
-  properties: {
-    publicKey: { type: "string", minLength: 32 }
-  }
-} as const;
-
-export const publicSolanaWalletChallengeResponseSchema = {
-  type: "object",
-  additionalProperties: false,
-  required: ["chain", "publicKey", "nonce", "message", "expiresAt"],
-  properties: {
-    chain: { const: "solana" },
-    publicKey: { type: "string" },
-    nonce: { type: "string" },
-    message: { type: "string" },
-    expiresAt: { type: "string", format: "date-time" }
-  }
-} as const;
-
-export const publicLinkSolanaWalletRequestSchema = {
-  type: "object",
-  additionalProperties: false,
-  required: ["publicKey", "nonce", "signature"],
-  properties: {
-    publicKey: { type: "string", minLength: 32 },
-    nonce: { type: "string", minLength: 1 },
-    signature: { type: "string", minLength: 64 }
-  }
-} as const;
-
-export const publicLinkSolanaWalletResponseSchema = {
-  type: "object",
-  additionalProperties: false,
-  required: ["wallet"],
-  properties: {
-    wallet: publicWalletLinkSchema
-  }
-} as const;
-
 export const publicBillingLedgerEntrySchema = {
   type: "object",
   additionalProperties: false,
@@ -197,41 +131,54 @@ export const publicBillingLedgerEntrySchema = {
   }
 } as const;
 
-export const publicTopupIntentSchema = {
+export const publicBillingDepositDestinationSchema = {
   type: "object",
   additionalProperties: false,
-  required: ["id", "provider", "status", "amountMinor", "currency", "reference", "expiresAt", "createdAt"],
+  required: ["chain", "address", "tokenSymbol", "tokenMint", "tokenDecimals", "qrSvg"],
   properties: {
-    id: { type: "string" },
-    provider: { type: "string" },
-    status: { type: "string" },
-    amountMinor: { type: "number" },
+    chain: { const: "solana" },
+    address: { type: "string" },
+    tokenSymbol: { type: "string" },
+    tokenMint: { type: "string" },
+    tokenDecimals: { type: "number" },
+    qrSvg: { type: "string" }
+  }
+} as const;
+
+export const publicBillingDepositSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "transactionSignature", "chain", "status", "tokenSymbol", "tokenMint",
+    "tokenAmountBaseUnits", "tokenDecimals", "creditedAmountMinor", "currency",
+    "observedAt", "explorerUrl"
+  ],
+  properties: {
+    transactionSignature: { type: "string" },
+    chain: { const: "solana" },
+    status: { const: "finalized" },
+    tokenSymbol: { type: "string" },
+    tokenMint: { type: "string" },
+    tokenAmountBaseUnits: { type: "string" },
+    tokenDecimals: { type: "number" },
+    creditedAmountMinor: { type: "number" },
     currency: { type: "string" },
-    chain: { type: ["string", "null"] },
-    tokenSymbol: { type: ["string", "null"] },
-    tokenMint: { type: ["string", "null"] },
-    treasuryAddress: { type: ["string", "null"] },
-    reference: { type: "string" },
-    expectedSender: { type: ["string", "null"] },
-    transactionSignature: { type: ["string", "null"] },
-    paymentUrl: { type: "string" },
-    expiresAt: { type: "string", format: "date-time" },
-    submittedAt: { type: ["string", "null"], format: "date-time" },
-    confirmedAt: { type: ["string", "null"], format: "date-time" },
-    createdAt: { type: "string", format: "date-time" }
+    observedAt: { type: "string", format: "date-time" },
+    explorerUrl: { type: "string" }
   }
 } as const;
 
 export const publicBillingSummaryResponseSchema = {
   type: "object",
   additionalProperties: false,
-  required: ["accountId", "balanceMinor", "currency", "ledger", "topups", "buckets", "state", "plan", "availableBalanceMinor", "withdrawableBalanceMinor", "usage", "withdrawals"],
+  required: ["accountId", "balanceMinor", "currency", "ledger", "deposit", "deposits", "buckets", "state", "plan", "availableBalanceMinor", "withdrawableBalanceMinor", "usage", "withdrawals"],
   properties: {
     accountId: { type: "string" },
     balanceMinor: { type: "number" },
     currency: { type: "string" },
     ledger: { type: "array", items: publicBillingLedgerEntrySchema },
-    topups: { type: "array", items: publicTopupIntentSchema },
+    deposit: { anyOf: [publicBillingDepositDestinationSchema, { type: "null" }] },
+    deposits: { type: "array", items: publicBillingDepositSchema },
     availableBalanceMinor: { type: "number" },
     withdrawableBalanceMinor: { type: "number" },
     buckets: {
@@ -299,34 +246,6 @@ export const publicBillingSummaryResponseSchema = {
 export const publicCreateWithdrawalRequestSchema = {
   type: "object", additionalProperties: false, required: ["amountMinor", "destinationAddress"],
   properties: { amountMinor: { type: "number", minimum: 1 }, destinationAddress: { type: "string", minLength: 32 } }
-} as const;
-
-export const publicCreateTopupRequestSchema = {
-  type: "object",
-  additionalProperties: false,
-  required: ["amountMinor"],
-  properties: {
-    amountMinor: { type: "number", minimum: 100 },
-    expectedSender: { type: "string" }
-  }
-} as const;
-
-export const publicTopupIntentResponseSchema = {
-  type: "object",
-  additionalProperties: false,
-  required: ["topup"],
-  properties: {
-    topup: publicTopupIntentSchema
-  }
-} as const;
-
-export const publicSubmitTopupRequestSchema = {
-  type: "object",
-  additionalProperties: false,
-  required: ["transactionSignature"],
-  properties: {
-    transactionSignature: { type: "string", minLength: 64 }
-  }
 } as const;
 
 export const publicCreateSessionRequestSchema = {

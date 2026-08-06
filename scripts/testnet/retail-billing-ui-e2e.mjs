@@ -21,6 +21,7 @@ const customerEmail = `billing-ui-customer-${runId}@${emailDomain}`;
 const password = `Hs-${randomBytes(20).toString("base64url")}`;
 const planCode = `billing-e2e-${runId}`;
 const externalWallet = Keypair.generate().publicKey.toBase58();
+const depositSignature = "7".repeat(88);
 const db = createDatabase({ connectionString: databaseUrl, applicationName: "hyperspace-billing-ui-e2e" });
 const accountIds = [];
 const result = { runId, webBase, adminEmail, customerEmail, planCode, steps: [] };
@@ -54,9 +55,11 @@ try {
     description: "Billing UI E2E paid balance"
   });
   await db.query(
-    `INSERT INTO wallet_links (account_id, user_id, chain, public_key, label)
-     VALUES ($1, $2, 'solana', $3, 'Billing UI E2E destination')`,
-    [customer.accountId, customer.id, externalWallet]
+    `INSERT INTO solana_payment_receipts (
+       transaction_signature, account_id, source_type, source_id, token_mint,
+       amount_base_units, credited_amount_minor, metadata
+     ) VALUES ($1, $2, 'direct_deposit', $1, $3, 1819440, 181, '{"fixture":true}'::jsonb)`,
+    [depositSignature, customer.accountId, process.env.SOLANA_TOKEN_MINT || "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"]
   );
   result.steps.push("fixtures_created");
 
@@ -112,22 +115,20 @@ try {
   await page.getByText(/Paid \$25\.00.*Credits \$5\.00/).waitFor();
   await page.getByRole("link", { name: "gatekeepers@hyperspace.zone" }).waitFor();
   await page.getByText("Billing E2E Plan v1", { exact: false }).waitFor();
-  await page.getByText(externalWallet, { exact: false }).waitFor();
+  await page.getByRole("heading", { name: "Deposit USDC" }).waitFor();
+  await page.locator(".deposit-qr svg").waitFor();
+  await page.getByText("1.81944 USDC", { exact: true }).waitFor();
+  await page.getByRole("link", { name: /77777777/ }).waitFor();
+  assert(await page.locator("#topup-form").count() === 0, "fixed-amount top-up form must not be present");
+  assert(await page.getByRole("button", { name: /Connect external wallet/ }).count() === 0, "external wallet link must not be present");
   result.steps.push("customer_balance_and_support_checked");
-
-  const topupResponse = page.waitForResponse((response) =>
-    response.url().endsWith("/v1/public/billing/topups") && response.request().method() === "POST"
-  );
-  await page.locator('#topup-form input[name="amountUsd"]').fill("1.00");
-  await page.locator('#topup-form button[type="submit"]').click();
-  assert((await topupResponse).status() === 201, "Solana top-up intent creation failed");
-  await page.getByRole("link", { name: "Pay with Solana wallet" }).first().waitFor();
-  result.steps.push("solana_topup_intent_checked");
+  result.steps.push("cex_style_deposit_wallet_checked");
 
   const withdrawalResponse = page.waitForResponse((response) =>
     response.url().endsWith("/v1/public/billing/withdrawals") && response.request().method() === "POST"
   );
   await page.locator('#withdrawal-form input[name="amountUsd"]').fill("10.00");
+  await page.locator('#withdrawal-form input[name="destinationAddress"]').fill(externalWallet);
   await page.locator('#withdrawal-form button[type="submit"]').click();
   assert((await withdrawalResponse).status() === 201, "withdrawal request failed");
   await page.getByText("$10.00 · cooldown", { exact: false }).waitFor();

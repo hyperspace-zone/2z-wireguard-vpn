@@ -5,7 +5,7 @@ import { createCleanupLoop } from "../loops/cleanup-loop.js";
 import { createDoubleZeroMeteringLoop } from "../loops/doublezero-metering-loop.js";
 import { collectControlPlaneSnapshotMetrics } from "../observability/control-plane-snapshot.js";
 import { createRetryLoop } from "../loops/retry-loop.js";
-import { createSolanaTopupLoop } from "../loops/solana-topup-loop.js";
+import { createSolanaDepositLoop } from "../loops/solana-deposit-loop.js";
 import { createRetailBillingLoop } from "../loops/retail-billing-loop.js";
 import { createBillingNotificationLoop } from "../loops/billing-notification-loop.js";
 import { createSolanaWithdrawalLoop } from "../loops/solana-withdrawal-loop.js";
@@ -31,7 +31,7 @@ export function createWorkerRunner(input: {
   });
   const retryLoop = createRetryLoop(input.db);
   const cleanupLoop = createCleanupLoop(input.db);
-  const solanaTopupLoop = createSolanaTopupLoop(input.db, input.config);
+  const solanaDepositLoop = createSolanaDepositLoop(input.db, input.config);
   const doubleZeroMeteringLoop = createDoubleZeroMeteringLoop(input.db, input.config);
   const retailBillingLoop = createRetailBillingLoop(input.db, input.config);
   const billingNotificationLoop = createBillingNotificationLoop(input.db, input.config);
@@ -64,7 +64,7 @@ export function createWorkerRunner(input: {
           await runMeasuredLoop("reconcile", input, () => reconcileRunner.runOnce());
           await runMeasuredLoop("retry", input, () => retryLoop.runOnce());
           await runMeasuredLoop("cleanup", input, () => cleanupLoop.runOnce());
-          await runMeasuredLoop("solana-topups", input, () => solanaTopupLoop.runOnce());
+          await runMeasuredLoop("solana-deposits", input, () => solanaDepositLoop.runOnce());
           if (retailBillingLoop.due()) {
             const settlement = await runMeasuredLoop("retail-billing", input, () => retailBillingLoop.runOnce());
             if (settlement) {

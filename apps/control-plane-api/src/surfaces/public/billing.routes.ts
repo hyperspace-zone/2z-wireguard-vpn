@@ -1,23 +1,19 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import QRCode from "qrcode";
 import {
   errorResponseSchema,
   publicBillingSummaryResponseSchema,
-  publicCreateWithdrawalRequestSchema,
-  publicCreateTopupRequestSchema,
-  publicSubmitTopupRequestSchema,
-  publicTopupIntentResponseSchema
+  publicCreateWithdrawalRequestSchema
 } from "@hyperspace-zone/contracts";
 import {
-  createSolanaTopupIntent,
   cancelOwnedWithdrawal,
   createWithdrawalRequest,
+  ensureCustodialSolanaWallet,
   readAccountBillingSummary,
-  submitSolanaTopupSignature,
   type BillingConfig
 } from "@hyperspace-zone/control-plane";
 import type { Database } from "@hyperspace-zone/db";
 import type { PublicAuthUser } from "../../http/auth.js";
-import { sendApplicationError } from "../../http/errors.js";
 import { asRecord, readParam, readString } from "../../http/request.js";
 
 export function registerPublicBillingRoutes(
@@ -26,6 +22,7 @@ export function registerPublicBillingRoutes(
     db: Database;
     requireUser: (request: FastifyRequest, reply: FastifyReply) => Promise<PublicAuthUser | null>;
     billing: BillingConfig;
+    custodialEncryptionKey: Buffer | null;
   }
 ): void {
   app.get("/v1/public/billing", {
@@ -40,77 +37,22 @@ export function registerPublicBillingRoutes(
     if (!user) {
       return;
     }
-    return reply.send(await readAccountBillingSummary(deps.db, user.accountId, deps.billing));
-  });
-
-  app.post("/v1/public/billing/topups", {
-    schema: {
-      body: publicCreateTopupRequestSchema,
-      response: {
-        201: publicTopupIntentResponseSchema,
-        400: errorResponseSchema,
-        401: errorResponseSchema,
-        503: errorResponseSchema
-      }
+    if (deps.custodialEncryptionKey) {
+      await ensureCustodialSolanaWallet(deps.db, user.accountId, deps.custodialEncryptionKey);
     }
-  }, async (request, reply) => {
-    const user = await deps.requireUser(request, reply);
-    if (!user) {
-      return;
-    }
-    const body = asRecord(request.body);
-    const expectedSender = readString(body, "expectedSender");
-    const result = await createSolanaTopupIntent(deps.db, user, {
-      amountMinor: readAmountMinor(body),
-      ...(expectedSender ? { expectedSender } : {})
-    }, deps.billing);
-    if (result === "topup_provider_not_configured") {
-      return sendApplicationError(reply, "topup_provider_not_configured");
-    }
-    if (result === "invalid_topup_amount") {
-      return sendApplicationError(reply, "invalid_topup_amount");
-    }
-    return reply.code(201).send({ topup: result.topup });
-  });
-
-  app.post("/v1/public/billing/topups/:topupId/submit", {
-    schema: {
-      body: publicSubmitTopupRequestSchema,
-      response: {
-        200: publicTopupIntentResponseSchema,
-        400: errorResponseSchema,
-        401: errorResponseSchema,
-        404: errorResponseSchema,
-        409: errorResponseSchema
-      }
-    }
-  }, async (request, reply) => {
-    const user = await deps.requireUser(request, reply);
-    if (!user) {
-      return;
-    }
-    const body = asRecord(request.body);
-    const result = await submitSolanaTopupSignature(deps.db, user, {
-      topupId: readParam(request, "topupId"),
-      transactionSignature: readString(body, "transactionSignature")
-    }, deps.billing);
-    if (typeof result === "string") {
-      switch (result) {
-        case "topup_not_found":
-          return sendApplicationError(reply, "topup_not_found");
-        case "topup_expired":
-          return sendApplicationError(reply, "topup_expired");
-        case "topup_already_final":
-          return sendApplicationError(reply, "topup_already_final");
-        case "topup_transaction_reused":
-          return sendApplicationError(reply, "topup_transaction_reused");
-        case "topup_verification_unavailable":
-          return sendApplicationError(reply, "topup_verification_unavailable");
-        default:
-          return sendApplicationError(reply, "invalid_transaction_signature");
-      }
-    }
-    return reply.send({ topup: result.topup });
+    const summary = await readAccountBillingSummary(deps.db, user.accountId, deps.billing);
+    const deposit = summary.deposit
+      ? {
+          ...summary.deposit,
+          qrSvg: await QRCode.toString(summary.deposit.address, {
+            type: "svg",
+            errorCorrectionLevel: "M",
+            margin: 1,
+            width: 240
+          })
+        }
+      : null;
+    return reply.send({ ...summary, deposit });
   });
 
   app.post("/v1/public/billing/withdrawals", {
@@ -155,7 +97,7 @@ function readAmountMinor(record: Record<string, unknown>): number {
 
 function withdrawalErrorMessage(error: string): string {
   switch (error) {
-    case "withdrawal_destination_not_linked": return "Link this Solana wallet before requesting a withdrawal.";
+    case "invalid_withdrawal_destination": return "Enter a valid Solana withdrawal address.";
     case "active_configs_present": return "Revoke every active VPN config before starting the withdrawal cooldown.";
     case "insufficient_withdrawable_balance": return "Only unused paid balance is withdrawable; promotional credits and debt are excluded.";
     default: return "Enter a valid withdrawal amount.";

@@ -3,12 +3,12 @@ import { decryptJsonPayload } from "@hyperspace-zone/shared";
 import { insertLedgerEntry } from "../../resources/billing/repository.js";
 import { readCustodialWalletEncryptedKey } from "../../resources/wallets/repository.js";
 import type { SessionOwner } from "../../resources/sessions/repository.js";
+import { normalizeSolanaPublicKey } from "./solana-address.js";
 import {
   cancelWithdrawalRequest,
   advanceWithdrawalCooldowns,
   claimReadyWithdrawal,
   enqueueBillingNotification,
-  findLinkedSolanaWallet,
   findWithdrawalForUpdate,
   insertWithdrawalRequest,
   listSubmittedWithdrawals,
@@ -25,7 +25,7 @@ import {
 export type CreateWithdrawalResult =
   | { status: "created"; withdrawal: WithdrawalRequestRow }
   | "invalid_withdrawal_amount"
-  | "withdrawal_destination_not_linked"
+  | "invalid_withdrawal_destination"
   | "active_configs_present"
   | "insufficient_withdrawable_balance";
 
@@ -43,10 +43,11 @@ export async function createWithdrawalRequest(
   if (!Number.isSafeInteger(input.amountMinor) || input.amountMinor <= 0) {
     return "invalid_withdrawal_amount";
   }
+  const destinationAddress = normalizeSolanaPublicKey(input.destinationAddress);
+  if (!destinationAddress) {
+    return "invalid_withdrawal_destination";
+  }
   return db.transaction(async (client) => {
-    if (!await findLinkedSolanaWallet(client, actor.accountId, input.destinationAddress)) {
-      return "withdrawal_destination_not_linked";
-    }
     if ((await listNonTerminalAccountSessions(client, actor.accountId)).length > 0) {
       return "active_configs_present";
     }
@@ -66,7 +67,7 @@ export async function createWithdrawalRequest(
       tokenSymbol: config.solanaTokenSymbol,
       tokenMint: config.solanaTokenMint,
       tokenAmountBaseUnits: BigInt(input.amountMinor) * BigInt(config.solanaTokenBaseUnitsPerBillingMinor),
-      destinationAddress: input.destinationAddress,
+      destinationAddress,
       eligibleAt
     });
     await writeBillingBuckets(client, actor.accountId, {
@@ -80,7 +81,7 @@ export async function createWithdrawalRequest(
       payload: {
         withdrawalId: withdrawal.id,
         amountMinor: input.amountMinor,
-        destinationAddress: input.destinationAddress,
+        destinationAddress,
         eligibleAt
       }
     });

@@ -40,12 +40,6 @@ export type ApplicationErrorCode =
   | "invalid_mode"
   | "invalid_oauth_state"
   | "invalid_source_cidr"
-  | "invalid_topup_amount"
-  | "invalid_transaction_signature"
-  | "invalid_wallet_challenge"
-  | "invalid_wallet_public_key"
-  | "invalid_wallet_signature"
-  | "wallet_already_linked"
   | "job_not_found"
   | "oauth_email_not_verified"
   | "oauth_exchange_failed"
@@ -58,12 +52,6 @@ export type ApplicationErrorCode =
   | "session_not_found"
   | "session_not_revoked"
   | "session_quota_exceeded"
-  | "topup_already_final"
-  | "topup_transaction_reused"
-  | "topup_verification_unavailable"
-  | "topup_expired"
-  | "topup_not_found"
-  | "topup_provider_not_configured"
   | "too_many_attempts"
   | "weak_password";
 
@@ -86,17 +74,12 @@ function applicationErrorStatus(code: ApplicationErrorCode): number {
     case "agent_surface_disabled":
     case "artifact_encryption_not_configured":
     case "oauth_not_configured":
-    case "topup_provider_not_configured":
-    case "topup_verification_unavailable":
       return 503;
     case "artifact_not_ready":
     case "email_already_registered":
     case "session_requires_positive_balance":
     case "session_quota_exceeded":
     case "session_not_revoked":
-    case "topup_already_final":
-    case "topup_transaction_reused":
-    case "wallet_already_linked":
       return 409;
     case "rate_limited":
     case "session_create_rate_limited":
@@ -119,7 +102,6 @@ function applicationErrorStatus(code: ApplicationErrorCode): number {
     case "gate_not_found":
     case "job_not_found":
     case "session_not_found":
-    case "topup_not_found":
       return 404;
     case "credentials_required":
     case "destination_required":
@@ -135,14 +117,8 @@ function applicationErrorStatus(code: ApplicationErrorCode): number {
     case "invalid_mode":
     case "invalid_oauth_state":
     case "invalid_source_cidr":
-    case "invalid_topup_amount":
-    case "invalid_transaction_signature":
-    case "invalid_wallet_challenge":
-    case "invalid_wallet_public_key":
-    case "invalid_wallet_signature":
     case "oauth_exchange_failed":
     case "route_policy_not_satisfied":
-    case "topup_expired":
     case "too_many_attempts":
     case "weak_password":
       return 400;

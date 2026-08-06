@@ -819,27 +819,6 @@ export async function grantUserRoleByEmail(
   return Boolean(result.rows[0]);
 }
 
-export async function findLinkedSolanaWallet(
-  db: Queryable,
-  accountId: string,
-  publicKey: string
-): Promise<boolean> {
-  const result = await db.query<{ linked: boolean }>(
-    `
-      SELECT EXISTS (
-        SELECT 1
-        FROM wallet_links
-        WHERE account_id = $1
-          AND chain = 'solana'
-          AND public_key = $2
-          AND revoked_at IS NULL
-      ) AS linked
-    `,
-    [accountId, publicKey]
-  );
-  return result.rows[0]?.linked === true;
-}
-
 export async function insertWithdrawalRequest(
   db: Queryable,
   input: {

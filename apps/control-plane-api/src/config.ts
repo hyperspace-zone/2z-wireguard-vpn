@@ -44,22 +44,18 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ControlPlaneAp
       }
       : null,
     walletAuth: {
-      challengeHashSecret: env.WALLET_CHALLENGE_HASH_SECRET ?? env.ADMIN_TOKEN ?? env.DATABASE_URL ?? "hyperspace-dev-wallet-challenge",
-      challengeTtlSeconds: readPositiveInteger(env, "WALLET_CHALLENGE_TTL_SECONDS", 10 * 60),
       custodialEncryptionKey: env.CUSTODIAL_WALLET_ENCRYPTION_KEY
         ? parseAes256GcmKey(env.CUSTODIAL_WALLET_ENCRYPTION_KEY, "CUSTODIAL_WALLET_ENCRYPTION_KEY")
         : null
     },
     billing: {
       currency: env.BILLING_CURRENCY ?? "USD",
-      solanaTreasuryAddress: env.SOLANA_TREASURY_ADDRESS ?? "",
       solanaTokenSymbol: env.SOLANA_TOKEN_SYMBOL ?? "USDC",
       solanaTokenMint: env.SOLANA_TOKEN_MINT ?? "",
       solanaRpcUrl: env.SOLANA_RPC_URL ?? "",
       solanaTokenBaseUnitsPerBillingMinor: readPositiveInteger(env, "SOLANA_TOKEN_BASE_UNITS_PER_BILLING_MINOR", 10_000),
       solanaTokenDecimals: readNonNegativeInteger(env, "SOLANA_TOKEN_DECIMALS", 6),
-      topupIntentTtlSeconds: readPositiveInteger(env, "TOPUP_INTENT_TTL_SECONDS", 60 * 60),
-      allowUnverifiedTopups: readBoolean(env, "BILLING_ALLOW_UNVERIFIED_TOPUPS", false),
+      solanaExplorerTransactionBaseUrl: env.SOLANA_EXPLORER_TX_BASE_URL ?? "https://orbmarkets.io/tx/",
       usageMarkupBps: readNonNegativeInteger(env, "BILLING_USAGE_MARKUP_BPS", 1500),
       enforcePositiveBalance: readBoolean(env, "BILLING_ENFORCE_POSITIVE_BALANCE", false),
       requiredMinBalanceMinor: readNonNegativeInteger(env, "BILLING_REQUIRED_MIN_BALANCE_MINOR", 0)

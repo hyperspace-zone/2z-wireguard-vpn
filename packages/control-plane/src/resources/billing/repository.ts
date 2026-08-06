@@ -35,7 +35,6 @@ export interface TopupIntentRow {
   submittedAt: string | null;
   confirmedAt: string | null;
   createdAt: string;
-  paymentUrl?: string;
 }
 
 export interface SubmittedTopupIntentRow extends TopupIntentRow {
@@ -96,79 +95,6 @@ export async function listLedgerEntries(db: Queryable, accountId: string, limit 
   return result.rows;
 }
 
-export async function insertTopupIntent(
-  db: Queryable,
-  input: {
-    accountId: string;
-    provider: string;
-    status: string;
-    amountMinor: number;
-    currency: string;
-    chain: string;
-    tokenSymbol: string;
-    tokenMint: string;
-    treasuryAddress: string;
-    reference: string;
-    expectedSender?: string;
-    expiresAt: string;
-    metadata?: Record<string, unknown>;
-  }
-): Promise<TopupIntentRow> {
-  const result = await db.query<TopupIntentRow>(
-    `
-      INSERT INTO topup_intents (
-        account_id,
-        provider,
-        status,
-        amount_minor,
-        currency,
-        chain,
-        token_symbol,
-        token_mint,
-        treasury_address,
-        reference,
-        expected_sender,
-        expires_at,
-        metadata
-      )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::timestamptz, $13::jsonb)
-      RETURNING
-        id,
-        provider,
-        status,
-        amount_minor::text::int AS "amountMinor",
-        currency,
-        chain,
-        token_symbol AS "tokenSymbol",
-        token_mint AS "tokenMint",
-        treasury_address AS "treasuryAddress",
-        reference,
-        expected_sender AS "expectedSender",
-        transaction_signature AS "transactionSignature",
-        expires_at AS "expiresAt",
-        submitted_at AS "submittedAt",
-        confirmed_at AS "confirmedAt",
-        created_at AS "createdAt"
-    `,
-    [
-      input.accountId,
-      input.provider,
-      input.status,
-      input.amountMinor,
-      input.currency,
-      input.chain,
-      input.tokenSymbol,
-      input.tokenMint,
-      input.treasuryAddress,
-      input.reference,
-      input.expectedSender ?? null,
-      input.expiresAt,
-      JSON.stringify(input.metadata ?? {})
-    ]
-  );
-  return mustRow(result);
-}
-
 export async function findTopupIntentForUpdate(
   db: Queryable,
   accountId: string,
@@ -201,36 +127,6 @@ export async function findTopupIntentForUpdate(
     [accountId, intentId]
   );
   return result.rows[0] ?? null;
-}
-
-export async function listTopupIntents(db: Queryable, accountId: string, limit = 20): Promise<TopupIntentRow[]> {
-  const result = await db.query<TopupIntentRow>(
-    `
-      SELECT
-        id,
-        provider,
-        status,
-        amount_minor::text::int AS "amountMinor",
-        currency,
-        chain,
-        token_symbol AS "tokenSymbol",
-        token_mint AS "tokenMint",
-        treasury_address AS "treasuryAddress",
-        reference,
-        expected_sender AS "expectedSender",
-        transaction_signature AS "transactionSignature",
-        expires_at AS "expiresAt",
-        submitted_at AS "submittedAt",
-        confirmed_at AS "confirmedAt",
-        created_at AS "createdAt"
-      FROM topup_intents
-      WHERE account_id = $1
-      ORDER BY created_at DESC
-      LIMIT $2
-    `,
-    [accountId, limit]
-  );
-  return result.rows;
 }
 
 export async function submitTopupIntent(

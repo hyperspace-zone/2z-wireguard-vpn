@@ -32,7 +32,6 @@ try {
   });
   await mockJson(page, "**/api/v1/public/sessions", { sessions: [] });
   await mockJson(page, "**/api/v1/public/billing", {});
-  await mockJson(page, "**/api/v1/public/auth/wallets", { wallets: [] });
 
   await page.goto(`${webBase}/create-config`, { waitUntil: "networkidle", timeout: 30_000 });
   const ingress = page.locator('select[name="ingressGateName"]');

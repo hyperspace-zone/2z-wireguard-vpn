@@ -914,7 +914,7 @@ small {
 .account-grid {
   display: grid;
   gap: 14px;
-  grid-template-columns: repeat(3, minmax(220px, 1fr));
+  grid-template-columns: minmax(220px, 0.8fr) minmax(420px, 1.8fr);
 }
 
 .account-card {
@@ -931,8 +931,7 @@ small {
   margin: 0;
 }
 
-.account-card small,
-.topup-row small {
+.account-card small {
   color: #57606a;
   display: block;
   font-size: 12px;
@@ -949,17 +948,42 @@ small {
   word-break: break-word;
 }
 
+.deposit-wallet {
+  align-items: center;
+  display: grid;
+  gap: 16px;
+  grid-template-columns: 160px minmax(0, 1fr);
+}
+
+.deposit-qr {
+  aspect-ratio: 1;
+  background: #fff;
+  border: 1px solid #d8dee8;
+  padding: 8px;
+  width: 160px;
+}
+
+.deposit-qr svg {
+  display: block;
+  height: 100%;
+  width: 100%;
+}
+
+.deposit-details {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.deposit-details strong {
+  margin-bottom: 4px;
+}
+
 .inline-form {
   align-items: end;
   display: grid;
   gap: 8px;
   grid-template-columns: minmax(0, 1fr) auto;
-}
-
-.topup-list {
-  display: grid;
-  gap: 10px;
-  margin-top: 14px;
 }
 
 .billing-ledger {
@@ -987,8 +1011,7 @@ small {
   justify-content: space-between;
 }
 
-.billing-ledger-row > div,
-.topup-row > div {
+.billing-ledger-row > div {
   min-width: 0;
   overflow-wrap: anywhere;
 }
@@ -1007,13 +1030,11 @@ small {
 .amount-credit { color: #1a7f37; }
 .amount-debit { color: #cf222e; }
 
-.topup-row {
-  align-items: center;
-  border-top: 1px solid #d8dee8;
+.withdrawal-form {
+  align-items: end;
   display: grid;
-  gap: 12px;
-  grid-template-columns: minmax(220px, 1fr) minmax(280px, 1.5fr);
-  padding-top: 12px;
+  gap: 8px;
+  grid-template-columns: minmax(130px, 0.45fr) minmax(300px, 1.55fr) auto;
 }
 
 .support-contact,
@@ -1352,12 +1373,17 @@ small {
   .admin-plan-create,
   .gate-select-row,
   .inline-form,
+  .withdrawal-form,
+  .deposit-wallet,
   .review-grid,
   .review-row,
-  .session-form,
-  .topup-row {
+  .session-form {
     grid-template-columns: 1fr;
     display: grid;
+  }
+
+  .deposit-qr {
+    width: min(220px, 100%);
   }
 
   .form-actions {

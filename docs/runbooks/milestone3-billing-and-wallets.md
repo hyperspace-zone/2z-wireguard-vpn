@@ -12,45 +12,59 @@ in `custodial_wallets.encrypted_key` as an AES-256-GCM payload using
 `CUSTODIAL_WALLET_ENCRYPTION_KEY`. Use a key separate from
 `ARTIFACT_ENCRYPTION_KEY`, keep it in the host secret store, and include it in
 encrypted operational backups. Losing this key makes custodial funds
-unrecoverable. An external browser wallet can still be linked, but it is
-optional and cannot replace or claim a wallet linked to another account.
+unrecoverable. Hyperspace does not link a browser wallet. The user may send
+funds to the permanent account address from a wallet, exchange, or another
+Solana account.
 
-## Solana Top-Up Flow
+## Solana Deposit Flow
 
-1. The user creates a top-up intent in the web app.
-2. The API chooses the account custodial address as recipient and creates a
-   random Solana reference public key.
-3. The API returns a Solana Pay URI containing recipient, SPL mint, amount,
-   reference, and memo.
-4. The worker discovers finalized signatures indexed by the reference.
-5. The RPC verifier requires all of the following before crediting the ledger:
+The dashboard follows the deposit model used by centralized exchanges: it
+shows one permanent address, a QR containing that raw address, the accepted
+network and asset, and finalized deposit history. There is no amount selector,
+payment intent, memo, sender restriction, or browser-wallet connection.
+The dashboard reloads balance and history when the user selects `Refresh
+deposits`; it does not submit or mutate an on-chain payment.
+
+1. The worker finds the configured SPL token account owned by each active
+   custodial wallet.
+2. It scans signatures incrementally with a durable per-token-account cursor.
+   Pagination provides backfill after worker or RPC downtime.
+3. The RPC verifier requires all of the following before recording a receipt:
    - signature status is `finalized` and has no transaction error;
    - the configured mint matches;
    - the recipient token-account owner is the account deposit wallet;
-   - the exact base-unit amount reaches the recipient;
-   - the memo exactly matches the top-up reference;
-   - when an external sender was selected, it signed and authorized the
-     transfer.
-6. `topup_intents.transaction_signature` is unique, preventing replay across
-   intents. A verified transaction creates one immutable ledger credit.
-7. When paid cash is consumed by usage or repays debt, an idempotent sweep
+   - the finalized recipient balance delta is positive.
+4. `solana_payment_receipts.transaction_signature` is the global primary key.
+   Claiming the receipt, updating the remainder, posting the ledger entry, and
+   updating balance buckets happen in one PostgreSQL transaction. Reprocessing
+   the same signature cannot produce a second credit, even after a restart.
+5. Billing uses integer currency minor units. Any received fraction below one
+   cent is retained in `solana_deposit_remainders` and carried into the next
+   deposit instead of being rounded up or lost.
+6. When paid cash is consumed by usage or repays debt, an idempotent sweep
    transfers that amount from the account wallet to the configured Hyperspace
    revenue treasury. Unused cash stays available for withdrawal.
 
-The account address also accepts ordinary SPL transfers from exchanges and
-wallets that do not preserve a Solana Pay reference or memo. The worker scans
-the configured token account, verifies the finalized positive balance delta for
-the configured mint, and credits the account identified by the unique custodial
-wallet address. Transaction signatures are claimed in
-`solana_payment_receipts`, so an intent payment and a direct deposit cannot be
-credited twice. Billing uses integer currency minor units; any received token
-fraction below one minor unit is retained in `solana_deposit_remainders` and
-carried into the account's next deposit instead of being rounded up or lost.
+The history displays the exact finalized token amount, credited USD amount,
+UTC observation time, and a transaction link. A sender may transfer any
+positive amount. Exchange withdrawal fees are naturally handled because only
+the amount that actually reached the account wallet is credited. Historical
+`topup_intents` remain in the database for audit and legacy reconciliation, but
+the public API cannot create new intents.
 
-Solana Pay remains the preferred path because its reference gives the user an
-explicit amount and payment status. Direct deposits credit the amount actually
-received after any exchange withdrawal fee, not the amount requested in a
-pending top-up intent.
+### Open-source indexing choice
+
+At the current footprint, the production source is Solana JSON-RPC plus the
+PostgreSQL cursor and receipt tables in this repository. It requires no hosted
+webhook service, survives missed polling intervals, and can be replayed. The
+API uses the open-source `qrcode` package to render the address QR.
+
+Yellowstone gRPC is the preferred scale-out transport when polling many
+thousands of wallets. It provides Geyser account and transaction streams, but
+self-hosting it requires validator/Geyser infrastructure and a managed stream
+still adds an external provider. Do not deploy that operational cost until RPC
+scan latency or request volume demonstrates the need. The receipt primary key
+remains the final idempotency boundary regardless of the event source.
 
 The default documented mapping is mainnet USDC:
 
@@ -59,7 +73,7 @@ SOLANA_TOKEN_SYMBOL=USDC
 SOLANA_TOKEN_MINT=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v
 SOLANA_TOKEN_DECIMALS=6
 SOLANA_TOKEN_BASE_UNITS_PER_BILLING_MINOR=10000
-SOLANA_TOPUP_RECONCILE_INTERVAL_SECONDS=15
+SOLANA_EXPLORER_TX_BASE_URL=https://orbmarkets.io/tx/
 SOLANA_DIRECT_DEPOSIT_SCAN_INTERVAL_SECONDS=30
 SOLANA_DIRECT_DEPOSIT_SCAN_BATCH_SIZE=25
 ```
@@ -168,12 +182,13 @@ HS_TEST_PASSWORD=<test-password> \
 npm run test:live:ui
 ```
 
-The billing DB E2E creates an account wallet, confirms a fixture-backed
-finalized transaction, checks the cash and promotional buckets, proves
-signature replay and manual-credit replay are rejected, exercises withdrawal
-reservation/cancellation, and removes its account afterwards.
+The billing DB E2E creates an account wallet, confirms fixture-backed finalized
+transactions, checks exact token units and explorer history, checks the cash
+and promotional buckets, proves signature replay and manual-credit replay are
+rejected, exercises withdrawal reservation/cancellation, and removes its
+account afterwards.
 
-The live UI test covers the real testnet API, PostgreSQL, gates, Solana Pay
-intent, custodial wallet display, config activation, one-time QR, OS helper,
-download, revoke, and delete. It honors `429 Retry-After` responses instead of
-disabling production-like abuse controls.
+The live UI test covers the real environment API, PostgreSQL, gates, permanent
+deposit address and QR, deposit history, config activation, one-time WireGuard
+QR, OS helper, download, revoke, and delete. It honors `429 Retry-After`
+responses instead of disabling production-like abuse controls.

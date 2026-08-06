@@ -2,15 +2,13 @@
 import { randomBytes } from "node:crypto";
 import { createDatabase } from "../../packages/db/dist/index.js";
 import {
-  createSolanaTopupIntent,
   applyBillingCredit,
   cancelOwnedWithdrawal,
   createWithdrawalRequest,
   ensureCustodialSolanaWallet,
   readAccountBillingSummary,
   reconcileDirectSolanaDeposits,
-  registerUser,
-  submitSolanaTopupSignature
+  registerUser
 } from "../../packages/control-plane/dist/index.js";
 
 const databaseUrl = process.env.DATABASE_URL || "";
@@ -21,7 +19,7 @@ const email = `billing-db-e2e-${runId}@ostealmar.resend.app`;
 const password = `Hs-${randomBytes(18).toString("base64url")}`;
 const walletEncryptionKey = randomBytes(32);
 const tokenMint = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
-const transactionSignature = "5".repeat(88);
+const initialDepositSignature = "5".repeat(88);
 const directDepositSignature = "6".repeat(88);
 const db = createDatabase({ connectionString: databaseUrl, applicationName: "hyperspace-ms3-billing-e2e" });
 
@@ -49,41 +47,36 @@ try {
   );
   const config = {
     currency: "USD",
-    solanaTreasuryAddress: "",
     solanaTokenSymbol: "USDC",
     solanaTokenMint: tokenMint,
     solanaRpcUrl: "https://rpc.testnet.hyperspace.zone",
     solanaTokenBaseUnitsPerBillingMinor: 10_000,
     solanaTokenDecimals: 6,
-    topupIntentTtlSeconds: 3600,
-    allowUnverifiedTopups: false,
-    usageMarkupBps: 1500
+    solanaExplorerTransactionBaseUrl: "https://orbmarkets.io/tx/",
+    usageMarkupBps: 1500,
+    fetchImpl: directDepositRpcFixture({
+      signature: initialDepositSignature,
+      treasury: wallet.publicKey,
+      mint: tokenMint,
+      amountBaseUnits: "25000000"
+    })
   };
-  const first = await createSolanaTopupIntent(db, actor, { amountMinor: 2500 }, config);
-  if (typeof first === "string") throw new Error(`top-up creation failed: ${first}`);
-  config.fetchImpl = rpcFixture({
-    reference: first.topup.reference,
-    treasury: wallet.publicKey,
-    mint: tokenMint,
-    amountBaseUnits: "25000000"
+  const initialDeposit = await reconcileDirectSolanaDeposits(db, config, {
+    batchSize: 25,
+    scanIntervalSeconds: 1
   });
-  const confirmed = await submitSolanaTopupSignature(db, actor, {
-    topupId: first.topup.id,
-    transactionSignature
-  }, config);
-  if (typeof confirmed === "string" || confirmed.status !== "confirmed") {
-    throw new Error(`top-up confirmation failed: ${JSON.stringify(confirmed)}`);
-  }
+  assertEqual(initialDeposit.depositsCredited, 1, "permanent address deposit is discovered");
+  assertEqual(initialDeposit.creditedMinor, 2500, "arbitrary deposit amount is credited");
   const summary = await readAccountBillingSummary(db, accountId, config);
-  assertEqual(summary.balanceMinor, 2200, "verified top-up repays debt before increasing balance");
-  assertEqual(summary.buckets.cashMinor, 2200, "only the unused top-up remains withdrawable cash");
-  assertEqual(summary.buckets.debtMinor, 0, "verified top-up clears existing debt");
+  assertEqual(summary.balanceMinor, 2200, "deposit repays debt before increasing balance");
+  assertEqual(summary.buckets.cashMinor, 2200, "only unused deposited funds remain withdrawable cash");
+  assertEqual(summary.buckets.debtMinor, 0, "deposit clears existing debt");
   const sweepResult = await db.query(
     `SELECT status, amount_minor::text::int AS "amountMinor",
             token_amount_base_units::text AS "tokenAmountBaseUnits"
      FROM billing_cash_sweep_requests
-     WHERE account_id = $1 AND source_type = 'topup_debt_repayment'`,
-    [accountId]
+     WHERE account_id = $1 AND source_type = 'direct_deposit_debt_repayment' AND source_id = $2`,
+    [accountId, initialDepositSignature]
   );
   assertEqual(sweepResult.rows[0]?.status, "pending", "debt repayment creates a revenue sweep");
   assertEqual(sweepResult.rows[0]?.amountMinor, 300, "revenue sweep contains only repaid debt");
@@ -109,12 +102,11 @@ try {
   assertEqual(credited.buckets.promotionalMinor, 500, "manual credit is promotional and idempotent");
   assertEqual(credited.withdrawableBalanceMinor, 2200, "promotional credit is not withdrawable");
 
-  const externalWallet = "11111111111111111111111111111111";
-  await db.query(
-    `INSERT INTO wallet_links (account_id, user_id, chain, public_key, label)
-     VALUES ($1, $2, 'solana', $3, 'Billing E2E destination')`,
-    [accountId, actor.id, externalWallet]
-  );
+  const externalWallet = "AtfyG36NMHJqZKHmeoNTniFN3QwdXYA4oVXCbEqXr8zL";
+  assertEqual(await createWithdrawalRequest(db, actor, {
+    amountMinor: 1000,
+    destinationAddress: "not-a-solana-address"
+  }, config), "invalid_withdrawal_destination", "withdrawal rejects an invalid destination");
   const withdrawal = await createWithdrawalRequest(db, actor, {
     amountMinor: 1000,
     destinationAddress: externalWallet
@@ -127,27 +119,16 @@ try {
   const cancelled = await readAccountBillingSummary(db, accountId, config);
   assertEqual(cancelled.buckets.reservedWithdrawalMinor, 0, "cancellation releases reserved cash");
 
-  const second = await createSolanaTopupIntent(db, actor, { amountMinor: 2500 }, config);
-  if (typeof second === "string") throw new Error(`second top-up creation failed: ${second}`);
-  config.fetchImpl = rpcFixture({
-    reference: second.topup.reference,
-    treasury: wallet.publicKey,
-    mint: tokenMint,
-    amountBaseUnits: "25000000"
-  });
-  const replay = await submitSolanaTopupSignature(db, actor, {
-    topupId: second.topup.id,
-    transactionSignature
-  }, config);
-  assertEqual(replay, "topup_transaction_reused", "transaction replay protection");
-
   config.fetchImpl = directDepositRpcFixture({
     signature: directDepositSignature,
     treasury: wallet.publicKey,
     mint: tokenMint,
-    amountBaseUnits: "1819440",
-    reference: second.topup.reference
+    amountBaseUnits: "1819440"
   });
+  await db.query(
+    "UPDATE solana_deposit_scan_cursors SET next_scan_at = now() WHERE wallet_id = $1 AND token_mint = $2",
+    [wallet.id, tokenMint]
+  );
   const directDeposit = await reconcileDirectSolanaDeposits(db, config, {
     batchSize: 25,
     scanIntervalSeconds: 1
@@ -156,6 +137,10 @@ try {
   assertEqual(directDeposit.creditedMinor, 181, "direct deposit credits only complete billing minor units");
   const afterDirectDeposit = await readAccountBillingSummary(db, accountId, config);
   assertEqual(afterDirectDeposit.balanceMinor, cancelled.balanceMinor + 181, "direct deposit updates the account balance");
+  assertEqual(afterDirectDeposit.deposit?.address, wallet.publicKey, "billing summary exposes the permanent deposit address");
+  const listedDeposit = afterDirectDeposit.deposits.find((deposit) => deposit.transactionSignature === directDepositSignature);
+  assertEqual(listedDeposit?.tokenAmountBaseUnits, "1819440", "deposit history preserves exact token units");
+  assertEqual(listedDeposit?.explorerUrl, `https://orbmarkets.io/tx/${directDepositSignature}`, "deposit history links to the configured explorer");
   const remainder = await db.query(
     `SELECT remainder_base_units::text AS "remainderBaseUnits"
      FROM solana_deposit_remainders WHERE account_id = $1 AND token_mint = $2`,
@@ -179,6 +164,11 @@ try {
     [directDepositSignature]
   );
   assertEqual(directLedger.rows[0]?.count, 1, "direct deposit creates one ledger entry");
+  const globalReceipt = await db.query(
+    "SELECT count(*)::text::int AS count FROM solana_payment_receipts WHERE transaction_signature = $1",
+    [directDepositSignature]
+  );
+  assertEqual(globalReceipt.rows[0]?.count, 1, "transaction signature has exactly one global payment receipt");
 
   console.log(JSON.stringify({
     ok: true,
@@ -186,7 +176,7 @@ try {
     balanceMinor: afterDirectDeposit.balanceMinor,
     cashMinor: afterDirectDeposit.buckets.cashMinor,
     promotionalMinor: cancelled.buckets.promotionalMinor,
-    replayProtected: true,
+    duplicateDepositProtected: true,
     withdrawalLifecycle: true,
     directDepositReconciled: true
   }, null, 2));
@@ -199,27 +189,7 @@ try {
   await db.close();
 }
 
-function rpcFixture({ reference, treasury, mint, amountBaseUnits }) {
-  return async (_url, init) => {
-    const request = JSON.parse(String(init?.body));
-    const result = request.method === "getSignatureStatuses"
-      ? { value: [{ err: null, confirmationStatus: "finalized" }] }
-      : {
-        slot: 123,
-        blockTime: 1_700_000_000,
-        transaction: { message: { accountKeys: [{ pubkey: treasury, signer: false }], instructions: [{ program: "spl-memo", parsed: reference }] } },
-        meta: {
-          err: null,
-          innerInstructions: [],
-          preTokenBalances: [{ accountIndex: 0, mint, owner: treasury, uiTokenAmount: { amount: "0" } }],
-          postTokenBalances: [{ accountIndex: 0, mint, owner: treasury, uiTokenAmount: { amount: amountBaseUnits } }]
-        }
-      };
-    return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result }), { status: 200 });
-  };
-}
-
-function directDepositRpcFixture({ signature, treasury, mint, amountBaseUnits, reference }) {
+function directDepositRpcFixture({ signature, treasury, mint, amountBaseUnits }) {
   const tokenAccount = "TokenAccount11111111111111111111111111111111";
   return async (_url, init) => {
     const request = JSON.parse(String(init?.body));
@@ -237,7 +207,7 @@ function directDepositRpcFixture({ signature, treasury, mint, amountBaseUnits, r
         transaction: {
           message: {
             accountKeys: [{ pubkey: treasury, signer: false }],
-            instructions: reference ? [{ program: "spl-memo", parsed: reference }] : []
+            instructions: []
           }
         },
         meta: {

@@ -3,25 +3,16 @@ import {
   errorResponseSchema,
   publicAuthMeResponseSchema,
   publicAuthResponseSchema,
-  publicCreateSolanaWalletChallengeRequestSchema,
   publicGoogleOAuthStartResponseSchema,
-  publicLinkSolanaWalletRequestSchema,
-  publicLinkSolanaWalletResponseSchema,
   publicLoginRequestSchema,
   publicRegisterRequestSchema,
   publicRequestEmailLoginCodeRequestSchema,
   publicRequestEmailLoginCodeResponseSchema,
-  publicSolanaWalletChallengeResponseSchema,
-  publicVerifyEmailLoginCodeRequestSchema,
-  publicWalletLinksResponseSchema
+  publicVerifyEmailLoginCodeRequestSchema
 } from "@hyperspace-zone/contracts";
 import {
   completeGoogleOAuth,
   createGoogleOAuthStart,
-  createSolanaWalletChallenge,
-  ensureCustodialSolanaWallet,
-  linkSolanaWallet,
-  listSolanaWalletLinks,
   loginUser,
   registerUser,
   requestEmailLoginCode,
@@ -50,11 +41,6 @@ export function registerPublicAuthRoutes(
       exposeCodes: boolean;
     };
     googleOAuth: GoogleOAuthConfig | null;
-    walletAuth: {
-      challengeHashSecret: string;
-      challengeTtlSeconds: number;
-      custodialEncryptionKey: Buffer | null;
-    };
     requireUser: (request: FastifyRequest, reply: FastifyReply) => Promise<PublicAuthUser | null>;
   }
 ): void {
@@ -238,77 +224,6 @@ export function registerPublicAuthRoutes(
     });
   });
 
-  app.get("/v1/public/auth/wallets", {
-    schema: {
-      response: {
-        200: publicWalletLinksResponseSchema,
-        401: errorResponseSchema
-      }
-    }
-  }, async (request, reply) => {
-    const user = await deps.requireUser(request, reply);
-    if (!user) {
-      return;
-    }
-    const externalWallets = await listSolanaWalletLinks(deps.db, user.accountId);
-    const custodialWallet = deps.walletAuth.custodialEncryptionKey
-      ? await ensureCustodialSolanaWallet(deps.db, user.accountId, deps.walletAuth.custodialEncryptionKey)
-      : null;
-    return reply.send({ wallets: custodialWallet ? [custodialWallet, ...externalWallets] : externalWallets });
-  });
-
-  app.post("/v1/public/auth/wallets/solana/challenge", {
-    schema: {
-      body: publicCreateSolanaWalletChallengeRequestSchema,
-      response: {
-        200: publicSolanaWalletChallengeResponseSchema,
-        400: errorResponseSchema,
-        401: errorResponseSchema
-      }
-    }
-  }, async (request, reply) => {
-    const user = await deps.requireUser(request, reply);
-    if (!user) {
-      return;
-    }
-    const body = asRecord(request.body);
-    const result = await createSolanaWalletChallenge(deps.db, user, {
-      publicKey: readString(body, "publicKey"),
-      nonceHashSecret: deps.walletAuth.challengeHashSecret,
-      challengeTtlSeconds: deps.walletAuth.challengeTtlSeconds
-    });
-    if (result === "invalid_public_key") {
-      return sendApplicationError(reply, "invalid_wallet_public_key");
-    }
-    return reply.send(result);
-  });
-
-  app.post("/v1/public/auth/wallets/solana/link", {
-    schema: {
-      body: publicLinkSolanaWalletRequestSchema,
-      response: {
-        200: publicLinkSolanaWalletResponseSchema,
-        400: errorResponseSchema,
-        401: errorResponseSchema
-      }
-    }
-  }, async (request, reply) => {
-    const user = await deps.requireUser(request, reply);
-    if (!user) {
-      return;
-    }
-    const body = asRecord(request.body);
-    const result = await linkSolanaWallet(deps.db, user, {
-      publicKey: readString(body, "publicKey"),
-      nonce: readString(body, "nonce"),
-      signature: readString(body, "signature"),
-      nonceHashSecret: deps.walletAuth.challengeHashSecret
-    });
-    if (typeof result === "string") {
-      return sendApplicationError(reply, walletLinkError(result));
-    }
-    return reply.send({ wallet: result.wallet });
-  });
 }
 
 function emailCodeError(error: string): ApplicationErrorCode {
@@ -333,20 +248,6 @@ function googleOAuthError(error: string): ApplicationErrorCode {
       return "oauth_email_not_verified";
     default:
       return "oauth_exchange_failed";
-  }
-}
-
-function walletLinkError(error: string): ApplicationErrorCode {
-  switch (error) {
-    case "invalid_public_key":
-      return "invalid_wallet_public_key";
-    case "challenge_not_found":
-    case "challenge_expired":
-      return "invalid_wallet_challenge";
-    case "wallet_already_linked":
-      return "wallet_already_linked";
-    default:
-      return "invalid_wallet_signature";
   }
 }
 

@@ -148,36 +148,6 @@ interface Me {
   billingAdmin: boolean;
 }
 
-interface WalletLink {
-  id: string;
-  chain: string;
-  publicKey: string;
-  label?: string | null;
-  linkedAt: string;
-  custody: "hyperspace" | "external";
-  canReceive: boolean;
-}
-
-interface TopupIntent {
-  id: string;
-  provider: string;
-  status: string;
-  amountMinor: number;
-  currency: string;
-  chain?: string | null;
-  tokenSymbol?: string | null;
-  tokenMint?: string | null;
-  treasuryAddress?: string | null;
-  reference: string;
-  expectedSender?: string | null;
-  transactionSignature?: string | null;
-  paymentUrl?: string;
-  expiresAt: string;
-  submittedAt?: string | null;
-  confirmedAt?: string | null;
-  createdAt: string;
-}
-
 interface BillingLedgerEntry {
   id: string;
   entryType: string;
@@ -194,7 +164,8 @@ interface BillingSummary {
   balanceMinor: number;
   currency: string;
   ledger: BillingLedgerEntry[];
-  topups: TopupIntent[];
+  deposit: BillingDepositDestination | null;
+  deposits: BillingDeposit[];
   availableBalanceMinor: number;
   withdrawableBalanceMinor: number;
   buckets: { cashMinor: number; promotionalMinor: number; reservedWithdrawalMinor: number; debtMinor: number };
@@ -202,6 +173,29 @@ interface BillingSummary {
   plan: { code: string; version: number; displayName: string; activeConfigMonthlyMinor: number; trafficPerGbMinor: number; gracePeriodSeconds: number; withdrawalCooldownSeconds: number; minimumWithdrawalMinor: number };
   usage: BillingUsageSummary[];
   withdrawals: WithdrawalRequest[];
+}
+
+interface BillingDepositDestination {
+  chain: "solana";
+  address: string;
+  tokenSymbol: string;
+  tokenMint: string;
+  tokenDecimals: number;
+  qrSvg: string;
+}
+
+interface BillingDeposit {
+  transactionSignature: string;
+  chain: "solana";
+  status: "finalized";
+  tokenSymbol: string;
+  tokenMint: string;
+  tokenAmountBaseUnits: string;
+  tokenDecimals: number;
+  creditedAmountMinor: number;
+  currency: string;
+  observedAt: string;
+  explorerUrl: string;
 }
 
 interface BillingUsageSummary {
@@ -283,7 +277,6 @@ let latestSessions: Session[] = [];
 let latestMe: Me | null = null;
 let latestBenchmarkMatrix: BenchmarkMatrix | null = null;
 let latestBilling: BillingSummary | null = null;
-let latestWallets: WalletLink[] = [];
 let latestAdminBilling: AdminBillingSummary | null = null;
 const gateLatencyById = new Map<string, { medianMs: number | null; minMs: number | null; maxMs: number | null; sampleCount: number }>();
 const gateLatencyInProgressIds = new Set<string>();
@@ -309,8 +302,6 @@ let sessionValidationErrors: SessionValidationErrors = {};
 let emailOtpPendingEmail = "";
 let emailOtpBusy = false;
 let googleLoginBusy = false;
-let walletLinkBusy = false;
-let topupBusy = false;
 let withdrawalBusy = false;
 let gateCatalogLoadError = false;
 let activeConfigQrSvg = "";
@@ -369,15 +360,14 @@ function renderLoading(): void {
 }
 
 async function refresh(options: { skipAutoMeasure?: boolean } = {}): Promise<void> {
-  const [gateResult, sessions, me, benchmarkMatrix, billing, wallets] = await Promise.all([
+  const [gateResult, sessions, me, benchmarkMatrix, billing] = await Promise.all([
     getGates()
       .then((gates) => ({ gates, error: null }))
       .catch((error: unknown) => ({ gates: null, error })),
     token ? getSessions().catch(() => [] as Session[]) : Promise.resolve([]),
     token ? getMe().catch(() => null) : Promise.resolve(null),
     getBenchmarkMatrix().catch(() => null),
-    token ? getBilling().catch(() => null) : Promise.resolve(null),
-    token ? getWallets().catch(() => [] as WalletLink[]) : Promise.resolve([])
+    token ? getBilling().catch(() => null) : Promise.resolve(null)
   ]);
   const adminBilling = token && me?.billingAdmin
     ? await getAdminBilling().catch(() => null)
@@ -392,21 +382,19 @@ async function refresh(options: { skipAutoMeasure?: boolean } = {}): Promise<voi
   latestMe = me;
   latestBenchmarkMatrix = benchmarkMatrix;
   latestBilling = billing;
-  latestWallets = wallets;
   latestAdminBilling = adminBilling;
-  render({ gates: decorateGates(gates), sessions, me, benchmarkMatrix, billing, wallets });
+  render({ gates: decorateGates(gates), sessions, me, benchmarkMatrix, billing });
   if (!options.skipAutoMeasure && me) {
     maybeMeasureGatesAutomatically();
   }
 }
 
-function render(state: { gates?: Gate[]; sessions?: Session[]; me?: Me | null; benchmarkMatrix?: BenchmarkMatrix | null; billing?: BillingSummary | null; wallets?: WalletLink[] } = {}): void {
+function render(state: { gates?: Gate[]; sessions?: Session[]; me?: Me | null; benchmarkMatrix?: BenchmarkMatrix | null; billing?: BillingSummary | null } = {}): void {
   const gates = state.gates ?? [];
   const sessions = state.sessions ?? [];
   const me = state.me ?? null;
   const benchmarkMatrix = state.benchmarkMatrix ?? latestBenchmarkMatrix;
   const billing = state.billing === undefined ? latestBilling : state.billing;
-  const wallets = state.wallets ?? latestWallets;
   const view = resolveViewForAuth(me);
   appRoot.innerHTML = `
     <main class="shell">
@@ -421,7 +409,7 @@ function render(state: { gates?: Gate[]; sessions?: Session[]; me?: Me | null; b
       </section>
 
       ${me ? appNav(view) : authNav(view)}
-      ${renderView({ view, gates, sessions, benchmarkMatrix, billing, wallets })}
+      ${renderView({ view, gates, sessions, benchmarkMatrix, billing })}
 
       ${shouldShowEventLog(view, me) ? `<pre id="event-log" class="event-log">${escapeHtml(eventLogLines.join("\n"))}</pre>` : ""}
     </main>
@@ -514,7 +502,7 @@ function resolveViewForAuth(me: Me | null): AppView {
   return view;
 }
 
-function renderView(state: { view: AppView; gates: Gate[]; sessions: Session[]; benchmarkMatrix: BenchmarkMatrix | null; billing: BillingSummary | null; wallets: WalletLink[] }): string {
+function renderView(state: { view: AppView; gates: Gate[]; sessions: Session[]; benchmarkMatrix: BenchmarkMatrix | null; billing: BillingSummary | null }): string {
   if (state.view === "login") {
     return loginView();
   }
@@ -530,7 +518,7 @@ function renderView(state: { view: AppView; gates: Gate[]; sessions: Session[]; 
   if (state.view === "admin-billing") {
     return adminBillingView(latestAdminBilling);
   }
-  return dashboardView({ gates: state.gates, sessions: state.sessions, benchmarkMatrix: state.benchmarkMatrix, billing: state.billing, wallets: state.wallets });
+  return dashboardView({ gates: state.gates, sessions: state.sessions, benchmarkMatrix: state.benchmarkMatrix, billing: state.billing });
 }
 
 function shouldShowEventLog(view: AppView, me: Me | null): boolean {
@@ -608,13 +596,14 @@ function authNav(view: AppView): string {
   `;
 }
 
-function dashboardView(state: { gates: Gate[]; sessions: Session[]; benchmarkMatrix: BenchmarkMatrix | null; billing: BillingSummary | null; wallets: WalletLink[] }): string {
+function dashboardView(state: { gates: Gate[]; sessions: Session[]; benchmarkMatrix: BenchmarkMatrix | null; billing: BillingSummary | null }): string {
   return `
     <section class="panel primary-panel">
       <div class="panel-heading">
         <h2>Account</h2>
+        <button id="refresh-billing" class="secondary-button" type="button">Refresh deposits</button>
       </div>
-      ${accountPanel(state.billing, state.wallets)}
+      ${accountPanel(state.billing)}
       <p class="support-contact">Need test credits or billing help? <a href="mailto:gatekeepers@hyperspace.zone">gatekeepers@hyperspace.zone</a></p>
     </section>
 
@@ -706,9 +695,8 @@ function registerView(): string {
   `;
 }
 
-function accountPanel(billing: BillingSummary | null, wallets: WalletLink[]): string {
-  const depositWallet = wallets.find((wallet) => wallet.custody === "hyperspace");
-  const externalWallets = wallets.filter((wallet) => wallet.custody === "external");
+function accountPanel(billing: BillingSummary | null): string {
+  const deposit = billing?.deposit ?? null;
   return `
     <div class="account-grid">
       <div class="account-card">
@@ -717,51 +705,70 @@ function accountPanel(billing: BillingSummary | null, wallets: WalletLink[]): st
         <small>${billing ? `${escapeHtml(billing.state.state)} · ${escapeHtml(billing.plan.displayName)} v${billing.plan.version}` : "Billing is loading"}</small>
         ${billing ? `<small>Paid ${escapeHtml(formatMoneyMinor(billing.buckets.cashMinor, billing.currency))} · Credits ${escapeHtml(formatMoneyMinor(billing.buckets.promotionalMinor, billing.currency))}${billing.buckets.debtMinor ? ` · Debt ${escapeHtml(formatMoneyMinor(billing.buckets.debtMinor, billing.currency))}` : ""}</small>` : ""}
       </div>
-      <div class="account-card">
-        <h3>Solana deposit wallet</h3>
-        ${depositWallet
-          ? `<p class="mono wallet-row" title="${escapeHtml(depositWallet.publicKey)}">${escapeHtml(depositWallet.publicKey)}</p>
-             <button type="button" data-copy-wallet="${escapeHtml(depositWallet.publicKey)}">Copy address</button>`
-          : '<p class="empty-marker">Deposit wallet is being prepared</p>'}
-        ${externalWallets.map((wallet) => `<p class="mono wallet-row">External: ${escapeHtml(shortWallet(wallet.publicKey))}</p>`).join("")}
-        <button id="link-solana-wallet" type="button" ${walletLinkBusy ? "disabled" : ""}>${walletLinkBusy ? "Connecting..." : "Connect external wallet (optional)"}</button>
-      </div>
-      <div class="account-card topup-card">
-        <h3>Top up</h3>
-        <form id="topup-form" class="inline-form">
-          <label>Amount, USD <input name="amountUsd" inputmode="decimal" placeholder="25.00" required /></label>
-          <button type="submit" ${topupBusy ? "disabled" : ""}>${topupBusy ? "Creating..." : "Create top-up"}</button>
-        </form>
+      <div class="account-card deposit-card">
+        <h3>Deposit ${escapeHtml(deposit?.tokenSymbol ?? "USDC")}</h3>
+        ${deposit ? `
+          <div class="deposit-wallet">
+            <div class="deposit-qr" role="img" aria-label="Solana deposit address QR code">${deposit.qrSvg}</div>
+            <div class="deposit-details">
+              <small>Network</small><strong>Solana</strong>
+              <small>Asset</small><strong>${escapeHtml(deposit.tokenSymbol)}</strong>
+              <small>Deposit address</small>
+              <p class="mono wallet-row" title="${escapeHtml(deposit.address)}">${escapeHtml(deposit.address)}</p>
+              <button type="button" data-copy-wallet="${escapeHtml(deposit.address)}">Copy address</button>
+            </div>
+          </div>
+          <small>Send only ${escapeHtml(deposit.tokenSymbol)} on Solana. Any amount is accepted and credited after finalization.</small>
+        ` : '<p class="empty-marker">Deposit wallet is being prepared</p>'}
       </div>
     </div>
-    ${topupIntentsPanel(billing?.topups ?? [])}
-    ${withdrawalPanel(billing, externalWallets)}
+    ${depositHistoryPanel(billing?.deposits ?? [])}
+    ${withdrawalPanel(billing)}
     ${billingUsagePanel(billing?.usage ?? [], billing?.currency ?? "USD")}
     ${billingLedgerPanel(billing?.ledger ?? [], billing?.currency ?? "USD")}
   `;
 }
 
-function withdrawalPanel(billing: BillingSummary | null, externalWallets: WalletLink[]): string {
+function withdrawalPanel(billing: BillingSummary | null): string {
   if (!billing) return "";
-  const destination = externalWallets[0]?.publicKey ?? "";
   return `
     <div class="billing-ledger">
       <h3>Withdraw unused paid balance</h3>
       <p class="compact-copy">Revoke all VPN configs first. A ${escapeHtml(formatDurationSeconds(billing.plan.withdrawalCooldownSeconds))} cooldown lets final usage settle. Promotional credits cannot be withdrawn.</p>
-      ${destination ? `
-        <form id="withdrawal-form" class="inline-form">
-          <label>Amount, USD <input name="amountUsd" inputmode="decimal" required /></label>
-          <input name="destinationAddress" type="hidden" value="${escapeHtml(destination)}" />
-          <button type="submit" ${withdrawalBusy ? "disabled" : ""}>${withdrawalBusy ? "Requesting..." : "Request withdrawal"}</button>
-        </form>
-        <small>Destination: <span class="mono">${escapeHtml(destination)}</span> · Available ${escapeHtml(formatMoneyMinor(billing.withdrawableBalanceMinor, billing.currency))}</small>
-      ` : `<p>Connect an external Solana wallet to choose a verified withdrawal destination.</p>`}
+      <form id="withdrawal-form" class="withdrawal-form">
+        <label>Amount, USD <input name="amountUsd" inputmode="decimal" required /></label>
+        <label>Solana destination <input name="destinationAddress" class="mono" autocomplete="off" minlength="32" required /></label>
+        <button type="submit" ${withdrawalBusy ? "disabled" : ""}>${withdrawalBusy ? "Requesting..." : "Request withdrawal"}</button>
+      </form>
+      <small>Available ${escapeHtml(formatMoneyMinor(billing.withdrawableBalanceMinor, billing.currency))}</small>
       ${billing.withdrawals.map((withdrawal) => `
         <div class="billing-ledger-row">
           <div><strong>${escapeHtml(formatMoneyMinor(withdrawal.amountMinor, withdrawal.currency))} · ${escapeHtml(withdrawal.status)}</strong><small>Eligible ${escapeHtml(relativeTime(withdrawal.eligibleAt))} · ${escapeHtml(shortWallet(withdrawal.destinationAddress))}</small></div>
           ${["cooldown", "ready", "failed"].includes(withdrawal.status) ? `<button type="button" data-cancel-withdrawal="${escapeHtml(withdrawal.id)}">Cancel</button>` : ""}
         </div>
       `).join("")}
+    </div>
+  `;
+}
+
+function depositHistoryPanel(deposits: BillingDeposit[]): string {
+  return `
+    <div class="billing-ledger deposit-history">
+      <div class="panel-heading"><h3>Deposit history</h3><small>${deposits.length ? `${deposits.length} finalized` : "No deposits yet"}</small></div>
+      ${deposits.length ? `
+        <div class="table-scroll"><table>
+          <thead><tr><th>Received</th><th>Amount</th><th>Credited</th><th>Status</th><th>Transaction</th></tr></thead>
+          <tbody>${deposits.map((deposit) => `
+            <tr>
+              <td>${escapeHtml(relativeTime(deposit.observedAt))}</td>
+              <td><strong>${escapeHtml(formatTokenBaseUnits(deposit.tokenAmountBaseUnits, deposit.tokenDecimals))} ${escapeHtml(deposit.tokenSymbol)}</strong></td>
+              <td>${escapeHtml(formatMoneyMinor(deposit.creditedAmountMinor, deposit.currency))}</td>
+              <td><span class="ok">Finalized</span></td>
+              <td><a href="${escapeHtml(deposit.explorerUrl)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(deposit.transactionSignature)}">${escapeHtml(shortTransaction(deposit.transactionSignature))}</a></td>
+            </tr>
+          `).join("")}</tbody>
+        </table></div>
+      ` : ""}
     </div>
   `;
 }
@@ -834,29 +841,6 @@ function billingLedgerPanel(entries: BillingLedgerEntry[], currency: string): st
         <div class="billing-ledger-row">
           <div><strong>${escapeHtml(entry.description || entry.entryType)}</strong><small>${escapeHtml(relativeTime(entry.createdAt))}</small></div>
           <strong class="${entry.amountMinor < 0 ? "amount-debit" : "amount-credit"}">${entry.amountMinor > 0 ? "+" : ""}${escapeHtml(formatMoneyMinor(entry.amountMinor, entry.currency || currency))}</strong>
-        </div>
-      `).join("")}
-    </div>
-  `;
-}
-
-function topupIntentsPanel(topups: TopupIntent[]): string {
-  if (topups.length === 0) {
-    return "";
-  }
-  return `
-    <div class="topup-list">
-      ${topups.slice(0, 3).map((topup) => `
-        <div class="topup-row">
-          <div>
-            <strong>${escapeHtml(formatMoneyMinor(topup.amountMinor, topup.currency))}</strong>
-            <small>${escapeHtml(topup.status)} · ${escapeHtml(topup.reference)}</small>
-            ${topup.treasuryAddress ? `<small>Send ${escapeHtml(topup.tokenSymbol ?? "USDC")} to <span class="mono">${escapeHtml(topup.treasuryAddress)}</span></small>` : ""}
-          </div>
-          ${topup.status === "pending" && topup.paymentUrl ? `
-            <a class="button-link" href="${escapeHtml(topup.paymentUrl)}">Pay with Solana wallet</a>
-            <small>Balance updates automatically after finalized confirmation.</small>
-          ` : ""}
         </div>
       `).join("")}
     </div>
@@ -2458,16 +2442,12 @@ function bindHandlers(): void {
     sessionValidationErrors = {};
     render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
   });
-  document.getElementById("link-solana-wallet")?.addEventListener("click", () => {
-    void linkSolanaWalletFromBrowser();
-  });
-  document.getElementById("topup-form")?.addEventListener("submit", (event) => {
-    event.preventDefault();
-    void createTopup(new FormData(event.target as HTMLFormElement));
-  });
   document.getElementById("withdrawal-form")?.addEventListener("submit", (event) => {
     event.preventDefault();
     void requestWithdrawal(new FormData(event.target as HTMLFormElement));
+  });
+  document.getElementById("refresh-billing")?.addEventListener("click", () => {
+    void refresh({ skipAutoMeasure: true });
   });
   for (const button of document.querySelectorAll("[data-cancel-withdrawal]")) {
     button.addEventListener("click", () => {
@@ -2758,78 +2738,6 @@ async function createSession(): Promise<void> {
   }
 }
 
-async function linkSolanaWalletFromBrowser(): Promise<void> {
-  if (walletLinkBusy) {
-    return;
-  }
-  const provider = (window as unknown as { solana?: SolanaBrowserProvider }).solana;
-  if (!provider?.connect || !provider?.signMessage) {
-    log("No Solana browser wallet found.");
-    return;
-  }
-  walletLinkBusy = true;
-  render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
-  try {
-    const connection = await provider.connect();
-    const publicKey = connection.publicKey?.toString?.() ?? provider.publicKey?.toString?.() ?? "";
-    if (!publicKey) {
-      throw new Error("Could not read Solana public key.");
-    }
-    const challenge = await api("/v1/public/auth/wallets/solana/challenge", {
-      method: "POST",
-      body: { publicKey }
-    });
-    const signed = await provider.signMessage(new TextEncoder().encode(challenge.message), "utf8");
-    const signature = bytesToBase64(signed.signature);
-    await api("/v1/public/auth/wallets/solana/link", {
-      method: "POST",
-      body: {
-        publicKey,
-        nonce: challenge.nonce,
-        signature
-      }
-    });
-    log(`Solana wallet linked: ${shortWallet(publicKey)}`);
-    await refresh({ skipAutoMeasure: true });
-  } catch (error) {
-    log(error instanceof Error ? error.message : "Could not link Solana wallet.");
-  } finally {
-    walletLinkBusy = false;
-    render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
-  }
-}
-
-async function createTopup(form: FormData): Promise<void> {
-  if (topupBusy) {
-    return;
-  }
-  const amountMinor = Math.round(Number(String(form.get("amountUsd") ?? "0").replace(",", ".")) * 100);
-  if (!Number.isFinite(amountMinor) || amountMinor < 100) {
-    log("Enter a top-up amount of at least $1.00.");
-    return;
-  }
-  topupBusy = true;
-  render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
-  try {
-    const expectedSender = latestWallets.find((wallet) => wallet.chain === "solana" && wallet.custody === "external")?.publicKey;
-    const response = await api("/v1/public/billing/topups", {
-      method: "POST",
-      body: {
-        amountMinor,
-        expectedSender
-      }
-    });
-    log("Top-up intent created.");
-    await refresh({ skipAutoMeasure: true });
-    void pollTopupStatus(response.topup?.id);
-  } catch (error) {
-    log(error instanceof Error ? error.message : "Could not create top-up intent.");
-  } finally {
-    topupBusy = false;
-    render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
-  }
-}
-
 async function requestWithdrawal(form: FormData): Promise<void> {
   if (withdrawalBusy) return;
   const amountMinor = Math.round(Number(String(form.get("amountUsd") ?? "0").replace(",", ".")) * 100);
@@ -2912,32 +2820,6 @@ async function createAdminPlan(form: FormData): Promise<void> {
   } catch (error) {
     log(error instanceof Error ? error.message : "Could not create plan.");
   }
-}
-
-async function pollTopupStatus(topupId: string | undefined): Promise<void> {
-  if (!topupId) {
-    return;
-  }
-  for (let attempt = 0; attempt < 60; attempt += 1) {
-    await wait(3000);
-    const billing = await getBilling().catch(() => null);
-    if (!billing) {
-      continue;
-    }
-    latestBilling = billing;
-    render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
-    const topup = billing.topups.find((candidate) => candidate.id === topupId);
-    if (!topup || ["confirmed", "rejected", "expired", "cancelled"].includes(topup.status)) {
-      log(topup?.status === "confirmed" ? "Top-up confirmed." : `Top-up status: ${topup?.status ?? "not found"}.`);
-      return;
-    }
-  }
-}
-
-interface SolanaBrowserProvider {
-  publicKey?: { toString(): string };
-  connect(): Promise<{ publicKey?: { toString(): string } }>;
-  signMessage(message: Uint8Array, encoding?: string): Promise<{ signature: Uint8Array }>;
 }
 
 function validateSessionDraft(): SessionValidationErrors {
@@ -3182,11 +3064,6 @@ async function getSessions(): Promise<Session[]> {
 
 async function getBilling(): Promise<BillingSummary> {
   return api("/v1/public/billing", { method: "GET" });
-}
-
-async function getWallets(): Promise<WalletLink[]> {
-  const response = await api("/v1/public/auth/wallets", { method: "GET" });
-  return response.wallets;
 }
 
 async function getAdminBilling(): Promise<AdminBillingSummary> {
@@ -3875,12 +3752,18 @@ function shortWallet(publicKey: string): string {
   return publicKey.length <= 12 ? publicKey : `${publicKey.slice(0, 4)}...${publicKey.slice(-4)}`;
 }
 
-function bytesToBase64(bytes: Uint8Array): string {
-  let binary = "";
-  for (const byte of bytes) {
-    binary += String.fromCharCode(byte);
-  }
-  return btoa(binary);
+function shortTransaction(signature: string): string {
+  return signature.length <= 18 ? signature : `${signature.slice(0, 8)}...${signature.slice(-8)}`;
+}
+
+function formatTokenBaseUnits(value: string, decimals: number): string {
+  const baseUnits = BigInt(value);
+  const safeDecimals = Math.max(0, Math.trunc(decimals));
+  if (safeDecimals === 0) return baseUnits.toString();
+  const padded = baseUnits.toString().padStart(safeDecimals + 1, "0");
+  const whole = padded.slice(0, -safeDecimals);
+  const fraction = padded.slice(-safeDecimals).replace(/0+$/, "");
+  return fraction ? `${whole}.${fraction}` : whole;
 }
 
 function isIpv4(value: string): boolean {

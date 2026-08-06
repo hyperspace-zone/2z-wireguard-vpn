@@ -9,6 +9,7 @@ export interface SolanaPaymentReceiptRow {
   tokenMint: string | null;
   amountBaseUnits: string | null;
   creditedAmountMinor: number;
+  observedAt: string;
 }
 
 export interface SolanaDepositScanCursorRow {
@@ -52,7 +53,8 @@ export async function claimSolanaPaymentReceipt(
         source_id AS "sourceId",
         token_mint AS "tokenMint",
         amount_base_units::text AS "amountBaseUnits",
-        credited_amount_minor::text::int AS "creditedAmountMinor"
+        credited_amount_minor::text::int AS "creditedAmountMinor",
+        observed_at AS "observedAt"
     `,
     [
       input.transactionSignature,
@@ -78,13 +80,40 @@ export async function claimSolanaPaymentReceipt(
         source_id AS "sourceId",
         token_mint AS "tokenMint",
         amount_base_units::text AS "amountBaseUnits",
-        credited_amount_minor::text::int AS "creditedAmountMinor"
+        credited_amount_minor::text::int AS "creditedAmountMinor",
+        observed_at AS "observedAt"
       FROM solana_payment_receipts
       WHERE transaction_signature = $1
     `,
     [input.transactionSignature]
   );
   return { claimed: false, receipt: mustRow(existing) };
+}
+
+export async function listSolanaPaymentReceipts(
+  db: Queryable,
+  accountId: string,
+  limit = 50
+): Promise<SolanaPaymentReceiptRow[]> {
+  const result = await db.query<SolanaPaymentReceiptRow>(
+    `
+      SELECT
+        transaction_signature AS "transactionSignature",
+        account_id AS "accountId",
+        source_type AS "sourceType",
+        source_id AS "sourceId",
+        token_mint AS "tokenMint",
+        amount_base_units::text AS "amountBaseUnits",
+        credited_amount_minor::text::int AS "creditedAmountMinor",
+        observed_at AS "observedAt"
+      FROM solana_payment_receipts
+      WHERE account_id = $1
+      ORDER BY observed_at DESC, transaction_signature DESC
+      LIMIT $2
+    `,
+    [accountId, Math.max(1, Math.min(200, Math.trunc(limit)))]
+  );
+  return result.rows;
 }
 
 export async function readSolanaDepositScanCursor(

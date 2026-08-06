@@ -43,26 +43,24 @@ Implemented in `milestone3-mainnet-scaleout`:
 
 - Email code login backed by Resend REST delivery.
 - Google OAuth start/callback endpoints with configuration-gated activation.
-- Solana wallet link flow with nonce challenge and server-side Ed25519
-  signature verification.
 - Automatic account-scoped custodial Solana deposit wallets with encrypted
-  private key material; external wallet linking remains optional.
-- User billing account, immutable balance ledger, Solana top-up intents, and
-  finalized Solana RPC verification with transaction replay protection.
+  private key material.
+- User billing account, immutable balance ledger, permanent-address Solana
+  deposits, finalized RPC verification, durable backfill cursors, and global
+  transaction-signature replay protection.
 - Admin ingestion endpoint for raw DoubleZero tenant billing snapshots.
 - Replay-safe DoubleZero usage import endpoint with configurable Hyperspace
   markup and immutable balance-ledger debit entries.
-- Self-service UI account panel with balance, Solana Pay top-up initiation,
-  automatic finalized-status polling, custodial deposit address, and optional
-  external wallet linking.
+- Self-service UI account panel with balance, custodial deposit address and QR,
+  exact finalized deposit history, and Orb transaction links.
 - Generic route policy support for excluded countries, excluded cities, and
   preferred egress regions. Germany is a selectable catalog value, not a
   special-case policy.
 - One-time WireGuard QR output and OS-specific Linux, macOS, and Windows helper
   downloads for a near-one-step connection path.
 - Chromium/Playwright UI smoke test covering email-code login, account panel,
-  injected external Solana wallet linking, Solana Pay top-up, generalized route
-  policy, WireGuard QR, helper download, and config creation.
+  permanent-address deposits, generalized route policy, WireGuard QR, helper
+  download, and config creation.
 
 ## Implementation Slice 2
 
@@ -184,8 +182,9 @@ Tasks:
 
 1. Define billing domain model.
    - `billing_accounts`
-   - `wallet_links`
-   - `topups`
+   - `custodial_wallets`
+   - `solana_payment_receipts`
+   - `solana_deposit_scan_cursors`
    - `usage_events`
    - `metering_imports`
    - `rated_usage`
@@ -243,22 +242,23 @@ Tasks:
    - Prevent accidental account takeover when provider emails overlap.
    - Add audit events for login, link, unlink, and failed link attempts.
 
-3. Add Solana wallet support.
-   - Browser wallet connect flow.
-   - Sign-in/link message with nonce and expiry.
-   - Verify wallet signature server-side.
-   - Store wallet public key and link it to the billing account.
+3. Add Solana deposit support.
+   - Generate one encrypted custodial wallet per account.
+   - Scan finalized SPL transfers with durable cursors and backfill.
+   - Claim each transaction signature globally before posting one ledger entry.
+   - Show a raw-address QR and exact deposit history without requesting an
+     amount or browser-wallet connection.
 
 4. Add session UX.
    - Clear onboarding flow for first-time users.
-   - Account page listing social identities and linked wallet.
+   - Account page listing social identities and its deposit wallet.
    - Security event history.
 
 Deliverables:
 
 - OAuth login flow,
-- Solana wallet link and signature verification,
-- tests for account linking and replay prevention,
+- permanent Solana deposit address and QR,
+- tests for deposit replay prevention and identity linking,
 - screenshots of onboarding and account settings.
 
 ## Workstream 5: Self-Service Config Management And Top-Up UI
@@ -277,11 +277,11 @@ Tasks:
    - Delete or hide revoked configs.
    - Show assignment and provisioning state clearly.
 
-2. Top-up and balance.
+2. Deposit and balance.
    - Balance card.
-   - Top-up amount selection.
-   - Top-up method selection.
-   - Top-up status after payment confirmation.
+   - Permanent Solana address and QR.
+   - Finalized deposit history with explorer links.
+   - Exact received amount and credited balance after payment confirmation.
    - Usage across active VPN configs.
 
 3. Billing guardrails.
@@ -375,9 +375,9 @@ Deliverables:
 1. Create the deployment automation skeleton and gate inventory extensions.
 2. Add route policy schema and scheduler enforcement early, because it affects
    session creation and UI.
-3. Add billing data model and ledger foundations before top-up UI.
-4. Add OAuth and Solana wallet account linking.
-5. Add balance/top-up and config management UI.
+3. Add billing data model and ledger foundations before deposit UI.
+4. Add OAuth and account-scoped Solana deposit wallets.
+5. Add balance/deposit and config management UI.
 6. Add WireGuard UX improvements.
 7. Run scale-out waves and capture final dashboard screenshots.
 
@@ -385,11 +385,11 @@ Deliverables:
 
 - Mainnet gate inventory and health table showing expanded footprint.
 - Deployment automation dry-run and execute logs for a new gate.
-- Billing import, rating, markup, ledger, and top-up flow documentation.
+- Billing import, rating, markup, ledger, and deposit flow documentation.
 - Web screenshots:
   - social login onboarding,
-  - Solana wallet link,
-  - balance top-up,
+  - Solana deposit address and QR,
+  - finalized deposit history and balance,
   - config management,
   - route policy with Germany excluded.
 - Grafana dashboard screenshots for the expanded footprint.

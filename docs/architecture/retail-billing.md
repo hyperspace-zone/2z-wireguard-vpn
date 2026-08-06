@@ -74,7 +74,7 @@ expiring 2Z/USD quote at deposit time; historical entries must retain the quote.
 
 1. An account with a negative available balance enters `grace`.
 2. Email lists the affected config UUIDs/labels and the exact suspension time.
-3. A top-up before the deadline restores the account.
+3. A finalized deposit before the deadline restores the account.
 4. If the deadline passes, the worker requests revocation of every nonterminal
    config and sends a second email.
 5. Revoked configs never reactivate automatically after payment.
@@ -84,10 +84,11 @@ backoff. Resend failures do not roll back financial transactions.
 
 ## Withdrawals
 
-Only verified paid cash can be withdrawn to an external Solana wallet already
-linked to the account. Promotional credit and debt are excluded. All VPN
-configs must be terminal before a request is accepted. Cash is reserved at
-request time, and the cooldown restarts whenever an active config appears.
+Only verified paid cash can be withdrawn. The user enters a valid Solana
+destination for each request; Hyperspace does not require or retain a linked
+browser wallet. Promotional credit and debt are excluded. All VPN configs must
+be terminal before a request is accepted. Cash is reserved at request time,
+and the cooldown restarts whenever an active config appears.
 
 The withdrawal worker signs an SPL-token transfer with the encrypted custodial
 account key and a dedicated SOL-funded fee payer. It persists the transaction

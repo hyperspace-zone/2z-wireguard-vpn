@@ -1180,19 +1180,15 @@ GOOGLE_CLIENT_SECRET=
 GOOGLE_OAUTH_REDIRECT_URL=
 GOOGLE_OAUTH_STATE_TTL_SECONDS=600
 
-# Solana wallet linking and top-ups.
-WALLET_CHALLENGE_HASH_SECRET=replace-with-random-32-byte-secret
-WALLET_CHALLENGE_TTL_SECONDS=600
+# Permanent account-scoped Solana deposit wallets.
 CUSTODIAL_WALLET_ENCRYPTION_KEY=${CUSTODIAL_WALLET_ENCRYPTION_KEY}
 BILLING_CURRENCY=USD
-SOLANA_TREASURY_ADDRESS=
 SOLANA_TOKEN_SYMBOL=USDC
 SOLANA_TOKEN_MINT=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v
 SOLANA_TOKEN_DECIMALS=6
 SOLANA_TOKEN_BASE_UNITS_PER_BILLING_MINOR=10000
 SOLANA_RPC_URL=replace-with-private-solana-rpc-url
-TOPUP_INTENT_TTL_SECONDS=3600
-BILLING_ALLOW_UNVERIFIED_TOPUPS=false
+SOLANA_EXPLORER_TX_BASE_URL=https://orbmarkets.io/tx/
 BILLING_USAGE_MARKUP_BPS=1500
 BILLING_ENFORCE_POSITIVE_BALANCE=false
 BILLING_REQUIRED_MIN_BALANCE_MINOR=0
@@ -1209,10 +1205,11 @@ per window, IP-to-IP targets must be public IPv4 `/32` destinations unless
 explicitly overridden. Full-tunnel configs may be unrestricted by source; if a
 source restriction is supplied, the API only validates that it is an IPv4 CIDR.
 
-Keep `BILLING_ALLOW_UNVERIFIED_TOPUPS=false` in every shared environment. The
-worker discovers Solana Pay transactions by the intent reference, then requires
-finalized RPC confirmation, exact recipient owner, mint, amount, memo, and
-optional sender before crediting the immutable balance ledger. See
+New deposits use the permanent account address. The worker scans its SPL token
+account and requires finalized RPC confirmation, the exact configured mint,
+matching recipient owner, and a positive balance delta before claiming the
+globally unique transaction signature and crediting the immutable balance ledger.
+Historical payment intents remain readable only for migration reconciliation. See
 `docs/runbooks/milestone3-billing-and-wallets.md`.
 
 Google OAuth setup prompt for a browser automation agent after you log in to
@@ -1390,7 +1387,7 @@ SOLANA_TOKEN_SYMBOL=${SOLANA_TOKEN_SYMBOL:-USDC}
 SOLANA_TOKEN_MINT=${SOLANA_TOKEN_MINT:-EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v}
 SOLANA_TOKEN_DECIMALS=${SOLANA_TOKEN_DECIMALS:-6}
 SOLANA_TOKEN_BASE_UNITS_PER_BILLING_MINOR=${SOLANA_TOKEN_BASE_UNITS_PER_BILLING_MINOR:-10000}
-SOLANA_TOPUP_RECONCILE_INTERVAL_SECONDS=15
+SOLANA_DEPOSIT_RECONCILE_INTERVAL_SECONDS=15
 SOLANA_DIRECT_DEPOSIT_SCAN_INTERVAL_SECONDS=30
 SOLANA_DIRECT_DEPOSIT_SCAN_BATCH_SIZE=25
 BILLING_CURRENCY=${BILLING_CURRENCY:-USD}

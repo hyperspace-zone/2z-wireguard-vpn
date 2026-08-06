@@ -9,7 +9,7 @@ export interface ControlPlaneWorkerConfig extends ReconcileLoopRuntimeConfig {
   workerId: string;
   observabilityHost: string;
   observabilityPort: number;
-  solanaTopupReconcileIntervalSeconds: number;
+  solanaDepositReconcileIntervalSeconds: number;
   solanaDirectDepositScanIntervalSeconds: number;
   solanaDirectDepositScanBatchSize: number;
   billing: BillingConfig;
@@ -64,19 +64,19 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ControlPlaneWo
     workerId: env.WORKER_ID ?? `worker-${process.pid}`,
     observabilityHost: env.WORKER_OBSERVABILITY_HOST ?? "0.0.0.0",
     observabilityPort: Number(env.WORKER_OBSERVABILITY_PORT ?? 9091),
-    solanaTopupReconcileIntervalSeconds: Number(env.SOLANA_TOPUP_RECONCILE_INTERVAL_SECONDS ?? 15),
+    solanaDepositReconcileIntervalSeconds: Number(
+      env.SOLANA_DEPOSIT_RECONCILE_INTERVAL_SECONDS ?? env.SOLANA_TOPUP_RECONCILE_INTERVAL_SECONDS ?? 15
+    ),
     solanaDirectDepositScanIntervalSeconds: Number(env.SOLANA_DIRECT_DEPOSIT_SCAN_INTERVAL_SECONDS ?? 30),
     solanaDirectDepositScanBatchSize: Number(env.SOLANA_DIRECT_DEPOSIT_SCAN_BATCH_SIZE ?? 25),
     billing: {
       currency: env.BILLING_CURRENCY ?? "USD",
-      solanaTreasuryAddress: env.SOLANA_TREASURY_ADDRESS ?? "",
       solanaTokenSymbol: env.SOLANA_TOKEN_SYMBOL ?? "USDC",
       solanaTokenMint: env.SOLANA_TOKEN_MINT ?? "",
       solanaRpcUrl: env.SOLANA_RPC_URL ?? "",
       solanaTokenBaseUnitsPerBillingMinor: Number(env.SOLANA_TOKEN_BASE_UNITS_PER_BILLING_MINOR ?? 10_000),
       solanaTokenDecimals: Number(env.SOLANA_TOKEN_DECIMALS ?? 6),
-      topupIntentTtlSeconds: Number(env.TOPUP_INTENT_TTL_SECONDS ?? 3600),
-      allowUnverifiedTopups: false,
+      solanaExplorerTransactionBaseUrl: env.SOLANA_EXPLORER_TX_BASE_URL ?? "https://orbmarkets.io/tx/",
       usageMarkupBps: Number(env.BILLING_USAGE_MARKUP_BPS ?? 1500)
     },
     retailBilling: {

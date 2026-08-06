@@ -35,22 +35,11 @@ export {
   type PublicSolanaWallet
 } from "./application/auth/custodial-wallet.scenario.js";
 export {
-  createSolanaWalletChallenge,
-  linkSolanaWallet,
-  listSolanaWalletLinks,
-  type WalletChallengeResult,
-  type WalletLinkResult
-} from "./application/auth/solana-wallet.scenario.js";
-export {
   accountHasSufficientBalance,
-  createSolanaTopupIntent,
   readAccountBillingSummary,
   reconcileSubmittedSolanaTopups,
-  submitSolanaTopupSignature,
   type BillingConfig,
-  type BillingSummary,
-  type CreateTopupResult,
-  type SubmitTopupResult
+  type BillingSummary
 } from "./application/billing/public-billing.scenario.js";
 export {
   convertDepositToBillingMinor,

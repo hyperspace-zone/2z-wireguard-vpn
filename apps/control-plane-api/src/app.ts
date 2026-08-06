@@ -47,8 +47,6 @@ export interface ControlPlaneApiRuntimeConfig {
   };
   googleOAuth: GoogleOAuthConfig | null;
   walletAuth: {
-    challengeHashSecret: string;
-    challengeTtlSeconds: number;
     custodialEncryptionKey: Buffer | null;
   };
   billing: BillingConfig & {
@@ -92,7 +90,6 @@ export function createApp(input: CreateControlPlaneApiAppInput): FastifyInstance
     authSessionTtlSeconds: config.authSessionTtlSeconds,
     emailAuth: config.emailAuth,
     googleOAuth: config.googleOAuth,
-    walletAuth: config.walletAuth,
     requireUser: auth.requireUser
   });
   registerPublicBenchmarkRoutes(app, { db });
@@ -101,7 +98,8 @@ export function createApp(input: CreateControlPlaneApiAppInput): FastifyInstance
   registerPublicBillingRoutes(app, {
     db,
     requireUser: auth.requireUser,
-    billing: config.billing
+    billing: config.billing,
+    custodialEncryptionKey: config.walletAuth.custodialEncryptionKey
   });
   registerPublicSessionsRoutes(app, {
     db,

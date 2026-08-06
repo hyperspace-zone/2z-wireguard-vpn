@@ -102,14 +102,17 @@ try {
   await expectText(page, "Benchmarks");
   result.steps.push("logged_in");
 
-  await expectText(page, "Solana deposit wallet");
+  await expectText(page, "Deposit USDC");
   const depositAddress = (await page.locator(".wallet-row").first().textContent())?.trim() || "";
   assert(/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(depositAddress), "custodial Solana deposit address is missing or invalid");
-  await page.locator('#topup-form input[name="amountUsd"]').fill("1.00");
-  await page.locator('#topup-form button[type="submit"]').click();
-  await page.getByRole("link", { name: "Pay with Solana wallet" }).first().waitFor({ timeout: 30000 });
+  await page.locator(".deposit-qr svg").waitFor({ timeout: 30000 });
+  await expectText(page, "Deposit history");
+  await page.getByRole("button", { name: "Refresh deposits" }).click();
+  await page.getByRole("heading", { name: "Deposit USDC" }).waitFor({ timeout: 30000 });
+  assert(await page.locator("#topup-form").count() === 0, "fixed-amount top-up form must not be present");
+  assert(await page.getByRole("button", { name: /Connect external wallet/ }).count() === 0, "external wallet link must not be present");
   result.custodialWallet = depositAddress;
-  result.steps.push("custodial_wallet_and_solana_pay_checked");
+  result.steps.push("custodial_deposit_wallet_checked");
 
   await expectText(page, "Ready");
   await expectText(page, "Schedulable");

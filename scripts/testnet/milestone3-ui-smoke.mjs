@@ -45,12 +45,9 @@ let createdSessionPayload = null;
 let registeredUserPayload = null;
 let authenticated = false;
 let googleRedirectAfter = null;
-let walletLinkPayload = null;
-let externalWalletLinked = false;
-let topups = [];
 const sessions = [];
-const externalWalletPublicKey = "Ammp1YcgfiAhr7xaaBDaUYn7MDk7dPHv3yWUDvdX5fKB";
 const depositWalletPublicKey = "6TQxgf6T4DRqk2r6WwCSw8uFsAdWbym3G8Yt19cZX7wt";
+const depositSignature = "3nRbdPZB7sbmMRacYiepTbAXvDi15JdSoV3eXsUi1UJVTeeFceEyNcnEqFMRGSMq3mKiu5G2ansgpvfDsBCiRo4y";
 const gates = [
   {
     id: "00000000-0000-4000-8000-000000000001",
@@ -87,14 +84,6 @@ const gates = [
 const browser = await chromium.launch({ headless, executablePath: chromiumExecutable });
 try {
   const page = await browser.newPage();
-  await page.addInitScript(({ publicKey }) => {
-    const key = { toString: () => publicKey };
-    window.solana = {
-      publicKey: key,
-      async connect() { return { publicKey: key }; },
-      async signMessage() { return { signature: new Uint8Array(64).fill(7) }; }
-    };
-  }, { publicKey: externalWalletPublicKey });
   await page.route("**/api/v1/public/**", async (route) => {
     const request = route.request();
     const url = new URL(request.url());
@@ -155,34 +144,23 @@ try {
         balanceMinor: 2500,
         currency: "USD",
         ledger: [],
-        topups
+        deposit: {
+          chain: "solana", address: depositWalletPublicKey, tokenSymbol: "USDC", tokenMint: "mint", tokenDecimals: 6,
+          qrSvg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><path d="M0 0h10v10H0z"/></svg>'
+        },
+        deposits: [{
+          transactionSignature: depositSignature, chain: "solana", status: "finalized", tokenSymbol: "USDC", tokenMint: "mint",
+          tokenAmountBaseUnits: "1819440", tokenDecimals: 6, creditedAmountMinor: 181, currency: "USD",
+          observedAt: new Date().toISOString(), explorerUrl: `https://orbmarkets.io/tx/${depositSignature}`
+        }],
+        availableBalanceMinor: 2500,
+        withdrawableBalanceMinor: 2500,
+        buckets: { cashMinor: 2500, promotionalMinor: 0, reservedWithdrawalMinor: 0, debtMinor: 0 },
+        state: { state: "active", overdrawnAt: null, suspensionDueAt: null, suspendedAt: null, withdrawalEligibleAt: null, lastSettledAt: null },
+        plan: { code: "standard", version: 1, displayName: "Standard", activeConfigMonthlyMinor: 100, trafficPerGbMinor: 10, gracePeriodSeconds: 86400, withdrawalCooldownSeconds: 86400, minimumWithdrawalMinor: 100 },
+        usage: [],
+        withdrawals: []
       });
-    }
-    if (path === "/v1/public/auth/wallets") {
-      return json(route, { wallets: [
-        { id: "wallet-custodial", chain: "solana", publicKey: depositWalletPublicKey, label: "Hyperspace deposit wallet", linkedAt: new Date().toISOString(), custody: "hyperspace", canReceive: true },
-        ...(externalWalletLinked ? [{ id: "wallet-external", chain: "solana", publicKey: externalWalletPublicKey, label: null, linkedAt: new Date().toISOString(), custody: "external", canReceive: true }] : [])
-      ] });
-    }
-    if (path === "/v1/public/auth/wallets/solana/challenge" && method === "POST") {
-      return json(route, { chain: "solana", publicKey: externalWalletPublicKey, nonce: "wallet-nonce", message: "Link wallet", expiresAt: new Date(Date.now() + 600_000).toISOString() });
-    }
-    if (path === "/v1/public/auth/wallets/solana/link" && method === "POST") {
-      walletLinkPayload = request.postDataJSON();
-      externalWalletLinked = true;
-      return json(route, { wallet: { id: "wallet-external", chain: "solana", publicKey: externalWalletPublicKey, label: null, linkedAt: new Date().toISOString(), custody: "external", canReceive: true } });
-    }
-    if (path === "/v1/public/billing/topups" && method === "POST") {
-      const input = request.postDataJSON();
-      const topup = {
-        id: "topup-1", provider: "solana", status: "pending", amountMinor: input.amountMinor, currency: "USD",
-        chain: "solana", tokenSymbol: "USDC", tokenMint: "mint", treasuryAddress: depositWalletPublicKey,
-        reference: externalWalletPublicKey, expectedSender: input.expectedSender || null, transactionSignature: null,
-        paymentUrl: `solana:${depositWalletPublicKey}?amount=25&spl-token=mint&reference=${externalWalletPublicKey}`,
-        expiresAt: new Date(Date.now() + 600_000).toISOString(), submittedAt: null, confirmedAt: null, createdAt: new Date().toISOString()
-      };
-      topups = [topup];
-      return json(route, { topup }, 201);
     }
     if (path === "/v1/public/sessions" && method === "GET") {
       return json(route, { sessions });
@@ -231,16 +209,19 @@ try {
   await page.locator("#email-code-verify-form button[type=submit]").click();
 
   await page.getByRole("heading", { name: "Account" }).waitFor();
-  await page.getByText("$25.00").waitFor();
-  await page.getByRole("button", { name: "Connect external wallet (optional)" }).click();
-  await page.getByText(/External:/).waitFor();
-  if (walletLinkPayload?.publicKey !== externalWalletPublicKey || walletLinkPayload?.nonce !== "wallet-nonce") {
-    throw new Error(`expected injected Solana wallet link payload, got ${JSON.stringify(walletLinkPayload)}`);
+  await page.getByText("$25.00", { exact: true }).first().waitFor();
+  await page.getByText(depositWalletPublicKey, { exact: true }).waitFor();
+  await page.locator(".deposit-qr svg").waitFor();
+  await page.getByText("1.81944 USDC", { exact: true }).waitFor();
+  await page.getByRole("link", { name: /3nRbdPZB/ }).waitFor();
+  await page.getByRole("button", { name: "Refresh deposits" }).click();
+  await page.getByText("1.81944 USDC", { exact: true }).waitFor();
+  if (await page.getByRole("button", { name: /Connect external wallet/ }).count()) {
+    throw new Error("external wallet linking must not be exposed");
   }
-
-  await page.locator("#topup-form input[name=amountUsd]").fill("25.00");
-  await page.locator("#topup-form button[type=submit]").click();
-  await page.getByRole("link", { name: "Pay with Solana wallet" }).waitFor();
+  if (await page.locator("#topup-form").count()) {
+    throw new Error("fixed-amount top-up intents must not be exposed");
+  }
 
   await page.getByLabel("Primary").getByRole("link", { name: "Create config" }).click();
   await page.locator("input[name=targetIp]").fill("1.1.1.1");

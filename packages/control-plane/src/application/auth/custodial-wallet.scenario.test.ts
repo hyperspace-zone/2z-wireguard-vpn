@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { decryptJsonPayload, type EncryptedJsonPayload } from "@hyperspace-zone/shared";
 import type { Queryable, TransactionalQueryable } from "../../db/queryable.js";
-import { normalizeSolanaPublicKey } from "./solana-wallet.scenario.js";
+import { normalizeSolanaPublicKey } from "../billing/solana-address.js";
 import { ensureCustodialSolanaWallet } from "./custodial-wallet.scenario.js";
 
 test("custodial Solana onboarding stores only an encrypted random seed", async () => {

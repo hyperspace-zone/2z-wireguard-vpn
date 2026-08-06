@@ -1,21 +1,17 @@
 import type { TransactionalQueryable } from "../../db/queryable.js";
-import { generateKeyPairSync } from "node:crypto";
 import {
   ensureBillingAccount,
   findTopupIntentForUpdate,
   findTopupByTransactionSignature,
   insertLedgerEntry,
-  insertTopupIntent,
   listOpenTopupIntents,
   listLedgerEntries,
-  listTopupIntents,
   readBillingBalance,
   submitTopupIntent,
   type LedgerEntryRow,
   type TopupIntentRow
 } from "../../resources/billing/repository.js";
 import { findCustodialWallet } from "../../resources/wallets/repository.js";
-import type { SessionOwner } from "../../resources/sessions/repository.js";
 import {
   applyBucketCredit,
   availableBillingBalance
@@ -34,8 +30,10 @@ import {
   type WithdrawalRequestRow,
   writeBillingBuckets
 } from "../../resources/billing/prepaid-repository.js";
-import { claimSolanaPaymentReceipt } from "../../resources/billing/solana-deposit-repository.js";
-import { encodeBase58 } from "../auth/custodial-wallet.scenario.js";
+import {
+  claimSolanaPaymentReceipt,
+  listSolanaPaymentReceipts
+} from "../../resources/billing/solana-deposit-repository.js";
 import {
   findFinalizedSolanaSignaturesForReference,
   verifySolanaTopupTransaction
@@ -43,14 +41,12 @@ import {
 
 export interface BillingConfig {
   currency: string;
-  solanaTreasuryAddress: string;
   solanaTokenSymbol: string;
   solanaTokenMint: string;
   solanaRpcUrl: string;
   solanaTokenBaseUnitsPerBillingMinor: number;
   solanaTokenDecimals: number;
-  topupIntentTtlSeconds: number;
-  allowUnverifiedTopups: boolean;
+  solanaExplorerTransactionBaseUrl: string;
   usageMarkupBps: number;
   fetchImpl?: typeof fetch;
 }
@@ -60,7 +56,8 @@ export interface BillingSummary {
   balanceMinor: number;
   currency: string;
   ledger: LedgerEntryRow[];
-  topups: TopupIntentRow[];
+  deposit: BillingDepositDestination | null;
+  deposits: BillingDeposit[];
   buckets: BillingBucketsRow;
   state: BillingAccountStateRow;
   plan: BillingPlanVersionRow;
@@ -70,12 +67,29 @@ export interface BillingSummary {
   withdrawals: WithdrawalRequestRow[];
 }
 
-export type CreateTopupResult =
-  | { status: "created"; topup: TopupIntentRow }
-  | "topup_provider_not_configured"
-  | "invalid_topup_amount";
+export interface BillingDepositDestination {
+  chain: "solana";
+  address: string;
+  tokenSymbol: string;
+  tokenMint: string;
+  tokenDecimals: number;
+}
 
-export type SubmitTopupResult =
+export interface BillingDeposit {
+  transactionSignature: string;
+  chain: "solana";
+  status: "finalized";
+  tokenSymbol: string;
+  tokenMint: string;
+  tokenAmountBaseUnits: string;
+  tokenDecimals: number;
+  creditedAmountMinor: number;
+  currency: string;
+  observedAt: string;
+  explorerUrl: string;
+}
+
+type LegacyTopupFinalizationResult =
   | { status: "submitted" | "confirmed"; topup: TopupIntentRow }
   | "topup_not_found"
   | "topup_expired"
@@ -90,10 +104,11 @@ export async function readAccountBillingSummary(
   config?: BillingConfig
 ): Promise<BillingSummary> {
   await ensureBillingAccount(db, accountId);
-  const [balance, ledger, topups, buckets, state, plan, usage, withdrawals] = await Promise.all([
+  const [balance, ledger, wallet, receipts, buckets, state, plan, usage, withdrawals] = await Promise.all([
     readBillingBalance(db, accountId),
     listLedgerEntries(db, accountId),
-    listTopupIntents(db, accountId),
+    findCustodialWallet(db, accountId),
+    listSolanaPaymentReceipts(db, accountId),
     readBillingBuckets(db, accountId),
     readBillingAccountState(db, accountId),
     readCurrentBillingPlan(db, accountId),
@@ -105,10 +120,27 @@ export async function readAccountBillingSummary(
     balanceMinor: balance.balanceMinor,
     currency: balance.currency,
     ledger,
-    topups: config ? topups.map((topup) => withPaymentUrl(topup, {
+    deposit: config && wallet && config.solanaTokenMint ? {
+      chain: "solana",
+      address: wallet.publicKey,
+      tokenSymbol: config.solanaTokenSymbol,
+      tokenMint: config.solanaTokenMint,
+      tokenDecimals: config.solanaTokenDecimals
+    } : null,
+    deposits: config ? receipts.map((receipt) => ({
+      transactionSignature: receipt.transactionSignature,
+      chain: "solana" as const,
+      status: "finalized" as const,
+      tokenSymbol: config.solanaTokenSymbol,
+      tokenMint: receipt.tokenMint ?? config.solanaTokenMint,
+      tokenAmountBaseUnits: receipt.amountBaseUnits
+        ?? (BigInt(receipt.creditedAmountMinor) * BigInt(config.solanaTokenBaseUnitsPerBillingMinor)).toString(),
       tokenDecimals: config.solanaTokenDecimals,
-      tokenBaseUnitsPerBillingMinor: config.solanaTokenBaseUnitsPerBillingMinor
-    })) : topups,
+      creditedAmountMinor: receipt.creditedAmountMinor,
+      currency: balance.currency,
+      observedAt: receipt.observedAt,
+      explorerUrl: explorerTransactionUrl(config.solanaExplorerTransactionBaseUrl, receipt.transactionSignature)
+    })) : [],
     buckets,
     state,
     plan,
@@ -119,120 +151,9 @@ export async function readAccountBillingSummary(
   };
 }
 
-export async function createSolanaTopupIntent(
-  db: TransactionalQueryable,
-  actor: SessionOwner,
-  input: {
-    amountMinor: number;
-    expectedSender?: string;
-  },
-  config: BillingConfig
-): Promise<CreateTopupResult> {
-  const custodialWallet = await findCustodialWallet(db, actor.accountId);
-  const treasuryAddress = custodialWallet?.publicKey ?? config.solanaTreasuryAddress;
-  if (!treasuryAddress || !config.solanaTokenMint) {
-    return "topup_provider_not_configured";
-  }
-  if (!Number.isInteger(input.amountMinor) || input.amountMinor < 100 || input.amountMinor > 10_000_00) {
-    return "invalid_topup_amount";
-  }
-
-  await ensureBillingAccount(db, actor.accountId, config.currency);
-  const expiresAt = new Date(Date.now() + config.topupIntentTtlSeconds * 1000).toISOString();
-  const reference = newSolanaReference();
-  const topupInput = {
-    accountId: actor.accountId,
-    provider: "solana",
-    status: "pending",
-    amountMinor: input.amountMinor,
-    currency: config.currency,
-    chain: "solana",
-    tokenSymbol: config.solanaTokenSymbol,
-    tokenMint: config.solanaTokenMint,
-    treasuryAddress,
-    reference,
-    expiresAt,
-    metadata: { createdBy: actor.id }
-  };
-  const topup = await insertTopupIntent(db, input.expectedSender
-    ? { ...topupInput, expectedSender: input.expectedSender }
-    : topupInput);
-  return { status: "created", topup: withPaymentUrl(topup, {
-    tokenDecimals: config.solanaTokenDecimals,
-    tokenBaseUnitsPerBillingMinor: config.solanaTokenBaseUnitsPerBillingMinor
-  }) };
-}
-
-export async function submitSolanaTopupSignature(
-  db: TransactionalQueryable,
-  actor: SessionOwner,
-  input: {
-    topupId: string;
-    transactionSignature: string;
-  },
-  config: BillingConfig
-): Promise<SubmitTopupResult> {
-  const transactionSignature = input.transactionSignature.trim();
-  if (!isLikelySolanaSignature(transactionSignature)) {
-    return "invalid_transaction_signature";
-  }
-
-  const topup = await findTopupIntentForUpdate(db, actor.accountId, input.topupId);
-  if (!topup) {
-    return "topup_not_found";
-  }
-  const validation = validateTopupState(topup, transactionSignature);
-  if (validation) {
-    return validation;
-  }
-
-  if (config.allowUnverifiedTopups && !config.solanaRpcUrl) {
-    return finalizeVerifiedTopup(db, actor.accountId, topup, transactionSignature, {
-      verificationMode: "explicit-unverified-testnet"
-    }, config);
-  }
-  if (!config.solanaRpcUrl) {
-    return "topup_verification_unavailable";
-  }
-
-  let verification;
-  try {
-    verification = await verifySolanaTopupTransaction({
-      transactionSignature,
-      treasuryAddress: topup.treasuryAddress ?? "",
-      reference: topup.reference,
-      amountMinor: topup.amountMinor,
-      expectedSender: topup.expectedSender
-    }, {
-      rpcUrl: config.solanaRpcUrl,
-      tokenMint: topup.tokenMint ?? config.solanaTokenMint,
-      tokenBaseUnitsPerBillingMinor: config.solanaTokenBaseUnitsPerBillingMinor,
-      ...(config.fetchImpl ? { fetchImpl: config.fetchImpl } : {})
-    });
-  } catch {
-    return "topup_verification_unavailable";
-  }
-  if (verification.status === "invalid") {
-    return "invalid_transaction_signature";
-  }
-  if (verification.status === "pending") {
-    await submitTopupIntent(db, {
-      intentId: topup.id,
-      status: "submitted",
-      transactionSignature,
-      confirmed: false,
-      metadata: { verificationStatus: "pending", verificationReason: verification.reason }
-    });
-    const updated = await findTopupIntentForUpdate(db, actor.accountId, topup.id);
-    if (!updated) {
-      throw new Error("top-up disappeared after submission");
-    }
-    return { status: "submitted", topup: updated };
-  }
-  return finalizeVerifiedTopup(db, actor.accountId, topup, transactionSignature, {
-    verificationMode: "solana-rpc-finalized",
-    ...verification.evidence
-  }, config);
+function explorerTransactionUrl(baseUrl: string, transactionSignature: string): string {
+  const normalized = baseUrl.trim() || "https://orbmarkets.io/tx/";
+  return `${normalized.endsWith("/") ? normalized : `${normalized}/`}${encodeURIComponent(transactionSignature)}`;
 }
 
 export async function reconcileSubmittedSolanaTopups(
@@ -310,46 +231,6 @@ export async function reconcileSubmittedSolanaTopups(
   return result;
 }
 
-function newSolanaReference(): string {
-  const { publicKey } = generateKeyPairSync("ed25519");
-  const publicJwk = publicKey.export({ format: "jwk" });
-  if (!publicJwk.x) {
-    throw new Error("generated Solana Pay reference is missing public key material");
-  }
-  return encodeBase58(Buffer.from(publicJwk.x, "base64url"));
-}
-
-function withPaymentUrl(
-  topup: TopupIntentRow,
-  config: { tokenDecimals: number; tokenBaseUnitsPerBillingMinor: number }
-): TopupIntentRow {
-  if (!topup.treasuryAddress || !topup.tokenMint) {
-    return topup;
-  }
-  const amountBaseUnits = BigInt(topup.amountMinor) * BigInt(config.tokenBaseUnitsPerBillingMinor);
-  const amount = formatTokenAmount(amountBaseUnits, config.tokenDecimals);
-  const query = new URLSearchParams({
-    amount,
-    "spl-token": topup.tokenMint,
-    reference: topup.reference,
-    memo: topup.reference,
-    label: "Hyperspace VPN balance",
-    message: `Top up ${topup.currency} ${String((topup.amountMinor / 100).toFixed(2))}`
-  });
-  return { ...topup, paymentUrl: `solana:${topup.treasuryAddress}?${query.toString()}` };
-}
-
-function formatTokenAmount(baseUnits: bigint, decimals: number): string {
-  const safeDecimals = Number.isInteger(decimals) && decimals >= 0 ? decimals : 0;
-  if (safeDecimals === 0) {
-    return baseUnits.toString();
-  }
-  const value = baseUnits.toString().padStart(safeDecimals + 1, "0");
-  const whole = value.slice(0, -safeDecimals);
-  const fraction = value.slice(-safeDecimals).replace(/0+$/, "");
-  return fraction ? `${whole}.${fraction}` : whole;
-}
-
 async function finalizeVerifiedTopup(
   db: TransactionalQueryable,
   accountId: string,
@@ -357,7 +238,7 @@ async function finalizeVerifiedTopup(
   transactionSignature: string,
   evidence: Record<string, unknown>,
   config: BillingConfig
-): Promise<SubmitTopupResult> {
+): Promise<LegacyTopupFinalizationResult> {
   try {
     return await db.transaction(async (client) => {
       const locked = await findTopupIntentForUpdate(client, accountId, topup.id);
@@ -438,19 +319,6 @@ function isUniqueViolation(error: unknown): boolean {
   return Boolean(error && typeof error === "object" && "code" in error && error.code === "23505");
 }
 
-function validateTopupState(topup: TopupIntentRow, transactionSignature: string): Extract<SubmitTopupResult, string> | null {
-  if (["confirmed", "expired", "cancelled", "rejected"].includes(topup.status)) {
-    return "topup_already_final";
-  }
-  if (Date.parse(topup.expiresAt) <= Date.now()) {
-    return "topup_expired";
-  }
-  if (topup.transactionSignature && topup.transactionSignature !== transactionSignature) {
-    return "topup_already_final";
-  }
-  return null;
-}
-
 export async function accountHasSufficientBalance(
   db: TransactionalQueryable,
   accountId: string,
@@ -464,8 +332,4 @@ export async function accountHasSufficientBalance(
     readBillingAccountState(db, accountId)
   ]);
   return state.state === "active" && availableBillingBalance(buckets) >= minBalanceMinor;
-}
-
-function isLikelySolanaSignature(value: string): boolean {
-  return /^[1-9A-HJ-NP-Za-km-z]{64,120}$/.test(value) || /^[A-Za-z0-9+/]{80,90}={0,2}$/.test(value);
 }
