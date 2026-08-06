@@ -331,7 +331,6 @@ export async function listOpenTopupIntents(
         created_at AS "createdAt"
       FROM topup_intents
       WHERE status IN ('pending', 'submitted')
-        AND expires_at > now()
       ORDER BY updated_at
       LIMIT $1
     `,
