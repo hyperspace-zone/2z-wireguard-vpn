@@ -16,7 +16,6 @@ const runId = new Date().toISOString().replace(/[:.]/g, "-");
 const email = process.env.HS_TEST_EMAIL || uniqueResendAddress("codex-live");
 const password = process.env.HS_TEST_PASSWORD || `Codex-live-${Date.now()}-strong-password`;
 const existingVerifiedAccount = process.env.HS_TEST_EXISTING_ACCOUNT === "true";
-const label = `codex-live-${runId}`;
 
 await mkdir(outputDir, { recursive: true });
 
@@ -160,55 +159,48 @@ try {
   await page.getByRole("link", { name: "Create config" }).first().click();
   await page.waitForURL(`${webBase}/create-config`, { timeout: 30000 });
   await expectText(page, "Step 1");
-  await page.locator('input[name="label"]').fill(label);
-  await page.locator('input[name="targetIp"]').fill(targetIp);
-  await page.locator('select[name="ingressGateName"]').selectOption(ingress.name);
+  assert(await page.locator('input[name="label"]').isVisible() === false, "config name must be collapsed by default");
+  assert(await page.locator('input[name="restrictTarget"]').isChecked() === false, "simple flow must default to full tunnel");
+  assert(await page.locator("select:visible").count() === 1, "egress must be the only visible selector");
   await page.locator('select[name="egressGateName"]').selectOption("");
   await page.getByRole("button", { name: "Review config" }).click();
   await expectText(page, "Select an egress gate.");
   result.steps.push("egress_validation_checked");
 
-  const preferredRegion = gateRegionFromName(egress.name);
-  const excludedCountry = schedulableGates.find((gate) =>
-    gate.country && ![ingress.country, egress.country].includes(gate.country)
-  )?.country;
-  const excludedCity = schedulableGates.find((gate) =>
-    gate.city && ![ingress.city, egress.city].includes(gate.city) && gate.country !== excludedCountry
-  )?.city;
-  if (preferredRegion) {
-    await page.locator('select[name="preferredRegion"]').selectOption(preferredRegion);
-  }
-  if (excludedCountry) {
-    await page.getByText("Excluded countries", { exact: true }).click();
-    await page.locator(`input[name="excludeCountry"][value="${excludedCountry}"]`).check();
-  }
-  if (excludedCity) {
-    await page.getByText("Excluded cities", { exact: true }).click();
-    await page.locator(`input[name="excludeCity"][value="${excludedCity}"]`).check();
-  }
   await page.locator('select[name="egressGateName"]').selectOption(egress.name);
   await page.getByRole("button", { name: "Review config" }).click();
   await expectText(page, "Step 2");
   await expectText(page, "Confirm and create");
-  if (excludedCountry) await expectText(page, `Avoid countries: ${excludedCountry}`);
-  if (excludedCity) await expectText(page, `Avoid cities: ${excludedCity}`);
+  await page.getByText("Full tunnel", { exact: true }).first().waitFor();
   const reviewText = await page.locator(".review-step").innerText();
   assert(!/RTT/i.test(reviewText), "review route overview must not show browser RTT values");
   await screenshot(page, "03-review");
 
-  await page.getByRole("button", { name: "Confirm and create" }).click();
-  await page.waitForURL(`${webBase}/`, { timeout: 30000 });
-  await expectText(page, label);
-  result.steps.push("config_requested");
-
   const accessToken = await page.evaluate(() => localStorage.getItem("hyperspaceAccessToken"));
   assert(accessToken, "browser did not store access token");
   const authedApi = makeApiClient(apiBase, accessToken);
-  const session = await waitForSessionPhase(authedApi, label, "active", 300000);
+  await page.getByRole("button", { name: "Confirm and create" }).click();
+  await page.waitForURL(`${webBase}/create-config`, { timeout: 30000 });
+  await page.getByRole("img", { name: "WireGuard configuration QR code" }).waitFor({ timeout: 300000 });
+  assert(page.url() === `${webBase}/create-config`, "config flow redirected before the user acknowledged the result");
+  await screenshot(page, "04-created-config-result");
+  result.steps.push("config_requested");
+
+  const session = await waitForNewestSessionPhase(authedApi, "active", 30000);
   result.sessionId = session.id;
   result.steps.push("config_active");
-  await page.goto(`${webBase}/`, { waitUntil: "networkidle" });
-  await expectText(page, label);
+
+  const [resultDownload] = await Promise.all([
+    page.waitForEvent("download", { timeout: 30000 }),
+    page.getByRole("button", { name: "Download config" }).click()
+  ]);
+  assert(resultDownload.suggestedFilename().endsWith(".conf"), "result download filename must end with .conf");
+  result.steps.push("result_download_clicked");
+
+  await page.getByRole("button", { name: "OK" }).click();
+  await page.waitForURL(`${webBase}/`, { timeout: 30000 });
+  const configDisplay = session.id.slice(0, 8);
+  await expectText(page, configDisplay);
   await screenshot(page, "04-active");
 
   const tokenResponse = await authedApi(`/v1/public/sessions/${session.id}/artifacts/client-config/download-token`, {
@@ -230,7 +222,7 @@ try {
   };
   result.steps.push("raw_config_validated");
 
-  const row = page.locator("tr", { hasText: label }).first();
+  const row = page.locator("tr", { hasText: configDisplay }).first();
   await row.getByRole("button", { name: "QR" }).click();
   await page.getByRole("dialog", { name: "WireGuard configuration QR code" }).waitFor({ timeout: 30000 });
   assert(await page.locator(".qr-dialog svg").count() === 1, "WireGuard QR modal did not contain an SVG code");
@@ -253,16 +245,16 @@ try {
   result.steps.push("ui_download_clicked");
 
   await row.getByRole("button", { name: "Revoke" }).click();
-  await waitForSessionPhase(authedApi, label, "revoked", 300000);
+  await waitForSessionIdPhase(authedApi, session.id, "revoked", 300000);
   result.steps.push("config_revoked");
   await page.goto(`${webBase}/`, { waitUntil: "networkidle" });
-  await expectText(page, label);
+  await expectText(page, configDisplay);
 
-  const revokedRow = page.locator("tr", { hasText: label }).first();
+  const revokedRow = page.locator("tr", { hasText: configDisplay }).first();
   await revokedRow.getByRole("button", { name: "Delete" }).click();
   await waitForSessionDeleted(authedApi, session.id, 60000);
   await page.waitForTimeout(1500);
-  assert(await page.locator("tr", { hasText: label }).count() === 0, "deleted config is still visible in dashboard");
+  assert(await page.locator("tr", { hasText: configDisplay }).count() === 0, "deleted config is still visible in dashboard");
   await screenshot(page, "05-deleted");
   result.steps.push("config_deleted");
 
@@ -330,13 +322,13 @@ async function fetchText(url, token) {
   return text;
 }
 
-async function waitForSessionPhase(api, sessionLabel, expectedPhase, timeoutMs) {
+async function waitForNewestSessionPhase(api, expectedPhase, timeoutMs) {
   const deadline = Date.now() + timeoutMs;
   let lastSession = null;
   while (Date.now() < deadline) {
     const response = await api("/v1/public/sessions");
     const sessions = Array.isArray(response?.sessions) ? response.sessions : [];
-    lastSession = sessions.find((session) => session.label === sessionLabel) || lastSession;
+    lastSession = sessions[0] || lastSession;
     if (lastSession?.phase === expectedPhase) {
       return lastSession;
     }
@@ -345,7 +337,23 @@ async function waitForSessionPhase(api, sessionLabel, expectedPhase, timeoutMs) 
     }
     await wait(1500);
   }
-  throw new Error(`timed out waiting for ${sessionLabel} to reach phase ${expectedPhase}; last=${JSON.stringify(lastSession)}`);
+  throw new Error(`timed out waiting for newest session to reach ${expectedPhase}; last=${JSON.stringify(lastSession)}`);
+}
+
+async function waitForSessionIdPhase(api, sessionId, expectedPhase, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  let lastSession = null;
+  while (Date.now() < deadline) {
+    const response = await api("/v1/public/sessions");
+    const sessions = Array.isArray(response?.sessions) ? response.sessions : [];
+    lastSession = sessions.find((session) => session.id === sessionId) || lastSession;
+    if (lastSession?.phase === expectedPhase) return lastSession;
+    if (lastSession?.phase === "failed") {
+      throw new Error(`session ${sessionId} failed: ${JSON.stringify(lastSession.lastError || {})}`);
+    }
+    await wait(1500);
+  }
+  throw new Error(`timed out waiting for session ${sessionId} to reach ${expectedPhase}; last=${JSON.stringify(lastSession)}`);
 }
 
 async function waitForSessionDeleted(api, sessionId, timeoutMs) {
@@ -367,11 +375,6 @@ async function expectText(page, text) {
 
 function findGate(gates, name, notName = "") {
   return gates.find((gate) => gate.name === name && gate.name !== notName);
-}
-
-function gateRegionFromName(name) {
-  const region = name.split("-")[1] || "";
-  return ["eu", "na", "ap", "sa"].includes(region) ? region : "";
 }
 
 function resolveApiUrl(base, pathOrUrl) {

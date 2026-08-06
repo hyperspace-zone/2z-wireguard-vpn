@@ -52,7 +52,7 @@ Do not include them in routine `npm test` or live smoke runs.
 | ID | Case | Steps | Expected | Coverage |
 | --- | --- | --- | --- | --- |
 | API-001 | Register/login/me | Register a new user, log out, log in, call `/v1/public/auth/me`. | Auth token is issued; `me` returns the same email. | `scripts/testnet/live-ui-smoke.mjs` |
-| API-002 | Target-restricted config lifecycle | Create `IpToIp` config with explicit ingress, explicit egress, target IP. Poll session list. | Session reaches `active`; selected path contains the chosen ingress/egress. | `scripts/testnet/live-ui-smoke.mjs` |
+| API-002 | Target-restricted config lifecycle | Create `IpToIp` config with explicit ingress, explicit egress, target IP. Poll session list. | Session reaches `active`; selected path contains the chosen ingress/egress. | `scripts/testnet/live-policy-smoke.mjs` |
 | API-003 | Raw WireGuard config download | Issue a download token, fetch `downloadConfigUrl`. | Response body is raw `.conf` text, not JSON; includes `[Interface]`, `[Peer]`, `AllowedIPs`, `Endpoint`. | `scripts/testnet/live-ui-smoke.mjs` |
 | API-004 | JSON artifact compatibility | Fetch `downloadUrl`. | Response is JSON envelope with `payload.configText` for UI compatibility. | API smoke/manual |
 | API-005 | Revoke/delete lifecycle | Revoke active config, poll until `revoked`, then delete. | Config disappears from the user's dashboard/session list. | `scripts/testnet/live-ui-smoke.mjs` |
@@ -67,12 +67,12 @@ Do not include them in routine `npm test` or live smoke runs.
 | UI-002 | Dashboard layout | Log in with no configs. | Dashboard shows VPN configs, Create config action, and Gates as secondary information. Billing controls and benchmark route tables are not rendered on Dashboard. | `scripts/testnet/live-ui-smoke.mjs`, `scripts/testnet/milestone3-ui-smoke.mjs` |
 | UI-003 | Gates table columns | Open dashboard. | Columns include Name, City, Country, Public IPv4, Ready, Browser RTT, Schedulable, DoubleZero node. | `scripts/testnet/live-ui-smoke.mjs` |
 | UI-004 | Browser RTT measurement | Click Measure browser RTT. | Rows update per gate as measurements finish; sort is low-to-high by default; measured rows keep stable row height. | UI smoke plus visual/manual |
-| UI-005 | Create config Step 1 | Open `/create-config`. | Header says Step 1; ingress and egress selectors are aligned; no Ingress Auto/Egress Auto option exists. | `scripts/testnet/live-ui-smoke.mjs` |
+| UI-005 | One-choice config Step 1 | Open `/create-config`. | Egress is the only visible selector. Full tunnel, unrestricted source, generated client key, nearest ingress, config name, and routing policy defaults require no interaction. All non-egress controls are inside collapsed `Optional settings`. | `scripts/testnet/live-ui-smoke.mjs`, `scripts/testnet/milestone3-ui-smoke.mjs` |
 | UI-006 | Explicit egress required | Choose ingress but leave egress empty and submit. | Inline validation says egress is required; config is not created. | `scripts/testnet/live-ui-smoke.mjs` |
 | UI-007 | Target validation | Keep target restriction enabled with invalid/missing target. | Inline validation says target IPv4 is required; message is visible near the target mode help. | UI smoke/manual |
 | UI-008 | Source restriction | Enable source restriction and use browser IP. | Browser IP is inserted only into Source IP, never into Target IP. | UI smoke/manual |
 | UI-009 | Review screen | Submit valid Step 1. | Step 2 review shows route overview and policy; ingress/egress cards do not show browser RTT values. | `scripts/testnet/live-ui-smoke.mjs` |
-| UI-010 | Full tunnel warning | Disable target restriction and review. | Warning explains SSH/RDP access may be interrupted and shows short up/sleep/curl/down instructions for Linux/macOS/Windows. | UI smoke/manual |
+| UI-010 | Full tunnel warning | Keep the default unrestricted destination and review. | Warning explains that enabling a full tunnel can interrupt SSH/RDP and recommends local-console or out-of-band access. | UI smoke/manual |
 | UI-011 | Client key instructions | Enable custom public key. | Public key field becomes required; Linux/macOS/Windows generation scripts appear with syntax highlighting and copy button. | UI smoke/manual |
 | UI-012 | WireGuard public key validation | Enter malformed key such as missing `=` padding. | UI rejects it as non-canonical WireGuard public key. | UI smoke/manual |
 | UI-013 | Dashboard config table | After config create. | Table shows Created, Mode, Config, Source IP, Target IP, Ingress gate, Egress gate, Status, Actions. Source `Any` and target `Internet`/IP render compactly. | `scripts/testnet/live-ui-smoke.mjs` |
@@ -80,6 +80,7 @@ Do not include them in routine `npm test` or live smoke runs.
 | UI-015 | Console cleanliness | Run happy path in Chromium/Brave. | No uncaught promise errors such as `AbortError: signal is aborted without reason`. | `scripts/testnet/live-ui-smoke.mjs` |
 | UI-016 | Gate benchmark page | Open the `Benchmarks` navigation item after benchmark jobs have reported. | The page shows `Gate benchmark routes — RTT` and `Gate benchmark routes — One-Way` under `DZ vs Internet`, with sortable columns, City filter, freshness coverage, and green/yellow/pink legend. Rows use a directed `City1 → City2` route column and show RTT metrics separately from forward one-way metrics. | Live dashboard/manual screenshot |
 | UI-017 | Billing page and header balance | Log in, inspect the header, then open `/billing`. | A compact available balance appears immediately before the identity. Billing is a primary navigation item and contains balance details, deposit address and QR, deposit history, usage, ledger, withdrawals, and support contact. Desktop and mobile layouts do not overflow the viewport. | `scripts/testnet/milestone3-ui-smoke.mjs`, `scripts/testnet/retail-billing-ui-e2e.mjs` |
+| UI-018 | In-place config completion | Confirm Step 2 and wait for provisioning. | Browser remains on `/create-config`, shows an animated progress state, then replaces it with the WireGuard QR, Download config, and OK. Only OK returns to Dashboard. | `scripts/testnet/live-ui-smoke.mjs`, `scripts/testnet/milestone3-ui-smoke.mjs` |
 
 ## WireGuard Traffic Policy
 
@@ -152,9 +153,10 @@ PLAYWRIGHT_CHROMIUM_EXECUTABLE=/snap/bin/chromium npm run test:milestone3:ui
 
 The smoke mocks the public API, registers with a password, completes email
 verification, verifies the account balance, permanent deposit address, QR and
-finalized transaction history, proves fixed-amount and wallet-link controls are
-absent, checks WireGuard QR and helper download, then creates a VPN config and
-asserts generic country/city/region route constraints.
+finalized transaction history, and proves fixed-amount and wallet-link controls
+are absent. It then verifies that only egress is visible and required, watches
+the same confirmation route transition through provisioning to QR/download,
+acknowledges the result with OK, and checks the active-config QR and helper.
 
 ## Resend OTP E2E
 

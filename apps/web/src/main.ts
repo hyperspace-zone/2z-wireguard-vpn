@@ -1,6 +1,6 @@
 type SessionMode = "IpToIp" | "FullTunnel";
 type AppView = "dashboard" | "create-config" | "benchmarks" | "billing" | "admin-billing" | "login" | "register";
-type CreateConfigStep = "configure" | "confirm";
+type CreateConfigStep = "configure" | "confirm" | "result";
 type SortDirection = "desc" | "asc";
 type KeyInstructionPlatform = "linux" | "macos" | "windows";
 type GateSortField = "browser-rtt" | "clock-error";
@@ -290,6 +290,11 @@ let browserIp = "";
 let currentView: AppView = viewFromLocation();
 let createConfigStep: CreateConfigStep = "configure";
 let createConfigSubmitting = false;
+let createConfigOptionsOpen = false;
+let createdConfigSessionId = "";
+let createdConfigSessionPhase = "";
+let createdConfigError = "";
+let createdConfigQrSvg = "";
 let gateSortField: GateSortField = "browser-rtt";
 let gateBrowserRttSortDirection: SortDirection = "asc";
 let gateClockErrorSortDirection: SortDirection = "asc";
@@ -308,15 +313,14 @@ let activeConfigQrSvg = "";
 let activeConfigQrSessionId = "";
 let ingressGateManuallySelected = false;
 let keyInstructionPlatform: KeyInstructionPlatform = "linux";
-let runInstructionPlatform: KeyInstructionPlatform = "linux";
 const eventLogLines: string[] = [];
 
 const sessionDraft = {
-  mode: "IpToIp" as SessionMode,
+  mode: "FullTunnel" as SessionMode,
   label: "",
   restrictSource: false,
   sourceIp: "",
-  restrictTarget: true,
+  restrictTarget: false,
   targetIp: "",
   ingressGateName: "",
   egressGateName: "",
@@ -443,6 +447,7 @@ function stopSessionAutoRefresh(): void {
 function navigateToView(view: AppView): void {
   currentView = view;
   if (view !== "create-config") {
+    resetCreatedConfigResult();
     createConfigStep = "configure";
   }
   window.history.pushState({}, "", viewPath(view));
@@ -661,14 +666,18 @@ function benchmarksView(state: { gates: Gate[]; benchmarkMatrix: BenchmarkMatrix
 }
 
 function createConfigView(gates: Gate[]): string {
-  const title = createConfigStep === "confirm" ? "Review VPN config" : "Create VPN config";
+  const title = createConfigStep === "result"
+    ? createdConfigQrSvg ? "VPN config ready" : "Creating VPN config"
+    : createConfigStep === "confirm" ? "Review VPN config" : "Create VPN config";
   return `
     <section class="panel primary-panel">
       <div class="panel-heading">
         <h2>${title}</h2>
-        <a class="button-link secondary-button" href="/" data-view="dashboard">Dashboard</a>
+        ${createConfigStep === "result" ? "" : '<a class="button-link secondary-button" href="/" data-view="dashboard">Dashboard</a>'}
       </div>
-      ${createConfigStep === "confirm" ? createConfigConfirmationPanel(gates) : createSessionPanel(gates)}
+      ${createConfigStep === "result"
+        ? createConfigResultPanel()
+        : createConfigStep === "confirm" ? createConfigConfirmationPanel(gates) : createSessionPanel(gates)}
     </section>
   `;
 }
@@ -1698,88 +1707,95 @@ function createSessionPanel(gates: Gate[]): string {
   const cities = uniqueSorted(schedulableGates.map((gate) => gate.city).filter((value): value is string => Boolean(value)));
   return `
     <div class="configure-step">
-      <p class="step-caption">Create VPN config - Step 1: Configure route and keys</p>
-      <form id="session-form" class="session-form" novalidate>
-        <label>Config name <input name="label" placeholder="workstation to service" value="${escapeHtml(sessionDraft.label)}" /></label>
-        <div class="mode-summary">
-          <span>Mode</span>
-          <strong id="mode-label">${escapeHtml(modeLabel)}</strong>
-        </div>
-        <fieldset class="form-group">
-          <label class="checkbox-line">
-            <input name="restrictSource" type="checkbox" ${sessionDraft.restrictSource ? "checked" : ""} />
-            <span>Restrict ingress to source IP</span>
-          </label>
-          <div class="input-action-row">
-            <input name="sourceIp" placeholder="8.8.8.8" value="${escapeHtml(sessionDraft.sourceIp)}" ${sessionDraft.restrictSource ? "" : "disabled"} ${sessionValidationErrors.sourceIp ? 'aria-invalid="true"' : ""} />
-            <button id="use-browser-source-ip" type="button" ${sessionDraft.restrictSource ? "" : "disabled"}>Use browser IP</button>
-          </div>
-          ${fieldError("sourceIp")}
-          <small>${browserIp ? `Current browser IP: ${escapeHtml(browserIp)}` : "Source restriction is optional; enable it when this config is for the same public network you are using now."}</small>
-        </fieldset>
-        <fieldset class="form-group">
-          <label class="checkbox-line">
-            <input name="restrictTarget" type="checkbox" ${targetChecked ? "checked" : ""} />
-            <span>Restrict destination to target IP</span>
-          </label>
-          <input name="targetIp" placeholder="1.1.1.1" value="${escapeHtml(sessionDraft.targetIp)}" ${targetChecked ? "" : "disabled"} ${sessionValidationErrors.targetIp ? 'aria-invalid="true"' : ""} />
-          <small id="target-mode-help">${escapeHtml(targetModeHelpText(targetChecked, sessionDraft.restrictSource))}</small>
-          ${fieldError("targetIp")}
-        </fieldset>
-        <div class="gate-select-row">
-          <label>Ingress
-            <select name="ingressGateName" required ${sessionValidationErrors.ingressGateName ? 'aria-invalid="true"' : ""}>
-              ${ingressOptions}
-            </select>
-            ${fieldError("ingressGateName")}
-            <small>Ingress candidates are sorted by browser RTT when probes are available.</small>
-          </label>
-          <label>Egress
+      <p class="step-caption">Create VPN config - Step 1: Choose where traffic exits</p>
+      <form id="session-form" class="session-form simplified-session-form" novalidate>
+        <fieldset class="quick-config-choice">
+          <label>Choose egress
             <select name="egressGateName" required ${sessionValidationErrors.egressGateName ? 'aria-invalid="true"' : ""}>
               ${egressOptions}
             </select>
             ${fieldError("egressGateName")}
+            <small>Ingress is selected automatically from the nearest ready gate.</small>
           </label>
-        </div>
-        <fieldset class="form-group client-key-group">
-          <label class="checkbox-line">
-            <input name="useClientPublicKey" type="checkbox" ${sessionDraft.useClientPublicKey ? "checked" : ""} />
-            <span>Use my own WireGuard client public key</span>
-          </label>
-          ${sessionDraft.useClientPublicKey ? `
-            <label>Client public key
-              <input name="clientPublicKey" placeholder="WireGuard public key" value="${escapeHtml(sessionDraft.clientPublicKey)}" required ${sessionValidationErrors.clientPublicKey ? 'aria-invalid="true"' : ""} />
+        </fieldset>
+
+        <details id="optional-config-settings" class="optional-config-settings" ${createConfigOptionsOpen ? "open" : ""}>
+          <summary>Optional settings</summary>
+          <div class="optional-config-grid">
+            <label>Config name <input name="label" placeholder="workstation to service" value="${escapeHtml(sessionDraft.label)}" /></label>
+            <label>Ingress
+              <select name="ingressGateName" required ${sessionValidationErrors.ingressGateName ? 'aria-invalid="true"' : ""}>
+                ${ingressOptions}
+              </select>
+              ${fieldError("ingressGateName")}
+              <small>Candidates are sorted by browser RTT when probes are available.</small>
             </label>
-            <small>Paste the 44-character WireGuard public key only. Keep the private key on the client machine.</small>
-            ${fieldError("clientPublicKey")}
-            ${clientKeyInstructionsPanel()}
-          ` : "<small>The control plane will generate a client key pair when this is off.</small>"}
-        </fieldset>
-        <fieldset class="form-group route-policy-group">
-          <legend>Routing policy</legend>
-          <label>Egress region
-            <select name="preferredRegion">
-              ${regionOption("", "Any region")}
-              ${regionOption("eu", "Europe")}
-              ${regionOption("na", "North America")}
-              ${regionOption("ap", "Asia Pacific")}
-              ${regionOption("sa", "South America")}
-            </select>
-          </label>
-          <details>
-            <summary>Excluded countries</summary>
-            <div class="policy-option-grid">
-              ${countries.map((country) => policyCheckbox("excludeCountry", country, sessionDraft.excludeCountries)).join("")}
+            <div class="mode-summary">
+              <span>Mode</span>
+              <strong id="mode-label">${escapeHtml(modeLabel)}</strong>
             </div>
-          </details>
-          <details>
-            <summary>Excluded cities</summary>
-            <div class="policy-option-grid">
-              ${cities.map((city) => policyCheckbox("excludeCity", city, sessionDraft.excludeCities)).join("")}
-            </div>
-          </details>
-          ${hasDraftRoutingPolicy() ? '<button id="reset-route-policy" class="secondary-button" type="button">Clear routing policy</button>' : ""}
-        </fieldset>
+            <fieldset class="form-group">
+              <label class="checkbox-line">
+                <input name="restrictSource" type="checkbox" ${sessionDraft.restrictSource ? "checked" : ""} />
+                <span>Restrict ingress to source IP</span>
+              </label>
+              <div class="input-action-row">
+                <input name="sourceIp" placeholder="8.8.8.8" value="${escapeHtml(sessionDraft.sourceIp)}" ${sessionDraft.restrictSource ? "" : "disabled"} ${sessionValidationErrors.sourceIp ? 'aria-invalid="true"' : ""} />
+                <button id="use-browser-source-ip" type="button" ${sessionDraft.restrictSource ? "" : "disabled"}>Use browser IP</button>
+              </div>
+              ${fieldError("sourceIp")}
+              <small>${browserIp ? `Current browser IP: ${escapeHtml(browserIp)}` : "Source restriction is optional."}</small>
+            </fieldset>
+            <fieldset class="form-group destination-restriction-group">
+              <label class="checkbox-line">
+                <input name="restrictTarget" type="checkbox" ${targetChecked ? "checked" : ""} />
+                <span>Restrict outgoing traffic to one destination IP</span>
+              </label>
+              <input name="targetIp" placeholder="1.1.1.1" value="${escapeHtml(sessionDraft.targetIp)}" ${targetChecked ? "" : "disabled"} ${sessionValidationErrors.targetIp ? 'aria-invalid="true"' : ""} />
+              <small id="target-mode-help">${escapeHtml(targetModeHelpText(targetChecked, sessionDraft.restrictSource))}</small>
+              ${fieldError("targetIp")}
+            </fieldset>
+            <fieldset class="form-group client-key-group">
+              <label class="checkbox-line">
+                <input name="useClientPublicKey" type="checkbox" ${sessionDraft.useClientPublicKey ? "checked" : ""} />
+                <span>Use my own WireGuard client public key</span>
+              </label>
+              ${sessionDraft.useClientPublicKey ? `
+                <label>Client public key
+                  <input name="clientPublicKey" placeholder="WireGuard public key" value="${escapeHtml(sessionDraft.clientPublicKey)}" required ${sessionValidationErrors.clientPublicKey ? 'aria-invalid="true"' : ""} />
+                </label>
+                <small>Paste the 44-character WireGuard public key only. Keep the private key on the client machine.</small>
+                ${fieldError("clientPublicKey")}
+                ${clientKeyInstructionsPanel()}
+              ` : "<small>The control plane will generate a client key pair when this is off.</small>"}
+            </fieldset>
+            <fieldset class="form-group route-policy-group">
+              <legend>Routing policy</legend>
+              <label>Egress region
+                <select name="preferredRegion">
+                  ${regionOption("", "Any region")}
+                  ${regionOption("eu", "Europe")}
+                  ${regionOption("na", "North America")}
+                  ${regionOption("ap", "Asia Pacific")}
+                  ${regionOption("sa", "South America")}
+                </select>
+              </label>
+              <details>
+                <summary>Excluded countries</summary>
+                <div class="policy-option-grid">
+                  ${countries.map((country) => policyCheckbox("excludeCountry", country, sessionDraft.excludeCountries)).join("")}
+                </div>
+              </details>
+              <details>
+                <summary>Excluded cities</summary>
+                <div class="policy-option-grid">
+                  ${cities.map((city) => policyCheckbox("excludeCity", city, sessionDraft.excludeCities)).join("")}
+                </div>
+              </details>
+              ${hasDraftRoutingPolicy() ? '<button id="reset-route-policy" class="secondary-button" type="button">Clear routing policy</button>' : ""}
+            </fieldset>
+          </div>
+        </details>
         <button type="submit">Review config</button>
       </form>
     </div>
@@ -1838,7 +1854,6 @@ function createConfigConfirmationPanel(gates: Gate[]): string {
 
       ${sessionDraft.mode === "FullTunnel" ? fullTunnelAlertPanel() : ""}
       ${sessionDraft.useClientPublicKey ? clientKeyReplacementNotice() : ""}
-      ${runInstructionsPanel()}
 
       <div class="form-actions">
         <button id="edit-config" class="secondary-button" type="button" ${disabled}>Back to edit</button>
@@ -1846,6 +1861,59 @@ function createConfigConfirmationPanel(gates: Gate[]): string {
       </div>
     </div>
   `;
+}
+
+function createConfigResultPanel(): string {
+  if (createdConfigError) {
+    return `
+      <div class="config-result-state">
+        <p class="step-caption">Create VPN config - Could not finish</p>
+        <div class="config-result-message config-result-error" role="alert">
+          <strong>VPN config is not ready</strong>
+          <p>${escapeHtml(createdConfigError)}</p>
+        </div>
+        <button id="return-to-config-settings" class="secondary-button" type="button">Back to settings</button>
+      </div>
+    `;
+  }
+  if (!createdConfigQrSvg) {
+    return `
+      <div class="config-result-state" aria-live="polite">
+        <p class="step-caption">Create VPN config - Preparing connection</p>
+        <div class="config-provisioning">
+          <span class="loading-spinner" aria-hidden="true"></span>
+          <div>
+            <strong>Preparing WireGuard config</strong>
+            <p>${escapeHtml(createdConfigPhaseText(createdConfigSessionPhase))}</p>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+  return `
+    <div class="config-result-state">
+      <p class="step-caption">Create VPN config - Ready</p>
+      <div class="created-config-result">
+        <div class="created-config-qr" role="img" aria-label="WireGuard configuration QR code">${createdConfigQrSvg}</div>
+        <div class="created-config-actions">
+          <h3>WireGuard config is ready</h3>
+          <p>Scan the QR code with the WireGuard mobile app or download the config file.</p>
+          <button id="download-created-config" type="button">Download config</button>
+          <button id="finish-create-config" class="success-button" type="button">OK</button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function createdConfigPhaseText(phase: string): string {
+  const labels: Record<string, string> = {
+    requested: "Request accepted. Waiting for gate assignment.",
+    scheduling: "Selecting the gate path.",
+    provisioning: "Applying the route and generating client artifacts.",
+    finalizing: "Route is active. Finalizing the QR code and download."
+  };
+  return labels[phase] ?? "Waiting for the config and QR code to become ready.";
 }
 
 function regionOption(value: string, label: string): string {
@@ -1900,11 +1968,11 @@ function hasDraftRoutingPolicy(): boolean {
 }
 
 function resetSessionDraft(): void {
-  sessionDraft.mode = "IpToIp";
+  sessionDraft.mode = "FullTunnel";
   sessionDraft.label = "";
   sessionDraft.restrictSource = false;
   sessionDraft.sourceIp = "";
-  sessionDraft.restrictTarget = true;
+  sessionDraft.restrictTarget = false;
   sessionDraft.targetIp = "";
   sessionDraft.ingressGateName = "";
   sessionDraft.egressGateName = "";
@@ -1914,7 +1982,16 @@ function resetSessionDraft(): void {
   sessionDraft.excludeCities = [];
   sessionDraft.preferredRegion = "";
   ingressGateManuallySelected = false;
+  createConfigOptionsOpen = false;
   sessionValidationErrors = {};
+}
+
+function resetCreatedConfigResult(): void {
+  createdConfigSessionId = "";
+  createdConfigSessionPhase = "";
+  createdConfigError = "";
+  createdConfigQrSvg = "";
+  createConfigSubmitting = false;
 }
 
 function clientKeyReplacementNotice(): string {
@@ -1937,66 +2014,9 @@ function fullTunnelAlertPanel(): string {
   return `
     <div class="full-tunnel-alert" role="alert">
       <strong>Full tunnel can interrupt remote access</strong>
-      <p>If you enable this config on a remote machine that you access over SSH or RDP, the current SSH/RDP session can disconnect because traffic may move into the VPN. Use the smoke-test command below first; it brings the tunnel up briefly and then shuts it down.</p>
+      <p>If you enable this config on a remote machine that you access over SSH or RDP, the current session can disconnect because traffic may move into the VPN. Apply it from a local console or keep out-of-band access available.</p>
     </div>
   `;
-}
-
-function runInstructionsPanel(): string {
-  const script = runInstructionScript(runInstructionPlatform);
-  return `
-    <section class="run-instructions" aria-label="How to run">
-      <div class="key-instructions-header">
-        <div>
-          <h3>How to run</h3>
-          <p>After creating and downloading the config, save it as <span class="mono">hyperspace.conf</span> and run a short smoke test.</p>
-        </div>
-      </div>
-      <div class="key-instruction-tabs" role="tablist" aria-label="Run platform">
-        ${runInstructionTab("linux", "Linux")}
-        ${runInstructionTab("macos", "macOS")}
-        ${runInstructionTab("windows", "Windows")}
-      </div>
-      <div class="key-script-wrap">
-        <button id="copy-run-script" class="copy-code-button" type="button" aria-label="Copy terminal run script" title="Copy">
-          <span class="copy-icon" aria-hidden="true"></span>
-        </button>
-        <pre class="key-script"><code>${highlightKeyScript(script, runInstructionPlatform)}</code></pre>
-      </div>
-    </section>
-  `;
-}
-
-function runInstructionTab(platform: KeyInstructionPlatform, label: string): string {
-  const active = runInstructionPlatform === platform;
-  return `
-    <button class="key-instruction-tab ${active ? "active" : ""}" type="button" role="tab" aria-selected="${active ? "true" : "false"}" data-run-instruction-tab="${platform}">
-      ${escapeHtml(label)}
-    </button>
-  `;
-}
-
-function runInstructionScript(platform: KeyInstructionPlatform): string {
-  if (platform === "windows") {
-    return [
-      "$ErrorActionPreference = \"Stop\"",
-      "$config = \"$HOME\\Downloads\\hyperspace.conf\"",
-      "$wireguard = \"$env:ProgramFiles\\WireGuard\\wireguard.exe\"",
-      "",
-      "& $wireguard /installtunnelservice $config",
-      "Start-Sleep -Seconds 5",
-      "curl.exe ifconfig.me",
-      "Start-Sleep -Seconds 5",
-      "& $wireguard /uninstalltunnelservice hyperspace"
-    ].join("\n");
-  }
-  return [
-    "sudo wg-quick up ./hyperspace.conf",
-    "sleep 5",
-    "curl ifconfig.me",
-    "sleep 5",
-    "sudo wg-quick down ./hyperspace.conf"
-  ].join("\n");
 }
 
 function summaryPill(label: string, value: string, mono = false, subvalue?: string): string {
@@ -2319,6 +2339,7 @@ function bindHandlers(): void {
     token = "";
     currentView = "login";
     createConfigStep = "configure";
+    resetCreatedConfigResult();
     resetSessionDraft();
     latestMe = null;
     latestSessions = [];
@@ -2413,6 +2434,9 @@ function bindHandlers(): void {
     });
     syncSessionFormControls(sessionForm);
   }
+  document.getElementById("optional-config-settings")?.addEventListener("toggle", (event) => {
+    createConfigOptionsOpen = (event.currentTarget as HTMLDetailsElement).open;
+  });
 
   document.getElementById("use-browser-source-ip")?.addEventListener("click", () => {
     void fillBrowserSourceIp();
@@ -2431,21 +2455,8 @@ function bindHandlers(): void {
       render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
     });
   }
-  for (const button of document.querySelectorAll("[data-run-instruction-tab]")) {
-    button.addEventListener("click", () => {
-      const platform = (button as HTMLElement).dataset.runInstructionTab;
-      if (!isKeyInstructionPlatform(platform)) {
-        return;
-      }
-      runInstructionPlatform = platform;
-      render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
-    });
-  }
   document.getElementById("copy-key-script")?.addEventListener("click", (event) => {
     void copyKeyInstructionScript(event.currentTarget as HTMLButtonElement);
-  });
-  document.getElementById("copy-run-script")?.addEventListener("click", (event) => {
-    void copyRunInstructionScript(event.currentTarget as HTMLButtonElement);
   });
   document.getElementById("copy-client-public-key")?.addEventListener("click", (event) => {
     void copyClientPublicKey(event.currentTarget as HTMLButtonElement);
@@ -2458,6 +2469,20 @@ function bindHandlers(): void {
   });
   document.getElementById("confirm-create-config")?.addEventListener("click", () => {
     void createSession();
+  });
+  document.getElementById("return-to-config-settings")?.addEventListener("click", () => {
+    resetCreatedConfigResult();
+    createConfigStep = "configure";
+    render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
+  });
+  document.getElementById("download-created-config")?.addEventListener("click", () => {
+    if (createdConfigSessionId) void downloadArtifact(createdConfigSessionId);
+  });
+  document.getElementById("finish-create-config")?.addEventListener("click", () => {
+    resetSessionDraft();
+    resetCreatedConfigResult();
+    navigateToView("dashboard");
+    void refresh({ skipAutoMeasure: true });
   });
   document.getElementById("reset-route-policy")?.addEventListener("click", () => {
     sessionDraft.excludeCountries = [];
@@ -2727,6 +2752,7 @@ function completeAuth(response: { accessToken: string }): void {
   token = response.accessToken;
   currentView = "dashboard";
   createConfigStep = "configure";
+  resetCreatedConfigResult();
   resetSessionDraft();
   localStorage.setItem("hyperspaceAccessToken", token);
   window.history.replaceState({}, "", viewPath("dashboard"));
@@ -2748,18 +2774,63 @@ async function createSession(): Promise<void> {
   sessionValidationErrors = {};
   render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
   try {
-    await api("/v1/public/sessions", { method: "POST", body: sessionPayloadFromDraft() });
+    const response = await api("/v1/public/sessions", { method: "POST", body: sessionPayloadFromDraft() });
+    const sessionId = typeof response.session?.id === "string" ? response.session.id : "";
+    if (!sessionId) {
+      throw new Error("The control plane did not return the created VPN config.");
+    }
     createConfigSubmitting = false;
-    createConfigStep = "configure";
-    resetSessionDraft();
-    navigateToView("dashboard");
+    createdConfigSessionId = sessionId;
+    createdConfigSessionPhase = typeof response.session?.phase === "string" ? response.session.phase : "requested";
+    createdConfigError = "";
+    createdConfigQrSvg = "";
+    createConfigStep = "result";
     log("VPN config requested.");
-    await refresh();
+    render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
+    await waitForCreatedConfigArtifact(sessionId);
   } catch (error) {
     createConfigSubmitting = false;
     render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
     log(error instanceof Error ? error.message : "Could not create VPN config.");
   }
+}
+
+async function waitForCreatedConfigArtifact(sessionId: string): Promise<void> {
+  const attempts = 160;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    if (createdConfigSessionId !== sessionId) return;
+    try {
+      latestSessions = await getSessions();
+      const session = latestSessions.find((entry) => entry.id === sessionId);
+      if (session) {
+        const phaseChanged = createdConfigSessionPhase !== session.phase;
+        createdConfigSessionPhase = session.phase;
+        if (session.phase === "failed" || session.phase === "revoked") {
+          createdConfigError = session.lastError?.message || `VPN config entered ${session.phase} state.`;
+          render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
+          return;
+        }
+        if (session.phase === "active") {
+          try {
+            createdConfigQrSvg = await fetchConfigQrSvg(sessionId);
+            render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
+            return;
+          } catch {
+            createdConfigSessionPhase = "finalizing";
+          }
+        }
+        if (phaseChanged || attempt === 0) {
+          render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
+        }
+      }
+    } catch {
+      // Transient API failures are retried while this result page remains open.
+    }
+    await wait(1500);
+  }
+  if (createdConfigSessionId !== sessionId) return;
+  createdConfigError = "Timed out while waiting for the WireGuard artifact. The request remains visible on Dashboard.";
+  render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
 }
 
 async function requestWithdrawal(form: FormData): Promise<void> {
@@ -2977,20 +3048,24 @@ async function downloadArtifact(id: string): Promise<void> {
 
 async function showConfigQr(id: string): Promise<void> {
   try {
-    const tokenResponse = await api(`/v1/public/sessions/${id}/artifacts/client-config/download-token`, { method: "POST" });
-    const response = await fetch(apiUrl(`${tokenResponse.downloadUrl}?format=qr`), {
-      headers: { accept: "image/svg+xml" },
-      cache: "no-store"
-    });
-    if (!response.ok) {
-      throw new Error("Could not generate WireGuard QR code.");
-    }
-    activeConfigQrSvg = await response.text();
+    activeConfigQrSvg = await fetchConfigQrSvg(id);
     activeConfigQrSessionId = id;
     render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
   } catch (error) {
     log(error instanceof Error ? error.message : "Could not generate WireGuard QR code.");
   }
+}
+
+async function fetchConfigQrSvg(id: string): Promise<string> {
+  const tokenResponse = await api(`/v1/public/sessions/${id}/artifacts/client-config/download-token`, { method: "POST" });
+  const response = await fetch(apiUrl(`${tokenResponse.downloadUrl}?format=qr`), {
+    headers: { accept: "image/svg+xml" },
+    cache: "no-store"
+  });
+  if (!response.ok) {
+    throw new Error("Could not generate WireGuard QR code.");
+  }
+  return response.text();
 }
 
 async function downloadConnectHelper(id: string): Promise<void> {
@@ -3298,16 +3373,6 @@ async function copyKeyInstructionScript(button: HTMLButtonElement): Promise<void
     copyLabel: "Copy key generation script",
     successLog: "WireGuard key generation script copied.",
     failureLog: "Could not copy the key generation script."
-  });
-}
-
-async function copyRunInstructionScript(button: HTMLButtonElement): Promise<void> {
-  const script = runInstructionScript(runInstructionPlatform);
-  await copyScriptToClipboard(button, script, {
-    copiedLabel: "Copied terminal run script",
-    copyLabel: "Copy terminal run script",
-    successLog: "Terminal run script copied.",
-    failureLog: "Could not copy the terminal run script."
   });
 }
 

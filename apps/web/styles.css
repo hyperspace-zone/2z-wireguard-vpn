@@ -685,6 +685,34 @@ small {
   align-items: start;
 }
 
+.simplified-session-form {
+  grid-template-columns: minmax(280px, 640px);
+}
+
+.quick-config-choice {
+  display: grid;
+  gap: 8px;
+}
+
+.optional-config-settings {
+  border-top: 1px solid #d8dee8;
+  padding-top: 12px;
+}
+
+.optional-config-settings > summary {
+  color: #0969da;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.optional-config-grid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(2, minmax(260px, 1fr));
+  padding-top: 16px;
+}
+
 .mode-summary {
   align-content: start;
   display: grid;
@@ -1137,6 +1165,89 @@ small {
   gap: 16px;
 }
 
+.config-result-state {
+  display: grid;
+  gap: 16px;
+}
+
+.config-provisioning,
+.config-result-message {
+  align-items: center;
+  border: 1px solid #d8dee8;
+  display: flex;
+  gap: 16px;
+  min-height: 112px;
+  padding: 18px;
+}
+
+.config-provisioning strong,
+.config-result-message strong {
+  font-size: 16px;
+}
+
+.config-provisioning p,
+.config-result-message p,
+.created-config-actions p {
+  color: #57606a;
+  margin: 5px 0 0;
+}
+
+.config-result-error {
+  border-color: #d92d20;
+}
+
+.loading-spinner {
+  animation: loading-spin 0.8s linear infinite;
+  border: 3px solid #d8dee8;
+  border-radius: 50%;
+  border-top-color: #1f6feb;
+  flex: 0 0 30px;
+  height: 30px;
+  width: 30px;
+}
+
+@keyframes loading-spin {
+  to { transform: rotate(360deg); }
+}
+
+.created-config-result {
+  align-items: center;
+  border: 1px solid #d8dee8;
+  display: grid;
+  gap: 24px;
+  grid-template-columns: minmax(240px, 420px) minmax(260px, 1fr);
+  padding: 18px;
+}
+
+.created-config-qr {
+  aspect-ratio: 1;
+  background: #ffffff;
+  border: 1px solid #d8dee8;
+  padding: 8px;
+}
+
+.created-config-qr svg {
+  display: block;
+  height: 100%;
+  width: 100%;
+}
+
+.created-config-actions {
+  align-items: start;
+  display: grid;
+  gap: 12px;
+}
+
+.created-config-actions h3 {
+  font-size: 18px;
+  margin: 0;
+}
+
+.created-config-actions button {
+  margin: 0;
+  width: 100%;
+}
+
 .step-caption {
   color: #57606a;
   margin: 0;
@@ -1326,30 +1437,6 @@ small {
   white-space: nowrap;
 }
 
-.run-instructions {
-  background: #fbfcfe;
-  border: 1px solid #d8dee8;
-  border-radius: 8px;
-  display: grid;
-  gap: 12px;
-  padding: 16px;
-}
-
-.run-instructions h3 {
-  font-size: 16px;
-  margin: 0 0 4px;
-}
-
-.run-instructions p {
-  color: #57606a;
-  font-size: 13px;
-  margin: 0;
-}
-
-.run-instructions .key-script {
-  padding: 14px 52px 14px 14px;
-}
-
 .form-actions {
   display: flex;
   gap: 10px;
@@ -1395,6 +1482,8 @@ small {
   .account-grid,
   .admin-plan-create,
   .gate-select-row,
+  .optional-config-grid,
+  .created-config-result,
   .inline-form,
   .withdrawal-form,
   .deposit-wallet,

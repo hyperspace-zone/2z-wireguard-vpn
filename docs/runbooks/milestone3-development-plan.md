@@ -51,16 +51,20 @@ Implemented in `milestone3-mainnet-scaleout`:
 - Admin ingestion endpoint for raw DoubleZero tenant billing snapshots.
 - Replay-safe DoubleZero usage import endpoint with configurable Hyperspace
   markup and immutable balance-ledger debit entries.
-- Self-service UI account panel with balance, custodial deposit address and QR,
-  exact finalized deposit history, and Orb transaction links.
+- Dedicated self-service Billing page with balance, custodial deposit address
+  and QR, exact finalized deposit history, and Orb transaction links. A compact
+  balance remains visible beside the authenticated identity.
 - Generic route policy support for excluded countries, excluded cities, and
   preferred egress regions. Germany is a selectable catalog value, not a
   special-case policy.
-- One-time WireGuard QR output and OS-specific Linux, macOS, and Windows helper
-  downloads for a near-one-step connection path.
-- Chromium/Playwright UI smoke test covering email-code login, account panel,
-  permanent-address deposits, generalized route policy, WireGuard QR, helper
-  download, and config creation.
+- A one-choice config flow where egress is the only required input, advanced
+  controls are collapsed, and the confirmation page transitions in place from
+  provisioning to WireGuard QR/download/OK.
+- OS-specific Linux, macOS, and Windows helper downloads remain available from
+  the active-config list.
+- Chromium/Playwright UI smoke test covering email-code login, Billing,
+  permanent-address deposits, the one-choice config flow, in-place provisioning,
+  WireGuard QR, helper download, and config creation.
 
 ## Implementation Slice 2
 

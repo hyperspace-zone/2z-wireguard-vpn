@@ -50,6 +50,7 @@ let createdSessionPayload = null;
 let registeredUserPayload = null;
 let authenticated = false;
 let googleRedirectAfter = null;
+let createdSessionPollCount = 0;
 const sessions = [];
 const depositWalletPublicKey = "6TQxgf6T4DRqk2r6WwCSw8uFsAdWbym3G8Yt19cZX7wt";
 const depositSignature = "3nRbdPZB7sbmMRacYiepTbAXvDi15JdSoV3eXsUi1UJVTeeFceEyNcnEqFMRGSMq3mKiu5G2ansgpvfDsBCiRo4y";
@@ -168,12 +169,16 @@ try {
       });
     }
     if (path === "/v1/public/sessions" && method === "GET") {
+      if (sessions.length > 0) {
+        createdSessionPollCount += 1;
+        if (createdSessionPollCount >= 2) sessions[0].phase = "active";
+      }
       return json(route, { sessions });
     }
     if (path === "/v1/public/sessions" && method === "POST") {
       createdSessionPayload = request.postDataJSON();
       const session = {
-        id: "session-1", mode: createdSessionPayload.mode, desiredState: "Active", phase: "active",
+        id: "session-1", mode: createdSessionPayload.mode, desiredState: "Active", phase: "provisioning",
         destinationCidrs: ["1.1.1.1/32"], sourceCidr: null, label: "Smoke config",
         selectedPath: { ingressGateName: createdSessionPayload.ingressGateName, egressGateName: createdSessionPayload.egressGateName },
         createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
@@ -242,17 +247,42 @@ try {
   await capture(page, "dashboard-without-billing");
 
   await page.getByLabel("Primary").getByRole("link", { name: "Create config" }).click();
-  await page.locator("input[name=targetIp]").fill("1.1.1.1");
-  await page.locator("select[name=ingressGateName]").selectOption("gate-eu-ams-21");
+  if (await page.locator('input[name="label"]').isVisible()) {
+    throw new Error("optional config name must be collapsed by default");
+  }
+  if (await page.locator('input[name="restrictTarget"]').isChecked()) {
+    throw new Error("simple config flow must default to unrestricted outgoing traffic");
+  }
+  if (await page.locator('select:visible').count() !== 1) {
+    throw new Error("egress must be the only visible selector in the simple config flow");
+  }
+  await capture(page, "simple-config-step");
   await page.locator("select[name=egressGateName]").selectOption("gate-na-sjc-01");
-  await page.locator("select[name=preferredRegion]").selectOption("na");
-  await page.getByText("Excluded countries", { exact: true }).click();
-  await page.locator('input[name=excludeCountry][value="Germany"]').check();
-  await page.getByText("Excluded cities", { exact: true }).click();
-  await page.locator('input[name=excludeCity][value="Frankfurt"]').check();
   await page.getByRole("button", { name: "Review config" }).click();
-  await page.getByText(/Avoid countries: Germany/).waitFor();
+  await page.getByText("Full tunnel", { exact: true }).first().waitFor();
+  await capture(page, "simple-config-review");
   await page.getByRole("button", { name: "Confirm and create" }).click();
+
+  await page.waitForURL(`${baseUrl}/create-config`);
+  await page.getByText("Preparing WireGuard config", { exact: true }).waitFor();
+  await capture(page, "created-config-provisioning");
+  await page.getByRole("img", { name: "WireGuard configuration QR code" }).waitFor();
+  await capture(page, "created-config-result");
+  await page.setViewportSize({ width: 390, height: 844 });
+  if (await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)) {
+    throw new Error("created config result overflows the mobile viewport");
+  }
+  await capture(page, "created-config-result-mobile");
+  await page.setViewportSize({ width: 1280, height: 720 });
+  const [resultDownload] = await Promise.all([
+    page.waitForEvent("download"),
+    page.getByRole("button", { name: "Download config" }).click()
+  ]);
+  if (!resultDownload.suggestedFilename().endsWith(".conf")) {
+    throw new Error(`unexpected config filename ${resultDownload.suggestedFilename()}`);
+  }
+  await page.getByRole("button", { name: "OK" }).click();
+  await page.waitForURL(`${baseUrl}/`);
 
   await page.getByRole("button", { name: "QR" }).click();
   await page.getByRole("dialog", { name: "WireGuard configuration QR code" }).waitFor();
@@ -266,10 +296,12 @@ try {
   }
 
   await page.waitForFunction(() => window.localStorage.getItem("hyperspaceAccessToken") === "test-token");
-  if (!createdSessionPayload?.pathPolicy?.excludeCountries?.includes("Germany") ||
-      !createdSessionPayload?.pathPolicy?.excludeCities?.includes("Frankfurt") ||
-      !createdSessionPayload?.pathPolicy?.preferredRegions?.includes("na")) {
-    throw new Error(`expected generalized routing policy, got ${JSON.stringify(createdSessionPayload)}`);
+  if (createdSessionPayload?.mode !== "FullTunnel" ||
+      createdSessionPayload?.ingressGateName !== "gate-eu-ams-21" ||
+      createdSessionPayload?.egressGateName !== "gate-na-sjc-01" ||
+      createdSessionPayload?.targetIp !== undefined ||
+      createdSessionPayload?.pathPolicy !== undefined) {
+    throw new Error(`expected one-choice full-tunnel payload, got ${JSON.stringify(createdSessionPayload)}`);
   }
   if (registeredUserPayload?.email !== testEmail) {
     throw new Error(`expected password registration before OTP verification, got ${JSON.stringify(registeredUserPayload)}`);

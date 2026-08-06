@@ -34,6 +34,7 @@ try {
   await mockJson(page, "**/api/v1/public/billing", {});
 
   await page.goto(`${webBase}/create-config`, { waitUntil: "networkidle", timeout: 30_000 });
+  await page.getByText("Optional settings", { exact: true }).click();
   const ingress = page.locator('select[name="ingressGateName"]');
   const expectedGateNames = schedulableGates.map((gate) => gate.name).sort();
   assert.deepEqual(await optionValues(ingress), expectedGateNames, "benchmark fallback did not restore ingress gates");
