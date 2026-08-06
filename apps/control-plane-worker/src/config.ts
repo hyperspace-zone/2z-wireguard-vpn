@@ -10,6 +10,8 @@ export interface ControlPlaneWorkerConfig extends ReconcileLoopRuntimeConfig {
   observabilityHost: string;
   observabilityPort: number;
   solanaTopupReconcileIntervalSeconds: number;
+  solanaDirectDepositScanIntervalSeconds: number;
+  solanaDirectDepositScanBatchSize: number;
   billing: BillingConfig;
   retailBilling: {
     enabled: boolean;
@@ -63,6 +65,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ControlPlaneWo
     observabilityHost: env.WORKER_OBSERVABILITY_HOST ?? "0.0.0.0",
     observabilityPort: Number(env.WORKER_OBSERVABILITY_PORT ?? 9091),
     solanaTopupReconcileIntervalSeconds: Number(env.SOLANA_TOPUP_RECONCILE_INTERVAL_SECONDS ?? 15),
+    solanaDirectDepositScanIntervalSeconds: Number(env.SOLANA_DIRECT_DEPOSIT_SCAN_INTERVAL_SECONDS ?? 30),
+    solanaDirectDepositScanBatchSize: Number(env.SOLANA_DIRECT_DEPOSIT_SCAN_BATCH_SIZE ?? 25),
     billing: {
       currency: env.BILLING_CURRENCY ?? "USD",
       solanaTreasuryAddress: env.SOLANA_TREASURY_ADDRESS ?? "",

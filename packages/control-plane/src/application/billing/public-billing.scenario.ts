@@ -34,6 +34,7 @@ import {
   type WithdrawalRequestRow,
   writeBillingBuckets
 } from "../../resources/billing/prepaid-repository.js";
+import { claimSolanaPaymentReceipt } from "../../resources/billing/solana-deposit-repository.js";
 import { encodeBase58 } from "../auth/custodial-wallet.scenario.js";
 import {
   findFinalizedSolanaSignaturesForReference,
@@ -368,6 +369,22 @@ async function finalizeVerifiedTopup(
       }
       const reused = await findTopupByTransactionSignature(client, transactionSignature);
       if (reused && reused.id !== locked.id) {
+        return "topup_transaction_reused";
+      }
+      const receipt = await claimSolanaPaymentReceipt(client, {
+        transactionSignature,
+        accountId,
+        sourceType: "topup_intent",
+        sourceId: locked.id,
+        tokenMint: locked.tokenMint ?? config.solanaTokenMint,
+        amountBaseUnits: BigInt(locked.amountMinor) * BigInt(config.solanaTokenBaseUnitsPerBillingMinor),
+        creditedAmountMinor: locked.amountMinor,
+        metadata: { verificationMode: evidence.verificationMode ?? "solana-rpc-finalized" }
+      });
+      if (!receipt.claimed && (
+        receipt.receipt.sourceType !== "topup_intent"
+        || receipt.receipt.sourceId !== locked.id
+      )) {
         return "topup_transaction_reused";
       }
       await submitTopupIntent(client, {

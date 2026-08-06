@@ -274,6 +274,37 @@ export async function findTopupByTransactionSignature(
   return result.rows[0] ?? null;
 }
 
+export async function findOpenTopupByReference(
+  db: Queryable,
+  accountId: string,
+  reference: string
+): Promise<Pick<SubmittedTopupIntentRow,
+  "id" | "accountId" | "amountMinor" | "treasuryAddress" | "tokenMint" | "expectedSender" | "reference"
+> | null> {
+  const result = await db.query<Pick<SubmittedTopupIntentRow,
+    "id" | "accountId" | "amountMinor" | "treasuryAddress" | "tokenMint" | "expectedSender" | "reference"
+  >>(
+    `
+      SELECT
+        id,
+        account_id AS "accountId",
+        amount_minor::text::int AS "amountMinor",
+        treasury_address AS "treasuryAddress",
+        token_mint AS "tokenMint",
+        expected_sender AS "expectedSender",
+        reference
+      FROM topup_intents
+      WHERE account_id = $1
+        AND reference = $2
+        AND status IN ('pending', 'submitted')
+        AND expires_at > now()
+      LIMIT 1
+    `,
+    [accountId, reference]
+  );
+  return result.rows[0] ?? null;
+}
+
 export async function listOpenTopupIntents(
   db: Queryable,
   limit = 100

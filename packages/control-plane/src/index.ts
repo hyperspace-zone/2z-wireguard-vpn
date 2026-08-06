@@ -53,6 +53,12 @@ export {
   type SubmitTopupResult
 } from "./application/billing/public-billing.scenario.js";
 export {
+  convertDepositToBillingMinor,
+  reconcileDirectSolanaDeposits,
+  type DirectSolanaDepositReconcileOptions,
+  type DirectSolanaDepositReconcileResult
+} from "./application/billing/direct-solana-deposit.scenario.js";
+export {
   calculateMarkedUpChargeMinor,
   importDoubleZeroUsage,
   type DoubleZeroUsageBillingConfig,

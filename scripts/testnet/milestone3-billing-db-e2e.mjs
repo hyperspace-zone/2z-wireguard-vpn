@@ -8,6 +8,7 @@ import {
   createWithdrawalRequest,
   ensureCustodialSolanaWallet,
   readAccountBillingSummary,
+  reconcileDirectSolanaDeposits,
   registerUser,
   submitSolanaTopupSignature
 } from "../../packages/control-plane/dist/index.js";
@@ -21,6 +22,7 @@ const password = `Hs-${randomBytes(18).toString("base64url")}`;
 const walletEncryptionKey = randomBytes(32);
 const tokenMint = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 const transactionSignature = "5".repeat(88);
+const directDepositSignature = "6".repeat(88);
 const db = createDatabase({ connectionString: databaseUrl, applicationName: "hyperspace-ms3-billing-e2e" });
 
 let accountId = "";
@@ -139,14 +141,54 @@ try {
   }, config);
   assertEqual(replay, "topup_transaction_reused", "transaction replay protection");
 
+  config.fetchImpl = directDepositRpcFixture({
+    signature: directDepositSignature,
+    treasury: wallet.publicKey,
+    mint: tokenMint,
+    amountBaseUnits: "1819440",
+    reference: second.topup.reference
+  });
+  const directDeposit = await reconcileDirectSolanaDeposits(db, config, {
+    batchSize: 25,
+    scanIntervalSeconds: 1
+  });
+  assertEqual(directDeposit.depositsCredited, 1, "direct deposit is discovered without a memo");
+  assertEqual(directDeposit.creditedMinor, 181, "direct deposit credits only complete billing minor units");
+  const afterDirectDeposit = await readAccountBillingSummary(db, accountId, config);
+  assertEqual(afterDirectDeposit.balanceMinor, cancelled.balanceMinor + 181, "direct deposit updates the account balance");
+  const remainder = await db.query(
+    `SELECT remainder_base_units::text AS "remainderBaseUnits"
+     FROM solana_deposit_remainders WHERE account_id = $1 AND token_mint = $2`,
+    [accountId, tokenMint]
+  );
+  assertEqual(remainder.rows[0]?.remainderBaseUnits, "9440", "sub-cent USDC is carried forward");
+
+  await db.query(
+    "UPDATE solana_deposit_scan_cursors SET next_scan_at = now() WHERE wallet_id = $1 AND token_mint = $2",
+    [wallet.id, tokenMint]
+  );
+  const duplicateScan = await reconcileDirectSolanaDeposits(db, config, {
+    batchSize: 25,
+    scanIntervalSeconds: 1
+  });
+  assertEqual(duplicateScan.duplicates, 1, "repeated direct deposit scan is idempotent");
+  const directLedger = await db.query(
+    `SELECT count(*)::text::int AS count
+     FROM balance_ledger_entries
+     WHERE source_type = 'solana_direct_deposit' AND source_id = $1`,
+    [directDepositSignature]
+  );
+  assertEqual(directLedger.rows[0]?.count, 1, "direct deposit creates one ledger entry");
+
   console.log(JSON.stringify({
     ok: true,
     wallet: wallet.publicKey,
-    balanceMinor: cancelled.balanceMinor,
-    cashMinor: cancelled.buckets.cashMinor,
+    balanceMinor: afterDirectDeposit.balanceMinor,
+    cashMinor: afterDirectDeposit.buckets.cashMinor,
     promotionalMinor: cancelled.buckets.promotionalMinor,
     replayProtected: true,
-    withdrawalLifecycle: true
+    withdrawalLifecycle: true,
+    directDepositReconciled: true
   }, null, 2));
 } finally {
   if (accountId) {
@@ -173,6 +215,39 @@ function rpcFixture({ reference, treasury, mint, amountBaseUnits }) {
           postTokenBalances: [{ accountIndex: 0, mint, owner: treasury, uiTokenAmount: { amount: amountBaseUnits } }]
         }
       };
+    return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result }), { status: 200 });
+  };
+}
+
+function directDepositRpcFixture({ signature, treasury, mint, amountBaseUnits, reference }) {
+  const tokenAccount = "TokenAccount11111111111111111111111111111111";
+  return async (_url, init) => {
+    const request = JSON.parse(String(init?.body));
+    let result;
+    if (request.method === "getTokenAccountsByOwner") {
+      result = { value: [{ pubkey: tokenAccount }] };
+    } else if (request.method === "getSignaturesForAddress") {
+      result = [{ signature, err: null, blockTime: Math.floor(Date.now() / 1000) }];
+    } else if (request.method === "getSignatureStatuses") {
+      result = { value: [{ err: null, confirmationStatus: "finalized" }] };
+    } else {
+      result = {
+        slot: 456,
+        blockTime: Math.floor(Date.now() / 1000),
+        transaction: {
+          message: {
+            accountKeys: [{ pubkey: treasury, signer: false }],
+            instructions: reference ? [{ program: "spl-memo", parsed: reference }] : []
+          }
+        },
+        meta: {
+          err: null,
+          innerInstructions: [],
+          preTokenBalances: [],
+          postTokenBalances: [{ accountIndex: 0, mint, owner: treasury, uiTokenAmount: { amount: amountBaseUnits } }]
+        }
+      };
+    }
     return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result }), { status: 200 });
   };
 }

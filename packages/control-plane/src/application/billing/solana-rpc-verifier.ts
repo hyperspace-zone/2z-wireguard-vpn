@@ -18,6 +18,16 @@ export type SolanaTopupVerification =
   | { status: "pending"; reason: string }
   | { status: "invalid"; reason: string };
 
+export interface SolanaAddressSignature {
+  signature: string;
+  blockTime: number | null;
+}
+
+export type SolanaDirectDepositVerification =
+  | { status: "verified"; amountBaseUnits: bigint; references: string[]; evidence: Record<string, unknown> }
+  | { status: "pending"; reason: string }
+  | { status: "invalid"; reason: string };
+
 export async function findFinalizedSolanaSignaturesForReference(
   reference: string,
   config: Pick<SolanaRpcVerifierConfig, "rpcUrl" | "fetchImpl">
@@ -32,6 +42,50 @@ export async function findFinalizedSolanaSignaturesForReference(
   return asArray(result).flatMap((value) => {
     const record = asRecord(value);
     return typeof record.signature === "string" && record.err === null ? [record.signature] : [];
+  });
+}
+
+export async function findSolanaTokenAccountsByOwner(
+  owner: string,
+  config: Pick<SolanaRpcVerifierConfig, "rpcUrl" | "tokenMint" | "fetchImpl">
+): Promise<string[]> {
+  if (!config.rpcUrl || !config.tokenMint) {
+    return [];
+  }
+  const result = asRecord(await rpcCall(config.fetchImpl ?? fetch, config.rpcUrl, "getTokenAccountsByOwner", [
+    owner,
+    { mint: config.tokenMint },
+    { encoding: "jsonParsed", commitment: "finalized" }
+  ]));
+  return asArray(result.value).flatMap((value) => {
+    const publicKey = asRecord(value).pubkey;
+    return typeof publicKey === "string" ? [publicKey] : [];
+  });
+}
+
+export async function findFinalizedSolanaSignaturesForAddress(
+  address: string,
+  input: { until?: string; before?: string; limit?: number },
+  config: Pick<SolanaRpcVerifierConfig, "rpcUrl" | "fetchImpl">
+): Promise<SolanaAddressSignature[]> {
+  if (!config.rpcUrl) {
+    return [];
+  }
+  const options: Record<string, unknown> = {
+    limit: Math.max(1, Math.min(1000, input.limit ?? 100)),
+    commitment: "finalized"
+  };
+  if (input.until) options.until = input.until;
+  if (input.before) options.before = input.before;
+  const result = await rpcCall(config.fetchImpl ?? fetch, config.rpcUrl, "getSignaturesForAddress", [address, options]);
+  return asArray(result).flatMap((value) => {
+    const record = asRecord(value);
+    return typeof record.signature === "string" && record.err === null
+      ? [{
+        signature: record.signature,
+        blockTime: typeof record.blockTime === "number" ? record.blockTime : null
+      }]
+      : [];
   });
 }
 
@@ -119,6 +173,71 @@ export async function verifySolanaTopupTransaction(
       amountBaseUnits: expectedBaseUnits.toString(),
       reference: expectation.reference,
       expectedSender: expectation.expectedSender ?? null
+    }
+  };
+}
+
+export async function verifySolanaDirectDepositTransaction(
+  input: { transactionSignature: string; recipientOwner: string },
+  config: Pick<SolanaRpcVerifierConfig, "rpcUrl" | "tokenMint" | "fetchImpl">
+): Promise<SolanaDirectDepositVerification> {
+  if (!config.rpcUrl || !config.tokenMint) {
+    throw new Error("Solana RPC direct deposit verification is not configured");
+  }
+  const fetchImpl = config.fetchImpl ?? fetch;
+  const statuses = await rpcCall(fetchImpl, config.rpcUrl, "getSignatureStatuses", [
+    [input.transactionSignature],
+    { searchTransactionHistory: true }
+  ]);
+  const signatureStatus = asRecord(asArray(asRecord(statuses).value)[0]);
+  if (Object.keys(signatureStatus).length === 0) {
+    return { status: "pending", reason: "transaction_not_found" };
+  }
+  if (signatureStatus.err !== null && signatureStatus.err !== undefined) {
+    return { status: "invalid", reason: "transaction_failed" };
+  }
+  if (signatureStatus.confirmationStatus !== "finalized") {
+    return { status: "pending", reason: "transaction_not_finalized" };
+  }
+
+  const transaction = asRecord(await rpcCall(fetchImpl, config.rpcUrl, "getTransaction", [
+    input.transactionSignature,
+    { encoding: "jsonParsed", commitment: "finalized", maxSupportedTransactionVersion: 0 }
+  ]));
+  if (Object.keys(transaction).length === 0) {
+    return { status: "pending", reason: "finalized_transaction_unavailable" };
+  }
+  const meta = asRecord(transaction.meta);
+  if (meta.err !== null && meta.err !== undefined) {
+    return { status: "invalid", reason: "transaction_failed" };
+  }
+  const message = asRecord(asRecord(transaction.transaction).message);
+  const instructions = [
+    ...asArray(message.instructions),
+    ...asArray(meta.innerInstructions).flatMap((entry) => asArray(asRecord(entry).instructions))
+  ].map(asRecord);
+  const references = instructions.map(instructionMemo).filter(Boolean);
+  const amountBaseUnits = tokenBalanceDelta(
+    asArray(meta.preTokenBalances),
+    asArray(meta.postTokenBalances),
+    input.recipientOwner,
+    config.tokenMint
+  );
+  if (amountBaseUnits <= 0n) {
+    return { status: "invalid", reason: "no_positive_recipient_token_delta" };
+  }
+  return {
+    status: "verified",
+    amountBaseUnits,
+    references,
+    evidence: {
+      slot: transaction.slot,
+      blockTime: transaction.blockTime,
+      confirmationStatus: signatureStatus.confirmationStatus,
+      tokenMint: config.tokenMint,
+      recipientOwner: input.recipientOwner,
+      amountBaseUnits: amountBaseUnits.toString(),
+      references
     }
   };
 }

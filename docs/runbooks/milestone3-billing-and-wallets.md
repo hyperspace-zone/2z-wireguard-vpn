@@ -37,6 +37,21 @@ optional and cannot replace or claim a wallet linked to another account.
    transfers that amount from the account wallet to the configured Hyperspace
    revenue treasury. Unused cash stays available for withdrawal.
 
+The account address also accepts ordinary SPL transfers from exchanges and
+wallets that do not preserve a Solana Pay reference or memo. The worker scans
+the configured token account, verifies the finalized positive balance delta for
+the configured mint, and credits the account identified by the unique custodial
+wallet address. Transaction signatures are claimed in
+`solana_payment_receipts`, so an intent payment and a direct deposit cannot be
+credited twice. Billing uses integer currency minor units; any received token
+fraction below one minor unit is retained in `solana_deposit_remainders` and
+carried into the account's next deposit instead of being rounded up or lost.
+
+Solana Pay remains the preferred path because its reference gives the user an
+explicit amount and payment status. Direct deposits credit the amount actually
+received after any exchange withdrawal fee, not the amount requested in a
+pending top-up intent.
+
 The default documented mapping is mainnet USDC:
 
 ```dotenv
@@ -44,6 +59,9 @@ SOLANA_TOKEN_SYMBOL=USDC
 SOLANA_TOKEN_MINT=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v
 SOLANA_TOKEN_DECIMALS=6
 SOLANA_TOKEN_BASE_UNITS_PER_BILLING_MINOR=10000
+SOLANA_TOPUP_RECONCILE_INTERVAL_SECONDS=15
+SOLANA_DIRECT_DEPOSIT_SCAN_INTERVAL_SECONDS=30
+SOLANA_DIRECT_DEPOSIT_SCAN_BATCH_SIZE=25
 ```
 
 The custodial address is a normal Solana address and can also receive 2Z and

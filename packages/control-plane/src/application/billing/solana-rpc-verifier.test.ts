@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  findFinalizedSolanaSignaturesForAddress,
   findFinalizedSolanaSignaturesForReference,
+  findSolanaTokenAccountsByOwner,
+  verifySolanaDirectDepositTransaction,
   verifySolanaTopupTransaction
 } from "./solana-rpc-verifier.js";
 
@@ -100,7 +103,55 @@ test("Solana reference lookup requests finalized signatures in one RPC config ob
   assert.deepEqual(params, [reference, { limit: 10, commitment: "finalized" }]);
 });
 
-function rpcFixture(options: { confirmationStatus?: string } = {}): typeof fetch {
+test("direct Solana deposits accept the finalized positive USDC delta without a memo", async () => {
+  const result = await verifySolanaDirectDepositTransaction({
+    transactionSignature: signature,
+    recipientOwner: treasury
+  }, {
+    rpcUrl: "https://rpc.testnet.hyperspace.zone",
+    tokenMint: mint,
+    fetchImpl: rpcFixture({ includeMemo: false, amountBaseUnits: 1_819_440n })
+  });
+
+  assert.equal(result.status, "verified");
+  if (result.status === "verified") {
+    assert.equal(result.amountBaseUnits, 1_819_440n);
+    assert.deepEqual(result.references, []);
+  }
+});
+
+test("custodial wallet scan discovers token accounts and uses its signature cursor", async () => {
+  const calls: Array<{ method: string; params: unknown[] }> = [];
+  const fetchImpl: typeof fetch = async (_url, init) => {
+    const request = JSON.parse(String(init?.body)) as { method: string; params: unknown[] };
+    calls.push(request);
+    const result = request.method === "getTokenAccountsByOwner"
+      ? { value: [{ pubkey: "TokenAccount11111111111111111111111111111111" }] }
+      : [{ signature, err: null, blockTime: 1_700_000_000 }];
+    return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result }));
+  };
+
+  assert.deepEqual(await findSolanaTokenAccountsByOwner(treasury, {
+    rpcUrl: "https://rpc.testnet.hyperspace.zone",
+    tokenMint: mint,
+    fetchImpl
+  }), ["TokenAccount11111111111111111111111111111111"]);
+  assert.deepEqual(await findFinalizedSolanaSignaturesForAddress(
+    "TokenAccount11111111111111111111111111111111",
+    { until: "EarlierSignature", limit: 25 },
+    { rpcUrl: "https://rpc.testnet.hyperspace.zone", fetchImpl }
+  ), [{ signature, blockTime: 1_700_000_000 }]);
+  assert.deepEqual(calls[1]?.params, [
+    "TokenAccount11111111111111111111111111111111",
+    { limit: 25, commitment: "finalized", until: "EarlierSignature" }
+  ]);
+});
+
+function rpcFixture(options: {
+  confirmationStatus?: string;
+  includeMemo?: boolean;
+  amountBaseUnits?: bigint;
+} = {}): typeof fetch {
   return async (_url, init) => {
     const request = JSON.parse(String(init?.body)) as { method: string };
     const result = request.method === "getSignatureStatuses"
@@ -115,7 +166,7 @@ function rpcFixture(options: { confirmationStatus?: string } = {}): typeof fetch
               { pubkey: treasury, signer: false }
             ],
             instructions: [
-              { program: "spl-memo", parsed: reference },
+              ...(options.includeMemo === false ? [] : [{ program: "spl-memo", parsed: reference }]),
               {
                 program: "spl-token",
                 parsed: { type: "transferChecked", info: { authority: sender, mint } }
@@ -127,7 +178,12 @@ function rpcFixture(options: { confirmationStatus?: string } = {}): typeof fetch
           err: null,
           innerInstructions: [],
           preTokenBalances: [{ accountIndex: 1, mint, owner: treasury, uiTokenAmount: { amount: "1000000" } }],
-          postTokenBalances: [{ accountIndex: 1, mint, owner: treasury, uiTokenAmount: { amount: "26000000" } }]
+          postTokenBalances: [{
+            accountIndex: 1,
+            mint,
+            owner: treasury,
+            uiTokenAmount: { amount: String(1_000_000n + (options.amountBaseUnits ?? 25_000_000n)) }
+          }]
         }
       };
     return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result }), {
