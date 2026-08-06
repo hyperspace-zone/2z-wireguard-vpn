@@ -89,6 +89,22 @@ export async function findFinalizedSolanaSignaturesForAddress(
   });
 }
 
+export async function readSolanaNativeBalance(
+  address: string,
+  config: Pick<SolanaRpcVerifierConfig, "rpcUrl" | "fetchImpl">
+): Promise<bigint> {
+  if (!config.rpcUrl) return 0n;
+  const result = asRecord(await rpcCall(config.fetchImpl ?? fetch, config.rpcUrl, "getBalance", [
+    address,
+    { commitment: "finalized" }
+  ]));
+  const value = result.value;
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
+    throw new Error("Solana RPC getBalance returned an invalid lamport balance");
+  }
+  return BigInt(value);
+}
+
 export async function verifySolanaTopupTransaction(
   expectation: SolanaTopupExpectation,
   config: SolanaRpcVerifierConfig
@@ -242,6 +258,59 @@ export async function verifySolanaDirectDepositTransaction(
   };
 }
 
+export async function verifyNativeSolDirectDepositTransaction(
+  input: { transactionSignature: string; recipientOwner: string },
+  config: Pick<SolanaRpcVerifierConfig, "rpcUrl" | "fetchImpl">
+): Promise<SolanaDirectDepositVerification> {
+  if (!config.rpcUrl) {
+    throw new Error("Solana RPC native deposit verification is not configured");
+  }
+  const fetchImpl = config.fetchImpl ?? fetch;
+  const statuses = await rpcCall(fetchImpl, config.rpcUrl, "getSignatureStatuses", [
+    [input.transactionSignature],
+    { searchTransactionHistory: true }
+  ]);
+  const signatureStatus = asRecord(asArray(asRecord(statuses).value)[0]);
+  if (Object.keys(signatureStatus).length === 0) return { status: "pending", reason: "transaction_not_found" };
+  if (signatureStatus.err !== null && signatureStatus.err !== undefined) return { status: "invalid", reason: "transaction_failed" };
+  if (signatureStatus.confirmationStatus !== "finalized") return { status: "pending", reason: "transaction_not_finalized" };
+
+  const transaction = asRecord(await rpcCall(fetchImpl, config.rpcUrl, "getTransaction", [
+    input.transactionSignature,
+    { encoding: "jsonParsed", commitment: "finalized", maxSupportedTransactionVersion: 0 }
+  ]));
+  if (Object.keys(transaction).length === 0) return { status: "pending", reason: "finalized_transaction_unavailable" };
+  const meta = asRecord(transaction.meta);
+  if (meta.err !== null && meta.err !== undefined) return { status: "invalid", reason: "transaction_failed" };
+  const message = asRecord(asRecord(transaction.transaction).message);
+  const accountKeys = asArray(message.accountKeys).map(asRecord);
+  const recipientIndex = accountKeys.findIndex((entry) => readPublicKey(entry) === input.recipientOwner);
+  if (recipientIndex < 0) return { status: "invalid", reason: "recipient_account_not_found" };
+  const preBalance = readLamportBalance(asArray(meta.preBalances), recipientIndex);
+  const postBalance = readLamportBalance(asArray(meta.postBalances), recipientIndex);
+  const amountBaseUnits = postBalance - preBalance;
+  if (amountBaseUnits <= 0n) return { status: "invalid", reason: "no_positive_recipient_sol_delta" };
+  const instructions = [
+    ...asArray(message.instructions),
+    ...asArray(meta.innerInstructions).flatMap((entry) => asArray(asRecord(entry).instructions))
+  ].map(asRecord);
+  const references = instructions.map(instructionMemo).filter(Boolean);
+  return {
+    status: "verified",
+    amountBaseUnits,
+    references,
+    evidence: {
+      slot: transaction.slot,
+      blockTime: transaction.blockTime,
+      confirmationStatus: signatureStatus.confirmationStatus,
+      tokenMint: "native",
+      recipientOwner: input.recipientOwner,
+      amountBaseUnits: amountBaseUnits.toString(),
+      references
+    }
+  };
+}
+
 async function rpcCall(fetchImpl: typeof fetch, rpcUrl: string, method: string, params: unknown[]): Promise<unknown> {
   const response = await fetchImpl(rpcUrl, {
     method: "POST",
@@ -266,6 +335,14 @@ function tokenBalanceDelta(preValue: unknown[], postValue: unknown[], owner: str
     delta += (post.get(accountIndex) ?? 0n) - (pre.get(accountIndex) ?? 0n);
   }
   return delta;
+}
+
+function readLamportBalance(values: unknown[], index: number): bigint {
+  const value = values[index];
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
+    throw new Error("Solana transaction contains an invalid lamport balance");
+  }
+  return BigInt(value);
 }
 
 function tokenBalancesByAccount(values: unknown[], owner: string, mint: string): Map<number, bigint> {

@@ -7,7 +7,9 @@ import {
 } from "@hyperspace-zone/contracts";
 import {
   accountHasSufficientBalance,
+  activatePaidSession,
   createSession,
+  deleteUnpaidSession,
   deleteHiddenSession,
   listPublicSessions,
   readOwnSession,
@@ -17,7 +19,8 @@ import {
 import type { Database } from "@hyperspace-zone/db";
 import type { PublicAuthUser } from "../../http/auth.js";
 import { sendApplicationError, type ApplicationErrorCode } from "../../http/errors.js";
-import { asRecord, readParam } from "../../http/request.js";
+import { asRecord, readParam, readString } from "../../http/request.js";
+import type { SolanaConfigPaymentService } from "../../services/solana-config-payment.js";
 
 export function registerPublicSessionsRoutes(
   app: FastifyInstance,
@@ -27,7 +30,9 @@ export function registerPublicSessionsRoutes(
     billing: {
       enforcePositiveBalance: boolean;
       requiredMinBalanceMinor: number;
+      configPaymentEnabled?: boolean;
     };
+    configPaymentService: SolanaConfigPaymentService | null;
     selfServiceAbuseControls: SessionAbuseControlConfig;
   }
 ): void {
@@ -52,9 +57,11 @@ export function registerPublicSessionsRoutes(
       response: {
         201: publicSessionResponseSchema,
         400: errorResponseSchema,
+        402: errorResponseSchema,
         403: errorResponseSchema,
         409: errorResponseSchema,
-        429: errorResponseSchema
+        429: errorResponseSchema,
+        503: errorResponseSchema
       }
     }
   }, async (request, reply) => {
@@ -76,13 +83,76 @@ export function registerPublicSessionsRoutes(
       }
     }
 
-    const created = await createSession(deps.db, user, asRecord(request.body), deps.selfServiceAbuseControls);
+    const body = asRecord(request.body);
+    const paymentRequestId = readString(body, "paymentRequestId");
+    if (deps.billing.configPaymentEnabled && !paymentRequestId) {
+      return sendApplicationError(reply, "config_payment_request_required", {
+        message: "A payment request ID is required to issue a paid VPN config."
+      });
+    }
+    if (deps.billing.configPaymentEnabled && !deps.configPaymentService) {
+      return sendApplicationError(reply, "config_payment_not_configured", {
+        message: "SOL config payments are temporarily unavailable."
+      });
+    }
+
+    const created = await createSession(
+      deps.db,
+      user,
+      body,
+      deps.selfServiceAbuseControls,
+      { initialPhase: deps.billing.configPaymentEnabled ? "payment_pending" : "requested" }
+    );
     if (created.status === "invalid") {
       return sendApplicationError(
         reply,
         created.error as ApplicationErrorCode,
         created.message ? { message: created.message } : {}
       );
+    }
+
+    if (deps.billing.configPaymentEnabled && deps.configPaymentService) {
+      let payment;
+      try {
+        payment = await deps.configPaymentService.charge({
+          paymentId: paymentRequestId,
+          accountId: user.accountId,
+          sessionId: created.sessionId
+        });
+      } catch (error) {
+        request.log.error({ err: error, paymentRequestId, sessionId: created.sessionId }, "SOL config payment failed");
+        return sendApplicationError(reply, "config_payment_unavailable", {
+          message: "The SOL payment could not be confirmed. Retry Confirm with the same request."
+        });
+      }
+      if (payment.status === "insufficient_funds") {
+        await deleteUnpaidSession(deps.db, user, created.sessionId);
+        return sendApplicationError(reply, "insufficient_solana_funds", {
+          message: "Insufficient SOL for the 0.0001 SOL config payment and Solana network fee. Top up on Billing and try again."
+        });
+      }
+      if (payment.status === "in_progress") {
+        return sendApplicationError(reply, "config_payment_in_progress", {
+          message: "The SOL payment is still being finalized. Retry Confirm shortly."
+        });
+      }
+      if (payment.status === "failed") {
+        return sendApplicationError(reply, "config_payment_unavailable", {
+          message: "The SOL payment failed. Retry Confirm with the same request."
+        });
+      }
+      const activation = await activatePaidSession(
+        deps.db,
+        user,
+        created.sessionId,
+        paymentRequestId,
+        payment.signature
+      );
+      if (activation !== "activated" && activation !== "already_active") {
+        return sendApplicationError(reply, "config_payment_unavailable", {
+          message: "Payment was confirmed, but the VPN config could not be activated. Retry Confirm."
+        });
+      }
     }
 
     const session = await readOwnSession(deps.db, user.accountId, created.sessionId);

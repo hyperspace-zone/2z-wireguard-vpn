@@ -16,6 +16,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ControlPlaneAp
   }
 
   const artifactEncryptionKeyRaw = env.ARTIFACT_ENCRYPTION_KEY;
+  const nativeSolBilling = env.SOLANA_ASSET_KIND === "native";
   return {
     databaseUrl,
     host: env.HOST ?? "127.0.0.1",
@@ -50,15 +51,23 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ControlPlaneAp
     },
     billing: {
       currency: env.BILLING_CURRENCY ?? "USD",
-      solanaTokenSymbol: env.SOLANA_TOKEN_SYMBOL ?? "USDC",
-      solanaTokenMint: env.SOLANA_TOKEN_MINT ?? "",
+      solanaTokenSymbol: env.SOLANA_TOKEN_SYMBOL ?? (nativeSolBilling ? "SOL" : "USDC"),
+      solanaTokenMint: env.SOLANA_TOKEN_MINT ?? (nativeSolBilling ? "native" : ""),
       solanaRpcUrl: env.SOLANA_RPC_URL ?? "",
-      solanaTokenBaseUnitsPerBillingMinor: readPositiveInteger(env, "SOLANA_TOKEN_BASE_UNITS_PER_BILLING_MINOR", 10_000),
-      solanaTokenDecimals: readNonNegativeInteger(env, "SOLANA_TOKEN_DECIMALS", 6),
+      solanaTokenBaseUnitsPerBillingMinor: readPositiveInteger(
+        env,
+        "SOLANA_TOKEN_BASE_UNITS_PER_BILLING_MINOR",
+        nativeSolBilling ? 1 : 10_000
+      ),
+      solanaTokenDecimals: readNonNegativeInteger(env, "SOLANA_TOKEN_DECIMALS", nativeSolBilling ? 9 : 6),
       solanaExplorerTransactionBaseUrl: env.SOLANA_EXPLORER_TX_BASE_URL ?? "https://orbmarkets.io/tx/",
       usageMarkupBps: readNonNegativeInteger(env, "BILLING_USAGE_MARKUP_BPS", 1500),
       enforcePositiveBalance: readBoolean(env, "BILLING_ENFORCE_POSITIVE_BALANCE", false),
-      requiredMinBalanceMinor: readNonNegativeInteger(env, "BILLING_REQUIRED_MIN_BALANCE_MINOR", 0)
+      requiredMinBalanceMinor: readNonNegativeInteger(env, "BILLING_REQUIRED_MIN_BALANCE_MINOR", 0),
+      solanaAssetKind: nativeSolBilling ? "native" : "spl",
+      configPriceLamports: readNonNegativeInteger(env, "SOLANA_CONFIG_PRICE_LAMPORTS", 100_000),
+      configPaymentTreasuryAddress: env.SOLANA_REVENUE_TREASURY_ADDRESS ?? "",
+      configPaymentEnabled: readBoolean(env, "SOLANA_CONFIG_PAYMENT_ENABLED", false)
     },
     publicRateLimit: {
       enabled: readBoolean(env, "PUBLIC_RATE_LIMIT_ENABLED", defaultPublicRateLimitConfig.enabled),

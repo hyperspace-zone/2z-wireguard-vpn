@@ -3,6 +3,7 @@ import type { FromSchema } from "json-schema-to-ts";
 export const sessionModeValues = ["IpToIp", "FullTunnel"] as const;
 export const desiredSessionStateValues = ["Active", "Revoked"] as const;
 export const sessionPhaseValues = [
+  "payment_pending",
   "requested",
   "probing",
   "scheduling",

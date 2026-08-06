@@ -1182,13 +1182,17 @@ GOOGLE_OAUTH_STATE_TTL_SECONDS=600
 
 # Permanent account-scoped Solana deposit wallets.
 CUSTODIAL_WALLET_ENCRYPTION_KEY=${CUSTODIAL_WALLET_ENCRYPTION_KEY}
-BILLING_CURRENCY=USD
-SOLANA_TOKEN_SYMBOL=USDC
-SOLANA_TOKEN_MINT=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v
-SOLANA_TOKEN_DECIMALS=6
-SOLANA_TOKEN_BASE_UNITS_PER_BILLING_MINOR=10000
+BILLING_CURRENCY=SOL
+SOLANA_ASSET_KIND=native
+SOLANA_TOKEN_SYMBOL=SOL
+SOLANA_TOKEN_MINT=native
+SOLANA_TOKEN_DECIMALS=9
+SOLANA_TOKEN_BASE_UNITS_PER_BILLING_MINOR=1
 SOLANA_RPC_URL=replace-with-private-solana-rpc-url
 SOLANA_EXPLORER_TX_BASE_URL=https://orbmarkets.io/tx/
+SOLANA_CONFIG_PAYMENT_ENABLED=true
+SOLANA_CONFIG_PRICE_LAMPORTS=100000
+SOLANA_REVENUE_TREASURY_ADDRESS=replace-with-platform-solana-wallet
 BILLING_USAGE_MARKUP_BPS=1500
 BILLING_ENFORCE_POSITIVE_BALANCE=false
 BILLING_REQUIRED_MIN_BALANCE_MINOR=0
@@ -1205,9 +1209,9 @@ per window, IP-to-IP targets must be public IPv4 `/32` destinations unless
 explicitly overridden. Full-tunnel configs may be unrestricted by source; if a
 source restriction is supplied, the API only validates that it is an IPv4 CIDR.
 
-New deposits use the permanent account address. The worker scans its SPL token
-account and requires finalized RPC confirmation, the exact configured mint,
-matching recipient owner, and a positive balance delta before claiming the
+New deposits use the permanent account address. In native SOL mode, the worker
+scans that address and requires finalized RPC confirmation plus a positive
+recipient lamport delta before claiming the
 globally unique transaction signature and crediting the immutable balance ledger.
 Historical payment intents remain readable only for migration reconciliation. See
 `docs/runbooks/milestone3-billing-and-wallets.md`.
@@ -1383,14 +1387,15 @@ WORKER_OBSERVABILITY_HOST=0.0.0.0
 WORKER_OBSERVABILITY_PORT=9091
 ARTIFACT_ENCRYPTION_KEY=${ARTIFACT_ENCRYPTION_KEY}
 SOLANA_RPC_URL=${SOLANA_RPC_URL:-}
-SOLANA_TOKEN_SYMBOL=${SOLANA_TOKEN_SYMBOL:-USDC}
-SOLANA_TOKEN_MINT=${SOLANA_TOKEN_MINT:-EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v}
-SOLANA_TOKEN_DECIMALS=${SOLANA_TOKEN_DECIMALS:-6}
-SOLANA_TOKEN_BASE_UNITS_PER_BILLING_MINOR=${SOLANA_TOKEN_BASE_UNITS_PER_BILLING_MINOR:-10000}
+SOLANA_ASSET_KIND=${SOLANA_ASSET_KIND:-native}
+SOLANA_TOKEN_SYMBOL=${SOLANA_TOKEN_SYMBOL:-SOL}
+SOLANA_TOKEN_MINT=${SOLANA_TOKEN_MINT:-native}
+SOLANA_TOKEN_DECIMALS=${SOLANA_TOKEN_DECIMALS:-9}
+SOLANA_TOKEN_BASE_UNITS_PER_BILLING_MINOR=${SOLANA_TOKEN_BASE_UNITS_PER_BILLING_MINOR:-1}
 SOLANA_DEPOSIT_RECONCILE_INTERVAL_SECONDS=15
 SOLANA_DIRECT_DEPOSIT_SCAN_INTERVAL_SECONDS=30
 SOLANA_DIRECT_DEPOSIT_SCAN_BATCH_SIZE=25
-BILLING_CURRENCY=${BILLING_CURRENCY:-USD}
+BILLING_CURRENCY=${BILLING_CURRENCY:-SOL}
 BILLING_USAGE_MARKUP_BPS=${BILLING_USAGE_MARKUP_BPS:-1500}
 RETAIL_BILLING_ENABLED=${RETAIL_BILLING_ENABLED:-false}
 RETAIL_BILLING_MODE=${RETAIL_BILLING_MODE:-shadow}

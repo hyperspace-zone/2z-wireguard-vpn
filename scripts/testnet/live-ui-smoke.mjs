@@ -101,16 +101,16 @@ try {
   await expectText(page, "Benchmarks");
   result.steps.push("logged_in");
 
-  assert(await page.getByRole("heading", { name: "Deposit USDC" }).count() === 0, "billing controls must not be rendered on dashboard");
+  assert(await page.getByRole("heading", { name: "Deposit SOL" }).count() === 0, "billing controls must not be rendered on dashboard");
   await page.getByLabel("Primary").getByRole("link", { name: "Billing", exact: true }).click();
   await page.waitForURL(`${webBase}/billing`, { timeout: 30000 });
-  await expectText(page, "Deposit USDC");
+  await expectText(page, "Deposit SOL");
   const depositAddress = (await page.locator(".wallet-row").first().textContent())?.trim() || "";
   assert(/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(depositAddress), "custodial Solana deposit address is missing or invalid");
   await page.locator(".deposit-qr svg").waitFor({ timeout: 30000 });
   await expectText(page, "Deposit history");
   await page.getByRole("button", { name: "Refresh deposits" }).click();
-  await page.getByRole("heading", { name: "Deposit USDC" }).waitFor({ timeout: 30000 });
+  await page.getByRole("heading", { name: "Deposit SOL" }).waitFor({ timeout: 30000 });
   assert(await page.locator("#topup-form").count() === 0, "fixed-amount top-up form must not be present");
   assert(await page.getByRole("button", { name: /Connect external wallet/ }).count() === 0, "external wallet link must not be present");
   result.custodialWallet = depositAddress;
@@ -170,7 +170,7 @@ try {
   await page.locator('select[name="egressGateName"]').selectOption(egress.name);
   await page.getByRole("button", { name: "Review config" }).click();
   await expectText(page, "Step 2");
-  await expectText(page, "Confirm and create");
+  await expectText(page, "Pay 0.0001 SOL and create");
   await page.getByText("Full tunnel", { exact: true }).first().waitFor();
   const reviewText = await page.locator(".review-step").innerText();
   assert(!/RTT/i.test(reviewText), "review route overview must not show browser RTT values");
@@ -179,7 +179,7 @@ try {
   const accessToken = await page.evaluate(() => localStorage.getItem("hyperspaceAccessToken"));
   assert(accessToken, "browser did not store access token");
   const authedApi = makeApiClient(apiBase, accessToken);
-  await page.getByRole("button", { name: "Confirm and create" }).click();
+  await page.getByRole("button", { name: "Pay 0.0001 SOL and create" }).click();
   await page.waitForURL(`${webBase}/create-config`, { timeout: 30000 });
   await page.getByRole("img", { name: "WireGuard configuration QR code" }).waitFor({ timeout: 300000 });
   assert(page.url() === `${webBase}/create-config`, "config flow redirected before the user acknowledged the result");

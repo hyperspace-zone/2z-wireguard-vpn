@@ -47,6 +47,7 @@ if (screenshotDir) {
 }
 
 let createdSessionPayload = null;
+const createdSessionAttempts = [];
 let registeredUserPayload = null;
 let authenticated = false;
 let googleRedirectAfter = null;
@@ -147,16 +148,16 @@ try {
     if (path === "/v1/public/billing") {
       return json(route, {
         accountId: "account-1",
-        balanceMinor: 2500,
-        currency: "USD",
+        balanceMinor: 2500000,
+        currency: "SOL",
         ledger: [],
         deposit: {
-          chain: "solana", address: depositWalletPublicKey, tokenSymbol: "USDC", tokenMint: "mint", tokenDecimals: 6,
+          chain: "solana", address: depositWalletPublicKey, tokenSymbol: "SOL", tokenMint: "native", tokenDecimals: 9,
           qrSvg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><path d="M0 0h10v10H0z"/></svg>'
         },
         deposits: [{
-          transactionSignature: depositSignature, chain: "solana", status: "finalized", tokenSymbol: "USDC", tokenMint: "mint",
-          tokenAmountBaseUnits: "1819440", tokenDecimals: 6, creditedAmountMinor: 181, currency: "USD",
+          transactionSignature: depositSignature, chain: "solana", status: "finalized", tokenSymbol: "SOL", tokenMint: "native",
+          tokenAmountBaseUnits: "1819440", tokenDecimals: 9, creditedAmountMinor: 1819440, currency: "SOL",
           observedAt: new Date().toISOString(), explorerUrl: `https://orbmarkets.io/tx/${depositSignature}`
         }],
         availableBalanceMinor: 2500,
@@ -165,7 +166,9 @@ try {
         state: { state: "active", overdrawnAt: null, suspensionDueAt: null, suspendedAt: null, withdrawalEligibleAt: null, lastSettledAt: null },
         plan: { code: "standard", version: 1, displayName: "Standard", activeConfigMonthlyMinor: 100, trafficPerGbMinor: 10, gracePeriodSeconds: 86400, withdrawalCooldownSeconds: 86400, minimumWithdrawalMinor: 100 },
         usage: [],
-        withdrawals: []
+        withdrawals: [],
+        walletBalanceBaseUnits: "2500000",
+        configPriceBaseUnits: "100000"
       });
     }
     if (path === "/v1/public/sessions" && method === "GET") {
@@ -177,6 +180,13 @@ try {
     }
     if (path === "/v1/public/sessions" && method === "POST") {
       createdSessionPayload = request.postDataJSON();
+      createdSessionAttempts.push(createdSessionPayload);
+      if (createdSessionAttempts.length === 1) {
+        return json(route, {
+          error: "insufficient_solana_funds",
+          message: "Insufficient SOL for the 0.0001 SOL config payment and Solana network fee. Top up on Billing and try again."
+        }, 402);
+      }
       const session = {
         id: "session-1", mode: createdSessionPayload.mode, desiredState: "Active", phase: "provisioning",
         destinationCidrs: ["1.1.1.1/32"], sourceCidr: null, label: "Smoke config",
@@ -218,15 +228,15 @@ try {
   await page.locator("#email-code-verify-form input[name=code]").fill(mockedOtp);
   await page.locator("#email-code-verify-form button[type=submit]").click();
 
-  await page.getByLabel("Billing balance $25.00").waitFor();
+  await page.getByLabel("Billing balance 0.0025 SOL").waitFor();
   await page.getByLabel("Primary").getByRole("link", { name: "Billing", exact: true }).click();
   await page.getByRole("heading", { name: "Billing", exact: true }).waitFor();
   await page.getByText(depositWalletPublicKey, { exact: true }).waitFor();
   await page.locator(".deposit-qr svg").waitFor();
-  await page.getByText("1.81944 USDC", { exact: true }).waitFor();
+  await page.getByText("0.00181944 SOL", { exact: true }).waitFor();
   await page.getByRole("link", { name: /3nRbdPZB/ }).waitFor();
   await page.getByRole("button", { name: "Refresh deposits" }).click();
-  await page.getByText("1.81944 USDC", { exact: true }).waitFor();
+  await page.getByText("0.00181944 SOL", { exact: true }).waitFor();
   if (await page.getByRole("button", { name: /Connect external wallet/ }).count()) {
     throw new Error("external wallet linking must not be exposed");
   }
@@ -241,7 +251,7 @@ try {
   await capture(page, "billing-mobile");
   await page.setViewportSize({ width: 1280, height: 720 });
   await page.getByLabel("Primary").getByRole("link", { name: "Dashboard", exact: true }).click();
-  if (await page.getByRole("heading", { name: "Deposit USDC" }).count()) {
+  if (await page.getByRole("heading", { name: "Deposit SOL" }).count()) {
     throw new Error("billing controls must not be rendered on the dashboard");
   }
   await capture(page, "dashboard-without-billing");
@@ -268,8 +278,12 @@ try {
   await page.locator("select[name=egressGateName]").selectOption("gate-na-sjc-01");
   await page.getByRole("button", { name: "Review config" }).click();
   await page.getByText("Full tunnel", { exact: true }).first().waitFor();
+  await page.getByText("0.0001 SOL", { exact: true }).waitFor();
   await capture(page, "simple-config-review");
-  await page.getByRole("button", { name: "Confirm and create" }).click();
+  await page.getByRole("button", { name: "Pay 0.0001 SOL and create" }).click();
+  await page.getByText("Insufficient SOL for 0.0001 SOL plus the Solana network fee. Top up your wallet on Billing, then retry Confirm.", { exact: true }).waitFor();
+  await page.getByRole("link", { name: "Open Billing" }).waitFor();
+  await page.getByRole("button", { name: "Pay 0.0001 SOL and create" }).click();
 
   await page.waitForURL(`${baseUrl}/create-config`);
   await page.getByText("Preparing WireGuard config", { exact: true }).waitFor();
@@ -307,9 +321,13 @@ try {
   if (createdSessionPayload?.mode !== "FullTunnel" ||
       createdSessionPayload?.ingressGateName !== "gate-eu-ams-21" ||
       createdSessionPayload?.egressGateName !== "gate-na-sjc-01" ||
+      !/^[0-9a-f-]{36}$/i.test(createdSessionPayload?.paymentRequestId || "") ||
       createdSessionPayload?.targetIp !== undefined ||
       createdSessionPayload?.pathPolicy !== undefined) {
     throw new Error(`expected one-choice full-tunnel payload, got ${JSON.stringify(createdSessionPayload)}`);
+  }
+  if (createdSessionAttempts.length !== 2 || createdSessionAttempts[0]?.paymentRequestId !== createdSessionAttempts[1]?.paymentRequestId) {
+    throw new Error(`payment retry must reuse its idempotency key, got ${JSON.stringify(createdSessionAttempts)}`);
   }
   if (registeredUserPayload?.email !== testEmail) {
     throw new Error(`expected password registration before OTP verification, got ${JSON.stringify(registeredUserPayload)}`);

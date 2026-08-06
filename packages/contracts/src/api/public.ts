@@ -171,7 +171,7 @@ export const publicBillingDepositSchema = {
 export const publicBillingSummaryResponseSchema = {
   type: "object",
   additionalProperties: false,
-  required: ["accountId", "balanceMinor", "currency", "ledger", "deposit", "deposits", "buckets", "state", "plan", "availableBalanceMinor", "withdrawableBalanceMinor", "usage", "withdrawals"],
+  required: ["accountId", "balanceMinor", "currency", "ledger", "deposit", "deposits", "buckets", "state", "plan", "availableBalanceMinor", "withdrawableBalanceMinor", "usage", "withdrawals", "walletBalanceBaseUnits", "configPriceBaseUnits"],
   properties: {
     accountId: { type: "string" },
     balanceMinor: { type: "number" },
@@ -239,7 +239,9 @@ export const publicBillingSummaryResponseSchema = {
           requestedAt: { type: "string", format: "date-time" }, submittedAt: { type: ["string", "null"], format: "date-time" }, confirmedAt: { type: ["string", "null"], format: "date-time" }
         }
       }
-    }
+    },
+    walletBalanceBaseUnits: { type: ["string", "null"] },
+    configPriceBaseUnits: { type: "string" }
   }
 } as const;
 
@@ -256,7 +258,8 @@ export const publicCreateSessionRequestSchema = {
     ...sessionSpecSchema.properties,
     label: { type: "string" },
     targetIp: { type: "string" },
-    sourceIp: { type: "string" }
+    sourceIp: { type: "string" },
+    paymentRequestId: { type: "string", format: "uuid" }
   }
 } as const;
 

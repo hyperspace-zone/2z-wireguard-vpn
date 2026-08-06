@@ -43,6 +43,42 @@ test("createSession rejects when account active-session quota is reached", async
   assert.ok(!calls.some((call) => /INSERT INTO sessions/.test(call.sql)));
 });
 
+test("createSession reuses an existing paid request before quota checks or inserts", async () => {
+  const calls: string[] = [];
+  const existingSessionId = "26df9140-2f08-4c64-b270-429e4d74fb97";
+  const db: TransactionalQueryable = {
+    async query<Row extends object>() {
+      assert.fail("createSession must use the transaction client");
+      return { rows: [] as Row[], rowCount: 0 };
+    },
+    async transaction<T>(fn: (client: Queryable) => Promise<T>) {
+      return fn({
+        async query<Row extends object>(sql: string) {
+          calls.push(sql);
+          if (/SELECT id\s+FROM accounts/.test(sql)) {
+            return { rows: [{ id: "account-1" } as Row], rowCount: 1 };
+          }
+          if (/create_request_id/.test(sql)) {
+            return { rows: [{ id: existingSessionId } as Row], rowCount: 1 };
+          }
+          assert.fail(`unexpected SQL: ${sql}`);
+        }
+      });
+    }
+  };
+
+  const result = await createSession(db, { id: "user-1", accountId: "account-1" }, {
+    mode: "FullTunnel",
+    ingressGateName: "gate-a",
+    egressGateName: "gate-b",
+    paymentRequestId: "a286e955-fd9f-4cad-811f-b48a451507f8"
+  });
+
+  assert.deepEqual(result, { status: "created", sessionId: existingSessionId });
+  assert.equal(calls.length, 2);
+  assert.ok(!calls.some((sql) => /COUNT\(\*\)|INSERT INTO sessions/.test(sql)));
+});
+
 function queryResponse<Row extends object>(sql: string): { rows: Row[]; rowCount: number } {
   if (/SELECT id\s+FROM accounts/.test(sql)) {
     return { rows: [{ id: "account-1" } as Row], rowCount: 1 };

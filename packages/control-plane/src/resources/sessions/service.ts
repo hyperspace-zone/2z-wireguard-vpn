@@ -3,6 +3,7 @@ import type { SessionAbuseControlConfig } from "./abuse-controls.js";
 import {
   countNonTerminalSessionsForAccount,
   countRecentSessionCreatesForAccount,
+  findSessionIdByCreateRequest,
   findSessionPhaseForUpdate,
   findOwnedSessionPhaseForUpdate,
   findOwnedSessionVisibilityForUpdate,
@@ -51,10 +52,18 @@ export async function createRequestedSessionWithAbuseControls(
   db: TransactionalQueryable,
   actor: SessionOwner,
   parsed: SessionCreateParsed,
-  config: SessionAbuseControlConfig
+  config: SessionAbuseControlConfig,
+  initialPhase = requestedSessionInitialTransition().phase
 ): Promise<CreateRequestedSessionCreated | CreateRequestedSessionRejected> {
   return db.transaction(async (client) => {
     await lockAccountForSessionCreate(client, actor.accountId);
+
+    if (parsed.createRequestId) {
+      const existingSessionId = await findSessionIdByCreateRequest(client, actor.accountId, parsed.createRequestId);
+      if (existingSessionId) {
+        return { status: "created", sessionId: existingSessionId };
+      }
+    }
 
     const activeCount = await countNonTerminalSessionsForAccount(client, actor.accountId);
     if (activeCount >= config.maxActiveSessionsPerAccount) {
@@ -94,7 +103,7 @@ export async function createRequestedSessionWithAbuseControls(
     return {
       status: "created",
       sessionId: await insertRequestedSessionInTransaction(client, actor, parsed, {
-        initialPhase: requestedSessionInitialTransition().phase
+        initialPhase
       })
     };
   });

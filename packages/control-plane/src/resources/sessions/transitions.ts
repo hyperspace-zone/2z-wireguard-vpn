@@ -1,6 +1,7 @@
 export type SessionDesiredState = "Active" | "Revoked";
 
 export type SessionPhase =
+  | "payment_pending"
   | "requested"
   | "probing"
   | "scheduling"

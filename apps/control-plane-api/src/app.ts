@@ -28,6 +28,10 @@ import { registerPublicBillingRoutes } from "./surfaces/public/billing.routes.js
 import { registerPublicGatesRoutes } from "./surfaces/public/gates.routes.js";
 import { registerPublicNetworkRoutes } from "./surfaces/public/network.routes.js";
 import { registerPublicSessionsRoutes } from "./surfaces/public/sessions.routes.js";
+import {
+  createSolanaConfigPaymentService,
+  type SolanaConfigPaymentService
+} from "./services/solana-config-payment.js";
 
 export interface ControlPlaneApiRuntimeConfig {
   authSessionTtlSeconds: number;
@@ -60,6 +64,7 @@ export interface CreateControlPlaneApiAppInput {
   config: ControlPlaneApiRuntimeConfig;
   health?: HealthRegistry;
   metrics?: RuntimeMetrics;
+  configPaymentService?: SolanaConfigPaymentService | null;
 }
 
 export function createApp(input: CreateControlPlaneApiAppInput): FastifyInstance {
@@ -67,6 +72,22 @@ export function createApp(input: CreateControlPlaneApiAppInput): FastifyInstance
   const auth = createHttpAuth({ db, adminToken: config.adminToken });
   const health = input.health ?? createHealthRegistry("control-plane-api");
   const metrics = input.metrics ?? createRuntimeMetrics({ service: "control-plane-api" });
+  const configPaymentService = input.configPaymentService !== undefined
+    ? input.configPaymentService
+    : config.billing.configPaymentEnabled &&
+      config.billing.solanaAssetKind === "native" &&
+      config.billing.solanaRpcUrl &&
+      config.billing.configPaymentTreasuryAddress &&
+      config.billing.configPriceLamports &&
+      config.walletAuth.custodialEncryptionKey
+      ? createSolanaConfigPaymentService({
+        db,
+        rpcUrl: config.billing.solanaRpcUrl,
+        treasuryAddress: config.billing.configPaymentTreasuryAddress,
+        amountLamports: config.billing.configPriceLamports,
+        custodialEncryptionKey: config.walletAuth.custodialEncryptionKey
+      })
+      : null;
   health.setComponent("process", { state: "starting", message: "Fastify app is being created." });
   health.setComponent("configuration", { state: "ready", message: "Runtime configuration loaded." });
 
@@ -105,6 +126,7 @@ export function createApp(input: CreateControlPlaneApiAppInput): FastifyInstance
     db,
     requireUser: auth.requireUser,
     billing: config.billing,
+    configPaymentService,
     selfServiceAbuseControls: config.selfServiceAbuseControls
   });
   registerPublicArtifactRoutes(app, {

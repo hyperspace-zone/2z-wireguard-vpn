@@ -16,6 +16,10 @@ export type ApplicationErrorCode =
   | "artifact_encryption_not_configured"
   | "artifact_not_ready"
   | "auth_required"
+  | "config_payment_in_progress"
+  | "config_payment_not_configured"
+  | "config_payment_request_required"
+  | "config_payment_unavailable"
   | "credentials_required"
   | "destination_not_allowed"
   | "destination_required"
@@ -31,6 +35,7 @@ export type ApplicationErrorCode =
   | "ingress_gate_required"
   | "invalid_auth_session"
   | "invalid_client_public_key"
+  | "invalid_create_request_id"
   | "invalid_credentials"
   | "invalid_destination_cidr"
   | "invalid_email_code"
@@ -48,6 +53,7 @@ export type ApplicationErrorCode =
   | "rate_limited"
   | "route_policy_not_satisfied"
   | "session_create_rate_limited"
+  | "insufficient_solana_funds"
   | "session_requires_positive_balance"
   | "session_not_found"
   | "session_not_revoked"
@@ -74,13 +80,18 @@ function applicationErrorStatus(code: ApplicationErrorCode): number {
     case "agent_surface_disabled":
     case "artifact_encryption_not_configured":
     case "oauth_not_configured":
+    case "config_payment_not_configured":
+    case "config_payment_unavailable":
       return 503;
     case "artifact_not_ready":
     case "email_already_registered":
     case "session_requires_positive_balance":
     case "session_quota_exceeded":
     case "session_not_revoked":
+    case "config_payment_in_progress":
       return 409;
+    case "insufficient_solana_funds":
+      return 402;
     case "rate_limited":
     case "session_create_rate_limited":
       return 429;
@@ -104,12 +115,14 @@ function applicationErrorStatus(code: ApplicationErrorCode): number {
     case "session_not_found":
       return 404;
     case "credentials_required":
+    case "config_payment_request_required":
     case "destination_required":
     case "distinct_gates_required":
     case "egress_gate_required":
     case "email_code_expired":
     case "ingress_gate_required":
     case "invalid_client_public_key":
+    case "invalid_create_request_id":
     case "invalid_destination_cidr":
     case "invalid_email_code":
     case "invalid_email":

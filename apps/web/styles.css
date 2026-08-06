@@ -1196,6 +1196,39 @@ small {
   border-color: #d92d20;
 }
 
+.config-payment-panel {
+  align-items: center;
+  background: #f3f8f5;
+  border: 1px solid #b8d7c3;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(150px, auto) 1fr;
+  padding: 14px;
+}
+
+.config-payment-panel div {
+  display: grid;
+  gap: 3px;
+}
+
+.config-payment-panel strong {
+  font-size: 20px;
+}
+
+.config-payment-panel p,
+.config-payment-error p {
+  margin: 0;
+}
+
+.config-payment-error {
+  align-items: start;
+  background: #fff1f3;
+  border: 1px solid #f1aeb8;
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+}
+
 .loading-spinner {
   animation: loading-spin 0.8s linear infinite;
   border: 3px solid #d8dee8;

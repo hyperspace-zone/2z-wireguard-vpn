@@ -36,6 +36,7 @@ import {
 } from "../../resources/billing/solana-deposit-repository.js";
 import {
   findFinalizedSolanaSignaturesForReference,
+  readSolanaNativeBalance,
   verifySolanaTopupTransaction
 } from "./solana-rpc-verifier.js";
 
@@ -48,6 +49,10 @@ export interface BillingConfig {
   solanaTokenDecimals: number;
   solanaExplorerTransactionBaseUrl: string;
   usageMarkupBps: number;
+  solanaAssetKind?: "spl" | "native";
+  configPriceLamports?: number;
+  configPaymentTreasuryAddress?: string;
+  configPaymentEnabled?: boolean;
   fetchImpl?: typeof fetch;
 }
 
@@ -65,6 +70,8 @@ export interface BillingSummary {
   withdrawableBalanceMinor: number;
   usage: AccountUsageSummaryRow[];
   withdrawals: WithdrawalRequestRow[];
+  walletBalanceBaseUnits: string | null;
+  configPriceBaseUnits: string;
 }
 
 export interface BillingDepositDestination {
@@ -115,10 +122,19 @@ export async function readAccountBillingSummary(
     listAccountUsageSummaries(db, accountId),
     listWithdrawalRequests(db, accountId)
   ]);
+  const nativeBalance = config?.solanaAssetKind === "native" && wallet
+    ? await safeReadNativeBalance(wallet.publicKey, config)
+    : null;
+  const nativeSolBilling = config?.solanaAssetKind === "native";
+  const displayCurrency = nativeSolBilling ? "SOL" : balance.currency;
+  const displayBalanceMinor = nativeSolBilling ? Number(nativeBalance ?? 0n) : balance.balanceMinor;
+  const activeReceipts = config
+    ? receipts.filter((receipt) => (receipt.tokenMint ?? config.solanaTokenMint) === config.solanaTokenMint)
+    : [];
   return {
     accountId,
-    balanceMinor: balance.balanceMinor,
-    currency: balance.currency,
+    balanceMinor: displayBalanceMinor,
+    currency: displayCurrency,
     ledger,
     deposit: config && wallet && config.solanaTokenMint ? {
       chain: "solana",
@@ -127,7 +143,7 @@ export async function readAccountBillingSummary(
       tokenMint: config.solanaTokenMint,
       tokenDecimals: config.solanaTokenDecimals
     } : null,
-    deposits: config ? receipts.map((receipt) => ({
+    deposits: config ? activeReceipts.map((receipt) => ({
       transactionSignature: receipt.transactionSignature,
       chain: "solana" as const,
       status: "finalized" as const,
@@ -137,18 +153,33 @@ export async function readAccountBillingSummary(
         ?? (BigInt(receipt.creditedAmountMinor) * BigInt(config.solanaTokenBaseUnitsPerBillingMinor)).toString(),
       tokenDecimals: config.solanaTokenDecimals,
       creditedAmountMinor: receipt.creditedAmountMinor,
-      currency: balance.currency,
+      currency: displayCurrency,
       observedAt: receipt.observedAt,
       explorerUrl: explorerTransactionUrl(config.solanaExplorerTransactionBaseUrl, receipt.transactionSignature)
     })) : [],
     buckets,
     state,
     plan,
-    availableBalanceMinor: availableBillingBalance(buckets),
-    withdrawableBalanceMinor: Math.max(0, buckets.cashMinor - buckets.reservedWithdrawalMinor - buckets.debtMinor),
+    availableBalanceMinor: nativeSolBilling ? Number(nativeBalance ?? 0n) : availableBillingBalance(buckets),
+    withdrawableBalanceMinor: nativeSolBilling
+      ? Number(nativeBalance ?? 0n)
+      : Math.max(0, buckets.cashMinor - buckets.reservedWithdrawalMinor - buckets.debtMinor),
     usage,
-    withdrawals
+    withdrawals,
+    walletBalanceBaseUnits: nativeBalance?.toString() ?? null,
+    configPriceBaseUnits: String(config?.configPriceLamports ?? 0)
   };
+}
+
+async function safeReadNativeBalance(walletAddress: string, config: BillingConfig): Promise<bigint | null> {
+  try {
+    return await readSolanaNativeBalance(walletAddress, {
+      rpcUrl: config.solanaRpcUrl,
+      ...(config.fetchImpl ? { fetchImpl: config.fetchImpl } : {})
+    });
+  } catch {
+    return null;
+  }
 }
 
 function explorerTransactionUrl(baseUrl: string, transactionSignature: string): string {

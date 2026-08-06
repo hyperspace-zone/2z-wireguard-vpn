@@ -102,6 +102,10 @@ export {
   type CreateSessionSuccess,
   type PublicSessionActor
 } from "./application/sessions/create-session.scenario.js";
+export {
+  activatePaidSession,
+  deleteUnpaidSession
+} from "./application/sessions/payment-session.scenario.js";
 export { deleteHiddenSession } from "./application/sessions/delete-session.scenario.js";
 export { revokeSession } from "./application/sessions/revoke-session.scenario.js";
 export { type Principal } from "./authz/principals.js";
@@ -143,6 +147,17 @@ export {
 } from "./resources/artifacts/download-tokens.js";
 export { recordGateHeartbeat, type GateHeartbeatReport, type GateRuntimeIdentity } from "./resources/gates/service.js";
 export { insertDoubleZeroTenantBillingSnapshot } from "./resources/billing/repository.js";
+export {
+  claimSolanaConfigPaymentProcessing,
+  confirmSolanaConfigPayment,
+  ensureSolanaConfigPayment,
+  failSolanaConfigPayment,
+  readSolanaConfigPayment,
+  recordSolanaConfigPaymentFeeEstimate,
+  recordSolanaConfigPaymentSubmission,
+  type SolanaConfigPaymentRow
+} from "./resources/billing/solana-config-payment-repository.js";
+export { readCustodialWalletEncryptedKey } from "./resources/wallets/repository.js";
 export {
   readBillingImportCursor,
   recordBillingImportFailure,

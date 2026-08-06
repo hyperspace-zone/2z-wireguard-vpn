@@ -4,6 +4,8 @@ import {
   findFinalizedSolanaSignaturesForAddress,
   findFinalizedSolanaSignaturesForReference,
   findSolanaTokenAccountsByOwner,
+  readSolanaNativeBalance,
+  verifyNativeSolDirectDepositTransaction,
   verifySolanaDirectDepositTransaction,
   verifySolanaTopupTransaction
 } from "./solana-rpc-verifier.js";
@@ -120,6 +122,58 @@ test("direct Solana deposits accept the finalized positive USDC delta without a 
   }
 });
 
+test("native SOL balance reads finalized lamports", async () => {
+  const calls: Array<{ method: string; params: unknown[] }> = [];
+  const fetchImpl: typeof fetch = async (_url, init) => {
+    const request = JSON.parse(String(init?.body)) as { method: string; params: unknown[] };
+    calls.push(request);
+    return new Response(JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      result: { context: { slot: 123 }, value: 1_819_440 }
+    }));
+  };
+
+  assert.equal(await readSolanaNativeBalance(treasury, {
+    rpcUrl: "https://rpc.testnet.hyperspace.zone",
+    fetchImpl
+  }), 1_819_440n);
+  assert.deepEqual(calls, [{
+    jsonrpc: "2.0",
+    id: 1,
+    method: "getBalance",
+    params: [treasury, { commitment: "finalized" }]
+  }]);
+});
+
+test("native SOL deposits use the recipient's finalized net lamport increase", async () => {
+  const result = await verifyNativeSolDirectDepositTransaction({
+    transactionSignature: signature,
+    recipientOwner: treasury
+  }, {
+    rpcUrl: "https://rpc.testnet.hyperspace.zone",
+    fetchImpl: nativeSolRpcFixture({ recipientDeltaLamports: 1_819_440 })
+  });
+
+  assert.equal(result.status, "verified");
+  if (result.status === "verified") {
+    assert.equal(result.amountBaseUnits, 1_819_440n);
+    assert.deepEqual(result.references, [reference]);
+  }
+});
+
+test("native SOL deposits reject transactions without a positive recipient delta", async () => {
+  const result = await verifyNativeSolDirectDepositTransaction({
+    transactionSignature: signature,
+    recipientOwner: treasury
+  }, {
+    rpcUrl: "https://rpc.testnet.hyperspace.zone",
+    fetchImpl: nativeSolRpcFixture({ recipientDeltaLamports: 0 })
+  });
+
+  assert.deepEqual(result, { status: "invalid", reason: "no_positive_recipient_sol_delta" });
+});
+
 test("custodial wallet scan discovers token accounts and uses its signature cursor", async () => {
   const calls: Array<{ method: string; params: unknown[] }> = [];
   const fetchImpl: typeof fetch = async (_url, init) => {
@@ -184,6 +238,37 @@ function rpcFixture(options: {
             owner: treasury,
             uiTokenAmount: { amount: String(1_000_000n + (options.amountBaseUnits ?? 25_000_000n)) }
           }]
+        }
+      };
+    return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result }), {
+      status: 200,
+      headers: { "content-type": "application/json" }
+    });
+  };
+}
+
+function nativeSolRpcFixture(options: { recipientDeltaLamports: number }): typeof fetch {
+  return async (_url, init) => {
+    const request = JSON.parse(String(init?.body)) as { method: string };
+    const result = request.method === "getSignatureStatuses"
+      ? { value: [{ err: null, confirmationStatus: "finalized" }] }
+      : {
+        slot: 123,
+        blockTime: 1_700_000_000,
+        transaction: {
+          message: {
+            accountKeys: [
+              { pubkey: sender, signer: true },
+              { pubkey: treasury, signer: false }
+            ],
+            instructions: [{ program: "spl-memo", parsed: reference }]
+          }
+        },
+        meta: {
+          err: null,
+          innerInstructions: [],
+          preBalances: [2_000_000, 500_000],
+          postBalances: [1_995_000, 500_000 + options.recipientDeltaLamports]
         }
       };
     return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result }), {

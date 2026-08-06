@@ -30,30 +30,25 @@ authenticated identity in the application header. The Dashboard contains only
 VPN config management and the gate catalog, so billing activity does not crowd
 the primary network workflow.
 
-1. The worker finds the configured SPL token account owned by each active
-   custodial wallet.
-2. It scans signatures incrementally with a durable per-token-account cursor.
+1. The worker scans each active custodial wallet address for native SOL
+   transfers.
+2. It scans signatures incrementally with a durable per-address cursor.
    Pagination provides backfill after worker or RPC downtime.
 3. The RPC verifier requires all of the following before recording a receipt:
    - signature status is `finalized` and has no transaction error;
-   - the configured mint matches;
-   - the recipient token-account owner is the account deposit wallet;
-   - the finalized recipient balance delta is positive.
+   - the recipient is the account deposit wallet;
+   - the finalized recipient lamport balance delta is positive.
 4. `solana_payment_receipts.transaction_signature` is the global primary key.
    Claiming the receipt, updating the remainder, posting the ledger entry, and
    updating balance buckets happen in one PostgreSQL transaction. Reprocessing
    the same signature cannot produce a second credit, even after a restart.
-5. Billing uses integer currency minor units. Any received fraction below one
-   cent is retained in `solana_deposit_remainders` and carried into the next
-   deposit instead of being rounded up or lost.
-6. When paid cash is consumed by usage or repays debt, an idempotent sweep
-   transfers that amount from the account wallet to the configured Hyperspace
-   revenue treasury. Unused cash stays available for withdrawal.
+5. Native SOL accounting uses lamports without decimal conversion or rounding.
+   The finalized on-chain wallet balance is the available customer balance.
 
-The history displays the exact finalized token amount, credited USD amount,
-UTC observation time, and a transaction link. A sender may transfer any
-positive amount. Exchange withdrawal fees are naturally handled because only
-the amount that actually reached the account wallet is credited. Historical
+The history displays the exact finalized SOL amount, UTC observation time, and
+a transaction link. A sender may transfer any positive amount. Exchange
+withdrawal fees are naturally handled because only the amount that actually
+reached the account wallet is recorded. Historical
 `topup_intents` remain in the database for audit and legacy reconciliation, but
 the public API cannot create new intents.
 
@@ -71,17 +66,41 @@ still adds an external provider. Do not deploy that operational cost until RPC
 scan latency or request volume demonstrates the need. The receipt primary key
 remains the final idempotency boundary regardless of the event source.
 
-The default documented mapping is mainnet USDC:
+The active Milestone 3 mapping is native SOL on Solana mainnet:
 
 ```dotenv
-SOLANA_TOKEN_SYMBOL=USDC
-SOLANA_TOKEN_MINT=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v
-SOLANA_TOKEN_DECIMALS=6
-SOLANA_TOKEN_BASE_UNITS_PER_BILLING_MINOR=10000
+SOLANA_ASSET_KIND=native
+SOLANA_TOKEN_SYMBOL=SOL
+SOLANA_TOKEN_MINT=native
+SOLANA_TOKEN_DECIMALS=9
+SOLANA_TOKEN_BASE_UNITS_PER_BILLING_MINOR=1
+BILLING_CURRENCY=SOL
 SOLANA_EXPLORER_TX_BASE_URL=https://orbmarkets.io/tx/
 SOLANA_DIRECT_DEPOSIT_SCAN_INTERVAL_SECONDS=30
 SOLANA_DIRECT_DEPOSIT_SCAN_BATCH_SIZE=25
+SOLANA_CONFIG_PAYMENT_ENABLED=true
+SOLANA_CONFIG_PRICE_LAMPORTS=100000
+SOLANA_REVENUE_TREASURY_ADDRESS=<public-revenue-treasury-address>
 ```
+
+## Config issuance payment
+
+Creating a VPN config costs `100000` lamports (`0.0001 SOL`) as a one-time
+issuance payment. Confirm uses a browser-generated UUID as an idempotency key.
+The API creates the session in `payment_pending`, decrypts the random
+account-scoped custodial key, and builds a native SOL transfer from that wallet
+to `SOLANA_REVENUE_TREASURY_ADDRESS`. It calculates the current network fee via
+RPC and refuses the payment unless the wallet covers both the price and fee.
+
+The signed transaction and signature are persisted before broadcast. The
+session becomes `requested` only after the transaction is `finalized`. Retrying
+Confirm reuses the same payment UUID and cannot charge a second time; submitted
+transactions are recovered or rebroadcast until their blockhash expires. An
+insufficient balance returns HTTP 402 and leaves no schedulable session.
+
+Only the treasury public address belongs in API configuration. The treasury
+private key is an offline recovery/operations secret and must not be copied to
+the app, API, worker, database, repository, or systemd environment.
 
 The custodial address is a normal Solana address and can also receive 2Z and
 other SPL tokens. DoubleZero documents the mainnet 2Z mint as

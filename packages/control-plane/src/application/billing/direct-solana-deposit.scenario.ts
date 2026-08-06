@@ -26,6 +26,7 @@ import type { BillingConfig } from "./public-billing.scenario.js";
 import {
   findFinalizedSolanaSignaturesForAddress,
   findSolanaTokenAccountsByOwner,
+  verifyNativeSolDirectDepositTransaction,
   verifySolanaDirectDepositTransaction,
   verifySolanaTopupTransaction,
   type SolanaAddressSignature
@@ -99,7 +100,9 @@ async function scanWallet(
   result: DirectSolanaDepositReconcileResult
 ): Promise<void> {
   const cursor = await readSolanaDepositScanCursor(db, wallet.id, config.solanaTokenMint);
-  const tokenAccounts = cursor?.tokenAccounts.length
+  const tokenAccounts = config.solanaAssetKind === "native"
+    ? [wallet.publicKey]
+    : cursor?.tokenAccounts.length
     ? cursor.tokenAccounts
     : await findSolanaTokenAccountsByOwner(wallet.publicKey, {
       rpcUrl: config.solanaRpcUrl,
@@ -121,7 +124,15 @@ async function scanWallet(
         continue;
       }
       result.signaturesChecked += 1;
-      const verification = await verifySolanaDirectDepositTransaction({
+      const verification = config.solanaAssetKind === "native"
+        ? await verifyNativeSolDirectDepositTransaction({
+          transactionSignature: record.signature,
+          recipientOwner: wallet.publicKey
+        }, {
+          rpcUrl: config.solanaRpcUrl,
+          ...(config.fetchImpl ? { fetchImpl: config.fetchImpl } : {})
+        })
+        : await verifySolanaDirectDepositTransaction({
         transactionSignature: record.signature,
         recipientOwner: wallet.publicKey
       }, {
@@ -136,7 +147,7 @@ async function scanWallet(
         result.ignored += 1;
         continue;
       }
-      if (await belongsToVerifiableOpenIntent(
+      if (config.solanaAssetKind !== "native" && await belongsToVerifiableOpenIntent(
         db,
         wallet.accountId,
         record.signature,
@@ -288,16 +299,18 @@ async function creditDirectDeposit(
     const nextBuckets = applyBucketCredit(buckets, conversion.amountMinor, "cash");
     const debtRepaidMinor = buckets.debtMinor - nextBuckets.debtMinor;
     await writeBillingBuckets(client, wallet.accountId, nextBuckets);
-    await insertCashSweepRequest(client, {
-      accountId: wallet.accountId,
-      sourceType: "direct_deposit_debt_repayment",
-      sourceId: transactionSignature,
-      amountMinor: debtRepaidMinor,
-      tokenSymbol: config.solanaTokenSymbol,
-      tokenMint: config.solanaTokenMint,
-      tokenAmountBaseUnits: BigInt(debtRepaidMinor) * BigInt(config.solanaTokenBaseUnitsPerBillingMinor),
-      metadata: { transactionSignature, reason: "prepaid debt repayment" }
-    });
+    if (config.solanaAssetKind !== "native") {
+      await insertCashSweepRequest(client, {
+        accountId: wallet.accountId,
+        sourceType: "direct_deposit_debt_repayment",
+        sourceId: transactionSignature,
+        amountMinor: debtRepaidMinor,
+        tokenSymbol: config.solanaTokenSymbol,
+        tokenMint: config.solanaTokenMint,
+        tokenAmountBaseUnits: BigInt(debtRepaidMinor) * BigInt(config.solanaTokenBaseUnitsPerBillingMinor),
+        metadata: { transactionSignature, reason: "prepaid debt repayment" }
+      });
+    }
     return { duplicate: false, amountMinor: conversion.amountMinor };
   });
 }

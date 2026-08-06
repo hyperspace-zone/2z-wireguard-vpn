@@ -173,6 +173,8 @@ interface BillingSummary {
   plan: { code: string; version: number; displayName: string; activeConfigMonthlyMinor: number; trafficPerGbMinor: number; gracePeriodSeconds: number; withdrawalCooldownSeconds: number; minimumWithdrawalMinor: number };
   usage: BillingUsageSummary[];
   withdrawals: WithdrawalRequest[];
+  walletBalanceBaseUnits: string | null;
+  configPriceBaseUnits: string;
 }
 
 interface BillingDepositDestination {
@@ -293,6 +295,8 @@ let createConfigSubmitting = false;
 let createConfigOptionsOpen = false;
 let excludedCountriesOpen = false;
 let excludedCitiesOpen = false;
+let createConfigPaymentRequestId = "";
+let createConfigPaymentError = "";
 let createdConfigSessionId = "";
 let createdConfigSessionPhase = "";
 let createdConfigError = "";
@@ -646,7 +650,7 @@ function billingView(billing: BillingSummary | null): string {
 }
 
 function headerBalance(billing: BillingSummary | null): string {
-  const amount = formatMoneyMinor(billing?.availableBalanceMinor ?? billing?.balanceMinor ?? 0, billing?.currency ?? "USD");
+  const amount = billingBalanceText(billing);
   return `
     <a class="identity-balance" href="/billing" data-view="billing" aria-label="Billing balance ${escapeHtml(amount)}">
       <small>Balance</small>
@@ -732,16 +736,17 @@ function registerView(): string {
 
 function accountPanel(billing: BillingSummary | null): string {
   const deposit = billing?.deposit ?? null;
+  const nativeSolBilling = deposit?.tokenSymbol === "SOL" && deposit.tokenMint === "native";
   return `
     <div class="account-grid">
       <div class="account-card">
         <h3>Balance</h3>
-        <strong class="balance-value">${escapeHtml(formatMoneyMinor(billing?.availableBalanceMinor ?? billing?.balanceMinor ?? 0, billing?.currency ?? "USD"))}</strong>
-        <small>${billing ? `${escapeHtml(billing.state.state)} · ${escapeHtml(billing.plan.displayName)} v${billing.plan.version}` : "Billing is loading"}</small>
-        ${billing ? `<small>Paid ${escapeHtml(formatMoneyMinor(billing.buckets.cashMinor, billing.currency))} · Credits ${escapeHtml(formatMoneyMinor(billing.buckets.promotionalMinor, billing.currency))}${billing.buckets.debtMinor ? ` · Debt ${escapeHtml(formatMoneyMinor(billing.buckets.debtMinor, billing.currency))}` : ""}</small>` : ""}
+        <strong class="balance-value">${escapeHtml(billingBalanceText(billing))}</strong>
+        <small>${nativeSolBilling ? "Available on the custodial Solana wallet" : billing ? `${escapeHtml(billing.state.state)} · ${escapeHtml(billing.plan.displayName)} v${billing.plan.version}` : "Billing is loading"}</small>
+        ${billing && !nativeSolBilling ? `<small>Paid ${escapeHtml(formatMoneyMinor(billing.buckets.cashMinor, billing.currency))} · Credits ${escapeHtml(formatMoneyMinor(billing.buckets.promotionalMinor, billing.currency))}${billing.buckets.debtMinor ? ` · Debt ${escapeHtml(formatMoneyMinor(billing.buckets.debtMinor, billing.currency))}` : ""}</small>` : ""}
       </div>
       <div class="account-card deposit-card">
-        <h3>Deposit ${escapeHtml(deposit?.tokenSymbol ?? "USDC")}</h3>
+        <h3>Deposit ${escapeHtml(deposit?.tokenSymbol ?? "SOL")}</h3>
         ${deposit ? `
           <div class="deposit-wallet">
             <div class="deposit-qr" role="img" aria-label="Solana deposit address QR code">${deposit.qrSvg}</div>
@@ -757,10 +762,10 @@ function accountPanel(billing: BillingSummary | null): string {
         ` : '<p class="empty-marker">Deposit wallet is being prepared</p>'}
       </div>
     </div>
-    ${depositHistoryPanel(billing?.deposits ?? [])}
-    ${withdrawalPanel(billing)}
-    ${billingUsagePanel(billing?.usage ?? [], billing?.currency ?? "USD")}
-    ${billingLedgerPanel(billing?.ledger ?? [], billing?.currency ?? "USD")}
+    ${depositHistoryPanel(billing?.deposits ?? [], nativeSolBilling)}
+    ${nativeSolBilling ? "" : withdrawalPanel(billing)}
+    ${nativeSolBilling ? "" : billingUsagePanel(billing?.usage ?? [], billing?.currency ?? "USD")}
+    ${nativeSolBilling ? "" : billingLedgerPanel(billing?.ledger ?? [], billing?.currency ?? "USD")}
   `;
 }
 
@@ -786,18 +791,18 @@ function withdrawalPanel(billing: BillingSummary | null): string {
   `;
 }
 
-function depositHistoryPanel(deposits: BillingDeposit[]): string {
+function depositHistoryPanel(deposits: BillingDeposit[], nativeSolBilling = false): string {
   return `
     <div class="billing-ledger deposit-history">
       <div class="panel-heading"><h3>Deposit history</h3><small>${deposits.length ? `${deposits.length} finalized` : "No deposits yet"}</small></div>
       ${deposits.length ? `
         <div class="table-scroll"><table>
-          <thead><tr><th>Received</th><th>Amount</th><th>Credited</th><th>Status</th><th>Transaction</th></tr></thead>
+          <thead><tr><th>Received</th><th>Amount</th>${nativeSolBilling ? "" : "<th>Credited</th>"}<th>Status</th><th>Transaction</th></tr></thead>
           <tbody>${deposits.map((deposit) => `
             <tr>
               <td>${escapeHtml(relativeTime(deposit.observedAt))}</td>
               <td><strong>${escapeHtml(formatTokenBaseUnits(deposit.tokenAmountBaseUnits, deposit.tokenDecimals))} ${escapeHtml(deposit.tokenSymbol)}</strong></td>
-              <td>${escapeHtml(formatMoneyMinor(deposit.creditedAmountMinor, deposit.currency))}</td>
+              ${nativeSolBilling ? "" : `<td>${escapeHtml(formatMoneyMinor(deposit.creditedAmountMinor, deposit.currency))}</td>`}
               <td><span class="ok">Finalized</span></td>
               <td><a href="${escapeHtml(deposit.explorerUrl)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(deposit.transactionSignature)}">${escapeHtml(shortTransaction(deposit.transactionSignature))}</a></td>
             </tr>
@@ -1815,7 +1820,8 @@ function createConfigConfirmationPanel(gates: Gate[]): string {
   const policyText = sessionDraft.mode === "FullTunnel"
     ? `${sourceLabel} enters through the selected ingress, crosses DoubleZero, and exits to the Internet through the selected egress.`
     : `${sourceLabel} can reach only ${destinationLabel} through the selected ingress, DoubleZero transit, and selected egress.`;
-  const buttonLabel = createConfigSubmitting ? "Creating..." : "Confirm and create";
+  const paymentAmount = configPriceText();
+  const buttonLabel = createConfigSubmitting ? `Paying ${paymentAmount}...` : `Pay ${paymentAmount} and create`;
   const disabled = createConfigSubmitting ? "disabled" : "";
   return `
     <div class="review-step">
@@ -1856,6 +1862,21 @@ function createConfigConfirmationPanel(gates: Gate[]): string {
 
       ${sessionDraft.mode === "FullTunnel" ? fullTunnelAlertPanel() : ""}
       ${sessionDraft.useClientPublicKey ? clientKeyReplacementNotice() : ""}
+
+      <div class="config-payment-panel">
+        <div>
+          <small>One-time config price</small>
+          <strong>${escapeHtml(paymentAmount)}</strong>
+        </div>
+        <p>The payment is sent from your Hyperspace Solana wallet when you confirm. A Solana network fee is added.</p>
+      </div>
+      ${createConfigPaymentError ? `
+        <div class="config-payment-error" role="alert">
+          <strong>Payment could not be completed</strong>
+          <p>${escapeHtml(createConfigPaymentError)}</p>
+          <a class="button-link" href="/billing" data-view="billing">Open Billing</a>
+        </div>
+      ` : ""}
 
       <div class="form-actions">
         <button id="edit-config" class="secondary-button" type="button" ${disabled}>Back to edit</button>
@@ -1987,6 +2008,8 @@ function resetSessionDraft(): void {
   createConfigOptionsOpen = false;
   excludedCountriesOpen = false;
   excludedCitiesOpen = false;
+  createConfigPaymentRequestId = "";
+  createConfigPaymentError = "";
   sessionValidationErrors = {};
 }
 
@@ -2472,6 +2495,8 @@ function bindHandlers(): void {
     void copyClientPublicKey(event.currentTarget as HTMLButtonElement);
   });
   document.getElementById("edit-config")?.addEventListener("click", () => {
+    createConfigPaymentRequestId = "";
+    createConfigPaymentError = "";
     createConfigStep = "configure";
     sessionValidationErrors = {};
     render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
@@ -2781,10 +2806,15 @@ async function createSession(): Promise<void> {
     return;
   }
   createConfigSubmitting = true;
+  createConfigPaymentError = "";
+  createConfigPaymentRequestId ||= crypto.randomUUID();
   sessionValidationErrors = {};
   render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
   try {
-    const response = await api("/v1/public/sessions", { method: "POST", body: sessionPayloadFromDraft() });
+    const response = await api("/v1/public/sessions", {
+      method: "POST",
+      body: { ...sessionPayloadFromDraft(), paymentRequestId: createConfigPaymentRequestId }
+    });
     const sessionId = typeof response.session?.id === "string" ? response.session.id : "";
     if (!sessionId) {
       throw new Error("The control plane did not return the created VPN config.");
@@ -2800,6 +2830,11 @@ async function createSession(): Promise<void> {
     await waitForCreatedConfigArtifact(sessionId);
   } catch (error) {
     createConfigSubmitting = false;
+    if (error instanceof ApiRequestError && error.code === "insufficient_solana_funds") {
+      createConfigPaymentError = "Insufficient SOL for 0.0001 SOL plus the Solana network fee. Top up your wallet on Billing, then retry Confirm.";
+    } else if (error instanceof ApiRequestError && error.code.startsWith("config_payment_")) {
+      createConfigPaymentError = error.message;
+    }
     render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
     log(error instanceof Error ? error.message : "Could not create VPN config.");
   }
@@ -3278,9 +3313,16 @@ async function api(path: string, options: { method: string; body?: unknown }): P
   const payload = text ? JSON.parse(text) : {};
   if (!response.ok) {
     log(JSON.stringify(payload, null, 2));
-    throw new Error(payload.message ?? payload.error ?? response.statusText);
+    throw new ApiRequestError(payload.message ?? payload.error ?? response.statusText, payload.error ?? "http_error", response.status);
   }
   return payload;
+}
+
+class ApiRequestError extends Error {
+  constructor(message: string, readonly code: string, readonly status: number) {
+    super(message);
+    this.name = "ApiRequestError";
+  }
 }
 
 function updateSessionDraftFromForm(form: HTMLFormElement): void {
@@ -3821,6 +3863,9 @@ function consumeOauthTokenFromLocation(): string {
 }
 
 function formatMoneyMinor(amountMinor: number, currency: string): string {
+  if (currency.toUpperCase() === "SOL") {
+    return `${formatTokenBaseUnits(String(Math.max(0, Math.trunc(amountMinor))), 9)} SOL`;
+  }
   const amount = amountMinor / 100;
   try {
     return new Intl.NumberFormat("en-US", {
@@ -3830,6 +3875,19 @@ function formatMoneyMinor(amountMinor: number, currency: string): string {
   } catch {
     return `${amount.toFixed(2)} ${currency}`;
   }
+}
+
+function billingBalanceText(billing: BillingSummary | null): string {
+  if (billing?.deposit?.tokenSymbol === "SOL" && billing.walletBalanceBaseUnits !== null) {
+    return `${formatTokenBaseUnits(billing.walletBalanceBaseUnits, billing.deposit.tokenDecimals)} SOL`;
+  }
+  return formatMoneyMinor(billing?.availableBalanceMinor ?? billing?.balanceMinor ?? 0, billing?.currency ?? "USD");
+}
+
+function configPriceText(): string {
+  const baseUnits = latestBilling?.configPriceBaseUnits || "100000";
+  const decimals = latestBilling?.deposit?.tokenDecimals ?? 9;
+  return `${formatTokenBaseUnits(baseUnits, decimals)} SOL`;
 }
 
 function formatDurationSeconds(seconds: number): string {

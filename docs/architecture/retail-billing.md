@@ -58,17 +58,18 @@ debt. New cash or promotional credits repay debt before becoming available.
 All VPN configs belonging to one account share these buckets. Accounts are not
 merged into organizations.
 
-The USDC remains on the account custodial wallet until paid cash is actually
-consumed. Each cash-funded usage rating creates an idempotent revenue sweep;
-the same happens when a new cash top-up repays existing debt. A worker transfers
-only that spent cash to the platform revenue treasury. Promotional spend never
-creates an on-chain sweep. Sweep state and transaction signatures are retained
-separately from the immutable customer ledger, so an RPC outage cannot roll
-back or duplicate a customer charge.
+The active Milestone 3 settlement asset is native SOL. Each account has a
+random custodial Solana wallet, and its finalized on-chain lamport balance is
+the source of truth presented to the customer. Issuing a VPN config performs an
+idempotent `0.0001 SOL` transfer from that wallet to the platform revenue
+treasury; the account also pays the current Solana transaction fee. The config
+does not enter reconciliation until the transfer is finalized.
 
-The initial settlement token is USDC on Solana. Internally all prices and
-ledger entries use USD cents. Adding 2Z deposits later requires a signed,
-expiring 2Z/USD quote at deposit time; historical entries must retain the quote.
+The existing versioned usage ledger and DoubleZero wholesale reconciliation
+remain available for shadow rating. Legacy SPL/USDC deposits, sweeps, and
+withdrawals are retained in code for compatibility but are not the active
+native-SOL customer flow. Native SOL withdrawal is disabled until a separate
+cooldown and fee policy is approved.
 
 ## Exhaustion lifecycle
 
@@ -123,11 +124,12 @@ Use `--revoke` to remove the role.
 
 ## Required runtime settings
 
-API and worker share the same `SOLANA_RPC_URL`, token mint, token decimals, and
-base-units-per-cent settings. The worker additionally needs:
+API and worker share the same `SOLANA_RPC_URL`, asset identifier, token
+decimals, and base-units-per-billing-unit settings. The worker additionally
+needs:
 
 ```dotenv
-RETAIL_BILLING_ENABLED=true
+RETAIL_BILLING_ENABLED=false
 RETAIL_BILLING_MODE=shadow
 RETAIL_BILLING_INTERVAL_SECONDS=300
 RETAIL_BILLING_SETTLEMENT_LAG_SECONDS=120
@@ -141,5 +143,9 @@ SOLANA_REVENUE_TREASURY_ADDRESS=platform-wallet-public-key
 CUSTODIAL_WALLET_ENCRYPTION_KEY=the-same-key-as-the-api
 SOLANA_FEE_PAYER_SECRET_KEY=[64-byte Solana secret-key JSON array]
 ```
+
+Keep the legacy monthly/traffic rating loop disabled for the native-SOL
+one-time issuance model. Enable it only when a versioned SOL-denominated usage
+plan and its balance enforcement policy are deployed together.
 
 Never commit RPC credentials, Resend keys, encryption keys, or fee-payer keys.

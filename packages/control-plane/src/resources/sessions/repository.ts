@@ -111,6 +111,7 @@ export async function insertRequestedSessionInTransaction(
     `
       INSERT INTO sessions (
         account_id,
+        create_request_id,
         mode,
         destination_cidrs,
         source_cidr,
@@ -120,11 +121,12 @@ export async function insertRequestedSessionInTransaction(
         path_policy,
         artifact_policy
       )
-      VALUES ($1, $2, $3::cidr[], $4::cidr, $5, $6, $7::jsonb, $8::jsonb, $9::jsonb)
+      VALUES ($1, $2::uuid, $3, $4::cidr[], $5::cidr, $6, $7, $8::jsonb, $9::jsonb, $10::jsonb)
       RETURNING id
     `,
     [
       actor.accountId,
+      parsed.createRequestId ?? null,
       parsed.mode,
       parsed.destinationCidrs,
       parsed.sourceCidr ?? null,
@@ -166,6 +168,24 @@ export async function insertRequestedSessionInTransaction(
     [actor.id, actor.accountId, sessionId, JSON.stringify({ mode: parsed.mode })]
   );
   return sessionId;
+}
+
+export async function findSessionIdByCreateRequest(
+  db: Queryable,
+  accountId: string,
+  createRequestId: string
+): Promise<string | null> {
+  const result = await db.query<{ id: string }>(
+    `
+      SELECT id
+      FROM sessions
+      WHERE account_id = $1
+        AND create_request_id = $2::uuid
+      LIMIT 1
+    `,
+    [accountId, createRequestId]
+  );
+  return result.rows[0]?.id ?? null;
 }
 
 export async function lockAccountForSessionCreate(db: Queryable, accountId: string): Promise<void> {
