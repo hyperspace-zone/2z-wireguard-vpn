@@ -291,6 +291,8 @@ let currentView: AppView = viewFromLocation();
 let createConfigStep: CreateConfigStep = "configure";
 let createConfigSubmitting = false;
 let createConfigOptionsOpen = false;
+let excludedCountriesOpen = false;
+let excludedCitiesOpen = false;
 let createdConfigSessionId = "";
 let createdConfigSessionPhase = "";
 let createdConfigError = "";
@@ -1780,13 +1782,13 @@ function createSessionPanel(gates: Gate[]): string {
                   ${regionOption("sa", "South America")}
                 </select>
               </label>
-              <details>
+              <details id="excluded-countries-settings" ${excludedCountriesOpen ? "open" : ""}>
                 <summary>Excluded countries</summary>
                 <div class="policy-option-grid">
                   ${countries.map((country) => policyCheckbox("excludeCountry", country, sessionDraft.excludeCountries)).join("")}
                 </div>
               </details>
-              <details>
+              <details id="excluded-cities-settings" ${excludedCitiesOpen ? "open" : ""}>
                 <summary>Excluded cities</summary>
                 <div class="policy-option-grid">
                   ${cities.map((city) => policyCheckbox("excludeCity", city, sessionDraft.excludeCities)).join("")}
@@ -1983,6 +1985,8 @@ function resetSessionDraft(): void {
   sessionDraft.preferredRegion = "";
   ingressGateManuallySelected = false;
   createConfigOptionsOpen = false;
+  excludedCountriesOpen = false;
+  excludedCitiesOpen = false;
   sessionValidationErrors = {};
 }
 
@@ -2436,6 +2440,12 @@ function bindHandlers(): void {
   }
   document.getElementById("optional-config-settings")?.addEventListener("toggle", (event) => {
     createConfigOptionsOpen = (event.currentTarget as HTMLDetailsElement).open;
+  });
+  document.getElementById("excluded-countries-settings")?.addEventListener("toggle", (event) => {
+    excludedCountriesOpen = (event.currentTarget as HTMLDetailsElement).open;
+  });
+  document.getElementById("excluded-cities-settings")?.addEventListener("toggle", (event) => {
+    excludedCitiesOpen = (event.currentTarget as HTMLDetailsElement).open;
   });
 
   document.getElementById("use-browser-source-ip")?.addEventListener("click", () => {

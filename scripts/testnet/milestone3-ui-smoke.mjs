@@ -257,6 +257,14 @@ try {
     throw new Error("egress must be the only visible selector in the simple config flow");
   }
   await capture(page, "simple-config-step");
+  await page.getByText("Optional settings", { exact: true }).click();
+  await page.getByText("Excluded countries", { exact: true }).click();
+  await page.locator('input[name="excludeCountry"][value="Germany"]').check();
+  if (await page.locator("#excluded-countries-settings").getAttribute("open") !== "") {
+    throw new Error("excluded countries collapsed after selecting a country");
+  }
+  await page.getByRole("button", { name: "Clear routing policy" }).click();
+  await page.getByText("Optional settings", { exact: true }).click();
   await page.locator("select[name=egressGateName]").selectOption("gate-na-sjc-01");
   await page.getByRole("button", { name: "Review config" }).click();
   await page.getByText("Full tunnel", { exact: true }).first().waitFor();

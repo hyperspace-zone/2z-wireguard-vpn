@@ -40,9 +40,14 @@ try {
   assert.deepEqual(await optionValues(ingress), expectedGateNames, "benchmark fallback did not restore ingress gates");
 
   const countries = [...new Set(schedulableGates.map((gate) => gate.country).filter(Boolean))];
+  await page.getByText("Excluded countries", { exact: true }).click();
   for (const country of countries) {
-    await page.getByText("Excluded countries", { exact: true }).click();
     await page.locator(`input[name="excludeCountry"][value="${country}"]`).check();
+    assert.equal(
+      await page.locator("#excluded-countries-settings").getAttribute("open"),
+      "",
+      "excluded countries collapsed after selecting a country"
+    );
   }
   assert.equal(
     (await ingress.locator("option").first().textContent())?.trim(),
