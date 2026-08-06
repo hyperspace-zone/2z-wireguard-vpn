@@ -186,7 +186,8 @@ The billing DB E2E creates an account wallet, confirms fixture-backed finalized
 transactions, checks exact token units and explorer history, checks the cash
 and promotional buckets, proves signature replay and manual-credit replay are
 rejected, exercises withdrawal reservation/cancellation, and removes its
-account afterwards.
+account afterwards. Its fixture RPC scan is constrained to the newly created
+wallet ID and cannot update cursors or balances belonging to other accounts.
 
 The live UI test covers the real environment API, PostgreSQL, gates, permanent
 deposit address and QR, deposit history, config activation, one-time WireGuard

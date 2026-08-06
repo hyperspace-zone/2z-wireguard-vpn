@@ -39,7 +39,8 @@ export async function findCustodialWallet(
 export async function listCustodialWalletsDueForDepositScan(
   db: Queryable,
   tokenMint: string,
-  limit = 25
+  limit = 25,
+  walletId?: string
 ): Promise<CustodialWalletRow[]> {
   const result = await db.query<CustodialWalletRow>(
     `
@@ -57,6 +58,7 @@ export async function listCustodialWalletsDueForDepositScan(
        AND solana_deposit_scan_cursors.token_mint = $1
       WHERE custodial_wallets.chain = 'solana'
         AND custodial_wallets.status = 'active'
+        AND ($3::uuid IS NULL OR custodial_wallets.id = $3)
         AND (
           solana_deposit_scan_cursors.wallet_id IS NULL
           OR solana_deposit_scan_cursors.next_scan_at <= now()
@@ -66,7 +68,7 @@ export async function listCustodialWalletsDueForDepositScan(
         custodial_wallets.created_at
       LIMIT $2
     `,
-    [tokenMint, limit]
+    [tokenMint, limit, walletId ?? null]
   );
   return result.rows;
 }

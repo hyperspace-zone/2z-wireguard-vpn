@@ -37,6 +37,7 @@ export interface DirectSolanaDepositReconcileOptions {
   retryIntervalSeconds?: number;
   signaturePageSize?: number;
   maxSignaturePages?: number;
+  walletId?: string;
 }
 
 export interface DirectSolanaDepositReconcileResult {
@@ -70,7 +71,8 @@ export async function reconcileDirectSolanaDeposits(
   const wallets = await listCustodialWalletsDueForDepositScan(
     db,
     config.solanaTokenMint,
-    Math.max(1, options.batchSize)
+    Math.max(1, options.batchSize),
+    options.walletId
   );
   for (const wallet of wallets) {
     result.walletsChecked += 1;

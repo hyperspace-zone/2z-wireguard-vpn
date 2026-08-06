@@ -63,7 +63,8 @@ try {
   };
   const initialDeposit = await reconcileDirectSolanaDeposits(db, config, {
     batchSize: 25,
-    scanIntervalSeconds: 1
+    scanIntervalSeconds: 1,
+    walletId: wallet.id
   });
   assertEqual(initialDeposit.depositsCredited, 1, "permanent address deposit is discovered");
   assertEqual(initialDeposit.creditedMinor, 2500, "arbitrary deposit amount is credited");
@@ -131,7 +132,8 @@ try {
   );
   const directDeposit = await reconcileDirectSolanaDeposits(db, config, {
     batchSize: 25,
-    scanIntervalSeconds: 1
+    scanIntervalSeconds: 1,
+    walletId: wallet.id
   });
   assertEqual(directDeposit.depositsCredited, 1, "direct deposit is discovered without a memo");
   assertEqual(directDeposit.creditedMinor, 181, "direct deposit credits only complete billing minor units");
@@ -154,7 +156,8 @@ try {
   );
   const duplicateScan = await reconcileDirectSolanaDeposits(db, config, {
     batchSize: 25,
-    scanIntervalSeconds: 1
+    scanIntervalSeconds: 1,
+    walletId: wallet.id
   });
   assertEqual(duplicateScan.duplicates, 1, "repeated direct deposit scan is idempotent");
   const directLedger = await db.query(
