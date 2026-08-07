@@ -128,6 +128,14 @@ API and worker share the same `SOLANA_RPC_URL`, asset identifier, token
 decimals, and base-units-per-billing-unit settings. The worker additionally
 needs:
 
+For Solana-mainnet contours, inject the control-plane-only `SOLANA_RPC_URL`
+through the runtime environment or secret management. Documentation uses
+`https://solana-rpc.example.invalid` and `wss://solana-rpc.example.invalid` as
+non-resolving placeholders; never commit the real HTTP or WebSocket endpoint.
+The WebSocket endpoint is reserved for future subscription consumers and is not
+required by the current HTTP polling implementation. Solana testnet must use a
+separate testnet RPC.
+
 ```dotenv
 RETAIL_BILLING_ENABLED=false
 RETAIL_BILLING_MODE=shadow

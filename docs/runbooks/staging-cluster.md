@@ -95,6 +95,14 @@ Before authentication acceptance:
    staging Alertmanager uses the intentional null receiver and does not send
    staging incidents into production channels.
 
+The staging API and worker receive their control-plane-only Solana mainnet
+endpoint as `SOLANA_RPC_URL` through runtime environment configuration or secret
+management. Never commit the real endpoint. The placeholders
+`https://solana-rpc.example.invalid` and `wss://solana-rpc.example.invalid` are
+intentionally non-resolving; the WebSocket value is not used by the current HTTP
+polling implementation. Do not copy a mainnet endpoint into the Solana testnet
+contour.
+
 ## Rollback
 
 To return a gate to production, first set it to `Maintenance` in staging and

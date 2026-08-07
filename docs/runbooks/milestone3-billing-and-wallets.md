@@ -113,8 +113,14 @@ signature verification and the tenant billing token account/sentinel contract
 must be agreed with DoubleZero before production 2Z sweeping or spending is
 enabled.
 
-`SOLANA_RPC_URL` is a secret. Configure the same endpoint on the API and worker;
-never commit a provider URL containing a credential.
+Mainnet-backed staging and production use a network-allowlisted RPC endpoint
+injected as `SOLANA_RPC_URL` through the runtime environment or secret
+management. Configure the same endpoint on the API and worker. The current API
+and worker use HTTP JSON-RPC polling and do not consume WebSocket subscriptions.
+Documentation uses `https://solana-rpc.example.invalid` and
+`wss://solana-rpc.example.invalid` as non-resolving placeholders. Do not use a
+mainnet endpoint in the DoubleZero/Solana testnet contour. Real provider URLs,
+especially credential-bearing URLs, must never be committed.
 
 ## Retail usage and DoubleZero wholesale reconciliation
 

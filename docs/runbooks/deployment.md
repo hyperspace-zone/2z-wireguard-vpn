@@ -1141,6 +1141,16 @@ export CUSTODIAL_WALLET_ENCRYPTION_KEY="$(node -e 'console.log(require("node:cry
 
 Create `/etc/hyperspace/control-plane-api.env`:
 
+Load an environment-specific RPC from secret management before rendering either
+control-plane env file. The private endpoint is only for Solana-mainnet-backed
+staging and production; testnet must use its Solana testnet RPC. Never commit
+the real endpoint.
+
+```bash
+# Non-resolving placeholder; inject the real staging/production value securely.
+export SOLANA_RPC_URL=https://solana-rpc.example.invalid
+```
+
 ```bash
 cat >/etc/hyperspace/control-plane-api.env <<EOF
 HOST=127.0.0.1
@@ -1188,7 +1198,7 @@ SOLANA_TOKEN_SYMBOL=SOL
 SOLANA_TOKEN_MINT=native
 SOLANA_TOKEN_DECIMALS=9
 SOLANA_TOKEN_BASE_UNITS_PER_BILLING_MINOR=1
-SOLANA_RPC_URL=replace-with-private-solana-rpc-url
+SOLANA_RPC_URL=${SOLANA_RPC_URL:?set an environment-specific Solana RPC URL}
 SOLANA_EXPLORER_TX_BASE_URL=https://orbmarkets.io/tx/
 SOLANA_CONFIG_PAYMENT_ENABLED=true
 SOLANA_CONFIG_PRICE_LAMPORTS=100000
@@ -1386,7 +1396,7 @@ WORKER_ID=control-plane-worker-01
 WORKER_OBSERVABILITY_HOST=0.0.0.0
 WORKER_OBSERVABILITY_PORT=9091
 ARTIFACT_ENCRYPTION_KEY=${ARTIFACT_ENCRYPTION_KEY}
-SOLANA_RPC_URL=${SOLANA_RPC_URL:-}
+SOLANA_RPC_URL=${SOLANA_RPC_URL:?set an environment-specific Solana RPC URL}
 SOLANA_ASSET_KIND=${SOLANA_ASSET_KIND:-native}
 SOLANA_TOKEN_SYMBOL=${SOLANA_TOKEN_SYMBOL:-SOL}
 SOLANA_TOKEN_MINT=${SOLANA_TOKEN_MINT:-native}
