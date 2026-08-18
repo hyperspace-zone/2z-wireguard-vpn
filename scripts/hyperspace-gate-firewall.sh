@@ -58,6 +58,9 @@ apply_or_check_rule() {
     }
     return
   fi
+  if rule_present "$source" "$port" "$protocol"; then
+    return
+  fi
   "$ufw_bin" allow from "$source" to any port "$port" proto "$protocol" comment "$comment" >/dev/null
 }
 
