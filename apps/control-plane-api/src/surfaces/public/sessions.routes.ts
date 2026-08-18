@@ -128,7 +128,7 @@ export function registerPublicSessionsRoutes(
       if (payment.status === "insufficient_funds") {
         await deleteUnpaidSession(deps.db, user, created.sessionId);
         return sendApplicationError(reply, "insufficient_solana_funds", {
-          message: "Insufficient SOL for the 0.0001 SOL config payment and Solana network fee. Top up on Billing and try again."
+          message: "Insufficient spendable SOL for the 0.0001 SOL config payment, network fee, and Solana account rent reserve. Top up on Billing and try again."
         });
       }
       if (payment.status === "treasury_unavailable") {

@@ -131,7 +131,11 @@ export function createSolanaConfigPaymentService(input: {
         const feeLamports = BigInt(fee.value);
         await recordSolanaConfigPaymentFeeEstimate(input.db, request.paymentId, feeLamports);
         const availableLamports = BigInt(await connection.getBalance(sourceWallet.publicKey, "finalized"));
-        const requiredLamports = requiredConfigPaymentLamports(amountLamports, feeLamports);
+        const requiredLamports = requiredConfigPaymentLamports(
+          amountLamports,
+          feeLamports,
+          BigInt(treasuryRentExemption)
+        );
         if (availableLamports < requiredLamports) {
           await failSolanaConfigPayment(
             input.db,
@@ -186,11 +190,15 @@ export function createSolanaConfigPaymentService(input: {
   };
 }
 
-export function requiredConfigPaymentLamports(amountLamports: bigint, feeLamports: bigint): bigint {
-  if (amountLamports <= 0n || feeLamports < 0n) {
+export function requiredConfigPaymentLamports(
+  amountLamports: bigint,
+  feeLamports: bigint,
+  accountRentReserveLamports = 0n
+): bigint {
+  if (amountLamports <= 0n || feeLamports < 0n || accountRentReserveLamports < 0n) {
     throw new Error("invalid SOL config payment amount or fee");
   }
-  return amountLamports + feeLamports;
+  return amountLamports + feeLamports + accountRentReserveLamports;
 }
 
 export function isSolanaTreasuryInitialized(balanceLamports: bigint, rentExemptionLamports: bigint): boolean {

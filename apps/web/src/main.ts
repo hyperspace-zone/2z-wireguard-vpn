@@ -749,7 +749,7 @@ function accountPanel(billing: BillingSummary | null): string {
       <div class="account-card">
         <h3>Balance</h3>
         <strong class="balance-value">${escapeHtml(billingBalanceText(billing))}</strong>
-        <small>${nativeSolBilling ? "Available on the custodial Solana wallet" : billing ? `${escapeHtml(billing.state.state)} · ${escapeHtml(billing.plan.displayName)} v${billing.plan.version}` : "Billing is loading"}</small>
+        <small>${nativeSolBilling ? "On-chain wallet balance; Solana keeps approximately 0.00089088 SOL as account rent reserve" : billing ? `${escapeHtml(billing.state.state)} · ${escapeHtml(billing.plan.displayName)} v${billing.plan.version}` : "Billing is loading"}</small>
         ${billing && !nativeSolBilling ? `<small>Paid ${escapeHtml(formatMoneyMinor(billing.buckets.cashMinor, billing.currency))} · Credits ${escapeHtml(formatMoneyMinor(billing.buckets.promotionalMinor, billing.currency))}${billing.buckets.debtMinor ? ` · Debt ${escapeHtml(formatMoneyMinor(billing.buckets.debtMinor, billing.currency))}` : ""}</small>` : ""}
       </div>
       <div class="account-card deposit-card">
@@ -2864,7 +2864,7 @@ async function createSession(): Promise<void> {
   } catch (error) {
     createConfigSubmitting = false;
     if (error instanceof ApiRequestError && error.code === "insufficient_solana_funds") {
-      createConfigPaymentError = "Insufficient SOL for 0.0001 SOL plus the Solana network fee. Top up your wallet on Billing, then retry Confirm.";
+      createConfigPaymentError = "Insufficient spendable SOL for 0.0001 SOL, the network fee, and the Solana account rent reserve. Top up your wallet on Billing, then retry Confirm.";
     } else if (error instanceof ApiRequestError && error.code.startsWith("config_payment_")) {
       createConfigPaymentError = error.message;
     }
