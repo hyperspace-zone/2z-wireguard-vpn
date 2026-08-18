@@ -1,6 +1,7 @@
 import type { Database } from "@hyperspace-zone/db";
 import type { HealthRegistry, RuntimeMetrics } from "@hyperspace-zone/shared";
 import type { ControlPlaneWorkerConfig } from "../config.js";
+import { createBenchmarkSchedulerLoop } from "../loops/benchmark-scheduler-loop.js";
 import { createCleanupLoop } from "../loops/cleanup-loop.js";
 import { collectControlPlaneSnapshotMetrics } from "../observability/control-plane-snapshot.js";
 import { createRetryLoop } from "../loops/retry-loop.js";
@@ -12,12 +13,21 @@ export interface WorkerRunner {
   stop(): Promise<void>;
 }
 
+interface WorkerRunnerTasks {
+  reconcile(): Promise<void>;
+  retry(): Promise<void>;
+  cleanup(): Promise<void>;
+  benchmarkScheduler(): Promise<void>;
+  snapshot(): Promise<boolean>;
+}
+
 export function createWorkerRunner(input: {
   db: Database;
   config: ControlPlaneWorkerConfig;
   health: HealthRegistry;
   metrics: RuntimeMetrics;
   onSnapshotReady?: () => void;
+  tasks?: WorkerRunnerTasks;
 }): WorkerRunner {
   const reconcileRunner = createReconcileRunner({
     db: input.db,
@@ -25,33 +35,85 @@ export function createWorkerRunner(input: {
   });
   const retryLoop = createRetryLoop(input.db);
   const cleanupLoop = createCleanupLoop(input.db);
+  const benchmarkSchedulerLoop = createBenchmarkSchedulerLoop({
+    db: input.db,
+    config: input.config
+  });
+  const tasks: WorkerRunnerTasks = input.tasks ?? {
+    reconcile: () => reconcileRunner.runOnce(),
+    retry: () => retryLoop.runOnce(),
+    cleanup: () => cleanupLoop.runOnce(),
+    benchmarkScheduler: () => benchmarkSchedulerLoop.runOnce(),
+    snapshot: () => collectControlPlaneSnapshotMetrics(input)
+  };
   let stopping = false;
+  let running: Promise<void> | null = null;
+  let stopWork: Promise<void> | null = null;
+  let signalStop: () => void = () => undefined;
+  const stopSignal = new Promise<void>((resolve) => {
+    signalStop = resolve;
+  });
+
+  async function waitForNextRun(milliseconds: number): Promise<void> {
+    await Promise.race([sleep(milliseconds), stopSignal]);
+  }
+
+  async function runOperations(): Promise<void> {
+    while (!stopping) {
+      await runMeasuredLoop("reconcile", input, tasks.reconcile);
+      await runMeasuredLoop("retry", input, tasks.retry);
+      await runMeasuredLoop("cleanup", input, tasks.cleanup);
+      if (!stopping) {
+        await waitForNextRun(input.config.pollMs);
+      }
+    }
+  }
+
+  async function runBenchmarkScheduler(): Promise<void> {
+    while (!stopping) {
+      await runMeasuredLoop("benchmark-scheduler", input, tasks.benchmarkScheduler);
+      if (!stopping) {
+        await waitForNextRun(input.config.benchmarkSchedulerPollMs);
+      }
+    }
+  }
+
+  async function runSnapshotCollector(): Promise<void> {
+    while (!stopping) {
+      const snapshotReady = await runMeasuredLoop("snapshot", input, tasks.snapshot);
+      if (snapshotReady) {
+        input.onSnapshotReady?.();
+      }
+      if (!stopping) {
+        await waitForNextRun(input.config.snapshotIntervalMs);
+      }
+    }
+  }
 
   return {
     async start(): Promise<void> {
       log({ event: "worker_started", workerId: input.config.workerId, pollMs: input.config.pollMs });
       input.health.setComponent("worker-runner", { state: "ready", message: "Worker runner loop started." });
-      while (!stopping) {
-        await runMeasuredLoop("reconcile", input, () => reconcileRunner.runOnce());
-        await runMeasuredLoop("retry", input, () => retryLoop.runOnce());
-        await runMeasuredLoop("cleanup", input, () => cleanupLoop.runOnce());
-        const snapshotReady = await runMeasuredLoop("snapshot", input, () => collectControlPlaneSnapshotMetrics(input));
-        if (snapshotReady) {
-          input.onSnapshotReady?.();
-        }
-        if (!stopping) {
-          await sleep(input.config.pollMs);
-        }
-      }
+      running = Promise.all([
+        runOperations(),
+        runBenchmarkScheduler(),
+        runSnapshotCollector()
+      ]).then(() => undefined);
+      await running;
     },
     async stop(): Promise<void> {
-      if (stopping) {
-        return;
+      if (stopWork) {
+        return stopWork;
       }
       stopping = true;
+      signalStop();
       log({ event: "worker_stopping", workerId: input.config.workerId });
       input.health.setComponent("worker-runner", { state: "stopped", message: "Worker runner is stopping." });
-      await input.db.close();
+      stopWork = (async () => {
+        await running;
+        await input.db.close();
+      })();
+      return stopWork;
     }
   };
 }

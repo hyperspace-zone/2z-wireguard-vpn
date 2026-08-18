@@ -1,9 +1,12 @@
 import { parseAes256GcmKey } from "@hyperspace-zone/shared";
+import type { BenchmarkSchedulerRuntimeConfig } from "./loops/benchmark-scheduler-loop.js";
 import type { ReconcileLoopRuntimeConfig } from "./loops/reconcile-loop.js";
 
-export interface ControlPlaneWorkerConfig extends ReconcileLoopRuntimeConfig {
+export interface ControlPlaneWorkerConfig extends ReconcileLoopRuntimeConfig, BenchmarkSchedulerRuntimeConfig {
   databaseUrl: string;
   pollMs: number;
+  benchmarkSchedulerPollMs: number;
+  snapshotIntervalMs: number;
   workerId: string;
   observabilityHost: string;
   observabilityPort: number;
@@ -23,6 +26,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ControlPlaneWo
     databaseUrl,
     artifactEncryptionKey: parseAes256GcmKey(artifactEncryptionKeyRaw),
     pollMs: Number(env.WORKER_POLL_MS ?? 2000),
+    benchmarkSchedulerPollMs: Number(env.BENCHMARK_SCHEDULER_POLL_MS ?? 15000),
+    snapshotIntervalMs: Number(env.WORKER_SNAPSHOT_INTERVAL_MS ?? 15000),
     workerId: env.WORKER_ID ?? `worker-${process.pid}`,
     observabilityHost: env.WORKER_OBSERVABILITY_HOST ?? "0.0.0.0",
     observabilityPort: Number(env.WORKER_OBSERVABILITY_PORT ?? 9091),

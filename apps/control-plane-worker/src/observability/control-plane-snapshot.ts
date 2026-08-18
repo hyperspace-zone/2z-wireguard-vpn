@@ -336,91 +336,7 @@ async function collectJobMetrics(db: Database, metrics: RuntimeMetrics): Promise
   }
 }
 
-async function collectBenchmarkMetrics(db: Database, metrics: RuntimeMetrics): Promise<void> {
-  const result = await db.query<{
-    transport: string;
-    status: string;
-    routes: number;
-    avgRttP50Ms: number | null;
-    avgJitterMs: number | null;
-    avgLossPercent: number | null;
-    maxAgeSeconds: number | null;
-  }>(`
-    WITH enabled_gates AS (
-      SELECT id
-      FROM gates
-      WHERE desired_state = 'Enabled'
-    ),
-    latest AS (
-      SELECT
-        transports.transport,
-        sample.status,
-        sample.rtt_p50_ms,
-        sample.jitter_ms,
-        sample.loss_percent,
-        sample.measured_at
-      FROM enabled_gates source
-      CROSS JOIN enabled_gates target
-      CROSS JOIN (VALUES ('public'), ('doublezero')) AS transports(transport)
-      JOIN LATERAL (
-        SELECT
-          status,
-          rtt_p50_ms,
-          jitter_ms,
-          loss_percent,
-          measured_at
-        FROM gate_benchmark_results
-        WHERE source_gate_id = source.id
-          AND target_gate_id = target.id
-          AND transport = transports.transport
-        ORDER BY measured_at DESC
-        LIMIT 1
-      ) sample ON true
-      WHERE source.id <> target.id
-    )
-    SELECT
-      transport,
-      status,
-      COUNT(*)::int AS routes,
-      AVG(rtt_p50_ms)::float AS "avgRttP50Ms",
-      AVG(jitter_ms)::float AS "avgJitterMs",
-      AVG(loss_percent)::float AS "avgLossPercent",
-      MAX(EXTRACT(EPOCH FROM now() - measured_at))::float AS "maxAgeSeconds"
-    FROM latest
-    GROUP BY transport, status
-    ORDER BY transport, status
-  `);
-  resetGauges(metrics, [
-    "control_plane_benchmark_routes_total",
-    "control_plane_benchmark_rtt_p50_ms",
-    "control_plane_benchmark_jitter_ms",
-    "control_plane_benchmark_loss_percent",
-    "control_plane_benchmark_max_age_seconds"
-  ]);
-  for (const row of result.rows) {
-    const labels = { transport: row.transport, status: row.status };
-    metrics.gauge("control_plane_benchmark_routes_total", row.routes, {
-      help: "Latest gate benchmark route count by transport and status.",
-      labels
-    });
-    metrics.gauge("control_plane_benchmark_rtt_p50_ms", row.avgRttP50Ms ?? 0, {
-      help: "Average latest benchmark RTT p50 in milliseconds.",
-      labels
-    });
-    metrics.gauge("control_plane_benchmark_jitter_ms", row.avgJitterMs ?? 0, {
-      help: "Average latest benchmark jitter in milliseconds.",
-      labels
-    });
-    metrics.gauge("control_plane_benchmark_loss_percent", row.avgLossPercent ?? 0, {
-      help: "Average latest benchmark packet loss percent.",
-      labels
-    });
-    metrics.gauge("control_plane_benchmark_max_age_seconds", row.maxAgeSeconds ?? 0, {
-      help: "Maximum age of latest benchmark samples in seconds.",
-      labels
-    });
-  }
-
+export async function collectBenchmarkMetrics(db: Database, metrics: RuntimeMetrics): Promise<void> {
   const routeResult = await db.query<{
     sourceGate: string;
     sourcePublicIpv4: string;
@@ -524,6 +440,11 @@ async function collectBenchmarkMetrics(db: Database, metrics: RuntimeMetrics): P
     ORDER BY latest."sourceGate", latest."targetGate", latest.transport
   `);
   resetGauges(metrics, [
+    "control_plane_benchmark_routes_total",
+    "control_plane_benchmark_rtt_p50_ms",
+    "control_plane_benchmark_jitter_ms",
+    "control_plane_benchmark_loss_percent",
+    "control_plane_benchmark_max_age_seconds",
     "control_plane_benchmark_route_failed",
     "control_plane_benchmark_gate_confirmed_failed_routes",
     "control_plane_benchmark_route_age_seconds",
@@ -536,6 +457,18 @@ async function collectBenchmarkMetrics(db: Database, metrics: RuntimeMetrics): P
     probeHost: string;
     publicIpv4: string;
     routes: number;
+  }>();
+  const aggregates = new Map<string, {
+    transport: string;
+    status: string;
+    routes: number;
+    rttSum: number;
+    rttCount: number;
+    jitterSum: number;
+    jitterCount: number;
+    lossSum: number;
+    lossCount: number;
+    maxAgeSeconds: number;
   }>();
   for (const row of routeResult.rows) {
     const gateFailures = confirmedFailuresByGate.get(row.sourceGate) ?? {
@@ -556,6 +489,25 @@ async function collectBenchmarkMetrics(db: Database, metrics: RuntimeMetrics): P
     if (!row.status) {
       continue;
     }
+    const aggregateKey = `${row.transport}\u0000${row.status}`;
+    const aggregate = aggregates.get(aggregateKey) ?? {
+      transport: row.transport,
+      status: row.status,
+      routes: 0,
+      rttSum: 0,
+      rttCount: 0,
+      jitterSum: 0,
+      jitterCount: 0,
+      lossSum: 0,
+      lossCount: 0,
+      maxAgeSeconds: 0
+    };
+    aggregates.set(aggregateKey, aggregate);
+    aggregate.routes += 1;
+    addAggregateSample(aggregate, "rtt", row.rttP50Ms);
+    addAggregateSample(aggregate, "jitter", row.jitterMs);
+    addAggregateSample(aggregate, "loss", row.lossPercent);
+    aggregate.maxAgeSeconds = Math.max(aggregate.maxAgeSeconds, metricNumber(row.ageSeconds) ?? 0);
     const labels = {
       route: `${row.sourceGate} -> ${row.targetGate}`,
       source_gate: row.sourceGate,
@@ -566,20 +518,43 @@ async function collectBenchmarkMetrics(db: Database, metrics: RuntimeMetrics): P
       help: "Latest gate benchmark route failure state. One means the latest sample failed.",
       labels
     });
-    metrics.gauge("control_plane_benchmark_route_age_seconds", row.ageSeconds ?? 1_000_000_000, {
+    metrics.gauge("control_plane_benchmark_route_age_seconds", metricNumber(row.ageSeconds) ?? 1_000_000_000, {
       help: "Age of the latest gate benchmark route sample in seconds.",
       labels
     });
-    metrics.gauge("control_plane_benchmark_route_rtt_p50_ms", row.rttP50Ms ?? 0, {
+    metrics.gauge("control_plane_benchmark_route_rtt_p50_ms", metricNumber(row.rttP50Ms) ?? 0, {
       help: "Latest gate benchmark route RTT p50 in milliseconds.",
       labels
     });
-    metrics.gauge("control_plane_benchmark_route_jitter_ms", row.jitterMs ?? 0, {
+    metrics.gauge("control_plane_benchmark_route_jitter_ms", metricNumber(row.jitterMs) ?? 0, {
       help: "Latest gate benchmark route jitter in milliseconds.",
       labels
     });
-    metrics.gauge("control_plane_benchmark_route_loss_percent", row.lossPercent ?? 100, {
+    metrics.gauge("control_plane_benchmark_route_loss_percent", metricNumber(row.lossPercent) ?? 100, {
       help: "Latest gate benchmark route packet loss percent.",
+      labels
+    });
+  }
+  for (const aggregate of aggregates.values()) {
+    const labels = { transport: aggregate.transport, status: aggregate.status };
+    metrics.gauge("control_plane_benchmark_routes_total", aggregate.routes, {
+      help: "Latest gate benchmark route count by transport and status.",
+      labels
+    });
+    metrics.gauge("control_plane_benchmark_rtt_p50_ms", average(aggregate.rttSum, aggregate.rttCount), {
+      help: "Average latest benchmark RTT p50 in milliseconds.",
+      labels
+    });
+    metrics.gauge("control_plane_benchmark_jitter_ms", average(aggregate.jitterSum, aggregate.jitterCount), {
+      help: "Average latest benchmark jitter in milliseconds.",
+      labels
+    });
+    metrics.gauge("control_plane_benchmark_loss_percent", average(aggregate.lossSum, aggregate.lossCount), {
+      help: "Average latest benchmark packet loss percent.",
+      labels
+    });
+    metrics.gauge("control_plane_benchmark_max_age_seconds", aggregate.maxAgeSeconds, {
+      help: "Maximum age of latest benchmark samples in seconds.",
       labels
     });
   }
@@ -593,6 +568,47 @@ async function collectBenchmarkMetrics(db: Database, metrics: RuntimeMetrics): P
       }
     });
   }
+}
+
+function addAggregateSample(
+  aggregate: {
+    rttSum: number;
+    rttCount: number;
+    jitterSum: number;
+    jitterCount: number;
+    lossSum: number;
+    lossCount: number;
+  },
+  metric: "rtt" | "jitter" | "loss",
+  value: unknown
+): void {
+  const numeric = metricNumber(value);
+  if (numeric === null) {
+    return;
+  }
+  switch (metric) {
+    case "rtt":
+      aggregate.rttSum += numeric;
+      aggregate.rttCount += 1;
+      break;
+    case "jitter":
+      aggregate.jitterSum += numeric;
+      aggregate.jitterCount += 1;
+      break;
+    case "loss":
+      aggregate.lossSum += numeric;
+      aggregate.lossCount += 1;
+      break;
+  }
+}
+
+function metricNumber(value: unknown): number | null {
+  const numeric = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
+function average(sum: number, count: number): number {
+  return count > 0 ? sum / count : 0;
 }
 
 function resetGauges(metrics: RuntimeMetrics, names: string[]): void {
