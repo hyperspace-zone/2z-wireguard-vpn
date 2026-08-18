@@ -2834,10 +2834,20 @@ async function createSession(): Promise<void> {
   sessionValidationErrors = {};
   render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
   try {
-    const response = await api("/v1/public/sessions", {
-      method: "POST",
-      body: { ...sessionPayloadFromDraft(), paymentRequestId: createConfigPaymentRequestId }
-    });
+    const payload = { ...sessionPayloadFromDraft(), paymentRequestId: createConfigPaymentRequestId };
+    let response: any = null;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        response = await api("/v1/public/sessions", { method: "POST", body: payload });
+        break;
+      } catch (error) {
+        const paymentStillFinalizing = error instanceof ApiRequestError
+          && error.code === "config_payment_in_progress";
+        if (!paymentStillFinalizing || attempt === 2) throw error;
+        log("SOL payment submitted. Waiting for finalization.");
+        await wait(1_000);
+      }
+    }
     const sessionId = typeof response.session?.id === "string" ? response.session.id : "";
     if (!sessionId) {
       throw new Error("The control plane did not return the created VPN config.");

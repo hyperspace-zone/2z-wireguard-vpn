@@ -252,7 +252,7 @@ export async function waitForFinalizedSolanaConfigPayment(
     sleep?: (milliseconds: number) => Promise<void>;
   } = {}
 ): Promise<ConfigPaymentSignatureStatus | null> {
-  const maxAttempts = options.maxAttempts ?? 30;
+  const maxAttempts = options.maxAttempts ?? 20;
   const pollIntervalMs = options.pollIntervalMs ?? 500;
   const sleep = options.sleep ?? ((milliseconds: number) => new Promise<void>((resolve) => {
     setTimeout(resolve, milliseconds);
