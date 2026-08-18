@@ -1466,6 +1466,11 @@ while reconciliation or scheduling is slow. The
 `HyperspaceControlPlaneSnapshotStale` warning detects a completed snapshot age
 above one minute.
 
+The scheduler migrations include partial indexes for active and recent
+benchmark and NTP-discovery jobs. Apply every migration before restarting a
+worker; on a large historical `jobs` table, omitting these indexes can turn a
+scheduler cycle into a minute-long sequential scan.
+
 `ARTIFACT_ENCRYPTION_KEY` must be identical for API and worker. Do not rotate it
 without a migration plan for existing artifacts.
 

@@ -122,6 +122,7 @@ Do not include them in routine `npm test` or live smoke runs.
 | OBS-011 | DoubleZero BGP flap audit | Report a gate heartbeat with a changed `doubleZero.tunnelStatus`, then report the same status again. | Exactly one `gate_doublezero_tunnel_status_changed` audit event records the transition; an unchanged heartbeat does not duplicate it. | `packages/control-plane/src/resources/gates/repository.test.ts` |
 | OBS-012 | Snapshot isolation | Block a reconcile task while the worker is running. | Snapshot collection continues on its independent interval; if no snapshot completes for more than one minute, `HyperspaceControlPlaneSnapshotStale` becomes warning. | `apps/control-plane-worker/src/runners/worker-runner.test.ts` and Prometheus rule test |
 | OBS-013 | Gate firewall persistence | Provision a gate with observability and benchmark peer IPv4s, reboot it, then run `hyperspace-gate-firewall --check`. | The systemd unit is enabled and the scoped TCP/9100 and UDP/19192 UFW rules remain present after boot. | `scripts/gates/firewall.test.mjs` and gate live smoke |
+| OBS-014 | NTP scheduler history scaling | Populate historical probe jobs and inspect the NTP scheduling SQL and database indexes. | Scheduling materializes only active/recent NTP gate IDs and uses partial indexes instead of repeatedly scanning all historical jobs. | `packages/control-plane/src/resources/benchmarks/repository.test.ts` and migration `0031_ntp_scheduler_indexes.sql` |
 
 ## Performance Measurements
 

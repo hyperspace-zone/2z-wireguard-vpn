@@ -178,7 +178,10 @@ export async function insertDueGateNtpDiscoveryJobs(
 ): Promise<number> {
   const result = await db.query(
     `
-      WITH schedulable_gates AS (
+      WITH scheduler_lock AS MATERIALIZED (
+        SELECT pg_try_advisory_xact_lock(740130191920260819::bigint) AS acquired
+      ),
+      schedulable_gates AS (
         SELECT gates.id, gates.name
         FROM gates
         LEFT JOIN gate_status ON gate_status.gate_id = gates.id
@@ -186,7 +189,9 @@ export async function insertDueGateNtpDiscoveryJobs(
         LEFT JOIN gate_conditions agent ON agent.gate_id = gates.id AND agent.type = 'AgentConnected'
         LEFT JOIN gate_conditions ready ON ready.gate_id = gates.id AND ready.type = 'Ready'
         LEFT JOIN gate_conditions schedulable ON schedulable.gate_id = gates.id AND schedulable.type = 'Schedulable'
+        CROSS JOIN scheduler_lock
         WHERE gates.desired_state = 'Enabled'
+          AND scheduler_lock.acquired
           AND COALESCE(agent.status = 'True', false)
           AND COALESCE(ready.status = 'True', false)
           AND COALESCE(schedulable.status = 'True', false)
@@ -194,27 +199,29 @@ export async function insertDueGateNtpDiscoveryJobs(
           AND COALESCE('ntp-discovery:enabled' = ANY(gate_status.observed_capabilities), false)
           AND ${freshGateLeaseSqlPredicate}
       ),
+      active_gates AS MATERIALIZED (
+        SELECT DISTINCT jobs.gate_id
+        FROM jobs
+        WHERE jobs.type = 'probe'
+          AND jobs.phase IN ('queued', 'leased', 'running', 'retryable_failed')
+          AND jobs.payload->>'kind' = 'gate_ntp_discovery_v1'
+      ),
+      recent_gates AS MATERIALIZED (
+        SELECT DISTINCT completed.gate_id
+        FROM jobs completed
+        JOIN job_attempts attempts ON attempts.job_id = completed.id
+        WHERE completed.type = 'probe'
+          AND completed.phase = 'succeeded'
+          AND completed.payload->>'kind' = 'gate_ntp_discovery_v1'
+          AND attempts.completed_at > now() - ($1::int * interval '1 second')
+      ),
       due_gates AS (
         SELECT schedulable_gates.*
         FROM schedulable_gates
-        WHERE NOT EXISTS (
-          SELECT 1
-          FROM jobs
-          WHERE jobs.type = 'probe'
-            AND jobs.phase IN ('queued', 'leased', 'running', 'retryable_failed')
-            AND jobs.gate_id = schedulable_gates.id
-            AND jobs.payload->>'kind' = 'gate_ntp_discovery_v1'
-        )
-        AND NOT EXISTS (
-          SELECT 1
-          FROM jobs completed
-          JOIN job_attempts attempts ON attempts.job_id = completed.id
-          WHERE completed.type = 'probe'
-            AND completed.phase = 'succeeded'
-            AND completed.gate_id = schedulable_gates.id
-            AND completed.payload->>'kind' = 'gate_ntp_discovery_v1'
-            AND attempts.completed_at > now() - ($1::int * interval '1 second')
-        )
+        LEFT JOIN active_gates ON active_gates.gate_id = schedulable_gates.id
+        LEFT JOIN recent_gates ON recent_gates.gate_id = schedulable_gates.id
+        WHERE active_gates.gate_id IS NULL
+          AND recent_gates.gate_id IS NULL
       )
       INSERT INTO jobs (type, phase, gate_id, payload, max_retries)
       SELECT
