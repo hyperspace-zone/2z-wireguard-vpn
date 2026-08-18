@@ -1,0 +1,13 @@
+[Unit]
+Description=Hyperspace persistent gate UFW allowlist
+After=ufw.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/hyperspace-gate-firewall
+ExecStartPost=/usr/local/sbin/hyperspace-gate-firewall --check
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

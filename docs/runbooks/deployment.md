@@ -858,6 +858,19 @@ Open the required firewall/security-group paths:
 Provisioning can succeed while client traffic still fails if the cloud firewall
 blocks the assigned WireGuard UDP port on the ingress gate.
 
+Gate bootstrap persists the host-level UFW rules for TCP/9100 and UDP/19192 in
+`/etc/hyperspace/gate-firewall.env`. The enabled
+`hyperspace-gate-firewall.service` reapplies and verifies them after every boot.
+It does not enable UFW or change the default policy, so keep the provider
+firewall synchronized and make the host-level enablement decision explicitly.
+Rerun the fleet rollout whenever a gate or observability IPv4 changes.
+
+```bash
+systemctl is-enabled hyperspace-gate-firewall.service
+/usr/local/sbin/hyperspace-gate-firewall --check
+ufw show added
+```
+
 ### Gate disk janitor
 
 Install the local disk janitor on every gate. It prevents noisy system logs
@@ -1347,6 +1360,7 @@ npm run gates:rollout-wave -- \
   --known-hosts-file /root/.ssh/known_hosts \
   --control-plane-url https://control-plane.hyperspace.zone \
   --web-origin https://app.hyperspace.zone \
+  --observability-ip 84.32.83.71 \
   --gate-token-dir /root/hyperspace/secrets/mainnet-gate-tokens \
   --probe-secret-file /root/hyperspace/secrets/mainnet-gate-probe-secret
 
@@ -1357,9 +1371,13 @@ npm run gates:rollout-wave -- ... --execute
 The automation installs host packages, HWE kernel where available, DoubleZero,
 chrony, Caddy, WireGuard tooling, node exporter, `vnstat`, `sysstat`, journald
 limits, the disk janitor, the gate resource exporter, the passive DoubleZero
-route-liveness tuning and aggregate DoubleZero metrics. It configures a
-`standard` conntrack tier (`65536`) by default. Inventory entries may request
-the `hub` tier (`262144`), but bootstrap rejects that tier below 2 GiB RAM.
+route-liveness tuning and aggregate DoubleZero metrics. It also derives the
+UDP/19192 gate allowlist from all non-removed inventory entries and persists
+TCP/9100 access from every repeated `--observability-ip`. Mainnet currently
+uses `84.32.83.71`, testnet uses `81.27.101.158`, and staging uses
+`84.32.110.4`. It configures a `standard` conntrack tier (`65536`) by default.
+Inventory entries may request the `hub` tier (`262144`), but bootstrap rejects
+that tier below 2 GiB RAM and requires a canary.
 The bootstrap persists both the tier and module ordering: it installs
 `nf_conntrack` in `/etc/modules-load.d/90-hyperspace-gate.conf` before storing
 the tier values in `/etc/sysctl.d/90-hyperspace-gate.conf`. This ordering is

@@ -121,6 +121,7 @@ Do not include them in routine `npm test` or live smoke runs.
 | OBS-010 | Benchmark failure aggregation | Persist one failed cycle and then two consecutive failed cycles for several routes from one source gate. | One cycle is retained without an alert; after the second cycle Prometheus emits one gate-level alert whose value is the number of confirmed failed route/transports. | Worker metrics and Prometheus rule test |
 | OBS-011 | DoubleZero BGP flap audit | Report a gate heartbeat with a changed `doubleZero.tunnelStatus`, then report the same status again. | Exactly one `gate_doublezero_tunnel_status_changed` audit event records the transition; an unchanged heartbeat does not duplicate it. | `packages/control-plane/src/resources/gates/repository.test.ts` |
 | OBS-012 | Snapshot isolation | Block a reconcile task while the worker is running. | Snapshot collection continues on its independent interval; if no snapshot completes for more than one minute, `HyperspaceControlPlaneSnapshotStale` becomes warning. | `apps/control-plane-worker/src/runners/worker-runner.test.ts` and Prometheus rule test |
+| OBS-013 | Gate firewall persistence | Provision a gate with observability and benchmark peer IPv4s, reboot it, then run `hyperspace-gate-firewall --check`. | The systemd unit is enabled and the scoped TCP/9100 and UDP/19192 UFW rules remain present after boot. | `scripts/gates/firewall.test.mjs` and gate live smoke |
 
 ## Performance Measurements
 

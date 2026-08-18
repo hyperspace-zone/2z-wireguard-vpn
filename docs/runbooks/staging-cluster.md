@@ -48,6 +48,12 @@ scripts/gates/deploy-agent \
   --web-origin https://app.staging.hyperspace.zone
 ```
 
+When bootstrapping these gates for staging, pass
+`--observability-ip 84.32.110.4`. The provisioning service persists the scoped
+TCP/9100 and inventory-derived UDP/19192 UFW rules across reboot. If a gate is
+regularly transferred between staging and production, pass both observability
+IPv4s as repeated options.
+
 The three gates run the same current DoubleZero package and passive route
 liveness profile documented in the main deployment runbook. Verify all six
 directed benchmark routes after any package update.

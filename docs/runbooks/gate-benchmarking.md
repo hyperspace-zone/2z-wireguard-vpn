@@ -93,6 +93,16 @@ around each gate, not half of the full gate-to-gate route.
 
 Open the UDP probe port between known gate public IPs. The default is `19192`.
 Restrict it in the cloud firewall to the gate inventory where possible.
+The fleet provisioning command derives this UFW allowlist from non-removed
+inventory entries. It stores the rules in `/etc/hyperspace/gate-firewall.env`
+and enables `hyperspace-gate-firewall.service`, so they are reapplied and
+verified after reboot. Rerun provisioning across the fleet when gate IPs
+change, and verify with:
+
+```bash
+systemctl is-enabled hyperspace-gate-firewall.service
+/usr/local/sbin/hyperspace-gate-firewall --check
+```
 
 On every gate, set the same probe port and shared HMAC secret in
 `/etc/hyperspace/gate-agent.env`:

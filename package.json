@@ -31,6 +31,7 @@
     "test:live": "npm run test:live:ui && npm run test:live:policy",
     "gates:rollout-wave": "node scripts/gates/rollout-wave.mjs",
     "test:gate-discovery": "node --test scripts/observability/render-gate-file-sd.test.mjs",
+    "test:gate-provisioning": "node --test scripts/gates/*.test.mjs",
     "measure:matrix": "python3 scripts/testnodes/run_measurement_matrix.py",
     "measure:compare": "python3 scripts/testnodes/compare_measurements.py",
     "typecheck": "npm run typecheck --workspaces --if-present"
