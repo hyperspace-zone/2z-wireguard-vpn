@@ -158,16 +158,13 @@ export function createSolanaConfigPaymentService(input: {
           maxRetries: 3
         });
         if (sentSignature !== signature) throw new Error("Solana RPC returned an unexpected transaction signature");
-        const confirmation = await connection.confirmTransaction({
-          signature,
-          blockhash: blockhash.blockhash,
-          lastValidBlockHeight: blockhash.lastValidBlockHeight
-        }, "finalized");
-        if (confirmation.value.err) {
-          const reason = `Solana config payment failed: ${JSON.stringify(confirmation.value.err)}`;
+        const status = await waitForFinalizedSolanaConfigPayment(connection, signature);
+        if (status?.err) {
+          const reason = `Solana config payment failed: ${JSON.stringify(status.err)}`;
           await failSolanaConfigPayment(input.db, request.paymentId, "transaction_failed", reason);
           return { status: "failed", reason };
         }
+        if (status?.confirmationStatus !== "finalized") return { status: "in_progress" };
         await confirmSolanaConfigPayment(input.db, request.paymentId);
         return { status: "confirmed", signature, feeLamports };
       } catch (error) {
@@ -226,22 +223,48 @@ async function recoverSubmittedPayment(
       return { status: "in_progress" };
     }
   }
-  await failSolanaConfigPayment(db, payment.id, "blockhash_expired", "Config payment blockhash expired before finalization");
-  return null;
+  // This RPC has no archival history. Keep an unknown submitted payment in
+  // manual-review state instead of risking a second charge for the same config.
+  return { status: "in_progress" };
 }
 
 export async function readSolanaConfigPaymentSignatureStatus(
   connection: SignatureStatusReader,
   signature: string
 ): Promise<ConfigPaymentSignatureStatus | null> {
+  const recent = await connection.getSignatureStatuses([signature], { searchTransactionHistory: false });
+  if (recent.value[0]) return recent.value[0];
   try {
     const response = await connection.getSignatureStatuses([signature], { searchTransactionHistory: true });
     return response.value[0] ?? null;
   } catch (error) {
     if (!isTransactionHistoryUnavailable(error)) throw error;
-    const response = await connection.getSignatureStatuses([signature], { searchTransactionHistory: false });
-    return response.value[0] ?? null;
+    return null;
   }
+}
+
+export async function waitForFinalizedSolanaConfigPayment(
+  connection: SignatureStatusReader,
+  signature: string,
+  options: {
+    maxAttempts?: number;
+    pollIntervalMs?: number;
+    sleep?: (milliseconds: number) => Promise<void>;
+  } = {}
+): Promise<ConfigPaymentSignatureStatus | null> {
+  const maxAttempts = options.maxAttempts ?? 30;
+  const pollIntervalMs = options.pollIntervalMs ?? 500;
+  const sleep = options.sleep ?? ((milliseconds: number) => new Promise<void>((resolve) => {
+    setTimeout(resolve, milliseconds);
+  }));
+  let latest: ConfigPaymentSignatureStatus | null = null;
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    const response = await connection.getSignatureStatuses([signature], { searchTransactionHistory: false });
+    latest = response.value[0] ?? null;
+    if (latest?.err || latest?.confirmationStatus === "finalized") return latest;
+    if (attempt + 1 < maxAttempts) await sleep(pollIntervalMs);
+  }
+  return latest;
 }
 
 export function isSolanaTransactionSimulationFailure(error: unknown): boolean {

@@ -35,7 +35,7 @@ export async function activatePaidSession(
         UPDATE session_conditions
         SET reason = 'PaymentConfirmed',
             message = 'SOL config payment finalized; session is waiting for reconciliation',
-            updated_at = now()
+            last_transition_at = now()
         WHERE session_id = $1 AND type = 'Ready'
       `,
       [sessionId]
