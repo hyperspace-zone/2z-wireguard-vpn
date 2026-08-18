@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { spawnSync } from "node:child_process";
-import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -71,4 +71,17 @@ test("gate firewall check requires every persisted rule", () => {
   const failure = runFirewall(["--check"], files, rules.replace(/^.*198\.51\.100\.21.*\n?/m, ""));
   assert.equal(failure.status, 1);
   assert.match(failure.stderr, /missing persistent UFW rule: 198\.51\.100\.21 udp\/19192/);
+});
+
+test("gate firewall does not duplicate existing rules", () => {
+  const files = fixture();
+  const rules = [
+    "ufw allow from 192.0.2.10 to any port 9100 proto tcp comment 'hyperspace-observability'",
+    "ufw allow from 198.51.100.20 to any port 19192 proto udp comment 'hyperspace-benchmark'",
+    "ufw allow from 198.51.100.21 to any port 19192 proto udp comment 'hyperspace-benchmark'"
+  ].join("\n");
+
+  const result = runFirewall([], files, rules);
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(existsSync(files.log), false);
 });
