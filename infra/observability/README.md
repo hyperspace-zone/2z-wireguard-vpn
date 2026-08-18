@@ -57,6 +57,9 @@ route.
 Per-gate Telegram alerts include a copyable `host` value from the explicit
 gate catalog `probeUrl` plus the catalog `publicIpv4`; alert routing must not
 derive DNS names from `gate.name`.
+Control-plane API and worker scrape targets carry explicit `service_host` and
+`service_ipv4` labels. Infrastructure alerts use them to render a copyable
+`Service access` block without presenting a control-plane host as a gate.
 Render `/etc/prometheus/alertmanager.yml` with
 `scripts/render-alertmanager-telegram-config` after editing
 `/etc/prometheus/alertmanager_telegram_receivers.json`, then validate it with

@@ -64,7 +64,8 @@ export async function insertDueGateBenchmarkProbeJobs(
           gates.id,
           gates.name,
           gates.public_ipv4,
-          gates.doublezero_interface
+          gates.doublezero_interface,
+          NULLIF(BTRIM(gate_status.doublezero_status->>'metro'), '') AS doublezero_metro
         FROM gates
         LEFT JOIN gate_status ON gate_status.gate_id = gates.id
         LEFT JOIN gate_leases ON gate_leases.gate_id = gates.id
@@ -86,9 +87,11 @@ export async function insertDueGateBenchmarkProbeJobs(
           source.id AS source_gate_id,
           source.name AS source_gate_name,
           source.doublezero_interface AS source_doublezero_interface,
+          source.doublezero_metro AS source_doublezero_metro,
           target.id AS target_gate_id,
           target.name AS target_gate_name,
-          target.public_ipv4 AS target_public_ipv4
+          target.public_ipv4 AS target_public_ipv4,
+          target.doublezero_metro AS target_doublezero_metro
         FROM schedulable_gates source
         CROSS JOIN schedulable_gates target
         WHERE source.id <> target.id
@@ -129,10 +132,18 @@ export async function insertDueGateBenchmarkProbeJobs(
           'count', $3::int,
           'intervalMs', $4::int,
           'timeoutMs', $5::int,
-          'transports', jsonb_build_array(
-            jsonb_build_object('name', 'public', 'interface', 'public'),
-            jsonb_build_object('name', 'doublezero', 'interface', source_doublezero_interface)
-          )
+          'transports', CASE
+            WHEN source_doublezero_metro IS NOT NULL
+              AND target_doublezero_metro IS NOT NULL
+              AND LOWER(source_doublezero_metro) = LOWER(target_doublezero_metro)
+            THEN jsonb_build_array(
+              jsonb_build_object('name', 'public', 'interface', 'public')
+            )
+            ELSE jsonb_build_array(
+              jsonb_build_object('name', 'public', 'interface', 'public'),
+              jsonb_build_object('name', 'doublezero', 'interface', source_doublezero_interface)
+            )
+          END
         ),
         2
       FROM due_pairs
@@ -312,6 +323,8 @@ export async function listLatestGateBenchmarkRoutes(db: Queryable): Promise<Gate
     sourceGateName: string;
     targetGateId: string;
     targetGateName: string;
+    sameDoubleZeroMetro: boolean;
+    doublezeroMetro: string | null;
     publicMetric: GateBenchmarkMetric | null;
     doublezeroMetric: GateBenchmarkMetric | null;
   }>(
@@ -320,10 +333,14 @@ export async function listLatestGateBenchmarkRoutes(db: Queryable): Promise<Gate
         SELECT
           source.id AS source_gate_id,
           source.name AS source_gate_name,
+          NULLIF(BTRIM(source_status.doublezero_status->>'metro'), '') AS source_doublezero_metro,
           target.id AS target_gate_id,
-          target.name AS target_gate_name
+          target.name AS target_gate_name,
+          NULLIF(BTRIM(target_status.doublezero_status->>'metro'), '') AS target_doublezero_metro
         FROM gates source
         CROSS JOIN gates target
+        LEFT JOIN gate_status source_status ON source_status.gate_id = source.id
+        LEFT JOIN gate_status target_status ON target_status.gate_id = target.id
         WHERE source.id <> target.id
           AND source.desired_state = 'Enabled'
           AND target.desired_state = 'Enabled'
@@ -333,6 +350,12 @@ export async function listLatestGateBenchmarkRoutes(db: Queryable): Promise<Gate
         directed_pairs.source_gate_name AS "sourceGateName",
         directed_pairs.target_gate_id AS "targetGateId",
         directed_pairs.target_gate_name AS "targetGateName",
+        (
+          directed_pairs.source_doublezero_metro IS NOT NULL
+          AND directed_pairs.target_doublezero_metro IS NOT NULL
+          AND LOWER(directed_pairs.source_doublezero_metro) = LOWER(directed_pairs.target_doublezero_metro)
+        ) AS "sameDoubleZeroMetro",
+        directed_pairs.source_doublezero_metro AS "doublezeroMetro",
         public_latest.metric AS "publicMetric",
         doublezero_latest.metric AS "doublezeroMetric"
       FROM directed_pairs
@@ -423,6 +446,11 @@ export async function listLatestGateBenchmarkRoutes(db: Queryable): Promise<Gate
         WHERE source_gate_id = directed_pairs.source_gate_id
           AND target_gate_id = directed_pairs.target_gate_id
           AND transport = 'doublezero'
+          AND NOT (
+            directed_pairs.source_doublezero_metro IS NOT NULL
+            AND directed_pairs.target_doublezero_metro IS NOT NULL
+            AND LOWER(directed_pairs.source_doublezero_metro) = LOWER(directed_pairs.target_doublezero_metro)
+          )
         ORDER BY measured_at DESC
         LIMIT 1
       ) doublezero_latest ON true
@@ -432,7 +460,7 @@ export async function listLatestGateBenchmarkRoutes(db: Queryable): Promise<Gate
 
   return result.rows.map((row) => {
     const publicMetric = normalizeMetric(row.publicMetric);
-    const doublezeroMetric = normalizeMetric(row.doublezeroMetric);
+    const doublezeroMetric = row.sameDoubleZeroMetro ? null : normalizeMetric(row.doublezeroMetric);
     const route: GateBenchmarkRoute = {
       sourceGateId: row.sourceGateId,
       sourceGateName: row.sourceGateName,
@@ -442,7 +470,13 @@ export async function listLatestGateBenchmarkRoutes(db: Queryable): Promise<Gate
     if (publicMetric) {
       route.public = publicMetric;
     }
-    if (doublezeroMetric) {
+    if (row.sameDoubleZeroMetro && row.doublezeroMetro) {
+      route.doublezeroApplicability = {
+        status: "not_applicable",
+        reason: "same_doublezero_metro",
+        metro: row.doublezeroMetro
+      };
+    } else if (doublezeroMetric) {
       route.doublezero = doublezeroMetric;
     }
     if (publicMetric && doublezeroMetric) {

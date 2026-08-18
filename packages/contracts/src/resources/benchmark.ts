@@ -1,6 +1,7 @@
 import type { FromSchema } from "json-schema-to-ts";
 
 export const benchmarkTransportValues = ["public", "doublezero"] as const;
+export const benchmarkNotApplicableReasonValues = ["same_doublezero_metro"] as const;
 
 export const benchmarkMetricSummarySchema = {
   type: "object",
@@ -52,6 +53,16 @@ export const gateBenchmarkRouteSchema = {
     targetGateName: { type: "string" },
     public: gateBenchmarkMetricSchema,
     doublezero: gateBenchmarkMetricSchema,
+    doublezeroApplicability: {
+      type: "object",
+      additionalProperties: false,
+      required: ["status", "reason", "metro"],
+      properties: {
+        status: { const: "not_applicable" },
+        reason: { enum: benchmarkNotApplicableReasonValues },
+        metro: { type: "string", minLength: 1 }
+      }
+    },
     delta: {
       type: "object",
       additionalProperties: false,
@@ -66,5 +77,6 @@ export const gateBenchmarkRouteSchema = {
 } as const;
 
 export type BenchmarkTransport = typeof benchmarkTransportValues[number];
+export type BenchmarkNotApplicableReason = typeof benchmarkNotApplicableReasonValues[number];
 export type GateBenchmarkMetric = FromSchema<typeof gateBenchmarkMetricSchema>;
 export type GateBenchmarkRoute = FromSchema<typeof gateBenchmarkRouteSchema>;

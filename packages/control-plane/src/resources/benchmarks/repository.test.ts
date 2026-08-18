@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { Queryable } from "../../db/queryable.js";
-import { insertDueGateBenchmarkProbeJobs, insertDueGateNtpDiscoveryJobs } from "./repository.js";
+import {
+  insertDueGateBenchmarkProbeJobs,
+  insertDueGateNtpDiscoveryJobs,
+  listLatestGateBenchmarkRoutes
+} from "./repository.js";
 
 test("benchmark scheduler inserts idempotent directed gate probe jobs", async () => {
   const calls: Array<{ sql: string; params: readonly unknown[] }> = [];
@@ -29,7 +33,92 @@ test("benchmark scheduler inserts idempotent directed gate probe jobs", async ()
   assert.match(call.sql, /gate_benchmark_results recent/);
   assert.match(call.sql, /jsonb_build_object\('name', 'public', 'interface', 'public'\)/);
   assert.match(call.sql, /jsonb_build_object\('name', 'doublezero', 'interface', source_doublezero_interface\)/);
+  assert.match(call.sql, /gate_status\.doublezero_status->>'metro'/);
+  assert.match(call.sql, /source_doublezero_metro IS NOT NULL/);
+  assert.match(call.sql, /LOWER\(source_doublezero_metro\) = LOWER\(target_doublezero_metro\)/);
   assert.deepEqual(call.params, [300, 19192, 10, 100, 1000]);
+});
+
+test("benchmark matrix marks same DoubleZero metro as not applicable and hides old failures", async () => {
+  const calls: string[] = [];
+  const db: Queryable = {
+    async query<Row extends object>(sql: string) {
+      calls.push(sql);
+      return {
+        rows: [{
+          sourceGateId: "gate-a-id",
+          sourceGateName: "gate-eu-lon-01",
+          targetGateId: "gate-b-id",
+          targetGateName: "gate-eu-lon-41",
+          sameDoubleZeroMetro: true,
+          doublezeroMetro: "London",
+          publicMetric: {
+            transport: "public",
+            status: "succeeded",
+            measuredAt: "2026-08-17T00:00:00.000Z"
+          },
+          doublezeroMetric: {
+            transport: "doublezero",
+            status: "failed",
+            errorCode: "no_probe_responses",
+            measuredAt: "2026-08-16T00:00:00.000Z"
+          }
+        }] as Row[],
+        rowCount: 1
+      };
+    }
+  };
+
+  const routes = await listLatestGateBenchmarkRoutes(db);
+
+  assert.deepEqual(routes, [{
+    sourceGateId: "gate-a-id",
+    sourceGateName: "gate-eu-lon-01",
+    targetGateId: "gate-b-id",
+    targetGateName: "gate-eu-lon-41",
+    public: {
+      transport: "public",
+      status: "succeeded",
+      measuredAt: "2026-08-17T00:00:00.000Z"
+    },
+    doublezeroApplicability: {
+      status: "not_applicable",
+      reason: "same_doublezero_metro",
+      metro: "London"
+    }
+  }]);
+  assert.match(calls[0] ?? "", /LEFT JOIN gate_status source_status/);
+  assert.match(calls[0] ?? "", /directed_pairs\.source_doublezero_metro IS NOT NULL/);
+  assert.match(calls[0] ?? "", /transport = 'doublezero'/);
+});
+
+test("benchmark matrix keeps DoubleZero results when metro is unknown", async () => {
+  const db: Queryable = {
+    async query<Row extends object>() {
+      return {
+        rows: [{
+          sourceGateId: "gate-a-id",
+          sourceGateName: "gate-a",
+          targetGateId: "gate-b-id",
+          targetGateName: "gate-b",
+          sameDoubleZeroMetro: false,
+          doublezeroMetro: null,
+          publicMetric: null,
+          doublezeroMetric: {
+            transport: "doublezero",
+            status: "succeeded",
+            measuredAt: "2026-08-17T00:00:00.000Z"
+          }
+        }] as Row[],
+        rowCount: 1
+      };
+    }
+  };
+
+  const routes = await listLatestGateBenchmarkRoutes(db);
+
+  assert.equal(routes[0]?.doublezero?.status, "succeeded");
+  assert.equal(routes[0]?.doublezeroApplicability, undefined);
 });
 
 test("ntp discovery scheduler inserts idempotent gate maintenance probe jobs", async () => {

@@ -20,6 +20,12 @@ Gate access:
 {{ end -}}
 {{ if .Labels.public_ipv4 }}ip <code>{{ .Labels.public_ipv4 | html }}</code>
 {{ end -}}
+{{ else if or .Labels.service_host .Labels.service_ipv4 -}}
+Service access:
+{{ if .Labels.service_host }}host <code>{{ .Labels.service_host | html }}</code>
+{{ end -}}
+{{ if .Labels.service_ipv4 }}ip <code>{{ .Labels.service_ipv4 | html }}</code>
+{{ end -}}
 {{ end -}}
 {{ .Annotations.summary | html }}
 {{ .Annotations.description | html }}

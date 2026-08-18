@@ -4,6 +4,48 @@ rule_files:
 evaluation_interval: 15s
 
 tests:
+  - name: observability node exporter outage is critical
+    interval: 15s
+    input_series:
+      - series: 'up{job="hyperspace-observability-node",cluster="mainnet",role="observability",instance="127.0.0.1:9100"}'
+        values: '0x10'
+    alert_rule_test:
+      - eval_time: 2m15s
+        alertname: HyperspaceObservabilityNodeExporterDown
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: hyperspace-observability-node
+              cluster: mainnet
+              role: observability
+              instance: 127.0.0.1:9100
+            exp_annotations:
+              summary: Hyperspace observability host metrics scrape is down
+              description: Prometheus cannot scrape its local observability node exporter for 2 minutes, so host disk capacity is no longer monitored.
+
+  - name: observability root filesystem low space is critical
+    interval: 15s
+    input_series:
+      - series: 'node_filesystem_avail_bytes{job="hyperspace-observability-node",cluster="mainnet",role="observability",instance="127.0.0.1:9100",mountpoint="/",fstype="ext4"}'
+        values: '3000000000x22'
+      - series: 'node_filesystem_size_bytes{job="hyperspace-observability-node",cluster="mainnet",role="observability",instance="127.0.0.1:9100",mountpoint="/",fstype="ext4"}'
+        values: '42949672960x22'
+    alert_rule_test:
+      - eval_time: 5m15s
+        alertname: HyperspaceObservabilityRootFilesystemCritical
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: hyperspace-observability-node
+              cluster: mainnet
+              role: observability
+              instance: 127.0.0.1:9100
+              mountpoint: /
+              fstype: ext4
+            exp_annotations:
+              summary: Hyperspace observability root filesystem is critically full
+              description: Observability host 127.0.0.1:9100 in mainnet has less than 15% or 4GiB available on /; Prometheus may stop ingesting metrics and emitting alerts.
+
   - name: low absolute memory fires critical even above ten percent
     interval: 15s
     input_series:

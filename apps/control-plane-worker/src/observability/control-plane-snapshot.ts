@@ -432,9 +432,13 @@ async function collectBenchmarkMetrics(db: Database, metrics: RuntimeMetrics): P
     ageSeconds: number | null;
   }>(`
     WITH enabled_gates AS (
-      SELECT id, name
+      SELECT
+        gates.id,
+        gates.name,
+        NULLIF(BTRIM(gate_status.doublezero_status->>'metro'), '') AS doublezero_metro
       FROM gates
-      WHERE desired_state = 'Enabled'
+      LEFT JOIN gate_status ON gate_status.gate_id = gates.id
+      WHERE gates.desired_state = 'Enabled'
     ),
     latest AS (
       SELECT
@@ -464,6 +468,12 @@ async function collectBenchmarkMetrics(db: Database, metrics: RuntimeMetrics): P
         LIMIT 1
       ) sample ON true
       WHERE source.id <> target.id
+        AND (
+          transports.transport = 'public'
+          OR source.doublezero_metro IS NULL
+          OR target.doublezero_metro IS NULL
+          OR LOWER(source.doublezero_metro) <> LOWER(target.doublezero_metro)
+        )
     )
     SELECT
       latest."sourceGate",

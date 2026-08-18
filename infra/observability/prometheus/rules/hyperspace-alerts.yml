@@ -35,6 +35,31 @@ groups:
 
   - name: hyperspace-control-plane
     rules:
+      - alert: HyperspaceObservabilityNodeExporterDown
+        expr: up{job="hyperspace-observability-node"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: Hyperspace observability host metrics scrape is down
+          description: Prometheus cannot scrape its local observability node exporter for 2 minutes, so host disk capacity is no longer monitored.
+
+      - alert: HyperspaceObservabilityRootFilesystemCritical
+        expr: |
+          (
+            node_filesystem_avail_bytes{job="hyperspace-observability-node",mountpoint="/"}
+              / node_filesystem_size_bytes{job="hyperspace-observability-node",mountpoint="/"} < 0.15
+          )
+          or
+          node_filesystem_avail_bytes{job="hyperspace-observability-node",mountpoint="/"} < 4294967296
+        for: 5m
+        keep_firing_for: 30m
+        labels:
+          severity: critical
+        annotations:
+          summary: Hyperspace observability root filesystem is critically full
+          description: Observability host {{ $labels.instance }} in {{ $labels.cluster }} has less than 15% or 4GiB available on /; Prometheus may stop ingesting metrics and emitting alerts.
+
       - alert: HyperspaceControlPlaneApiDown
         expr: up{job="hyperspace-control-plane-api"} == 0
         for: 2m
