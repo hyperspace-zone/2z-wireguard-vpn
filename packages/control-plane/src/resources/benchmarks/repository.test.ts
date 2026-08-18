@@ -28,9 +28,14 @@ test("benchmark scheduler inserts idempotent directed gate probe jobs", async ()
   assert.equal(calls.length, 1);
   const [call] = calls;
   assert.ok(call);
+  assert.match(call.sql, /pg_try_advisory_xact_lock/);
   assert.match(call.sql, /jobs\.type = 'probe'/);
   assert.match(call.sql, /jobs\.payload->>'kind' = 'gate_benchmark_v1'/);
-  assert.match(call.sql, /gate_benchmark_results recent/);
+  assert.match(call.sql, /active_pairs AS MATERIALIZED/);
+  assert.match(call.sql, /recent_pairs AS MATERIALIZED/);
+  assert.match(call.sql, /LEFT JOIN active_pairs/);
+  assert.match(call.sql, /LEFT JOIN recent_pairs/);
+  assert.doesNotMatch(call.sql, /WHERE NOT EXISTS/);
   assert.match(call.sql, /jsonb_build_object\('name', 'public', 'interface', 'public'\)/);
   assert.match(call.sql, /jsonb_build_object\('name', 'doublezero', 'interface', source_doublezero_interface\)/);
   assert.match(call.sql, /gate_status\.doublezero_status->>'metro'/);

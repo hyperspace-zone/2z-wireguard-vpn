@@ -59,7 +59,10 @@ export async function insertDueGateBenchmarkProbeJobs(
 ): Promise<number> {
   const result = await db.query(
     `
-      WITH schedulable_gates AS (
+      WITH scheduler_lock AS MATERIALIZED (
+        SELECT pg_try_advisory_xact_lock(740130191920260818::bigint) AS acquired
+      ),
+      schedulable_gates AS (
         SELECT
           gates.id,
           gates.name,
@@ -72,7 +75,9 @@ export async function insertDueGateBenchmarkProbeJobs(
         LEFT JOIN gate_conditions agent ON agent.gate_id = gates.id AND agent.type = 'AgentConnected'
         LEFT JOIN gate_conditions ready ON ready.gate_id = gates.id AND ready.type = 'Ready'
         LEFT JOIN gate_conditions schedulable ON schedulable.gate_id = gates.id AND schedulable.type = 'Schedulable'
+        CROSS JOIN scheduler_lock
         WHERE gates.desired_state = 'Enabled'
+          AND scheduler_lock.acquired
           AND COALESCE(agent.status = 'True', false)
           AND COALESCE(ready.status = 'True', false)
           AND COALESCE(schedulable.status = 'True', false)
@@ -96,25 +101,33 @@ export async function insertDueGateBenchmarkProbeJobs(
         CROSS JOIN schedulable_gates target
         WHERE source.id <> target.id
       ),
+      active_pairs AS MATERIALIZED (
+        SELECT DISTINCT
+          jobs.gate_id AS source_gate_id,
+          jobs.payload->>'targetGateId' AS target_gate_id
+        FROM jobs
+        WHERE jobs.type = 'probe'
+          AND jobs.phase IN ('queued', 'leased', 'running', 'retryable_failed')
+          AND jobs.payload->>'kind' = 'gate_benchmark_v1'
+      ),
+      recent_pairs AS MATERIALIZED (
+        SELECT DISTINCT
+          recent.source_gate_id,
+          recent.target_gate_id
+        FROM gate_benchmark_results recent
+        WHERE recent.measured_at > now() - ($1::int * interval '1 second')
+      ),
       due_pairs AS (
         SELECT directed_pairs.*
         FROM directed_pairs
-        WHERE NOT EXISTS (
-          SELECT 1
-          FROM jobs
-          WHERE jobs.type = 'probe'
-            AND jobs.phase IN ('queued', 'leased', 'running', 'retryable_failed')
-            AND jobs.gate_id = directed_pairs.source_gate_id
-            AND jobs.payload->>'kind' = 'gate_benchmark_v1'
-            AND jobs.payload->>'targetGateId' = directed_pairs.target_gate_id::text
-        )
-        AND NOT EXISTS (
-          SELECT 1
-          FROM gate_benchmark_results recent
-          WHERE recent.source_gate_id = directed_pairs.source_gate_id
-            AND recent.target_gate_id = directed_pairs.target_gate_id
-            AND recent.measured_at > now() - ($1::int * interval '1 second')
-        )
+        LEFT JOIN active_pairs
+          ON active_pairs.source_gate_id = directed_pairs.source_gate_id
+          AND active_pairs.target_gate_id = directed_pairs.target_gate_id::text
+        LEFT JOIN recent_pairs
+          ON recent_pairs.source_gate_id = directed_pairs.source_gate_id
+          AND recent_pairs.target_gate_id = directed_pairs.target_gate_id
+        WHERE active_pairs.source_gate_id IS NULL
+          AND recent_pairs.source_gate_id IS NULL
       )
       INSERT INTO jobs (type, phase, gate_id, payload, max_retries)
       SELECT

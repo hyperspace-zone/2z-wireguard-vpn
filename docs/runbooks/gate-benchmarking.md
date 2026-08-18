@@ -16,6 +16,13 @@ for stale directed gate pairs. The source gate-agent claims a job, sends UDP
 timestamp probes to the target gate, and reports results back through the normal
 gate job report API.
 
+Benchmark scheduling has its own worker loop and defaults to a 15-second poll,
+separate from the two-second lifecycle reconcile loop and the Prometheus
+snapshot collector. A transaction-scoped advisory lock permits only one worker
+to enqueue a scheduling batch. The scheduler materializes active and recently
+measured route pairs once and anti-joins them against the directed gate matrix,
+instead of running correlated history checks for every pair.
+
 Each probe job always measures `public` and normally measures `doublezero`:
 
 - `public`: source socket bound to the gate public underlay interface.
@@ -125,6 +132,8 @@ The control-plane worker schedules benchmark probe jobs by default. Tune with:
 
 ```bash
 BENCHMARK_PROBES_ENABLED=true
+BENCHMARK_SCHEDULER_POLL_MS=15000
+WORKER_SNAPSHOT_INTERVAL_MS=15000
 BENCHMARK_INTERVAL_SECONDS=300
 BENCHMARK_PROBE_PORT=19192
 BENCHMARK_PROBE_COUNT=10

@@ -1392,6 +1392,8 @@ Create `/etc/hyperspace/control-plane-worker.env` with the same
 cat >/etc/hyperspace/control-plane-worker.env <<EOF
 DATABASE_URL=${DATABASE_URL}
 WORKER_POLL_MS=2000
+BENCHMARK_SCHEDULER_POLL_MS=15000
+WORKER_SNAPSHOT_INTERVAL_MS=15000
 WORKER_ID=control-plane-worker-01
 WORKER_OBSERVABILITY_HOST=0.0.0.0
 WORKER_OBSERVABILITY_PORT=9091
@@ -1436,6 +1438,15 @@ EOF
 chown root:hyperspace /etc/hyperspace/control-plane-worker.env
 chmod 0640 /etc/hyperspace/control-plane-worker.env
 ```
+
+The worker runs reconciliation, benchmark scheduling, and Prometheus snapshot
+collection as independent loops. Keep `WORKER_POLL_MS` low for lifecycle work,
+but do not run the all-pairs benchmark scheduler on that cadence;
+`BENCHMARK_SCHEDULER_POLL_MS=15000` is sufficient for a five-minute benchmark
+interval. `WORKER_SNAPSHOT_INTERVAL_MS=15000` keeps business metrics fresh even
+while reconciliation or scheduling is slow. The
+`HyperspaceControlPlaneSnapshotStale` warning detects a completed snapshot age
+above one minute.
 
 `ARTIFACT_ENCRYPTION_KEY` must be identical for API and worker. Do not rotate it
 without a migration plan for existing artifacts.

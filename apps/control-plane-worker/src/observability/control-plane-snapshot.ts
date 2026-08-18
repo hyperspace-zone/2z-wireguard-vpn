@@ -403,96 +403,18 @@ async function collectJobMetrics(db: Database, metrics: RuntimeMetrics): Promise
   }
 }
 
-async function collectBenchmarkMetrics(db: Database, metrics: RuntimeMetrics): Promise<void> {
-  const result = await db.query<{
-    transport: string;
-    status: string;
-    routes: number;
-    avgRttP50Ms: number | null;
-    avgJitterMs: number | null;
-    avgLossPercent: number | null;
-    maxAgeSeconds: number | null;
-  }>(`
-    WITH enabled_gates AS (
-      SELECT id
-      FROM gates
-      WHERE desired_state = 'Enabled'
-    ),
-    latest AS (
-      SELECT
-        transports.transport,
-        sample.status,
-        sample.rtt_p50_ms,
-        sample.jitter_ms,
-        sample.loss_percent,
-        sample.measured_at
-      FROM enabled_gates source
-      CROSS JOIN enabled_gates target
-      CROSS JOIN (VALUES ('public'), ('doublezero')) AS transports(transport)
-      JOIN LATERAL (
-        SELECT
-          status,
-          rtt_p50_ms,
-          jitter_ms,
-          loss_percent,
-          measured_at
-        FROM gate_benchmark_results
-        WHERE source_gate_id = source.id
-          AND target_gate_id = target.id
-          AND transport = transports.transport
-        ORDER BY measured_at DESC
-        LIMIT 1
-      ) sample ON true
-      WHERE source.id <> target.id
-    )
-    SELECT
-      transport,
-      status,
-      COUNT(*)::int AS routes,
-      AVG(rtt_p50_ms)::float AS "avgRttP50Ms",
-      AVG(jitter_ms)::float AS "avgJitterMs",
-      AVG(loss_percent)::float AS "avgLossPercent",
-      MAX(EXTRACT(EPOCH FROM now() - measured_at))::float AS "maxAgeSeconds"
-    FROM latest
-    GROUP BY transport, status
-    ORDER BY transport, status
-  `);
-  resetGauges(metrics, [
-    "control_plane_benchmark_routes_total",
-    "control_plane_benchmark_rtt_p50_ms",
-    "control_plane_benchmark_jitter_ms",
-    "control_plane_benchmark_loss_percent",
-    "control_plane_benchmark_max_age_seconds"
-  ]);
-  for (const row of result.rows) {
-    const labels = { transport: row.transport, status: row.status };
-    metrics.gauge("control_plane_benchmark_routes_total", row.routes, {
-      help: "Latest gate benchmark route count by transport and status.",
-      labels
-    });
-    metrics.gauge("control_plane_benchmark_rtt_p50_ms", row.avgRttP50Ms ?? 0, {
-      help: "Average latest benchmark RTT p50 in milliseconds.",
-      labels
-    });
-    metrics.gauge("control_plane_benchmark_jitter_ms", row.avgJitterMs ?? 0, {
-      help: "Average latest benchmark jitter in milliseconds.",
-      labels
-    });
-    metrics.gauge("control_plane_benchmark_loss_percent", row.avgLossPercent ?? 0, {
-      help: "Average latest benchmark packet loss percent.",
-      labels
-    });
-    metrics.gauge("control_plane_benchmark_max_age_seconds", row.maxAgeSeconds ?? 0, {
-      help: "Maximum age of latest benchmark samples in seconds.",
-      labels
-    });
-  }
-
+export async function collectBenchmarkMetrics(db: Database, metrics: RuntimeMetrics): Promise<void> {
   const routeResult = await db.query<{
     sourceGate: string;
+    sourcePublicIpv4: string;
+    sourceProbeUrl: string | null;
+    sourceAgentConnected: boolean;
     targetGate: string;
+    targetAgentConnected: boolean;
     transport: string;
-    status: string;
+    status: string | null;
+    sampleCount: number;
+    failedSampleCount: number;
     rttP50Ms: number | null;
     jitterMs: number | null;
     lossPercent: number | null;
@@ -502,17 +424,31 @@ async function collectBenchmarkMetrics(db: Database, metrics: RuntimeMetrics): P
       SELECT
         gates.id,
         gates.name,
+        gates.public_ipv4,
+        gates.spec->>'probeUrl' AS probe_url,
+        (
+          COALESCE(agent.status = 'True', false)
+          AND COALESCE(gate_leases.lease_expires_at > now(), false)
+        ) AS agent_connected,
         NULLIF(BTRIM(gate_status.doublezero_status->>'metro'), '') AS doublezero_metro
       FROM gates
       LEFT JOIN gate_status ON gate_status.gate_id = gates.id
+      LEFT JOIN gate_leases ON gate_leases.gate_id = gates.id
+      LEFT JOIN gate_conditions agent ON agent.gate_id = gates.id AND agent.type = 'AgentConnected'
       WHERE gates.desired_state = 'Enabled'
     ),
     latest AS (
       SELECT
         source.name AS "sourceGate",
+        source.public_ipv4 AS "sourcePublicIpv4",
+        source.probe_url AS "sourceProbeUrl",
+        source.agent_connected AS "sourceAgentConnected",
         target.name AS "targetGate",
+        target.agent_connected AS "targetAgentConnected",
         transports.transport,
         sample.status,
+        sample.sample_count,
+        sample.failed_sample_count,
         sample.rtt_p50_ms,
         sample.jitter_ms,
         sample.loss_percent,
@@ -520,19 +456,29 @@ async function collectBenchmarkMetrics(db: Database, metrics: RuntimeMetrics): P
       FROM enabled_gates source
       CROSS JOIN enabled_gates target
       CROSS JOIN (VALUES ('public'), ('doublezero')) AS transports(transport)
-      JOIN LATERAL (
+      LEFT JOIN LATERAL (
         SELECT
-          status,
-          rtt_p50_ms,
-          jitter_ms,
-          loss_percent,
-          measured_at
-        FROM gate_benchmark_results
-        WHERE source_gate_id = source.id
-          AND target_gate_id = target.id
-          AND transport = transports.transport
-        ORDER BY measured_at DESC
-        LIMIT 1
+          (ARRAY_AGG(recent.status ORDER BY recent.measured_at DESC))[1] AS status,
+          COUNT(*)::int AS sample_count,
+          COUNT(*) FILTER (WHERE recent.status = 'failed')::int AS failed_sample_count,
+          (ARRAY_AGG(recent.rtt_p50_ms ORDER BY recent.measured_at DESC))[1] AS rtt_p50_ms,
+          (ARRAY_AGG(recent.jitter_ms ORDER BY recent.measured_at DESC))[1] AS jitter_ms,
+          (ARRAY_AGG(recent.loss_percent ORDER BY recent.measured_at DESC))[1] AS loss_percent,
+          MAX(recent.measured_at) AS measured_at
+        FROM (
+          SELECT
+            status,
+            rtt_p50_ms,
+            jitter_ms,
+            loss_percent,
+            measured_at
+          FROM gate_benchmark_results
+          WHERE source_gate_id = source.id
+            AND target_gate_id = target.id
+            AND transport = transports.transport
+          ORDER BY measured_at DESC
+          LIMIT 2
+        ) recent
       ) sample ON true
       WHERE source.id <> target.id
         AND (
@@ -544,9 +490,15 @@ async function collectBenchmarkMetrics(db: Database, metrics: RuntimeMetrics): P
     )
     SELECT
       latest."sourceGate",
+      latest."sourcePublicIpv4",
+      latest."sourceProbeUrl",
+      latest."sourceAgentConnected",
       latest."targetGate",
+      latest."targetAgentConnected",
       latest.transport,
       latest.status,
+      latest.sample_count AS "sampleCount",
+      latest.failed_sample_count AS "failedSampleCount",
       latest.rtt_p50_ms AS "rttP50Ms",
       latest.jitter_ms AS "jitterMs",
       latest.loss_percent AS "lossPercent",
@@ -555,13 +507,74 @@ async function collectBenchmarkMetrics(db: Database, metrics: RuntimeMetrics): P
     ORDER BY latest."sourceGate", latest."targetGate", latest.transport
   `);
   resetGauges(metrics, [
+    "control_plane_benchmark_routes_total",
+    "control_plane_benchmark_rtt_p50_ms",
+    "control_plane_benchmark_jitter_ms",
+    "control_plane_benchmark_loss_percent",
+    "control_plane_benchmark_max_age_seconds",
     "control_plane_benchmark_route_failed",
+    "control_plane_benchmark_gate_confirmed_failed_routes",
     "control_plane_benchmark_route_age_seconds",
     "control_plane_benchmark_route_rtt_p50_ms",
     "control_plane_benchmark_route_jitter_ms",
     "control_plane_benchmark_route_loss_percent"
   ]);
+  const confirmedFailuresByGate = new Map<string, {
+    gate: string;
+    probeHost: string;
+    publicIpv4: string;
+    routes: number;
+  }>();
+  const aggregates = new Map<string, {
+    transport: string;
+    status: string;
+    routes: number;
+    rttSum: number;
+    rttCount: number;
+    jitterSum: number;
+    jitterCount: number;
+    lossSum: number;
+    lossCount: number;
+    maxAgeSeconds: number;
+  }>();
   for (const row of routeResult.rows) {
+    const gateFailures = confirmedFailuresByGate.get(row.sourceGate) ?? {
+      gate: row.sourceGate,
+      probeHost: gateAlertProbeHost(row.sourceProbeUrl, row.sourcePublicIpv4),
+      publicIpv4: row.sourcePublicIpv4,
+      routes: 0
+    };
+    confirmedFailuresByGate.set(row.sourceGate, gateFailures);
+    if (
+      row.sampleCount >= 2
+      && row.failedSampleCount >= 2
+      && row.sourceAgentConnected
+      && row.targetAgentConnected
+    ) {
+      gateFailures.routes += 1;
+    }
+    if (!row.status) {
+      continue;
+    }
+    const aggregateKey = `${row.transport}\u0000${row.status}`;
+    const aggregate = aggregates.get(aggregateKey) ?? {
+      transport: row.transport,
+      status: row.status,
+      routes: 0,
+      rttSum: 0,
+      rttCount: 0,
+      jitterSum: 0,
+      jitterCount: 0,
+      lossSum: 0,
+      lossCount: 0,
+      maxAgeSeconds: 0
+    };
+    aggregates.set(aggregateKey, aggregate);
+    aggregate.routes += 1;
+    addAggregateSample(aggregate, "rtt", row.rttP50Ms);
+    addAggregateSample(aggregate, "jitter", row.jitterMs);
+    addAggregateSample(aggregate, "loss", row.lossPercent);
+    aggregate.maxAgeSeconds = Math.max(aggregate.maxAgeSeconds, metricNumber(row.ageSeconds) ?? 0);
     const labels = {
       route: `${row.sourceGate} -> ${row.targetGate}`,
       source_gate: row.sourceGate,
@@ -572,23 +585,97 @@ async function collectBenchmarkMetrics(db: Database, metrics: RuntimeMetrics): P
       help: "Latest gate benchmark route failure state. One means the latest sample failed.",
       labels
     });
-    metrics.gauge("control_plane_benchmark_route_age_seconds", row.ageSeconds ?? 1_000_000_000, {
+    metrics.gauge("control_plane_benchmark_route_age_seconds", metricNumber(row.ageSeconds) ?? 1_000_000_000, {
       help: "Age of the latest gate benchmark route sample in seconds.",
       labels
     });
-    metrics.gauge("control_plane_benchmark_route_rtt_p50_ms", row.rttP50Ms ?? 0, {
+    metrics.gauge("control_plane_benchmark_route_rtt_p50_ms", metricNumber(row.rttP50Ms) ?? 0, {
       help: "Latest gate benchmark route RTT p50 in milliseconds.",
       labels
     });
-    metrics.gauge("control_plane_benchmark_route_jitter_ms", row.jitterMs ?? 0, {
+    metrics.gauge("control_plane_benchmark_route_jitter_ms", metricNumber(row.jitterMs) ?? 0, {
       help: "Latest gate benchmark route jitter in milliseconds.",
       labels
     });
-    metrics.gauge("control_plane_benchmark_route_loss_percent", row.lossPercent ?? 100, {
+    metrics.gauge("control_plane_benchmark_route_loss_percent", metricNumber(row.lossPercent) ?? 100, {
       help: "Latest gate benchmark route packet loss percent.",
       labels
     });
   }
+  for (const aggregate of aggregates.values()) {
+    const labels = { transport: aggregate.transport, status: aggregate.status };
+    metrics.gauge("control_plane_benchmark_routes_total", aggregate.routes, {
+      help: "Latest gate benchmark route count by transport and status.",
+      labels
+    });
+    metrics.gauge("control_plane_benchmark_rtt_p50_ms", average(aggregate.rttSum, aggregate.rttCount), {
+      help: "Average latest benchmark RTT p50 in milliseconds.",
+      labels
+    });
+    metrics.gauge("control_plane_benchmark_jitter_ms", average(aggregate.jitterSum, aggregate.jitterCount), {
+      help: "Average latest benchmark jitter in milliseconds.",
+      labels
+    });
+    metrics.gauge("control_plane_benchmark_loss_percent", average(aggregate.lossSum, aggregate.lossCount), {
+      help: "Average latest benchmark packet loss percent.",
+      labels
+    });
+    metrics.gauge("control_plane_benchmark_max_age_seconds", aggregate.maxAgeSeconds, {
+      help: "Maximum age of latest benchmark samples in seconds.",
+      labels
+    });
+  }
+  for (const gate of confirmedFailuresByGate.values()) {
+    metrics.gauge("control_plane_benchmark_gate_confirmed_failed_routes", gate.routes, {
+      help: "Number of route and transport benchmarks with two consecutive failures, aggregated by source gate.",
+      labels: {
+        gate: gate.gate,
+        probe_host: gate.probeHost,
+        public_ipv4: gate.publicIpv4
+      }
+    });
+  }
+}
+
+function addAggregateSample(
+  aggregate: {
+    rttSum: number;
+    rttCount: number;
+    jitterSum: number;
+    jitterCount: number;
+    lossSum: number;
+    lossCount: number;
+  },
+  metric: "rtt" | "jitter" | "loss",
+  value: unknown
+): void {
+  const numeric = metricNumber(value);
+  if (numeric === null) {
+    return;
+  }
+  switch (metric) {
+    case "rtt":
+      aggregate.rttSum += numeric;
+      aggregate.rttCount += 1;
+      break;
+    case "jitter":
+      aggregate.jitterSum += numeric;
+      aggregate.jitterCount += 1;
+      break;
+    case "loss":
+      aggregate.lossSum += numeric;
+      aggregate.lossCount += 1;
+      break;
+  }
+}
+
+function metricNumber(value: unknown): number | null {
+  const numeric = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
+function average(sum: number, count: number): number {
+  return count > 0 ? sum / count : 0;
 }
 
 function resetGauges(metrics: RuntimeMetrics, names: string[]): void {
