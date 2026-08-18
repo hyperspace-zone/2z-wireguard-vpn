@@ -73,7 +73,7 @@ export function createResendAuthHelper(input) {
   }
 }
 
-export function uniqueResendAddress(prefix, domain = process.env.RESEND_RECEIVING_DOMAIN || "ostealmar.resend.app") {
+export function uniqueResendAddress(prefix, domain = process.env.RESEND_RECEIVING_DOMAIN || "vutcenoi.resend.app") {
   const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
   return `${prefix}-${suffix}@${domain}`;
 }

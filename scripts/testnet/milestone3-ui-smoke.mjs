@@ -13,7 +13,7 @@ const chromiumExecutable = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE || "/snap/
 const headless = process.env.PLAYWRIGHT_HEADLESS !== "0";
 const requestedBaseUrl = process.env.HS_WEB_BASE?.replace(/\/$/, "") || "";
 const screenshotDir = process.env.HS_TEST_OUTPUT_DIR || "";
-const testEmail = "pilot-ui-smoke@ostealmar.resend.app";
+const testEmail = "pilot-ui-smoke@vutcenoi.resend.app";
 const testPassword = `Ui-${randomBytes(18).toString("base64url")}`;
 const mockedOtp = String(randomInt(100_000, 1_000_000));
 

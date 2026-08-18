@@ -7,7 +7,7 @@ test("grace email names affected configs, deadline, support address, and escapes
     id: "notification-1",
     accountId: "account-1",
     notificationType: "billing_grace_started",
-    recipientEmail: "billing-alert-unit@ostealmar.resend.app",
+    recipientEmail: "billing-alert-unit@vutcenoi.resend.app",
     attemptCount: 1,
     payload: {
       balanceMinor: -125,

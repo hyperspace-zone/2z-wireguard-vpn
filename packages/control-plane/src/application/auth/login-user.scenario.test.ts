@@ -5,7 +5,7 @@ import { hashPassword } from "../../security/passwords.js";
 import { loginUser } from "./login-user.scenario.js";
 
 test("password login is blocked until the account email is verified", async () => {
-  const email = "pending-login-unit@ostealmar.resend.app";
+  const email = "pending-login-unit@vutcenoi.resend.app";
   const password = "unit-only-password-not-runtime";
   let sessionInsertAttempted = false;
   const db: Queryable = {

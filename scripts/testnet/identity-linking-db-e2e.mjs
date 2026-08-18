@@ -26,7 +26,7 @@ const db = createDatabase({
 const results = [];
 
 try {
-  const googleFirstEmail = `${emailPrefix}-google-first@ostealmar.resend.app`;
+  const googleFirstEmail = `${emailPrefix}-google-first@vutcenoi.resend.app`;
   const googleFirst = await googleLogin({
     email: googleFirstEmail,
     sub: `${emailPrefix}-google-sub`,
@@ -36,7 +36,7 @@ try {
   assertEqual(googleThenOtp.user.accountId, googleFirst.user.accountId, "Google-first then OTP account");
   results.push("google-first-then-otp");
 
-  const verifiedPasswordEmail = `${emailPrefix}-password-verified@ostealmar.resend.app`;
+  const verifiedPasswordEmail = `${emailPrefix}-password-verified@vutcenoi.resend.app`;
   await passwordRegistration(verifiedPasswordEmail, "Verified Password");
   const verifiedPasswordOtp = await otpLogin(verifiedPasswordEmail);
   const passwordBeforeGoogle = await passwordLogin(verifiedPasswordEmail);
@@ -51,7 +51,7 @@ try {
   assertEqual(passwordAfterGoogle.user.accountId, verifiedPasswordOtp.user.accountId, "password preserved after safe Google link");
   results.push("verified-password-then-google");
 
-  const pendingPasswordEmail = `${emailPrefix}-password-pending@ostealmar.resend.app`;
+  const pendingPasswordEmail = `${emailPrefix}-password-pending@vutcenoi.resend.app`;
   await passwordRegistration(pendingPasswordEmail, "Pending Password");
   const pendingPasswordGoogle = await googleLogin({
     email: pendingPasswordEmail,

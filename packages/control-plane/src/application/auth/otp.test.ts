@@ -4,8 +4,8 @@ import { generateNumericOtp, hashEmailOtp, verifyHash } from "./otp.js";
 
 test("email OTP hash verifies only the same normalized email and code", () => {
   const secret = "test-secret";
-  const email = "otp-hash-unit@ostealmar.resend.app";
-  const otherEmail = "otp-hash-other-unit@ostealmar.resend.app";
+  const email = "otp-hash-unit@vutcenoi.resend.app";
+  const otherEmail = "otp-hash-other-unit@vutcenoi.resend.app";
   const code = "482731";
   const hash = hashEmailOtp(secret, email, code);
 

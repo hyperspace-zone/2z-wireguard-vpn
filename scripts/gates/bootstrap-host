@@ -199,8 +199,27 @@ install -m 0644 "$ASSET_DIR/infra/systemd/doublezerod-log-filter.conf" /etc/syst
 systemctl daemon-reload
 systemctl restart systemd-journald
 systemctl enable --now chrony nftables caddy prometheus-node-exporter vnstat sysstat
+# `enable --now` does not restart an already-running unit. The collector
+# directory is supplied through EnvironmentFile, so explicitly restart after
+# writing /etc/default/prometheus-node-exporter to apply the current ARGS.
+systemctl restart prometheus-node-exporter
 systemctl enable --now hyperspace-disk-janitor.timer hyperspace-gate-resource-exporter.timer
 systemctl start hyperspace-disk-janitor.service hyperspace-gate-resource-exporter.service
+
+resource_metrics_exposed=false
+for attempt in $(seq 1 10); do
+  if curl -fsS --max-time 5 http://127.0.0.1:9100/metrics \
+    | awk '$1 == "hyperspace_gate_resource_exporter_last_run_timestamp_seconds" { found = 1 } END { exit !found }'; then
+    resource_metrics_exposed=true
+    break
+  fi
+  sleep 1
+done
+if [ "$resource_metrics_exposed" != true ]; then
+  echo "node exporter is not exposing Hyperspace gate resource metrics" >&2
+  exit 1
+fi
+
 systemctl enable doublezerod
 systemctl restart doublezerod
 for attempt in $(seq 1 30); do

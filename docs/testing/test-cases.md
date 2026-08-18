@@ -112,7 +112,7 @@ Do not include them in routine `npm test` or live smoke runs.
 | OBS-001 | API health ontology | `GET /api/health` from the public web host or `GET /health` from the API host. | Response includes `ok`, `state`, `service`, `components`, and current component states; database state is reported independently from metrics. | API live smoke/manual |
 | OBS-002 | API metrics ontology | `GET /metrics` from the control-plane API host. | Prometheus text includes `hyperspace_api_http_requests_total`, `hyperspace_api_http_request_duration_seconds_bucket`, process gauges, and runtime metrics queue gauges. | API live smoke/manual |
 | OBS-003 | Worker observability endpoint | `GET /health` and `GET /metrics` on `WORKER_OBSERVABILITY_HOST:WORKER_OBSERVABILITY_PORT`. | Health reports worker loop components; metrics include worker loop counters/durations and control-plane DB snapshot gauges for gates, sessions, jobs, and benchmark results. | Worker live smoke/manual |
-| OBS-004 | Prometheus alert rules | Run `promtool check config` and `promtool check rules`, then inspect `/prometheus/alerts`. | Alert rules load without errors and include API down, worker down, too few schedulable gates, gate node exporter down, gate root filesystem critical, gate RAM pressure/critical, gate OOM kill, gate `/run` pressure/critical, gate disk janitor stale/failed, dead jobs, benchmark failures, benchmark staleness, API 5xx, and rate-limit activity. | `infra/observability/prometheus/rules/hyperspace-alerts.yml` |
+| OBS-004 | Prometheus alert rules | Run `promtool check config`, `promtool check rules`, and `promtool test rules`, then inspect `/prometheus/alerts`. | Alert rules load without errors and include observability node-exporter down/root filesystem critical, API down, worker down, too few schedulable gates, gate node exporter down, gate root filesystem critical, gate RAM pressure/critical, gate OOM kill, gate `/run` pressure/critical, gate disk janitor stale/failed, dead jobs, benchmark failures, benchmark staleness, API 5xx, and rate-limit activity. | `infra/observability/prometheus/rules/hyperspace-alerts.yml` |
 | OBS-005 | Grafana dashboard | Open `https://observability.../d/hyperspace-control-plane`. | Dashboard renders service scrape health, schedulable gates, sessions, jobs, API latency/errors, worker loop duration, benchmark RTT, and benchmark loss panels. | `infra/observability/grafana/dashboards/hyperspace-control-plane.json` |
 | OBS-006 | Fast gate memory exhaustion alert | Keep a gate below either 10% or 128MiB available RAM for at least 30 seconds in an isolated test environment. | `HyperspaceGateMemoryCritical` becomes firing and remains firing for 10 minutes if node exporter disappears. | Prometheus rule test/manual isolated-host test |
 | OBS-007 | Gate disk janitor metrics | Run `systemctl start hyperspace-disk-janitor.service` on a gate, then scrape node exporter. | `hyperspace_gate_disk_janitor_last_run_timestamp_seconds`, before/after disk gauges, last action, and runs counter are present through the `hyperspace-gate-node` job. | Gate live smoke/manual |
@@ -123,11 +123,12 @@ Do not include them in routine `npm test` or live smoke runs.
 
 | ID | Case | Steps | Expected | Coverage |
 | --- | --- | --- | --- | --- |
-| PERF-001 | Gate Internet-vs-DoubleZero measurements | Let the worker schedule gate `probe` jobs and call `/v1/public/benchmarks/gate-matrix`. | The API returns every directed gate pair with latest Internet and DoubleZero measurements once jobs complete. | `docs/runbooks/gate-benchmarking.md` |
+| PERF-001 | Gate Internet-vs-DoubleZero measurements | Let the worker schedule gate `probe` jobs and call `/v1/public/benchmarks/gate-matrix`. | The API returns every directed gate pair with latest Internet measurements and DoubleZero measurements when the gates report different DZ metros. Same-DZ-metro routes are public-only and expose `doublezeroApplicability.reason="same_doublezero_metro"`. | `docs/runbooks/gate-benchmarking.md` |
 | PERF-002 | Gate RTT/jitter/loss comparison | Inspect the `Gate benchmark routes — RTT` table or API response. | Each completed row shows DoubleZero RTT p50, Internet RTT p50, RTT improvement, RTT saved, DoubleZero RTT jitter, Internet RTT jitter, RTT jitter improvement, RTT jitter saved, loss with DoubleZero and Internet values, ingress gate ↔ DZ RTT, and egress gate ↔ DZ RTT. The ingress/egress columns come from each gate heartbeat's local DoubleZero edge RTT. Positive improvement means DoubleZero is faster. | Gate benchmark route table |
 | PERF-003 | Gate one-way estimates | Inspect the `Gate benchmark routes — One-Way` table. | Directed forward one-way estimates are present in separate `DZ One-Way`, `Internet One-Way`, `One-Way Improvement`, and `One-Way Saved` columns when chrony clock sync is good; RTT remains primary when clocks are noisy. | Gate benchmark route table |
 | PERF-004 | Public testnode RTT/one-way matrix | Run `npm run measure:matrix -- --mode public`. | `public.json` contains every directed testnode pair with low packet loss. | Measurement-only |
 | PERF-005 | Hyperspace testnode RTT/one-way matrix | Run `npm run measure:matrix -- --mode hyperspace`. | `hyperspace.json` contains selected ingress/egress path per pair and successful probes. | Measurement-only |
+| PERF-006 | Same DoubleZero metro benchmark eligibility | Use two enabled gates with the same non-empty `gate_status.doublezero_status.metro`, wait for scheduling, and inspect the job payload, public matrix, UI, and worker metrics. | The job contains only the `public` transport; API returns `doublezeroApplicability.reason="same_doublezero_metro"`; UI displays `N/A — same DZ metro`; no DoubleZero failed/stale Prometheus series is emitted for the pair. If either metro is empty, both transports remain enabled. | `packages/control-plane/src/resources/benchmarks/repository.test.ts` |
 | PERF-006 | Internet vs Hyperspace comparison | Run `npm run measure:compare -- ...`. | Markdown report shows RTT p50 delta and forward/reverse one-way deltas sorted for review. | Measurement-only |
 | PERF-007 | Gate selection heuristic | Inspect matrix path selection. | Ingress is chosen near source testnode; egress is chosen near destination testnode based on public ping ranking. | Testnode matrix |
 
@@ -161,7 +162,7 @@ acknowledges the result with OK, and checks the active-config QR and helper.
 ## Resend OTP E2E
 
 Resend assigns one receiving domain where every local part is accepted. The
-test uses unique addresses under `ostealmar.resend.app`, polls the Receiving
+test uses unique addresses under `vutcenoi.resend.app`, polls the Receiving
 API for the delivered message, retrieves its body, extracts the OTP, and then
 verifies the resulting Hyperspace session.
 
@@ -174,7 +175,7 @@ Optional overrides:
 
 ```bash
 HS_API_BASE=https://app.testnet.hyperspace.zone/api
-RESEND_RECEIVING_DOMAIN=ostealmar.resend.app
+RESEND_RECEIVING_DOMAIN=vutcenoi.resend.app
 RESEND_RECEIVING_API_KEY=re_full_access_key
 RESEND_RECEIVING_TIMEOUT_MS=90000
 ```

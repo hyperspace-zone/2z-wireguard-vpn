@@ -1651,7 +1651,8 @@ Install Prometheus, Alertmanager, Grafana, and Caddy:
 
 ```bash
 apt-get update
-apt-get install -y prometheus prometheus-alertmanager caddy gettext-base jq \
+apt-get install -y prometheus prometheus-alertmanager prometheus-node-exporter \
+  caddy gettext-base jq \
   apt-transport-https software-properties-common wget gpg
 
 install -d -m 0755 /etc/apt/keyrings
@@ -1682,6 +1683,34 @@ install -o grafana -g grafana -m 0644 "$HS_REPO_DIR/infra/observability/grafana/
   /var/lib/grafana/dashboards/hyperspace/hyperspace-control-plane.json
 ```
 
+### Observability host disk alerts
+
+Prometheus must scrape the observability host itself so low disk space is
+reported before TSDB writes and alert evaluation fail. The cluster Prometheus
+configuration includes a local `hyperspace-observability-node` target at
+`127.0.0.1:9100`; enable its node exporter during every observability-host
+deployment:
+
+```bash
+systemctl enable --now prometheus-node-exporter
+curl -fsS http://127.0.0.1:9100/metrics >/dev/null
+```
+
+The self-monitoring rules are critical and route through the normal critical
+Alertmanager receivers:
+
+- `HyperspaceObservabilityNodeExporterDown` fires after the local exporter is
+  unavailable for two minutes.
+- `HyperspaceObservabilityRootFilesystemCritical` fires when `/` has less than
+  15% or 4 GiB available for five minutes and keeps firing for 30 minutes.
+
+Keep enough free space for TSDB compaction. A mainnet observability host should
+have at least 40 GiB of root storage for 30-day retention; use shorter retention
+or size-based retention when projected TSDB usage plus at least 20% compaction
+headroom does not fit. Because a fully exhausted disk can prevent Prometheus
+from emitting its own alert, retain an external readiness/dead-man check in
+addition to these early-warning rules.
+
 ### Gate host resource alerts
 
 Gate host disk and RAM alerts use Prometheus `node_exporter` on every active
@@ -1698,6 +1727,20 @@ EOF
 systemctl enable --now prometheus-node-exporter
 systemctl restart prometheus-node-exporter
 ```
+
+The explicit restart is required: changing the service `EnvironmentFile` does
+not update an already-running process, and `systemctl enable --now` does not
+restart one. After the gate resource exporter has run, verify the file is
+actually exposed rather than merely present on disk:
+
+```bash
+systemctl start hyperspace-gate-resource-exporter.service
+curl -fsS http://127.0.0.1:9100/metrics \
+  | awk '$1 == "hyperspace_gate_resource_exporter_last_run_timestamp_seconds" { found = 1 } END { exit !found }'
+```
+
+`scripts/gates/validate-host` reports `resourceMetricsPresent` and
+`resourceMetricsExposed`; both must be `true` before a gate is accepted.
 
 Prometheus scrapes gate node exporters with the `hyperspace-gate-node` job in
 `infra/observability/prometheus/prometheus.${HS_CLUSTER}.yml`. Targets are
@@ -1735,8 +1778,8 @@ For the production cluster use
 use `https://control-plane.testnet.hyperspace.zone/v1/public/gates`. The timer
 refreshes `/etc/prometheus/file_sd/gates.json` every minute, refuses an empty
 catalog response, and leaves the last valid target file in place on failure.
-Mainnet uses `30d` until its observability disk is enlarged or remote write is
-configured; do not select `90d` unless the projected TSDB size plus compaction
+Mainnet uses `30d` only with at least 40 GiB of observability storage. Do not
+select `90d` unless the projected TSDB size plus at least 20% compaction
 headroom fits the host.
 
 The host-resource alerts are intentionally independent from gate-agent
@@ -1890,14 +1933,18 @@ Start services and validate:
 
 ```bash
 systemctl daemon-reload
-systemctl enable --now prometheus prometheus-alertmanager grafana-server caddy
+systemctl enable --now prometheus prometheus-alertmanager prometheus-node-exporter grafana-server caddy
 systemctl restart prometheus prometheus-alertmanager grafana-server caddy
 
 promtool check config /etc/prometheus/prometheus.yml
 promtool check rules /etc/prometheus/rules/hyperspace-alerts.yml
+promtool test rules "$HS_REPO_DIR/infra/observability/prometheus/tests/hyperspace-gate-resources.test.yml"
 amtool check-config /etc/prometheus/alertmanager.yml
 curl -fsS "http://127.0.0.1:9090/-/ready"
 curl -fsS "http://127.0.0.1:9093/-/ready"
+curl -fsSG "http://127.0.0.1:9090/api/v1/query" \
+  --data-urlencode 'query=up{job="hyperspace-observability-node"}' \
+  | jq -e '.data.result | length == 1 and .[0].value[1] == "1"'
 curl -fsS "http://127.0.0.1:3000/api/health"
 curl -fsS "https://${OBSERVABILITY_DOMAIN}/api/health"
 curl -fsS "https://${OBSERVABILITY_DOMAIN}/prometheus/-/ready"

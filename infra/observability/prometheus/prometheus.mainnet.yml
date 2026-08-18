@@ -12,6 +12,16 @@ alerting:
             - 127.0.0.1:9093
 
 scrape_configs:
+  - job_name: hyperspace-observability-node
+    scheme: http
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - 127.0.0.1:9100
+        labels:
+          cluster: mainnet
+          role: observability
+
   - job_name: hyperspace-control-plane-api
     scheme: https
     metrics_path: /metrics
@@ -21,6 +31,8 @@ scrape_configs:
         labels:
           cluster: mainnet
           role: control-plane-api
+          service_host: control-plane.hyperspace.zone
+          service_ipv4: 5.199.161.13
 
   - job_name: hyperspace-control-plane-worker
     scheme: http
@@ -31,6 +43,8 @@ scrape_configs:
         labels:
           cluster: mainnet
           role: control-plane-worker
+          service_host: control-plane.hyperspace.zone
+          service_ipv4: 5.199.161.13
 
   - job_name: hyperspace-gate-node
     scheme: http

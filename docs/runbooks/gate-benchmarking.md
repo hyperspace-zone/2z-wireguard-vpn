@@ -2,7 +2,7 @@
 
 Use this runbook for Milestone 2 gate-to-gate benchmarking. The benchmark runs
 on gate hosts and compares the Internet path with the DoubleZero path for
-every directed gate pair.
+every directed gate pair where both transports are applicable.
 
 This does not replace validation clients for user dataplane tests. Gate
 benchmarks measure gate-to-gate transport quality. Validation clients are still
@@ -16,10 +16,18 @@ for stale directed gate pairs. The source gate-agent claims a job, sends UDP
 timestamp probes to the target gate, and reports results back through the normal
 gate job report API.
 
-Each probe job measures two transports:
+Each probe job always measures `public` and normally measures `doublezero`:
 
 - `public`: source socket bound to the gate public underlay interface.
 - `doublezero`: source socket bound to `doublezero0`.
+
+When both gates report the same non-empty DoubleZero metro in
+`gate_status.doublezero_status.metro`, the worker deliberately omits only the
+`doublezero` transport. The public benchmark still runs. The public API marks
+the DZ result as `not_applicable` with reason `same_doublezero_metro`, and the
+web UI renders `N/A — same DZ metro`. Gate catalog city names are not used for
+this decision. If either reported metro is missing, both transports remain
+enabled so incomplete status cannot silently suppress a test.
 
 The responder side is transport-aware as well. Each gate-agent opens
 interface-bound responder sockets on the same UDP port, one bound to the public
@@ -52,6 +60,11 @@ Benchmarks page renders two route tables:
   the last 15 minutes
 - a green/yellow/pink legend for DZ faster, similar, and Internet faster
   routes
+
+Historical DoubleZero samples are retained for audit, but the current matrix
+and Prometheus route metrics exclude them while a pair is in the same reported
+DoubleZero metro. If either gate later moves metro, DoubleZero scheduling and
+the latest applicable DZ result resume automatically.
 
 One-way values depend on synchronized clocks. Install and run chrony on all gate
 hosts and treat RTT as the primary metric if clock quality is unknown.
@@ -169,6 +182,18 @@ curl -fsS "https://${HS_WEB_HOST}/api/v1/public/benchmarks/gate-matrix" \
 
 `delta.rttP50Ms` is `doublezero - public`. Negative values mean DoubleZero is
 faster for that source/target pair.
+
+Inspect public-only same-metro routes:
+
+```bash
+curl -fsS "https://${HS_WEB_HOST}/api/v1/public/benchmarks/gate-matrix" \
+  | jq -r '
+    .routes[]
+    | select(.doublezeroApplicability.reason == "same_doublezero_metro")
+    | [.sourceGateName, .targetGateName, .doublezeroApplicability.metro, "public-only"]
+    | @tsv
+  '
+```
 
 ## Web Verification
 

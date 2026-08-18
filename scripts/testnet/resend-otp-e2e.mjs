@@ -4,7 +4,7 @@ import { createResendAuthHelper } from "./resend-auth-helper.mjs";
 
 const apiBase = process.env.HS_API_BASE || "https://app.testnet.hyperspace.zone/api";
 const resendApiKey = process.env.RESEND_RECEIVING_API_KEY || process.env.RESEND_API_KEY || "";
-const receivingDomain = process.env.RESEND_RECEIVING_DOMAIN || "ostealmar.resend.app";
+const receivingDomain = process.env.RESEND_RECEIVING_DOMAIN || "vutcenoi.resend.app";
 
 if (!resendApiKey) {
   throw new Error("RESEND_RECEIVING_API_KEY is required");

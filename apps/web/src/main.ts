@@ -64,6 +64,12 @@ interface BenchmarkMetric {
   measuredAt: string;
 }
 
+interface BenchmarkDoublezeroApplicability {
+  status: "not_applicable";
+  reason: "same_doublezero_metro";
+  metro: string;
+}
+
 interface BenchmarkRoute {
   sourceGateId: string;
   sourceGateName: string;
@@ -71,6 +77,7 @@ interface BenchmarkRoute {
   targetGateName: string;
   public?: BenchmarkMetric;
   doublezero?: BenchmarkMetric;
+  doublezeroApplicability?: BenchmarkDoublezeroApplicability;
   delta?: {
     rttP50Ms?: number;
     jitterMs?: number;
@@ -1027,6 +1034,7 @@ function benchmarkMatrixPanel(gates: Gate[], matrix: BenchmarkMatrix | null): st
           <span><strong>${filteredRows.length}</strong> routes</span>
           <span><strong>${summary.publicSucceeded}</strong> internet ok</span>
           <span><strong>${summary.doublezeroSucceeded}</strong> DZ ok</span>
+          <span><strong>${summary.doublezeroNotApplicable}</strong> DZ N/A</span>
           <span><strong>${formatSignedPercent(summary.averageImprovementPercent)}</strong> avg improvement</span>
         </div>
       </div>
@@ -1100,11 +1108,11 @@ function benchmarkRttRouteRow(row: BenchmarkRouteRow): string {
         </div>
         <small>${escapeHtml(row.routeLabel)}</small>
       </td>
-      <td class="numeric-cell">${benchmarkValueCell(route.doublezero, formatMetricMs(row.doublezeroRttMs))}</td>
+      <td class="numeric-cell">${benchmarkDoublezeroValueCell(route, formatMetricMs(row.doublezeroRttMs))}</td>
       <td class="numeric-cell">${benchmarkValueCell(route.public, formatMetricMs(row.publicRttMs))}</td>
       <td class="numeric-cell">${benchmarkImprovementCell(row.rttImprovementPercent)}</td>
       <td class="numeric-cell">${formatSavedMetricMs(row.rttSavedMs)}</td>
-      <td class="numeric-cell">${benchmarkValueCell(route.doublezero, formatJitterMetricMs(row.doublezeroJitterMs))}</td>
+      <td class="numeric-cell">${benchmarkDoublezeroValueCell(route, formatJitterMetricMs(row.doublezeroJitterMs))}</td>
       <td class="numeric-cell">${benchmarkValueCell(route.public, formatJitterMetricMs(row.publicJitterMs))}</td>
       <td class="numeric-cell">${benchmarkImprovementCell(row.jitterImprovementPercent)}</td>
       <td class="numeric-cell">${formatSavedJitterMetricMs(row.jitterSavedMs)}</td>
@@ -1158,12 +1166,12 @@ function benchmarkOneWayRouteRow(row: BenchmarkRouteRow): string {
         </div>
         <small>${escapeHtml(row.routeLabel)}</small>
       </td>
-      <td class="numeric-cell">${benchmarkValueCell(route.doublezero, formatMetricMs(row.doublezeroOneWayMs))}</td>
+      <td class="numeric-cell">${benchmarkDoublezeroValueCell(route, formatMetricMs(row.doublezeroOneWayMs))}</td>
       <td class="numeric-cell">${benchmarkValueCell(route.public, formatMetricMs(row.publicOneWayMs))}</td>
       <td class="numeric-cell">${benchmarkImprovementCell(row.oneWayImprovementPercent)}</td>
       <td class="numeric-cell">${formatSavedMetricMs(row.oneWaySavedMs)}</td>
       <td class="numeric-cell">${benchmarkOneWayClockErrorCell(route, row)}</td>
-      <td class="numeric-cell">${benchmarkValueCell(route.doublezero, formatJitterMetricMs(row.doublezeroOneWayJitterMs))}</td>
+      <td class="numeric-cell">${benchmarkDoublezeroValueCell(route, formatJitterMetricMs(row.doublezeroOneWayJitterMs))}</td>
       <td class="numeric-cell">${benchmarkValueCell(route.public, formatJitterMetricMs(row.publicOneWayJitterMs))}</td>
       <td class="numeric-cell">${benchmarkImprovementCell(row.oneWayJitterImprovementPercent)}</td>
       <td class="numeric-cell">${formatSavedJitterMetricMs(row.oneWayJitterSavedMs)}</td>
@@ -1423,6 +1431,7 @@ function benchmarkCity(gate: Gate): string {
 function benchmarkSummary(rows: BenchmarkRouteRow[], filteredRows: BenchmarkRouteRow[]): {
   publicSucceeded: number;
   doublezeroSucceeded: number;
+  doublezeroNotApplicable: number;
   averageImprovementPercent: number | undefined;
 } {
   const improvements = filteredRows
@@ -1434,8 +1443,18 @@ function benchmarkSummary(rows: BenchmarkRouteRow[], filteredRows: BenchmarkRout
   return {
     publicSucceeded: filteredRows.filter((row) => row.route.public?.status === "succeeded").length,
     doublezeroSucceeded: filteredRows.filter((row) => row.route.doublezero?.status === "succeeded").length,
+    doublezeroNotApplicable: filteredRows.filter((row) => row.route.doublezeroApplicability?.status === "not_applicable").length,
     averageImprovementPercent
   };
+}
+
+function benchmarkDoublezeroValueCell(route: BenchmarkRoute, value: string): string {
+  const applicability = route.doublezeroApplicability;
+  if (applicability?.status === "not_applicable") {
+    const title = `DoubleZero benchmark is not applicable within the same DoubleZero metro (${applicability.metro}).`;
+    return `<span class="muted" title="${escapeHtml(title)}">N/A — same DZ metro</span>`;
+  }
+  return benchmarkValueCell(route.doublezero, value);
 }
 
 function benchmarkValueCell(metric: BenchmarkMetric | undefined, value: string): string {
@@ -1470,7 +1489,7 @@ function benchmarkEdgeRttCell(gate: Gate, value: number | undefined): string {
 function benchmarkLossCell(route: BenchmarkRoute, row: BenchmarkRouteRow): string {
   return `
     <div class="stacked-metric">
-      <span>${benchmarkValueCell(route.doublezero, `DZ Loss ${formatLossPercent(row.doublezeroLossPercent)}`)}</span>
+      <span>${benchmarkDoublezeroValueCell(route, `DZ Loss ${formatLossPercent(row.doublezeroLossPercent)}`)}</span>
       <span>${benchmarkValueCell(route.public, `Internet Loss ${formatLossPercent(row.publicLossPercent)}`)}</span>
     </div>
   `;
@@ -1479,7 +1498,7 @@ function benchmarkLossCell(route: BenchmarkRoute, row: BenchmarkRouteRow): strin
 function benchmarkOneWayClockErrorCell(route: BenchmarkRoute, row: BenchmarkRouteRow): string {
   return `
     <div class="stacked-metric">
-      <span>${benchmarkValueCell(route.doublezero, `DZ ${formatClockErrorMetricMs(row.doublezeroOneWayClockErrorMs)}`)}</span>
+      <span>${benchmarkDoublezeroValueCell(route, `DZ ${formatClockErrorMetricMs(row.doublezeroOneWayClockErrorMs)}`)}</span>
       <span>${benchmarkValueCell(route.public, `Internet ${formatClockErrorMetricMs(row.publicOneWayClockErrorMs)}`)}</span>
     </div>
   `;
@@ -1541,6 +1560,7 @@ function benchmarkLegend(): string {
       <span><i class="legend-swatch benchmark-improvement-good"></i>DZ faster</span>
       <span><i class="legend-swatch benchmark-improvement-similar"></i>Similar (0 to -10%)</span>
       <span><i class="legend-swatch benchmark-improvement-internet"></i>Internet faster (&lt; -10%)</span>
+      <span>N/A — same DoubleZero metro is public-only</span>
     </div>
   `;
 }
@@ -1559,7 +1579,10 @@ function benchmarkFreshness(matrix: BenchmarkMatrix | null): string {
     const timestamp = Date.parse(value);
     return !Number.isNaN(timestamp) && now - timestamp <= benchmarkFreshWindowMs;
   }).length;
-  const totalCount = matrix.routes.length * 2;
+  const totalCount = matrix.routes.reduce(
+    (count, route) => count + 1 + (route.doublezeroApplicability?.status === "not_applicable" ? 0 : 1),
+    0
+  );
   return `Latest sample ${relativeTime(latest)} · ${freshCount}/${totalCount} transports fresh within 15m`;
 }
 

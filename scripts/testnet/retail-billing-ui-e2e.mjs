@@ -15,7 +15,7 @@ const chromiumExecutable = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE || "/snap/
 const outputDir = process.env.HS_TEST_OUTPUT_DIR || "m1-results/live-testnet";
 const headless = process.env.HS_HEADLESS !== "false";
 const runId = `${Date.now()}-${randomBytes(4).toString("hex")}`;
-const emailDomain = process.env.RESEND_RECEIVING_DOMAIN || "ostealmar.resend.app";
+const emailDomain = process.env.RESEND_RECEIVING_DOMAIN || "vutcenoi.resend.app";
 const adminEmail = `billing-ui-admin-${runId}@${emailDomain}`;
 const customerEmail = `billing-ui-customer-${runId}@${emailDomain}`;
 const password = `Hs-${randomBytes(20).toString("base64url")}`;

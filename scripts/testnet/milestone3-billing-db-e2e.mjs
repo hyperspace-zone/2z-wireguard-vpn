@@ -15,7 +15,7 @@ const databaseUrl = process.env.DATABASE_URL || "";
 if (!databaseUrl) throw new Error("DATABASE_URL is required");
 
 const runId = `${Date.now()}-${randomBytes(4).toString("hex")}`;
-const email = `billing-db-e2e-${runId}@ostealmar.resend.app`;
+const email = `billing-db-e2e-${runId}@vutcenoi.resend.app`;
 const password = `Hs-${randomBytes(18).toString("base64url")}`;
 const walletEncryptionKey = randomBytes(32);
 const tokenMint = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
