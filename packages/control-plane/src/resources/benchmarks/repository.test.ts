@@ -148,6 +148,9 @@ test("ntp discovery scheduler inserts idempotent gate maintenance probe jobs", a
   assert.match(call.sql, /jobs\.type = 'probe'/);
   assert.match(call.sql, /jobs\.payload->>'kind' = 'gate_ntp_discovery_v1'/);
   assert.match(call.sql, /'ntp-discovery:enabled' = ANY\(gate_status\.observed_capabilities\)/);
+  assert.match(call.sql, /active_gates AS MATERIALIZED/);
+  assert.match(call.sql, /recent_gates AS MATERIALIZED/);
   assert.match(call.sql, /job_attempts attempts/);
+  assert.match(call.sql, /pg_try_advisory_xact_lock/);
   assert.deepEqual(call.params, [86400, 30, 96]);
 });
