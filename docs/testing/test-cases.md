@@ -116,6 +116,8 @@ Do not include them in routine `npm test` or live smoke runs.
 | OBS-007 | Gate disk janitor metrics | Run `systemctl start hyperspace-disk-janitor.service` on a gate, then scrape node exporter. | `hyperspace_gate_disk_janitor_last_run_timestamp_seconds`, before/after disk gauges, last action, and runs counter are present through the `hyperspace-gate-node` job. | Gate live smoke/manual |
 | OBS-008 | Gate runtime journal guard | Fill an isolated test gate's `/run` above 70%, run `hyperspace-disk-janitor.service`, and inspect the textfile metrics. | Runtime journals are vacuumed, `/run` before/after gauges are emitted, and Prometheus evaluates warning at 70% or critical at 85%. | Isolated-host test only |
 | OBS-009 | Gate OOM detection | Increment `node_vmstat_oom_kill` in an isolated node-exporter fixture and evaluate the rules. | `HyperspaceGateOOMKill` becomes critical without an additional `for` delay and remains firing for 30 minutes. | Prometheus rule test |
+| OBS-010 | Benchmark failure aggregation | Persist one failed cycle and then two consecutive failed cycles for several routes from one source gate. | One cycle is retained without an alert; after the second cycle Prometheus emits one gate-level alert whose value is the number of confirmed failed route/transports. | Worker metrics and Prometheus rule test |
+| OBS-011 | DoubleZero BGP flap audit | Report a gate heartbeat with a changed `doubleZero.tunnelStatus`, then report the same status again. | Exactly one `gate_doublezero_tunnel_status_changed` audit event records the transition; an unchanged heartbeat does not duplicate it. | `packages/control-plane/src/resources/gates/repository.test.ts` |
 
 ## Performance Measurements
 

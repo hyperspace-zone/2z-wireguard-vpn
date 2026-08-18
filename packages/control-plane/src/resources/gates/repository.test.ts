@@ -1,0 +1,67 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import type { Queryable } from "../../db/queryable.js";
+import { saveGateHeartbeatStatus } from "./repository.js";
+
+const heartbeat = {
+  gateId: "00000000-0000-0000-0000-000000000001",
+  generation: 1,
+  agentVersion: "0.1.0",
+  bootId: "boot-id",
+  observedEndpoint: "203.0.113.10",
+  capabilities: ["doublezero0:up"],
+  clockErrorMs: 1,
+  doubleZeroStatus: {
+    tunnelStatus: "BGP Session Down",
+    network: "mainnet-beta",
+    metro: "London",
+    currentDevice: "lon-dz001"
+  },
+  doubleZeroCurrentDevice: "lon-dz001",
+  doubleZeroLowestLatencyDevice: "lon-dz001",
+  doubleZeroLowestLatencyDeviceWarning: false,
+  conditions: []
+};
+
+test("gate heartbeat records a DoubleZero BGP status transition as an audit event", async () => {
+  const calls: Array<{ sql: string; params: readonly unknown[] }> = [];
+  const db: Queryable = {
+    async query<Row extends object>(sql: string, params: readonly unknown[] = []) {
+      calls.push({ sql, params });
+      if (/SELECT NULLIF\(BTRIM\(doublezero_status/.test(sql)) {
+        return { rows: [{ tunnelStatus: "BGP Session Up" }] as Row[], rowCount: 1 };
+      }
+      return { rows: [] as Row[], rowCount: 1 };
+    }
+  };
+
+  await saveGateHeartbeatStatus(db, heartbeat);
+
+  const audit = calls.find((call) => call.sql.includes("gate_doublezero_tunnel_status_changed"));
+  assert.ok(audit);
+  assert.equal(audit.params[0], heartbeat.gateId);
+  assert.deepEqual(JSON.parse(String(audit.params[1])), {
+    previousStatus: "BGP Session Up",
+    currentStatus: "BGP Session Down",
+    network: "mainnet-beta",
+    metro: "London",
+    currentDevice: "lon-dz001"
+  });
+});
+
+test("gate heartbeat does not duplicate an audit event while BGP status is unchanged", async () => {
+  const calls: Array<{ sql: string; params: readonly unknown[] }> = [];
+  const db: Queryable = {
+    async query<Row extends object>(sql: string, params: readonly unknown[] = []) {
+      calls.push({ sql, params });
+      if (/SELECT NULLIF\(BTRIM\(doublezero_status/.test(sql)) {
+        return { rows: [{ tunnelStatus: "BGP Session Down" }] as Row[], rowCount: 1 };
+      }
+      return { rows: [] as Row[], rowCount: 1 };
+    }
+  };
+
+  await saveGateHeartbeatStatus(db, heartbeat);
+
+  assert.equal(calls.some((call) => call.sql.includes("gate_doublezero_tunnel_status_changed")), false);
+});

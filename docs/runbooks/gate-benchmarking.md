@@ -66,6 +66,15 @@ and Prometheus route metrics exclude them while a pair is in the same reported
 DoubleZero metro. If either gate later moves metro, DoubleZero scheduling and
 the latest applicable DZ result resume automatically.
 
+Route failure alerting is deliberately cycle-aware. Every failed result remains
+in `gate_benchmark_results`, but `HyperspaceBenchmarkRouteFailed` requires two
+consecutive failed benchmark cycles and aggregates all confirmed route and
+transport failures into one alert for the source gate. A succeeding cycle
+resets the confirmation immediately. DoubleZero BGP status transitions are
+also stored as `gate_doublezero_tunnel_status_changed` audit events, so a short
+down/up flap remains available for diagnosis without producing a route-alert
+storm.
+
 One-way values depend on synchronized clocks. Install and run chrony on all gate
 hosts and treat RTT as the primary metric if clock quality is unknown.
 

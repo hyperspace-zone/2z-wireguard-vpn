@@ -4,6 +4,26 @@ rule_files:
 evaluation_interval: 15s
 
 tests:
+  - name: repeated benchmark failures aggregate into one gate alert
+    interval: 15s
+    input_series:
+      - series: 'hyperspace_control_plane_benchmark_gate_confirmed_failed_routes{job="hyperspace-control-plane-worker",cluster="mainnet",gate="gate-eu-lon-01",probe_host="gate-eu-lon-01.hyperspace.zone",public_ipv4="192.0.2.10"}'
+        values: '3x4'
+    alert_rule_test:
+      - eval_time: 45s
+        alertname: HyperspaceBenchmarkRouteFailed
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: hyperspace-control-plane-worker
+              cluster: mainnet
+              gate: gate-eu-lon-01
+              probe_host: gate-eu-lon-01.hyperspace.zone
+              public_ipv4: 192.0.2.10
+            exp_annotations:
+              summary: Gate benchmark routes are repeatedly failing
+              description: Gate gate-eu-lon-01 has 3 route/transport benchmarks failing for at least two consecutive cycles.
+
   - name: observability node exporter outage is critical
     interval: 15s
     input_series:

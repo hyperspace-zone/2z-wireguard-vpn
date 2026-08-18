@@ -423,9 +423,15 @@ async function collectBenchmarkMetrics(db: Database, metrics: RuntimeMetrics): P
 
   const routeResult = await db.query<{
     sourceGate: string;
+    sourcePublicIpv4: string;
+    sourceProbeUrl: string | null;
+    sourceAgentConnected: boolean;
     targetGate: string;
+    targetAgentConnected: boolean;
     transport: string;
-    status: string;
+    status: string | null;
+    sampleCount: number;
+    failedSampleCount: number;
     rttP50Ms: number | null;
     jitterMs: number | null;
     lossPercent: number | null;
@@ -435,17 +441,31 @@ async function collectBenchmarkMetrics(db: Database, metrics: RuntimeMetrics): P
       SELECT
         gates.id,
         gates.name,
+        gates.public_ipv4,
+        gates.spec->>'probeUrl' AS probe_url,
+        (
+          COALESCE(agent.status = 'True', false)
+          AND COALESCE(gate_leases.lease_expires_at > now(), false)
+        ) AS agent_connected,
         NULLIF(BTRIM(gate_status.doublezero_status->>'metro'), '') AS doublezero_metro
       FROM gates
       LEFT JOIN gate_status ON gate_status.gate_id = gates.id
+      LEFT JOIN gate_leases ON gate_leases.gate_id = gates.id
+      LEFT JOIN gate_conditions agent ON agent.gate_id = gates.id AND agent.type = 'AgentConnected'
       WHERE gates.desired_state = 'Enabled'
     ),
     latest AS (
       SELECT
         source.name AS "sourceGate",
+        source.public_ipv4 AS "sourcePublicIpv4",
+        source.probe_url AS "sourceProbeUrl",
+        source.agent_connected AS "sourceAgentConnected",
         target.name AS "targetGate",
+        target.agent_connected AS "targetAgentConnected",
         transports.transport,
         sample.status,
+        sample.sample_count,
+        sample.failed_sample_count,
         sample.rtt_p50_ms,
         sample.jitter_ms,
         sample.loss_percent,
@@ -453,19 +473,29 @@ async function collectBenchmarkMetrics(db: Database, metrics: RuntimeMetrics): P
       FROM enabled_gates source
       CROSS JOIN enabled_gates target
       CROSS JOIN (VALUES ('public'), ('doublezero')) AS transports(transport)
-      JOIN LATERAL (
+      LEFT JOIN LATERAL (
         SELECT
-          status,
-          rtt_p50_ms,
-          jitter_ms,
-          loss_percent,
-          measured_at
-        FROM gate_benchmark_results
-        WHERE source_gate_id = source.id
-          AND target_gate_id = target.id
-          AND transport = transports.transport
-        ORDER BY measured_at DESC
-        LIMIT 1
+          (ARRAY_AGG(recent.status ORDER BY recent.measured_at DESC))[1] AS status,
+          COUNT(*)::int AS sample_count,
+          COUNT(*) FILTER (WHERE recent.status = 'failed')::int AS failed_sample_count,
+          (ARRAY_AGG(recent.rtt_p50_ms ORDER BY recent.measured_at DESC))[1] AS rtt_p50_ms,
+          (ARRAY_AGG(recent.jitter_ms ORDER BY recent.measured_at DESC))[1] AS jitter_ms,
+          (ARRAY_AGG(recent.loss_percent ORDER BY recent.measured_at DESC))[1] AS loss_percent,
+          MAX(recent.measured_at) AS measured_at
+        FROM (
+          SELECT
+            status,
+            rtt_p50_ms,
+            jitter_ms,
+            loss_percent,
+            measured_at
+          FROM gate_benchmark_results
+          WHERE source_gate_id = source.id
+            AND target_gate_id = target.id
+            AND transport = transports.transport
+          ORDER BY measured_at DESC
+          LIMIT 2
+        ) recent
       ) sample ON true
       WHERE source.id <> target.id
         AND (
@@ -477,9 +507,15 @@ async function collectBenchmarkMetrics(db: Database, metrics: RuntimeMetrics): P
     )
     SELECT
       latest."sourceGate",
+      latest."sourcePublicIpv4",
+      latest."sourceProbeUrl",
+      latest."sourceAgentConnected",
       latest."targetGate",
+      latest."targetAgentConnected",
       latest.transport,
       latest.status,
+      latest.sample_count AS "sampleCount",
+      latest.failed_sample_count AS "failedSampleCount",
       latest.rtt_p50_ms AS "rttP50Ms",
       latest.jitter_ms AS "jitterMs",
       latest.loss_percent AS "lossPercent",
@@ -489,12 +525,37 @@ async function collectBenchmarkMetrics(db: Database, metrics: RuntimeMetrics): P
   `);
   resetGauges(metrics, [
     "control_plane_benchmark_route_failed",
+    "control_plane_benchmark_gate_confirmed_failed_routes",
     "control_plane_benchmark_route_age_seconds",
     "control_plane_benchmark_route_rtt_p50_ms",
     "control_plane_benchmark_route_jitter_ms",
     "control_plane_benchmark_route_loss_percent"
   ]);
+  const confirmedFailuresByGate = new Map<string, {
+    gate: string;
+    probeHost: string;
+    publicIpv4: string;
+    routes: number;
+  }>();
   for (const row of routeResult.rows) {
+    const gateFailures = confirmedFailuresByGate.get(row.sourceGate) ?? {
+      gate: row.sourceGate,
+      probeHost: gateAlertProbeHost(row.sourceProbeUrl, row.sourcePublicIpv4),
+      publicIpv4: row.sourcePublicIpv4,
+      routes: 0
+    };
+    confirmedFailuresByGate.set(row.sourceGate, gateFailures);
+    if (
+      row.sampleCount >= 2
+      && row.failedSampleCount >= 2
+      && row.sourceAgentConnected
+      && row.targetAgentConnected
+    ) {
+      gateFailures.routes += 1;
+    }
+    if (!row.status) {
+      continue;
+    }
     const labels = {
       route: `${row.sourceGate} -> ${row.targetGate}`,
       source_gate: row.sourceGate,
@@ -520,6 +581,16 @@ async function collectBenchmarkMetrics(db: Database, metrics: RuntimeMetrics): P
     metrics.gauge("control_plane_benchmark_route_loss_percent", row.lossPercent ?? 100, {
       help: "Latest gate benchmark route packet loss percent.",
       labels
+    });
+  }
+  for (const gate of confirmedFailuresByGate.values()) {
+    metrics.gauge("control_plane_benchmark_gate_confirmed_failed_routes", gate.routes, {
+      help: "Number of route and transport benchmarks with two consecutive failures, aggregated by source gate.",
+      labels: {
+        gate: gate.gate,
+        probe_host: gate.probeHost,
+        public_ipv4: gate.publicIpv4
+      }
     });
   }
 }
