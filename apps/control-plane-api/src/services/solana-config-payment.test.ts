@@ -1,10 +1,17 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  isSolanaTreasuryInitialized,
   isSolanaTransactionSimulationFailure,
   readSolanaConfigPaymentSignatureStatus,
   requiredConfigPaymentLamports
 } from "./solana-config-payment.js";
+
+test("SOL config payment treasury must already be rent exempt", () => {
+  assert.equal(isSolanaTreasuryInitialized(0n, 890_880n), false);
+  assert.equal(isSolanaTreasuryInitialized(890_879n, 890_880n), false);
+  assert.equal(isSolanaTreasuryInitialized(890_880n, 890_880n), true);
+});
 
 test("SOL config payment requires the configured price plus the network fee", () => {
   assert.equal(requiredConfigPaymentLamports(100_000n, 5_000n), 105_000n);

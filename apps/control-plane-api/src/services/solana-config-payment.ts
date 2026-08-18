@@ -26,6 +26,7 @@ const memoProgram = new PublicKey("MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr")
 export type ConfigPaymentResult =
   | { status: "confirmed"; signature: string; feeLamports: bigint }
   | { status: "insufficient_funds"; availableLamports: bigint; requiredLamports: bigint }
+  | { status: "treasury_unavailable"; availableLamports: bigint; requiredLamports: bigint }
   | { status: "in_progress" }
   | { status: "failed"; reason: string };
 
@@ -91,6 +92,23 @@ export function createSolanaConfigPaymentService(input: {
         const sourceWallet = Keypair.fromSeed(seed);
         if (sourceWallet.publicKey.toBase58() !== keyRecord.wallet.publicKey) {
           throw new Error("custodial wallet key does not match stored public key");
+        }
+        const [treasuryBalance, treasuryRentExemption] = await Promise.all([
+          connection.getBalance(treasury, "finalized"),
+          connection.getMinimumBalanceForRentExemption(0, "finalized")
+        ]);
+        if (!isSolanaTreasuryInitialized(BigInt(treasuryBalance), BigInt(treasuryRentExemption))) {
+          await failSolanaConfigPayment(
+            input.db,
+            request.paymentId,
+            "treasury_not_initialized",
+            `Treasury has ${treasuryBalance} lamports; required ${treasuryRentExemption}`
+          );
+          return {
+            status: "treasury_unavailable",
+            availableLamports: BigInt(treasuryBalance),
+            requiredLamports: BigInt(treasuryRentExemption)
+          };
         }
         const blockhash = await connection.getLatestBlockhash("finalized");
         const transaction = new Transaction({
@@ -176,6 +194,10 @@ export function requiredConfigPaymentLamports(amountLamports: bigint, feeLamport
     throw new Error("invalid SOL config payment amount or fee");
   }
   return amountLamports + feeLamports;
+}
+
+export function isSolanaTreasuryInitialized(balanceLamports: bigint, rentExemptionLamports: bigint): boolean {
+  return balanceLamports >= rentExemptionLamports;
 }
 
 async function recoverSubmittedPayment(

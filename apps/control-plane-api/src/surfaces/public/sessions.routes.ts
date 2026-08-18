@@ -131,6 +131,17 @@ export function registerPublicSessionsRoutes(
           message: "Insufficient SOL for the 0.0001 SOL config payment and Solana network fee. Top up on Billing and try again."
         });
       }
+      if (payment.status === "treasury_unavailable") {
+        request.log.error({
+          paymentRequestId,
+          sessionId: created.sessionId,
+          availableLamports: payment.availableLamports.toString(),
+          requiredLamports: payment.requiredLamports.toString()
+        }, "SOL config payment treasury is not initialized");
+        return sendApplicationError(reply, "config_payment_unavailable", {
+          message: "SOL payments are temporarily unavailable while the staging treasury is being initialized."
+        });
+      }
       if (payment.status === "in_progress") {
         return sendApplicationError(reply, "config_payment_in_progress", {
           message: "The SOL payment is still being finalized. Retry Confirm shortly."
