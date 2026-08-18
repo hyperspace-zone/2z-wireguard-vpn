@@ -171,7 +171,7 @@ export const publicBillingDepositSchema = {
 export const publicBillingSummaryResponseSchema = {
   type: "object",
   additionalProperties: false,
-  required: ["accountId", "balanceMinor", "currency", "ledger", "deposit", "deposits", "buckets", "state", "plan", "availableBalanceMinor", "withdrawableBalanceMinor", "usage", "withdrawals", "walletBalanceBaseUnits", "configPriceBaseUnits"],
+  required: ["accountId", "balanceMinor", "currency", "ledger", "deposit", "deposits", "buckets", "state", "plan", "availableBalanceMinor", "withdrawableBalanceMinor", "usage", "withdrawals", "walletBalanceBaseUnits", "walletSpendableBaseUnits", "walletRentReserveBaseUnits", "configPriceBaseUnits"],
   properties: {
     accountId: { type: "string" },
     balanceMinor: { type: "number" },
@@ -241,6 +241,8 @@ export const publicBillingSummaryResponseSchema = {
       }
     },
     walletBalanceBaseUnits: { type: ["string", "null"] },
+    walletSpendableBaseUnits: { type: ["string", "null"] },
+    walletRentReserveBaseUnits: { type: ["string", "null"] },
     configPriceBaseUnits: { type: "string" }
   }
 } as const;

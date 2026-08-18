@@ -36,6 +36,7 @@ import {
 } from "../../resources/billing/solana-deposit-repository.js";
 import {
   findFinalizedSolanaSignaturesForReference,
+  readSolanaMinimumBalanceForRentExemption,
   readSolanaNativeBalance,
   verifySolanaTopupTransaction
 } from "./solana-rpc-verifier.js";
@@ -71,6 +72,8 @@ export interface BillingSummary {
   usage: AccountUsageSummaryRow[];
   withdrawals: WithdrawalRequestRow[];
   walletBalanceBaseUnits: string | null;
+  walletSpendableBaseUnits: string | null;
+  walletRentReserveBaseUnits: string | null;
   configPriceBaseUnits: string;
 }
 
@@ -122,10 +125,16 @@ export async function readAccountBillingSummary(
     listAccountUsageSummaries(db, accountId),
     listWithdrawalRequests(db, accountId)
   ]);
-  const nativeBalance = config?.solanaAssetKind === "native" && wallet
-    ? await safeReadNativeBalance(wallet.publicKey, config)
-    : null;
   const nativeSolBilling = config?.solanaAssetKind === "native";
+  const [nativeBalance, nativeRentReserve] = nativeSolBilling && wallet && config
+    ? await Promise.all([
+      safeReadNativeBalance(wallet.publicKey, config),
+      safeReadNativeRentReserve(config)
+    ])
+    : [null, null];
+  const nativeSpendable = nativeBalance !== null && nativeRentReserve !== null
+    ? nativeBalance > nativeRentReserve ? nativeBalance - nativeRentReserve : 0n
+    : null;
   const displayCurrency = nativeSolBilling ? "SOL" : balance.currency;
   const displayBalanceMinor = nativeSolBilling ? Number(nativeBalance ?? 0n) : balance.balanceMinor;
   const activeReceipts = config
@@ -160,15 +169,28 @@ export async function readAccountBillingSummary(
     buckets,
     state,
     plan,
-    availableBalanceMinor: nativeSolBilling ? Number(nativeBalance ?? 0n) : availableBillingBalance(buckets),
+    availableBalanceMinor: nativeSolBilling ? Number(nativeSpendable ?? 0n) : availableBillingBalance(buckets),
     withdrawableBalanceMinor: nativeSolBilling
-      ? Number(nativeBalance ?? 0n)
+      ? Number(nativeSpendable ?? 0n)
       : Math.max(0, buckets.cashMinor - buckets.reservedWithdrawalMinor - buckets.debtMinor),
     usage,
     withdrawals,
     walletBalanceBaseUnits: nativeBalance?.toString() ?? null,
+    walletSpendableBaseUnits: nativeSpendable?.toString() ?? null,
+    walletRentReserveBaseUnits: nativeRentReserve?.toString() ?? null,
     configPriceBaseUnits: String(config?.configPriceLamports ?? 0)
   };
+}
+
+async function safeReadNativeRentReserve(config: BillingConfig): Promise<bigint | null> {
+  try {
+    return await readSolanaMinimumBalanceForRentExemption({
+      rpcUrl: config.solanaRpcUrl,
+      ...(config.fetchImpl ? { fetchImpl: config.fetchImpl } : {})
+    });
+  } catch {
+    return null;
+  }
 }
 
 async function safeReadNativeBalance(walletAddress: string, config: BillingConfig): Promise<bigint | null> {

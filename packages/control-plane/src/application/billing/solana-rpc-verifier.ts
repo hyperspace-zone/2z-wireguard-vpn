@@ -105,6 +105,20 @@ export async function readSolanaNativeBalance(
   return BigInt(value);
 }
 
+export async function readSolanaMinimumBalanceForRentExemption(
+  config: Pick<SolanaRpcVerifierConfig, "rpcUrl" | "fetchImpl">
+): Promise<bigint> {
+  if (!config.rpcUrl) return 0n;
+  const result = await rpcCall(config.fetchImpl ?? fetch, config.rpcUrl, "getMinimumBalanceForRentExemption", [
+    0,
+    { commitment: "finalized" }
+  ]);
+  if (typeof result !== "number" || !Number.isSafeInteger(result) || result < 0) {
+    throw new Error("Solana RPC getMinimumBalanceForRentExemption returned an invalid lamport balance");
+  }
+  return BigInt(result);
+}
+
 export async function verifySolanaTopupTransaction(
   expectation: SolanaTopupExpectation,
   config: SolanaRpcVerifierConfig

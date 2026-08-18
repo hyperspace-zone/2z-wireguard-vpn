@@ -4,6 +4,7 @@ import {
   findFinalizedSolanaSignaturesForAddress,
   findFinalizedSolanaSignaturesForReference,
   findSolanaTokenAccountsByOwner,
+  readSolanaMinimumBalanceForRentExemption,
   readSolanaNativeBalance,
   verifyNativeSolDirectDepositTransaction,
   verifySolanaDirectDepositTransaction,
@@ -144,6 +145,20 @@ test("native SOL balance reads finalized lamports", async () => {
     method: "getBalance",
     params: [treasury, { commitment: "finalized" }]
   }]);
+});
+
+test("native SOL rent reserve reads the finalized zero-data account minimum", async () => {
+  const fetchImpl: typeof fetch = async (_url, init) => {
+    const request = JSON.parse(String(init?.body)) as { method: string; params: unknown[] };
+    assert.equal(request.method, "getMinimumBalanceForRentExemption");
+    assert.deepEqual(request.params, [0, { commitment: "finalized" }]);
+    return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: 890_880 }));
+  };
+
+  assert.equal(await readSolanaMinimumBalanceForRentExemption({
+    rpcUrl: "https://rpc.testnet.hyperspace.zone",
+    fetchImpl
+  }), 890_880n);
 });
 
 test("native SOL deposits use the recipient's finalized net lamport increase", async () => {

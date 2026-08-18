@@ -181,6 +181,8 @@ interface BillingSummary {
   usage: BillingUsageSummary[];
   withdrawals: WithdrawalRequest[];
   walletBalanceBaseUnits: string | null;
+  walletSpendableBaseUnits: string | null;
+  walletRentReserveBaseUnits: string | null;
   configPriceBaseUnits: string;
 }
 
@@ -747,9 +749,9 @@ function accountPanel(billing: BillingSummary | null): string {
   return `
     <div class="account-grid">
       <div class="account-card">
-        <h3>Balance</h3>
+        <h3>${nativeSolBilling ? "Spendable balance" : "Balance"}</h3>
         <strong class="balance-value">${escapeHtml(billingBalanceText(billing))}</strong>
-        <small>${nativeSolBilling ? "On-chain wallet balance; Solana keeps approximately 0.00089088 SOL as account rent reserve" : billing ? `${escapeHtml(billing.state.state)} · ${escapeHtml(billing.plan.displayName)} v${billing.plan.version}` : "Billing is loading"}</small>
+        <small>${nativeSolBilling && billing ? `Total ${escapeHtml(formatTokenBaseUnits(billing.walletBalanceBaseUnits ?? "0", deposit.tokenDecimals))} SOL · rent reserve ${escapeHtml(formatTokenBaseUnits(billing.walletRentReserveBaseUnits ?? "0", deposit.tokenDecimals))} SOL` : billing ? `${escapeHtml(billing.state.state)} · ${escapeHtml(billing.plan.displayName)} v${billing.plan.version}` : "Billing is loading"}</small>
         ${billing && !nativeSolBilling ? `<small>Paid ${escapeHtml(formatMoneyMinor(billing.buckets.cashMinor, billing.currency))} · Credits ${escapeHtml(formatMoneyMinor(billing.buckets.promotionalMinor, billing.currency))}${billing.buckets.debtMinor ? ` · Debt ${escapeHtml(formatMoneyMinor(billing.buckets.debtMinor, billing.currency))}` : ""}</small>` : ""}
       </div>
       <div class="account-card deposit-card">
@@ -3911,8 +3913,8 @@ function formatMoneyMinor(amountMinor: number, currency: string): string {
 }
 
 function billingBalanceText(billing: BillingSummary | null): string {
-  if (billing?.deposit?.tokenSymbol === "SOL" && billing.walletBalanceBaseUnits !== null) {
-    return `${formatTokenBaseUnits(billing.walletBalanceBaseUnits, billing.deposit.tokenDecimals)} SOL`;
+  if (billing?.deposit?.tokenSymbol === "SOL" && billing.walletSpendableBaseUnits !== null) {
+    return `${formatTokenBaseUnits(billing.walletSpendableBaseUnits, billing.deposit.tokenDecimals)} SOL`;
   }
   return formatMoneyMinor(billing?.availableBalanceMinor ?? billing?.balanceMinor ?? 0, billing?.currency ?? "USD");
 }
