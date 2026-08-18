@@ -33,6 +33,18 @@ export interface SolanaConfigPaymentService {
   charge(input: { paymentId: string; accountId: string; sessionId: string }): Promise<ConfigPaymentResult>;
 }
 
+interface ConfigPaymentSignatureStatus {
+  err: unknown;
+  confirmationStatus?: string | null;
+}
+
+interface SignatureStatusReader {
+  getSignatureStatuses(
+    signatures: string[],
+    config?: { searchTransactionHistory?: boolean }
+  ): Promise<{ value: Array<ConfigPaymentSignatureStatus | null> }>;
+}
+
 export function createSolanaConfigPaymentService(input: {
   db: Database;
   rpcUrl: string;
@@ -142,8 +154,12 @@ export function createSolanaConfigPaymentService(input: {
         return { status: "confirmed", signature, feeLamports };
       } catch (error) {
         const current = await readSolanaConfigPayment(input.db, request.paymentId);
+        const reason = error instanceof Error ? error.message : String(error);
+        if (current?.status === "submitted" && isSolanaTransactionSimulationFailure(error)) {
+          await failSolanaConfigPayment(input.db, request.paymentId, "transaction_simulation_failed", reason);
+          return { status: "failed", reason };
+        }
         if (current?.status !== "submitted") {
-          const reason = error instanceof Error ? error.message : String(error);
           await failSolanaConfigPayment(input.db, request.paymentId, "payment_error", reason);
           return { status: "failed", reason };
         }
@@ -171,8 +187,7 @@ async function recoverSubmittedPayment(
     return { status: "confirmed", signature: payment.transactionSignature, feeLamports: BigInt(payment.feeLamports ?? 0) };
   }
   if (payment.status !== "submitted" || !payment.transactionSignature) return null;
-  const response = await connection.getSignatureStatuses([payment.transactionSignature], { searchTransactionHistory: true });
-  const status = response.value[0];
+  const status = await readSolanaConfigPaymentSignatureStatus(connection, payment.transactionSignature);
   if (status?.err) {
     const reason = `Solana config payment failed: ${JSON.stringify(status.err)}`;
     await failSolanaConfigPayment(db, payment.id, "transaction_failed", reason);
@@ -191,6 +206,35 @@ async function recoverSubmittedPayment(
   }
   await failSolanaConfigPayment(db, payment.id, "blockhash_expired", "Config payment blockhash expired before finalization");
   return null;
+}
+
+export async function readSolanaConfigPaymentSignatureStatus(
+  connection: SignatureStatusReader,
+  signature: string
+): Promise<ConfigPaymentSignatureStatus | null> {
+  try {
+    const response = await connection.getSignatureStatuses([signature], { searchTransactionHistory: true });
+    return response.value[0] ?? null;
+  } catch (error) {
+    if (!isTransactionHistoryUnavailable(error)) throw error;
+    const response = await connection.getSignatureStatuses([signature], { searchTransactionHistory: false });
+    return response.value[0] ?? null;
+  }
+}
+
+export function isSolanaTransactionSimulationFailure(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const candidate = error as { name?: unknown; message?: unknown; transactionLogs?: unknown };
+  return candidate.name === "SendTransactionError"
+    || Array.isArray(candidate.transactionLogs)
+    || (typeof candidate.message === "string" && candidate.message.includes("Transaction simulation failed"));
+}
+
+function isTransactionHistoryUnavailable(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const candidate = error as { code?: unknown; message?: unknown };
+  return candidate.code === -32011
+    || (typeof candidate.message === "string" && candidate.message.includes("Transaction history is not available"));
 }
 
 function encodeBase58(value: Uint8Array): string {
