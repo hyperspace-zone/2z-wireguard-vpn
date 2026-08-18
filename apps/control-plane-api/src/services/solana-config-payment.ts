@@ -49,11 +49,15 @@ interface SignatureStatusReader {
 export function createSolanaConfigPaymentService(input: {
   db: Database;
   rpcUrl: string;
+  archivalRpcUrl?: string;
   treasuryAddress: string;
   amountLamports: number;
   custodialEncryptionKey: Buffer;
 }): SolanaConfigPaymentService {
   const connection = new Connection(input.rpcUrl, "confirmed");
+  const archivalConnection = input.archivalRpcUrl
+    ? new Connection(input.archivalRpcUrl, "confirmed")
+    : undefined;
   const treasury = new PublicKey(input.treasuryAddress);
   const amountLamports = BigInt(input.amountLamports);
   return {
@@ -69,7 +73,7 @@ export function createSolanaConfigPaymentService(input: {
         treasuryAddress: treasury.toBase58(),
         amountLamports
       });
-      const recovered = await recoverSubmittedPayment(connection, input.db, payment);
+      const recovered = await recoverSubmittedPayment(connection, archivalConnection, input.db, payment);
       if (recovered) return recovered;
       if (!await claimSolanaConfigPaymentProcessing(input.db, request.paymentId)) {
         const current = await readSolanaConfigPayment(input.db, request.paymentId);
@@ -162,7 +166,10 @@ export function createSolanaConfigPaymentService(input: {
           maxRetries: 3
         });
         if (sentSignature !== signature) throw new Error("Solana RPC returned an unexpected transaction signature");
-        const status = await waitForFinalizedSolanaConfigPayment(connection, signature);
+        const recentStatus = await waitForFinalizedSolanaConfigPayment(connection, signature);
+        const status = recentStatus?.err || recentStatus?.confirmationStatus === "finalized"
+          ? recentStatus
+          : await readSolanaConfigPaymentSignatureStatus(connection, signature, archivalConnection);
         if (status?.err) {
           const reason = `Solana config payment failed: ${JSON.stringify(status.err)}`;
           await failSolanaConfigPayment(input.db, request.paymentId, "transaction_failed", reason);
@@ -174,6 +181,25 @@ export function createSolanaConfigPaymentService(input: {
       } catch (error) {
         const current = await readSolanaConfigPayment(input.db, request.paymentId);
         const reason = error instanceof Error ? error.message : String(error);
+        if (current?.status === "submitted" && isSolanaTransactionAlreadyProcessed(error)) {
+          const status = current.transactionSignature
+            ? await readSolanaConfigPaymentSignatureStatus(connection, current.transactionSignature, archivalConnection)
+            : null;
+          if (status?.err) {
+            const failureReason = `Solana config payment failed: ${JSON.stringify(status.err)}`;
+            await failSolanaConfigPayment(input.db, request.paymentId, "transaction_failed", failureReason);
+            return { status: "failed", reason: failureReason };
+          }
+          if (status?.confirmationStatus === "finalized" && current.transactionSignature) {
+            await confirmSolanaConfigPayment(input.db, request.paymentId);
+            return {
+              status: "confirmed",
+              signature: current.transactionSignature,
+              feeLamports: BigInt(current.feeLamports ?? 0)
+            };
+          }
+          return { status: "in_progress" };
+        }
         if (current?.status === "submitted" && isSolanaTransactionSimulationFailure(error)) {
           await failSolanaConfigPayment(input.db, request.paymentId, "transaction_simulation_failed", reason);
           return { status: "failed", reason };
@@ -207,6 +233,7 @@ export function isSolanaTreasuryInitialized(balanceLamports: bigint, rentExempti
 
 async function recoverSubmittedPayment(
   connection: Connection,
+  archivalConnection: SignatureStatusReader | undefined,
   db: Database,
   payment: SolanaConfigPaymentRow
 ): Promise<ConfigPaymentResult | null> {
@@ -214,7 +241,11 @@ async function recoverSubmittedPayment(
     return { status: "confirmed", signature: payment.transactionSignature, feeLamports: BigInt(payment.feeLamports ?? 0) };
   }
   if (payment.status !== "submitted" || !payment.transactionSignature) return null;
-  const status = await readSolanaConfigPaymentSignatureStatus(connection, payment.transactionSignature);
+  const status = await readSolanaConfigPaymentSignatureStatus(
+    connection,
+    payment.transactionSignature,
+    archivalConnection
+  );
   if (status?.err) {
     const reason = `Solana config payment failed: ${JSON.stringify(status.err)}`;
     await failSolanaConfigPayment(db, payment.id, "transaction_failed", reason);
@@ -227,7 +258,29 @@ async function recoverSubmittedPayment(
   if (payment.rawTransaction && payment.lastValidBlockHeight) {
     const blockHeight = await connection.getBlockHeight("confirmed");
     if (blockHeight <= Number(payment.lastValidBlockHeight)) {
-      await connection.sendRawTransaction(payment.rawTransaction, { preflightCommitment: "confirmed", maxRetries: 3 });
+      try {
+        await connection.sendRawTransaction(payment.rawTransaction, { preflightCommitment: "confirmed", maxRetries: 3 });
+      } catch (error) {
+        if (!isSolanaTransactionAlreadyProcessed(error)) throw error;
+        const recoveredStatus = await readSolanaConfigPaymentSignatureStatus(
+          connection,
+          payment.transactionSignature,
+          archivalConnection
+        );
+        if (recoveredStatus?.err) {
+          const reason = `Solana config payment failed: ${JSON.stringify(recoveredStatus.err)}`;
+          await failSolanaConfigPayment(db, payment.id, "transaction_failed", reason);
+          return { status: "failed", reason };
+        }
+        if (recoveredStatus?.confirmationStatus === "finalized") {
+          await confirmSolanaConfigPayment(db, payment.id);
+          return {
+            status: "confirmed",
+            signature: payment.transactionSignature,
+            feeLamports: BigInt(payment.feeLamports ?? 0)
+          };
+        }
+      }
       return { status: "in_progress" };
     }
   }
@@ -238,12 +291,23 @@ async function recoverSubmittedPayment(
 
 export async function readSolanaConfigPaymentSignatureStatus(
   connection: SignatureStatusReader,
-  signature: string
+  signature: string,
+  archivalConnection?: SignatureStatusReader
 ): Promise<ConfigPaymentSignatureStatus | null> {
   const recent = await connection.getSignatureStatuses([signature], { searchTransactionHistory: false });
   if (recent.value[0]) return recent.value[0];
   try {
     const response = await connection.getSignatureStatuses([signature], { searchTransactionHistory: true });
+    if (response.value[0]) return response.value[0];
+  } catch (error) {
+    if (!isTransactionHistoryUnavailable(error)) throw error;
+  }
+  if (!archivalConnection) return null;
+  try {
+    const response = await archivalConnection.getSignatureStatuses(
+      [signature],
+      { searchTransactionHistory: true }
+    );
     return response.value[0] ?? null;
   } catch (error) {
     if (!isTransactionHistoryUnavailable(error)) throw error;
@@ -281,6 +345,12 @@ export function isSolanaTransactionSimulationFailure(error: unknown): boolean {
   return candidate.name === "SendTransactionError"
     || Array.isArray(candidate.transactionLogs)
     || (typeof candidate.message === "string" && candidate.message.includes("Transaction simulation failed"));
+}
+
+export function isSolanaTransactionAlreadyProcessed(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const message = (error as { message?: unknown }).message;
+  return typeof message === "string" && message.toLowerCase().includes("already been processed");
 }
 
 function isTransactionHistoryUnavailable(error: unknown): boolean {

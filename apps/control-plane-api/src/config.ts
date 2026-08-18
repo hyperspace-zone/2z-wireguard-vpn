@@ -54,6 +54,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ControlPlaneAp
       solanaTokenSymbol: env.SOLANA_TOKEN_SYMBOL ?? (nativeSolBilling ? "SOL" : "USDC"),
       solanaTokenMint: env.SOLANA_TOKEN_MINT ?? (nativeSolBilling ? "native" : ""),
       solanaRpcUrl: env.SOLANA_RPC_URL ?? "",
+      solanaArchivalRpcUrl: env.SOLANA_ARCHIVAL_RPC_URL ?? "",
       solanaTokenBaseUnitsPerBillingMinor: readPositiveInteger(
         env,
         "SOLANA_TOKEN_BASE_UNITS_PER_BILLING_MINOR",

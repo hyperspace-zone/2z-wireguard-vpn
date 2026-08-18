@@ -1162,6 +1162,7 @@ the real endpoint.
 ```bash
 # Non-resolving placeholder; inject the real staging/production value securely.
 export SOLANA_RPC_URL=https://solana-rpc.example.invalid
+export SOLANA_ARCHIVAL_RPC_URL=https://solana-archive.example.invalid
 ```
 
 ```bash
@@ -1212,6 +1213,7 @@ SOLANA_TOKEN_MINT=native
 SOLANA_TOKEN_DECIMALS=9
 SOLANA_TOKEN_BASE_UNITS_PER_BILLING_MINOR=1
 SOLANA_RPC_URL=${SOLANA_RPC_URL:?set an environment-specific Solana RPC URL}
+SOLANA_ARCHIVAL_RPC_URL=${SOLANA_ARCHIVAL_RPC_URL:-}
 SOLANA_EXPLORER_TX_BASE_URL=https://orbmarkets.io/tx/
 SOLANA_CONFIG_PAYMENT_ENABLED=true
 SOLANA_CONFIG_PRICE_LAMPORTS=100000

@@ -56,6 +56,7 @@ export interface ControlPlaneApiRuntimeConfig {
   billing: BillingConfig & {
     enforcePositiveBalance: boolean;
     requiredMinBalanceMinor: number;
+    solanaArchivalRpcUrl: string;
   };
 }
 
@@ -83,6 +84,7 @@ export function createApp(input: CreateControlPlaneApiAppInput): FastifyInstance
       ? createSolanaConfigPaymentService({
         db,
         rpcUrl: config.billing.solanaRpcUrl,
+        archivalRpcUrl: config.billing.solanaArchivalRpcUrl,
         treasuryAddress: config.billing.configPaymentTreasuryAddress,
         amountLamports: config.billing.configPriceLamports,
         custodialEncryptionKey: config.walletAuth.custodialEncryptionKey

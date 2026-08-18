@@ -117,6 +117,10 @@ Mainnet-backed staging and production use a network-allowlisted RPC endpoint
 injected as `SOLANA_RPC_URL` through the runtime environment or secret
 management. Configure the same endpoint on the API and worker. The current API
 and worker use HTTP JSON-RPC polling and do not consume WebSocket subscriptions.
+When the primary node does not retain transaction history, configure the API's
+`SOLANA_ARCHIVAL_RPC_URL` with a read-only archival endpoint. Payments are still
+signed and submitted only through `SOLANA_RPC_URL`; the archival endpoint is
+used only to reconcile an already submitted signature.
 Documentation uses `https://solana-rpc.example.invalid` and
 `wss://solana-rpc.example.invalid` as non-resolving placeholders. Do not use a
 mainnet endpoint in the DoubleZero/Solana testnet contour. Real provider URLs,

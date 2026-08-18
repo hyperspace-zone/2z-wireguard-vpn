@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   isSolanaTreasuryInitialized,
+  isSolanaTransactionAlreadyProcessed,
   isSolanaTransactionSimulationFailure,
   readSolanaConfigPaymentSignatureStatus,
   requiredConfigPaymentLamports,
@@ -71,6 +72,25 @@ test("SOL config payment status preserves unrelated RPC errors", async () => {
   );
 });
 
+test("SOL config payment status falls back to an archival RPC", async () => {
+  const primary = {
+    async getSignatureStatuses(_signatures: string[], config?: { searchTransactionHistory?: boolean }) {
+      if (config?.searchTransactionHistory) {
+        throw Object.assign(new Error("Transaction history is not available from this node"), { code: -32011 });
+      }
+      return { value: [null] };
+    }
+  };
+  const archival = {
+    async getSignatureStatuses() {
+      return { value: [{ err: null, confirmationStatus: "finalized" }] };
+    }
+  };
+
+  const status = await readSolanaConfigPaymentSignatureStatus(primary, "signature", archival);
+  assert.equal(status?.confirmationStatus, "finalized");
+});
+
 test("SOL config payment recognizes deterministic simulation failures", () => {
   assert.equal(isSolanaTransactionSimulationFailure({
     name: "SendTransactionError",
@@ -78,6 +98,13 @@ test("SOL config payment recognizes deterministic simulation failures", () => {
     transactionLogs: []
   }), true);
   assert.equal(isSolanaTransactionSimulationFailure(new Error("socket closed")), false);
+});
+
+test("SOL config payment recognizes an already processed transaction", () => {
+  assert.equal(isSolanaTransactionAlreadyProcessed(
+    new Error("Transaction simulation failed: This transaction has already been processed")
+  ), true);
+  assert.equal(isSolanaTransactionAlreadyProcessed(new Error("Transaction simulation failed")), false);
 });
 
 test("SOL config payment confirmation polls the recent cache until finalized", async () => {

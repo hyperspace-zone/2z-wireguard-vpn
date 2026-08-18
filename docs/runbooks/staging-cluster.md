@@ -103,7 +103,10 @@ Before authentication acceptance:
 
 The staging API and worker receive their control-plane-only Solana mainnet
 endpoint as `SOLANA_RPC_URL` through runtime environment configuration or secret
-management. Never commit the real endpoint. The placeholders
+management. If that node does not retain transaction history, set
+`SOLANA_ARCHIVAL_RPC_URL` on the API to a read-only archival endpoint so an
+already submitted payment can be reconciled without a second transfer. Never
+commit private or credential-bearing endpoints. The placeholders
 `https://solana-rpc.example.invalid` and `wss://solana-rpc.example.invalid` are
 intentionally non-resolving; the WebSocket value is not used by the current HTTP
 polling implementation. Do not copy a mainnet endpoint into the Solana testnet
