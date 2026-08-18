@@ -55,6 +55,10 @@ node_exporter_exposes_resource_metrics() {
   curl -fsS --max-time 5 http://127.0.0.1:9100/metrics \
     | awk '$1 == "hyperspace_gate_resource_exporter_last_run_timestamp_seconds" { found = 1 } END { exit !found }'
 }
+gate_firewall_rules_persisted() {
+  systemctl is-enabled --quiet hyperspace-gate-firewall.service \
+    && /usr/local/sbin/hyperspace-gate-firewall --check
+}
 
 hostname_value="$(hostname -f 2>/dev/null || hostname)"
 kernel_value="$(uname -r)"
@@ -80,17 +84,19 @@ cat <<JSON
     "caddy": $(json_bool command -v caddy),
     "vnstat": $(json_bool command -v vnstat),
     "nodeExporter": $(json_bool command -v prometheus-node-exporter),
-    "hyperspaceGateAgent": $(json_bool command -v hyperspace-gate-agent)
+    "hyperspaceGateAgent": $(json_bool command -v hyperspace-gate-agent),
+    "ufw": $(json_bool command -v ufw)
   },
   "services": {
     "doublezerod": $(json_bool systemctl is-active --quiet doublezerod),
     "hyperspaceGateAgent": $(json_bool systemctl is-active --quiet hyperspace-gate-agent),
     "chrony": $(json_bool systemctl is-active --quiet chrony),
-    "caddy": $(json_bool systemctl is-active --quiet caddy)
-    ,"vnstat": $(json_bool systemctl is-active --quiet vnstat)
-    ,"nodeExporter": $(json_bool systemctl is-active --quiet prometheus-node-exporter)
-    ,"diskJanitorTimer": $(json_bool systemctl is-active --quiet hyperspace-disk-janitor.timer)
-    ,"resourceExporterTimer": $(json_bool systemctl is-active --quiet hyperspace-gate-resource-exporter.timer)
+    "caddy": $(json_bool systemctl is-active --quiet caddy),
+    "vnstat": $(json_bool systemctl is-active --quiet vnstat),
+    "nodeExporter": $(json_bool systemctl is-active --quiet prometheus-node-exporter),
+    "diskJanitorTimer": $(json_bool systemctl is-active --quiet hyperspace-disk-janitor.timer),
+    "resourceExporterTimer": $(json_bool systemctl is-active --quiet hyperspace-gate-resource-exporter.timer),
+    "gateFirewallEnabled": $(json_bool systemctl is-enabled --quiet hyperspace-gate-firewall.service)
   },
   "interfaces": {
     "doublezero0": $(json_bool ip link show doublezero0)
@@ -101,7 +107,9 @@ cat <<JSON
     "conntrackCount": ${conntrack_count:-0},
     "conntrackMax": ${conntrack_max:-0},
     "resourceMetricsPresent": $(json_bool test -s /var/lib/node_exporter/textfile_collector/hyperspace_gate_resources.prom),
-    "resourceMetricsExposed": $(json_bool node_exporter_exposes_resource_metrics)
+    "resourceMetricsExposed": $(json_bool node_exporter_exposes_resource_metrics),
+    "firewallRulesPersisted": $(json_bool gate_firewall_rules_persisted),
+    "ufwActive": $(json_bool bash -c 'ufw status 2>/dev/null | grep -q "^Status: active"')
   },
   "doublezeroStatus": $(printf '%s' "$doublezero_status" | json_string),
   "chronyTracking": $(printf '%s' "$chrony_tracking" | json_string)

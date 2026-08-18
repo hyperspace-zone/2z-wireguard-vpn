@@ -8,7 +8,7 @@ const scriptDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(scriptDir, "../..");
 
 const args = parseArgs(process.argv.slice(2));
-if (!args.inventory || !args.wave || !args.controlPlaneUrl || !args.gateTokenDir || !args.probeSecretFile) {
+if (!args.inventory || !args.wave || !args.controlPlaneUrl || !args.gateTokenDir || !args.probeSecretFile || args.observabilityIps.length === 0) {
   usage();
   process.exit(2);
 }
@@ -33,6 +33,13 @@ const dryRun = args.dryRun !== false;
 const sshKeyArgs = args.sshKey ? ["--ssh-key", args.sshKey] : [];
 const sshUserArgs = args.sshUser ? ["--ssh-user", args.sshUser] : [];
 const knownHostsArgs = args.knownHostsFile ? ["--known-hosts-file", args.knownHostsFile] : [];
+const benchmarkPeerIps = [...new Set(inventory
+  .filter((gate) => (gate.desiredState ?? "Disabled") !== "Removed")
+  .map((gate) => gate.publicIpv4)
+  .filter((address) => typeof address === "string" && address.length > 0))];
+if (benchmarkPeerIps.length === 0) {
+  throw new Error("inventory must contain at least one non-removed gate publicIpv4");
+}
 
 for (const gate of gates) {
   const host = gate.sshHost || gate.publicIpv4 || gate.probeHost || gate.name;
@@ -55,6 +62,8 @@ for (const gate of gates) {
     ...knownHostsArgs,
     ...(gate.resourceTier ? ["--tier", gate.resourceTier] : []),
     ...(args.doublezeroVersion ? ["--doublezero-version", args.doublezeroVersion] : []),
+    ...args.observabilityIps.flatMap((address) => ["--observability-ip", address]),
+    ...benchmarkPeerIps.flatMap((address) => ["--benchmark-peer-ip", address]),
     ...(dryRun ? ["--dry-run"] : [])
   ]);
 
@@ -95,7 +104,7 @@ function run(script, scriptArgs) {
 }
 
 function parseArgs(argv) {
-  const out = { dryRun: true };
+  const out = { dryRun: true, observabilityIps: [] };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     switch (arg) {
@@ -132,6 +141,9 @@ function parseArgs(argv) {
       case "--doublezero-version":
         out.doublezeroVersion = argv[++i];
         break;
+      case "--observability-ip":
+        out.observabilityIps.push(argv[++i]);
+        break;
       case "--binary":
         out.binary = argv[++i];
         break;
@@ -153,9 +165,10 @@ function parseArgs(argv) {
 }
 
 function usage() {
-  console.error(`usage: scripts/gates/rollout-wave.mjs --inventory gates.json --wave WAVE --control-plane-url URL --gate-token-dir DIR --probe-secret-file FILE [--web-origin URL] [--execute]
+  console.error(`usage: scripts/gates/rollout-wave.mjs --inventory gates.json --wave WAVE --control-plane-url URL --gate-token-dir DIR --probe-secret-file FILE --observability-ip IPV4 [--observability-ip IPV4 ...] [--web-origin URL] [--execute]
 
 Default mode is dry-run. Use --execute only after reviewing the rendered host commands.
 Inventory entries are selected by rolloutWave or wave and can include sshHost, publicIpv4,
-name, fqdn, probeUrl, doubleZeroEnv, and desiredState.`);
+name, fqdn, probeUrl, doubleZeroEnv, and desiredState. All non-removed publicIpv4
+values become the persistent UDP/19192 gate-peer allowlist.`);
 }

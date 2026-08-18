@@ -30,6 +30,7 @@ scripts/gates/rollout-wave.mjs \
   --known-hosts-file /root/.ssh/known_hosts \
   --control-plane-url https://control-plane.hyperspace.zone \
   --web-origin https://app.hyperspace.zone \
+  --observability-ip 84.32.83.71 \
   --gate-token-dir /root/hyperspace/secrets/mainnet-gate-tokens \
   --probe-secret-file /root/hyperspace/secrets/mainnet-gate-probe-secret
 
@@ -64,6 +65,24 @@ sysctl net.netfilter.nf_conntrack_max net.netfilter.nf_conntrack_acct
 The expected standard-tier values are `65536` and `1`. Treat a lower limit or
 disabled accounting as a failed gate bootstrap; do not wait for the conntrack
 table to fill before repairing it.
+
+The rollout derives the UDP/19192 source allowlist from every non-removed gate
+IPv4 in the inventory. Each `--observability-ip` becomes a TCP/9100 source
+allowlist entry. Bootstrap stores both lists in
+`/etc/hyperspace/gate-firewall.env` and enables
+`hyperspace-gate-firewall.service`, which recreates and verifies the UFW rules
+at boot. Rerun the rollout for existing gates whenever the inventory or an
+observability address changes. The service deliberately does not enable UFW or
+change its default policy; manage that decision and the provider firewall
+separately.
+
+After provisioning or reboot, verify persistence with:
+
+```bash
+systemctl is-enabled hyperspace-gate-firewall.service
+/usr/local/sbin/hyperspace-gate-firewall --check
+ufw show added
+```
 
 Prometheus gate targets are not maintained in this inventory. Run
 `scripts/observability/install-gate-discovery` on each observability host; its

@@ -11,6 +11,8 @@ Options:
   --known-hosts-file PATH     Pinned SSH known_hosts file, default ~/.ssh/known_hosts.
   --tier standard|hub         Resource tier, default standard. Hub requires at least 2 GiB RAM.
   --doublezero-version VER    Optional pinned doublezero package version.
+  --observability-ip IPV4     Allowed TCP/9100 source; repeat for every cluster observability host.
+  --benchmark-peer-ip IPV4    Allowed UDP/19192 source; repeat for every gate public IPv4.
   --dry-run                   Print the remote command instead of executing it.
 EOF
 }
@@ -23,6 +25,8 @@ known_hosts_file="${HOME}/.ssh/known_hosts"
 dz_env=""
 gate_tier="standard"
 doublezero_version=""
+observability_ips=()
+benchmark_peer_ips=()
 dry_run=false
 
 while [[ $# -gt 0 ]]; do
@@ -34,6 +38,8 @@ while [[ $# -gt 0 ]]; do
     --tier) gate_tier="${2:-}"; shift 2 ;;
     --doublezero-env) dz_env="${2:-}"; shift 2 ;;
     --doublezero-version) doublezero_version="${2:-}"; shift 2 ;;
+    --observability-ip) observability_ips+=("${2:-}"); shift 2 ;;
+    --benchmark-peer-ip) benchmark_peer_ips+=("${2:-}"); shift 2 ;;
     --dry-run) dry_run=true; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "unknown argument: $1" >&2; usage; exit 2 ;;
@@ -52,6 +58,24 @@ case "$gate_tier" in
   standard|hub) ;;
   *) echo "unsupported --tier: $gate_tier" >&2; exit 2 ;;
 esac
+valid_ipv4() {
+  local address="$1"
+  local -a octets=()
+  local octet
+  IFS=. read -r -a octets <<<"$address"
+  [[ ${#octets[@]} -eq 4 ]] || return 1
+  for octet in "${octets[@]}"; do
+    [[ "$octet" =~ ^[0-9]{1,3}$ ]] || return 1
+    ((10#$octet <= 255)) || return 1
+  done
+}
+if [[ ${#observability_ips[@]} -eq 0 || ${#benchmark_peer_ips[@]} -eq 0 ]]; then
+  echo "at least one --observability-ip and --benchmark-peer-ip are required" >&2
+  exit 2
+fi
+for address in "${observability_ips[@]}" "${benchmark_peer_ips[@]}"; do
+  valid_ipv4 "$address" || { echo "invalid firewall source IPv4: $address" >&2; exit 2; }
+done
 if [[ "$dry_run" != true && ! -r "$known_hosts_file" ]]; then
   echo "known_hosts file is not readable: $known_hosts_file" >&2
   exit 2
@@ -80,7 +104,7 @@ esac
 
 apt-get update
 apt-get install -y ca-certificates curl git gnupg build-essential gettext-base jq python3 \
-  wireguard-tools iproute2 nftables chrony caddy prometheus-node-exporter vnstat sysstat logrotate kmod
+  wireguard-tools iproute2 nftables ufw chrony caddy prometheus-node-exporter vnstat sysstat logrotate kmod
 
 install -d -m 0750 /etc/hyperspace/disabled-apt-hooks
 if dpkg-divert --list /etc/apt/apt.conf.d/20packagekit 2>/dev/null | grep -q '20packagekit.distrib'; then
@@ -167,6 +191,14 @@ cat >/etc/default/prometheus-node-exporter <<'EOF'
 ARGS="--collector.textfile.directory=/var/lib/node_exporter/textfile_collector"
 EOF
 
+cat >/etc/hyperspace/gate-firewall.env <<EOF
+OBSERVABILITY_IPS="${OBSERVABILITY_IPS}"
+BENCHMARK_PEER_IPS="${BENCHMARK_PEER_IPS}"
+NODE_EXPORTER_PORT=9100
+BENCHMARK_PROBE_PORT=19192
+EOF
+chmod 0600 /etc/hyperspace/gate-firewall.env
+
 physical_interface="$(ip -4 route show default | awk 'NR == 1 {for (i = 1; i <= NF; i++) if ($i == "dev") {print $(i + 1); exit}}')"
 if [ -n "$physical_interface" ]; then
   vnstat --add -i "$physical_interface" >/dev/null 2>&1 || true
@@ -185,6 +217,8 @@ install -m 0644 "$ASSET_DIR/infra/systemd/hyperspace-disk-janitor.service" /etc/
 install -m 0644 "$ASSET_DIR/infra/systemd/hyperspace-disk-janitor.timer" /etc/systemd/system/hyperspace-disk-janitor.timer
 install -m 0644 "$ASSET_DIR/infra/systemd/hyperspace-gate-resource-exporter.service" /etc/systemd/system/hyperspace-gate-resource-exporter.service
 install -m 0644 "$ASSET_DIR/infra/systemd/hyperspace-gate-resource-exporter.timer" /etc/systemd/system/hyperspace-gate-resource-exporter.timer
+install -m 0755 "$ASSET_DIR/scripts/hyperspace-gate-firewall.sh" /usr/local/sbin/hyperspace-gate-firewall
+install -m 0644 "$ASSET_DIR/infra/systemd/hyperspace-gate-firewall.service" /etc/systemd/system/hyperspace-gate-firewall.service
 install -d -m 0755 /etc/systemd/journald.conf.d
 install -m 0644 "$ASSET_DIR/infra/journald/zz-hyperspace-gate-limits.conf" /etc/systemd/journald.conf.d/zz-hyperspace-gate-limits.conf
 
@@ -203,6 +237,8 @@ systemctl enable --now chrony nftables caddy prometheus-node-exporter vnstat sys
 # directory is supplied through EnvironmentFile, so explicitly restart after
 # writing /etc/default/prometheus-node-exporter to apply the current ARGS.
 systemctl restart prometheus-node-exporter
+systemctl enable hyperspace-gate-firewall.service
+systemctl restart hyperspace-gate-firewall.service
 systemctl enable --now hyperspace-disk-janitor.timer hyperspace-gate-resource-exporter.timer
 systemctl start hyperspace-disk-janitor.service hyperspace-gate-resource-exporter.service
 
@@ -241,6 +277,8 @@ command -v nft
 command -v chronyc
 command -v vnstat
 command -v prometheus-node-exporter
+command -v ufw
+/usr/local/sbin/hyperspace-gate-firewall --check
 REMOTE
 )"
 
@@ -251,7 +289,9 @@ assets=(
   infra/systemd/hyperspace-disk-janitor.timer
   infra/systemd/hyperspace-gate-resource-exporter.service
   infra/systemd/hyperspace-gate-resource-exporter.timer
+  infra/systemd/hyperspace-gate-firewall.service
   scripts/hyperspace-disk-janitor.sh
+  scripts/hyperspace-gate-firewall.sh
   scripts/hyperspace-gate-resource-exporter.sh
 )
 remote_asset_dir="/tmp/hyperspace-gate-bootstrap-$$"
@@ -259,13 +299,14 @@ remote_asset_dir="/tmp/hyperspace-gate-bootstrap-$$"
 if [[ "$dry_run" == true ]]; then
   printf 'tar -C %q -cf - %s | ssh %q %q %q\n' \
     "$repo_root" "${assets[*]}" "${ssh_args[*]}" "${ssh_user}@${host}" "install -d $remote_asset_dir && tar -xf - -C $remote_asset_dir"
-  printf 'ssh %q %q DZ_ENV=%q GATE_TIER=%q DOUBLEZERO_VERSION=%q ASSET_DIR=%q bash -s <<REMOTE\n%s\nREMOTE\n' \
-    "${ssh_args[*]}" "${ssh_user}@${host}" "$dz_env" "$gate_tier" "$doublezero_version" "$remote_asset_dir" "$remote_script"
+  printf 'ssh %q %q DZ_ENV=%q GATE_TIER=%q DOUBLEZERO_VERSION=%q OBSERVABILITY_IPS=%q BENCHMARK_PEER_IPS=%q ASSET_DIR=%q bash -s <<REMOTE\n%s\nREMOTE\n' \
+    "${ssh_args[*]}" "${ssh_user}@${host}" "$dz_env" "$gate_tier" "$doublezero_version" \
+    "${observability_ips[*]}" "${benchmark_peer_ips[*]}" "$remote_asset_dir" "$remote_script"
   exit 0
 fi
 
 tar -C "$repo_root" -cf - "${assets[@]}" \
   | ssh "${ssh_args[@]}" "${ssh_user}@${host}" "install -d -m 0700 '$remote_asset_dir' && tar -xf - -C '$remote_asset_dir'"
 ssh "${ssh_args[@]}" "${ssh_user}@${host}" \
-  "DZ_ENV=$(printf '%q' "$dz_env") GATE_TIER=$(printf '%q' "$gate_tier") DOUBLEZERO_VERSION=$(printf '%q' "$doublezero_version") ASSET_DIR=$(printf '%q' "$remote_asset_dir") bash -s" <<<"$remote_script"
+  "DZ_ENV=$(printf '%q' "$dz_env") GATE_TIER=$(printf '%q' "$gate_tier") DOUBLEZERO_VERSION=$(printf '%q' "$doublezero_version") OBSERVABILITY_IPS=$(printf '%q' "${observability_ips[*]}") BENCHMARK_PEER_IPS=$(printf '%q' "${benchmark_peer_ips[*]}") ASSET_DIR=$(printf '%q' "$remote_asset_dir") bash -s" <<<"$remote_script"
 ssh "${ssh_args[@]}" "${ssh_user}@${host}" "rm -rf '$remote_asset_dir'"
