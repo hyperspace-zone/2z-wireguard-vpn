@@ -247,6 +247,18 @@ export async function saveGateHeartbeatStatus(
   db: Queryable,
   input: GateHeartbeatPersistenceInput
 ): Promise<void> {
+  const previous = await db.query<{ tunnelStatus: string | null }>(
+    `
+      SELECT NULLIF(BTRIM(doublezero_status->>'tunnelStatus'), '') AS "tunnelStatus"
+      FROM gate_status
+      WHERE gate_id = $1
+      FOR UPDATE
+    `,
+    [input.gateId]
+  );
+  const previousTunnelStatus = previous.rows[0]?.tunnelStatus ?? null;
+  const currentTunnelStatus = normalizedStatus(input.doubleZeroStatus.tunnelStatus);
+
   await db.query(
     `
       INSERT INTO gate_status (
@@ -295,6 +307,29 @@ export async function saveGateHeartbeatStatus(
     ]
   );
 
+  if (
+    previousTunnelStatus !== null
+    && currentTunnelStatus !== null
+    && previousTunnelStatus !== currentTunnelStatus
+  ) {
+    await db.query(
+      `
+        INSERT INTO audit_events (event_type, actor_type, gate_id, details)
+        VALUES ('gate_doublezero_tunnel_status_changed', 'system', $1, $2::jsonb)
+      `,
+      [
+        input.gateId,
+        JSON.stringify({
+          previousStatus: previousTunnelStatus,
+          currentStatus: currentTunnelStatus,
+          network: normalizedStatus(input.doubleZeroStatus.network),
+          metro: normalizedStatus(input.doubleZeroStatus.metro),
+          currentDevice: normalizedStatus(input.doubleZeroStatus.currentDevice)
+        })
+      ]
+    );
+  }
+
   for (const condition of input.conditions) {
     await upsertGateCondition(db, {
       gateId: input.gateId,
@@ -302,4 +337,12 @@ export async function saveGateHeartbeatStatus(
       ...condition
     });
   }
+}
+
+function normalizedStatus(value: unknown): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const normalized = value.trim();
+  return normalized || null;
 }
