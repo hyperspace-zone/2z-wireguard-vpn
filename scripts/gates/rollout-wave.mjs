@@ -18,16 +18,24 @@ if (!Array.isArray(inventory)) {
   throw new Error("inventory must be a JSON array");
 }
 
-const gates = inventory.filter((gate) => {
+const selectedGates = inventory.filter((gate) => {
   const wave = gate.rolloutWave ?? gate.wave;
   const desiredState = gate.desiredState ?? "Disabled";
   return String(wave) === String(args.wave) && desiredState !== "Removed";
 });
 
-if (gates.length === 0) {
+if (selectedGates.length === 0) {
   console.error(`no gates found for rollout wave ${args.wave}`);
   process.exit(1);
 }
+
+const canaryName = args.canaryGate || [...selectedGates].sort((a, b) => String(a.name).localeCompare(String(b.name)))[0]?.name;
+const canary = selectedGates.find((gate) => gate.name === canaryName);
+if (!canary) {
+  throw new Error(`canary gate ${canaryName} is not part of rollout wave ${args.wave}`);
+}
+const gates = [canary, ...selectedGates.filter((gate) => gate !== canary)];
+console.error(`rollout canary: ${canary.name}; remaining gates start only after its artifact self-test, service check, and control-plane SHA confirmation pass`);
 
 const dryRun = args.dryRun !== false;
 const sshKeyArgs = args.sshKey ? ["--ssh-key", args.sshKey] : [];
@@ -89,6 +97,7 @@ for (const gate of gates) {
     ...sshKeyArgs,
     ...sshUserArgs,
     ...knownHostsArgs,
+    "--require-deployment-ready",
     ...(dryRun ? ["--dry-run"] : [])
   ]);
 }
@@ -149,6 +158,9 @@ function parseArgs(argv) {
       case "--binary":
         out.binary = argv[++i];
         break;
+      case "--canary-gate":
+        out.canaryGate = argv[++i];
+        break;
       case "--execute":
         out.dryRun = false;
         break;
@@ -167,9 +179,10 @@ function parseArgs(argv) {
 }
 
 function usage() {
-  console.error(`usage: scripts/gates/rollout-wave.mjs --inventory gates.json --wave WAVE --control-plane-url URL --gate-token-dir DIR --probe-secret-file FILE --observability-ip IPV4 [--observability-ip IPV4 ...] [--web-origin URL ...] [--execute]
+  console.error(`usage: scripts/gates/rollout-wave.mjs --inventory gates.json --wave WAVE --control-plane-url URL --gate-token-dir DIR --probe-secret-file FILE --observability-ip IPV4 [--observability-ip IPV4 ...] [--web-origin URL ...] [--canary-gate NAME] [--execute]
 
 Default mode is dry-run. Use --execute only after reviewing the rendered host commands.
+The named canary (or the first gate by name) is always completed and verified before the rest of the wave.
 Inventory entries are selected by rolloutWave or wave and can include sshHost, publicIpv4,
 name, fqdn, probeUrl, doubleZeroEnv, and desiredState. All non-removed publicIpv4
 values become the persistent UDP/19192 gate-peer allowlist.`);

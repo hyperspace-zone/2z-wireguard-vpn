@@ -15,6 +15,10 @@ export interface GateHeartbeatPersistenceInput {
   gateId: string;
   generation: number;
   agentVersion: string | null;
+  agentRevision?: string | null;
+  agentBuiltAt?: string | null;
+  agentArtifactSha256?: string | null;
+  agentInstalledAt?: string | null;
   bootId: string | null;
   observedEndpoint: string | null;
   capabilities: string[];
@@ -30,6 +34,40 @@ export interface SchedulableGateRow {
   id: string;
   name: string;
   publicIpv4: string;
+}
+
+export interface GateAgentRuntimeRow {
+  agentVersion: string | null;
+  agentRevision: string | null;
+  agentBuiltAt: string | null;
+  agentArtifactSha256: string | null;
+  agentInstalledAt: string | null;
+  lastSeenAt: string | null;
+}
+
+export async function readGateAgentRuntime(db: Queryable, gateId: string): Promise<GateAgentRuntimeRow> {
+  const result = await db.query<GateAgentRuntimeRow>(
+    `
+      SELECT
+        agent_version AS "agentVersion",
+        agent_revision AS "agentRevision",
+        agent_built_at AS "agentBuiltAt",
+        agent_artifact_sha256 AS "agentArtifactSha256",
+        agent_installed_at AS "agentInstalledAt",
+        last_seen_at AS "lastSeenAt"
+      FROM gate_status
+      WHERE gate_id = $1
+    `,
+    [gateId]
+  );
+  return result.rows[0] ?? {
+    agentVersion: null,
+    agentRevision: null,
+    agentBuiltAt: null,
+    agentArtifactSha256: null,
+    agentInstalledAt: null,
+    lastSeenAt: null
+  };
 }
 
 const doubleZeroGateSqlPredicate = `
@@ -265,6 +303,10 @@ export async function saveGateHeartbeatStatus(
         gate_id,
         observed_generation,
         agent_version,
+        agent_revision,
+        agent_built_at,
+        agent_artifact_sha256,
+        agent_installed_at,
         boot_id,
         last_seen_at,
         observed_endpoint,
@@ -276,11 +318,15 @@ export async function saveGateHeartbeatStatus(
         doublezero_lowest_latency_device_warning,
         updated_at
       )
-      VALUES ($1, $2, $3, $4, now(), $5, $6::text[], $7, $8::jsonb, $9, $10, $11, now())
+      VALUES ($1, $2, $3, $4, $5::timestamptz, $6, $7::timestamptz, $8, now(), $9, $10::text[], $11, $12::jsonb, $13, $14, $15, now())
       ON CONFLICT (gate_id) DO UPDATE
       SET
         observed_generation = EXCLUDED.observed_generation,
         agent_version = EXCLUDED.agent_version,
+        agent_revision = EXCLUDED.agent_revision,
+        agent_built_at = EXCLUDED.agent_built_at,
+        agent_artifact_sha256 = EXCLUDED.agent_artifact_sha256,
+        agent_installed_at = EXCLUDED.agent_installed_at,
         boot_id = EXCLUDED.boot_id,
         last_seen_at = EXCLUDED.last_seen_at,
         observed_endpoint = EXCLUDED.observed_endpoint,
@@ -296,6 +342,10 @@ export async function saveGateHeartbeatStatus(
       input.gateId,
       input.generation,
       input.agentVersion,
+      input.agentRevision ?? null,
+      input.agentBuiltAt ?? null,
+      input.agentArtifactSha256 ?? null,
+      input.agentInstalledAt ?? null,
       input.bootId,
       input.observedEndpoint,
       input.capabilities,

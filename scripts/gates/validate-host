@@ -9,6 +9,7 @@ Options:
   --ssh-key PATH     SSH private key.
   --ssh-user USER    SSH user, default root.
   --known-hosts-file PATH  Pinned SSH known_hosts file, default ~/.ssh/known_hosts.
+  --require-deployment-ready  Exit non-zero unless the agent service and artifact self-test pass.
   --dry-run          Print the SSH command instead of executing.
 EOF
 }
@@ -19,6 +20,7 @@ ssh_user="root"
 known_hosts_file="${HOME}/.ssh/known_hosts"
 dz_env=""
 dry_run=false
+require_deployment_ready=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -27,6 +29,7 @@ while [[ $# -gt 0 ]]; do
     --ssh-user) ssh_user="${2:-}"; shift 2 ;;
     --known-hosts-file) known_hosts_file="${2:-}"; shift 2 ;;
     --doublezero-env) dz_env="${2:-}"; shift 2 ;;
+    --require-deployment-ready) require_deployment_ready=true; shift ;;
     --dry-run) dry_run=true; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "unknown argument: $1" >&2; usage; exit 2 ;;
@@ -69,6 +72,10 @@ physical_interface="$(ip -4 route show default | awk 'NR == 1 {for (i = 1; i <= 
 conntrack_count="$(cat /proc/sys/net/netfilter/nf_conntrack_count 2>/dev/null || printf 0)"
 conntrack_max="$(cat /proc/sys/net/netfilter/nf_conntrack_max 2>/dev/null || printf 0)"
 gate_tier="$(cat /etc/hyperspace/gate-tier 2>/dev/null || printf unknown)"
+agent_release="$(/usr/local/sbin/hyperspace-gate-agent-release status 2>/dev/null || printf '{"status":"unavailable"}')"
+if ! printf '%s' "$agent_release" | jq -e . >/dev/null 2>&1; then
+  agent_release='{"status":"invalid_metadata"}'
+fi
 
 cat <<JSON
 {
@@ -85,6 +92,7 @@ cat <<JSON
     "vnstat": $(json_bool command -v vnstat),
     "nodeExporter": $(json_bool command -v prometheus-node-exporter),
     "hyperspaceGateAgent": $(json_bool command -v hyperspace-gate-agent),
+    "hyperspaceGateAgentRelease": $(json_bool test -x /usr/local/sbin/hyperspace-gate-agent-release),
     "ufw": $(json_bool command -v ufw)
   },
   "services": {
@@ -97,6 +105,10 @@ cat <<JSON
     "diskJanitorTimer": $(json_bool systemctl is-active --quiet hyperspace-disk-janitor.timer),
     "resourceExporterTimer": $(json_bool systemctl is-active --quiet hyperspace-gate-resource-exporter.timer),
     "gateFirewallEnabled": $(json_bool systemctl is-enabled --quiet hyperspace-gate-firewall.service)
+  },
+  "gateAgent": {
+    "artifactSelfTestPassed": $(json_bool /usr/local/bin/hyperspace-gate-agent --self-test),
+    "release": ${agent_release}
   },
   "interfaces": {
     "doublezero0": $(json_bool ip link show doublezero0)
@@ -115,13 +127,19 @@ cat <<JSON
   "chronyTracking": $(printf '%s' "$chrony_tracking" | json_string)
 }
 JSON
+
+if [[ "${REQUIRE_DEPLOYMENT_READY}" == "true" ]]; then
+  systemctl is-active --quiet hyperspace-gate-agent.service
+  test -x /usr/local/sbin/hyperspace-gate-agent-release
+  /usr/local/bin/hyperspace-gate-agent --self-test >/dev/null
+fi
 REMOTE
 )"
 
 if [[ "$dry_run" == true ]]; then
-  printf 'ssh %q %q DZ_ENV=%q bash -s <<REMOTE\n%s\nREMOTE\n' \
-    "${ssh_args[*]}" "${ssh_user}@${host}" "$dz_env" "$remote_script"
+  printf 'ssh %q %q DZ_ENV=%q REQUIRE_DEPLOYMENT_READY=%q bash -s <<REMOTE\n%s\nREMOTE\n' \
+    "${ssh_args[*]}" "${ssh_user}@${host}" "$dz_env" "$require_deployment_ready" "$remote_script"
   exit 0
 fi
 
-ssh "${ssh_args[@]}" "${ssh_user}@${host}" "DZ_ENV=$(printf '%q' "$dz_env") bash -s" <<<"$remote_script"
+ssh "${ssh_args[@]}" "${ssh_user}@${host}" "DZ_ENV=$(printf '%q' "$dz_env") REQUIRE_DEPLOYMENT_READY=$(printf '%q' "$require_deployment_ready") bash -s" <<<"$remote_script"

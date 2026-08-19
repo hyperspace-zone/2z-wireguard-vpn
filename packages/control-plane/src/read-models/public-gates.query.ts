@@ -15,6 +15,11 @@ export async function listPublicGates(
     publicIpv4: string;
     probeUrl: string | null;
     lastSeenAt: string | null;
+    agentVersion: string | null;
+    agentRevision: string | null;
+    agentBuiltAt: string | null;
+    agentArtifactSha256: string | null;
+    agentInstalledAt: string | null;
     clockErrorMs: number | null;
     doubleZero: Record<string, unknown> | null;
     doubleZeroCurrentDevice: string | null;
@@ -34,6 +39,11 @@ export async function listPublicGates(
         gates.public_ipv4 AS "publicIpv4",
         NULLIF(gates.spec->>'probeUrl', '') AS "probeUrl",
         gate_status.last_seen_at AS "lastSeenAt",
+        gate_status.agent_version AS "agentVersion",
+        gate_status.agent_revision AS "agentRevision",
+        gate_status.agent_built_at AS "agentBuiltAt",
+        gate_status.agent_artifact_sha256 AS "agentArtifactSha256",
+        gate_status.agent_installed_at AS "agentInstalledAt",
         gate_status.clock_error_ms::float AS "clockErrorMs",
         gate_status.doublezero_status AS "doubleZero",
         gate_status.doublezero_current_device AS "doubleZeroCurrentDevice",
@@ -75,6 +85,11 @@ export async function listPublicGates(
       publicIpv4: row.publicIpv4,
       ...(row.probeUrl ? { probeUrl: row.probeUrl } : {}),
       ...(row.lastSeenAt ? { lastSeenAt: row.lastSeenAt } : {}),
+      ...(row.agentVersion ? { agentVersion: row.agentVersion } : {}),
+      ...(row.agentRevision ? { agentRevision: row.agentRevision } : {}),
+      ...(row.agentBuiltAt ? { agentBuiltAt: row.agentBuiltAt } : {}),
+      ...(row.agentArtifactSha256 ? { agentArtifactSha256: row.agentArtifactSha256 } : {}),
+      ...(row.agentInstalledAt ? { agentInstalledAt: row.agentInstalledAt } : {}),
       ...(typeof row.clockErrorMs === "number" ? { clockErrorMs: row.clockErrorMs } : {}),
       ...(doubleZero ? { doubleZero } : {}),
       ready: row.ready,

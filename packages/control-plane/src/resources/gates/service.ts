@@ -19,6 +19,10 @@ export interface GateRuntimeIdentity {
 
 export interface GateHeartbeatReport {
   agentVersion: string;
+  agentRevision?: string;
+  agentBuiltAt?: string;
+  agentArtifactSha256?: string;
+  agentInstalledAt?: string;
   bootId: string;
   observedEndpoint: string;
   capabilities: string[];
@@ -63,6 +67,10 @@ export async function recordGateHeartbeat(
       gateId: gate.id,
       generation: gate.generation,
       agentVersion: report.agentVersion || null,
+      agentRevision: report.agentRevision || null,
+      agentBuiltAt: report.agentBuiltAt || null,
+      agentArtifactSha256: report.agentArtifactSha256 || null,
+      agentInstalledAt: report.agentInstalledAt || null,
       bootId: report.bootId || null,
       observedEndpoint: report.observedEndpoint || null,
       capabilities: report.capabilities,

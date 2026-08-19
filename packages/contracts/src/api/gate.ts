@@ -8,6 +8,10 @@ export const gateHeartbeatRequestSchema = {
   properties: {
     bootId: { type: "string" },
     agentVersion: { type: "string" },
+    agentRevision: { type: "string" },
+    agentBuiltAt: { type: "string", format: "date-time" },
+    agentArtifactSha256: { type: "string", pattern: "^[a-f0-9]{64}$" },
+    agentInstalledAt: { type: "string", format: "date-time" },
     observedEndpoint: { type: "string" },
     capabilities: { type: "array", items: { type: "string" } },
     clockErrorMs: { type: "number" },
@@ -16,6 +20,22 @@ export const gateHeartbeatRequestSchema = {
 } as const;
 
 export type GateAgentHeartbeat = FromSchema<typeof gateHeartbeatRequestSchema>;
+
+export const gateAgentRuntimeResponseSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["gateId", "gateName", "agentVersion", "agentRevision", "agentBuiltAt", "agentArtifactSha256", "agentInstalledAt", "lastSeenAt"],
+  properties: {
+    gateId: { type: "string" },
+    gateName: { type: "string" },
+    agentVersion: { type: ["string", "null"] },
+    agentRevision: { type: ["string", "null"] },
+    agentBuiltAt: { type: ["string", "null"], format: "date-time" },
+    agentArtifactSha256: { type: ["string", "null"], pattern: "^[a-f0-9]{64}$" },
+    agentInstalledAt: { type: ["string", "null"], format: "date-time" },
+    lastSeenAt: { type: ["string", "null"], format: "date-time" }
+  }
+} as const;
 
 export const gateActualStateRequestSchema = {
   ...gateActualSnapshotSchema

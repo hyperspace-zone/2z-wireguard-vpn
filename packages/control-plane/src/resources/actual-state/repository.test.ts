@@ -54,8 +54,9 @@ test("actual-state updates do not overwrite heartbeat capabilities", async () =>
   const updateGateStatusValues = queries.find((query) => query.text.includes("UPDATE gate_status"))?.values ?? [];
 
   assert.match(updateGateStatusSql, /actual_state_hash = \$2/);
+  assert.match(updateGateStatusSql, /agent_artifact_sha256 = COALESCE\(\$7/);
   assert.doesNotMatch(updateGateStatusSql, /observed_capabilities\s*=/);
-  assert.equal(updateGateStatusValues.length, 4);
+  assert.equal(updateGateStatusValues.length, 8);
 });
 
 test("actual-state snapshot cleanup is bounded and retains a recent window", async () => {

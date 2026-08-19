@@ -5,6 +5,10 @@ export interface GateActualStatePersistenceInput {
   capabilities: string[];
   bootId: string | null;
   agentVersion: string | null;
+  agentRevision?: string | null;
+  agentBuiltAt?: string | null;
+  agentArtifactSha256?: string | null;
+  agentInstalledAt?: string | null;
   managedHandles: string[];
   assignmentCounters: import("./snapshots.js").GateAssignmentCounterReport[];
   diagnosticSummary: Record<string, unknown>;
@@ -47,10 +51,23 @@ export async function updateGateActualState(
       SET actual_state_hash = $2,
           boot_id = COALESCE($3, boot_id),
           agent_version = COALESCE($4, agent_version),
+          agent_revision = COALESCE($5, agent_revision),
+          agent_built_at = COALESCE($6::timestamptz, agent_built_at),
+          agent_artifact_sha256 = COALESCE($7, agent_artifact_sha256),
+          agent_installed_at = COALESCE($8::timestamptz, agent_installed_at),
           updated_at = now()
       WHERE gate_id = $1
     `,
-    [gateId, input.stateHash || null, input.bootId, input.agentVersion]
+    [
+      gateId,
+      input.stateHash || null,
+      input.bootId,
+      input.agentVersion,
+      input.agentRevision ?? null,
+      input.agentBuiltAt ?? null,
+      input.agentArtifactSha256 ?? null,
+      input.agentInstalledAt ?? null
+    ]
   );
   for (const counter of input.assignmentCounters) {
     await recordGateAssignmentCounter(db, gateId, input.bootId, counter);

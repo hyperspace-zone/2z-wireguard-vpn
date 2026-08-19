@@ -6,6 +6,10 @@ export interface GateActualStateReport {
   capabilities: string[];
   bootId: string;
   agentVersion: string;
+  agentRevision?: string;
+  agentBuiltAt?: string;
+  agentArtifactSha256?: string;
+  agentInstalledAt?: string;
   managedHandles: string[];
   assignmentCounters: GateAssignmentCounterReport[];
   diagnosticSummary: Record<string, unknown>;
@@ -41,6 +45,10 @@ export async function recordGateActualState(
     capabilities: report.capabilities,
     bootId: report.bootId || null,
     agentVersion: report.agentVersion || null,
+    agentRevision: report.agentRevision || null,
+    agentBuiltAt: report.agentBuiltAt || null,
+    agentArtifactSha256: report.agentArtifactSha256 || null,
+    agentInstalledAt: report.agentInstalledAt || null,
     managedHandles: report.managedHandles,
     assignmentCounters: report.assignmentCounters,
     diagnosticSummary: report.diagnosticSummary,
