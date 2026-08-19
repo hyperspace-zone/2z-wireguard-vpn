@@ -32,6 +32,7 @@ export async function reconcileGateAgentDeployments(
       row.lastSeenAt
       && (!row.stagedAt || new Date(row.lastSeenAt).getTime() >= new Date(row.stagedAt).getTime())
     );
+    const releaseFailureCode = readReleaseFailureCode(row.observedCapabilities, row.targetArtifactSha256);
 
     if (
       ["staging", "verifying"].includes(row.phase)
@@ -46,7 +47,19 @@ export async function reconcileGateAgentDeployments(
     }
 
     if (["rollback_requested", "rolling_back"].includes(row.phase) && previousObserved && row.agentConnected) {
-      await markDeploymentRolledBack(db, row.id);
+      await markDeploymentRolledBack(db, row.id, releaseFailureCode);
+      result.rolledBack += 1;
+      continue;
+    }
+
+    if (
+      ["staging", "verifying"].includes(row.phase)
+      && previousObserved
+      && heartbeatAfterStage
+      && row.agentConnected
+      && releaseFailureCode
+    ) {
+      await markDeploymentRolledBack(db, row.id, releaseFailureCode);
       result.rolledBack += 1;
       continue;
     }
@@ -61,7 +74,7 @@ export async function reconcileGateAgentDeployments(
 
     if (["staging", "verifying"].includes(row.phase)) {
       if (previousObserved && row.agentConnected) {
-        await markDeploymentRolledBack(db, row.id);
+        await markDeploymentRolledBack(db, row.id, releaseFailureCode);
         result.rolledBack += 1;
       } else if (row.previousArtifactSha256) {
         const rollback = await requestDeploymentRollback(db, row.id, "system", "deployment_verification_timeout");
@@ -84,4 +97,12 @@ export async function reconcileGateAgentDeployments(
     }
   }
   return result;
+}
+
+export function readReleaseFailureCode(capabilities: string[], targetArtifactSha256: string): string | null {
+  const suffix = `:${targetArtifactSha256}`;
+  const capability = capabilities.find((value) => value.startsWith("agent-release-failure:") && value.endsWith(suffix));
+  if (!capability) return null;
+  const code = capability.slice("agent-release-failure:".length, -suffix.length);
+  return /^[a-z0-9_]{1,64}$/.test(code) ? code : null;
 }

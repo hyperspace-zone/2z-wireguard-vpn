@@ -8,6 +8,7 @@ state_dir="${HYPERSPACE_AGENT_RELEASE_STATE_DIR:-/var/lib/hyperspace-gate}"
 release_root="${state_dir}/agent-releases"
 current_metadata="${state_dir}/agent-release.json"
 event_log="${state_dir}/agent-deployments.jsonl"
+failure_metadata="${state_dir}/agent-last-release-failure.json"
 systemctl_bin="${HYPERSPACE_SYSTEMCTL_BIN:-systemctl}"
 curl_bin="${HYPERSPACE_CURL_BIN:-curl}"
 jq_bin="${HYPERSPACE_JQ_BIN:-jq}"
@@ -87,6 +88,32 @@ with open(temporary, "w", encoding="utf-8") as stream:
 os.replace(temporary, sys.argv[1])
 PY
   chmod 0600 "$current_metadata"
+}
+
+record_release_failure() {
+  local code="$1"
+  local target_sha="$2"
+  local previous_sha="${3:-}"
+  FAILURE_CODE="$code" TARGET_SHA="$target_sha" PREVIOUS_SHA="$previous_sha" python3 - "$failure_metadata" <<'PY'
+import json
+import os
+import sys
+from datetime import datetime, timezone
+
+value = {
+    "code": os.environ["FAILURE_CODE"],
+    "targetArtifactSha256": os.environ["TARGET_SHA"],
+    "failedAt": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+}
+if os.environ.get("PREVIOUS_SHA"):
+    value["previousArtifactSha256"] = os.environ["PREVIOUS_SHA"]
+temporary = sys.argv[1] + ".new"
+with open(temporary, "w", encoding="utf-8") as stream:
+    json.dump(value, stream, separators=(",", ":"))
+    stream.write("\n")
+os.replace(temporary, sys.argv[1])
+PY
+  chmod 0600 "$failure_metadata"
 }
 
 snapshot_release() {
@@ -225,11 +252,13 @@ install_release() {
   unlink "$candidate_info"
   append_event "activating" "$expected_sha" "$previous_sha"
   write_current_metadata "${release_dir}/build-info.json" "$(utc_now)" "deployment"
+  local activation_failure_code="activation_failed"
 
   rollback_after_failure() {
     local rc=$?
     trap - ERR
-    append_event "activation_failed" "$expected_sha" "$previous_sha" "candidate health or control-plane confirmation failed"
+    record_release_failure "$activation_failure_code" "$expected_sha" "$previous_sha"
+    append_event "activation_failed" "$expected_sha" "$previous_sha" "$activation_failure_code"
     if [[ -n "$previous_sha" && -x "${release_root}/${previous_sha}/hyperspace-gate-agent" ]]; then
       if rollback_to "$previous_sha" "automatic_activation_failure"; then
         echo "candidate activation failed; previous release restored" >&2
@@ -242,9 +271,13 @@ install_release() {
   trap rollback_after_failure ERR
 
   activate_release_files "$release_dir"
+  activation_failure_code="service_start_failed"
   wait_for_service
+  activation_failure_code="post_install_self_test_failed"
   "$agent_path" --self-test >/dev/null
+  activation_failure_code="control_plane_confirmation_failed"
   wait_for_control_plane_sha "$expected_sha"
+  rm -f "$failure_metadata"
   append_event "succeeded" "$expected_sha" "$previous_sha"
   trap - ERR
   printf '{"status":"succeeded","artifactSha256":"%s","previousArtifactSha256":"%s"}\n' "$expected_sha" "$previous_sha"

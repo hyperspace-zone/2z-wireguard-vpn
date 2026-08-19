@@ -455,6 +455,25 @@ printf '%s' "$payload" | grep -F 'comment "hs-assignment-selftest:accept:to_dest
 	}
 }
 
+func TestReleaseFailureCapabilityReportsValidatedLocalRollbackCause(t *testing.T) {
+	previousPath := agentReleaseFailurePath
+	agentReleaseFailurePath = filepath.Join(t.TempDir(), "agent-last-release-failure.json")
+	t.Cleanup(func() { agentReleaseFailurePath = previousPath })
+	targetSHA := strings.Repeat("a", 64)
+	if err := os.WriteFile(agentReleaseFailurePath, []byte(`{"code":"post_install_self_test_failed","targetArtifactSha256":"`+targetSHA+`"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := releaseFailureCapability(), "agent-release-failure:post_install_self_test_failed:"+targetSHA; got != want {
+		t.Fatalf("releaseFailureCapability() = %q, want %q", got, want)
+	}
+	if err := os.WriteFile(agentReleaseFailurePath, []byte(`{"code":"bad:code","targetArtifactSha256":"`+targetSHA+`"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := releaseFailureCapability(); got != "" {
+		t.Fatalf("invalid failure capability = %q, want empty", got)
+	}
+}
+
 func TestDownloadGateAgentReleaseAuthenticatesAndVerifiesArtifact(t *testing.T) {
 	artifact := []byte("immutable-gate-agent-artifact")
 	digest := sha256.Sum256(artifact)
