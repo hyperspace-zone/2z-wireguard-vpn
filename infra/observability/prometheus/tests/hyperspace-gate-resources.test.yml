@@ -43,6 +43,35 @@ tests:
               summary: Gate benchmark routes are repeatedly failing
               description: Gate gate-eu-lon-01 has 3 route/transport benchmarks failing for at least two consecutive cycles.
 
+  - name: stale benchmark route retains both gate access endpoints
+    interval: 1m
+    input_series:
+      - series: 'hyperspace_control_plane_benchmark_route_age_seconds{job="hyperspace-control-plane-worker",cluster="mainnet",route="gate-eu-lon-01 -> gate-na-mia-71",source_gate="gate-eu-lon-01",source_probe_host="gate-eu-lon-01.hyperspace.zone",source_public_ipv4="198.51.100.10",target_gate="gate-na-mia-71",target_probe_host="gate-na-mia-71.hyperspace.zone",target_public_ipv4="198.51.100.20",transport="public"}'
+        values: '1000x12'
+      - series: 'hyperspace_control_plane_gate_agent_connected{enabled="true",gate="gate-eu-lon-01"}'
+        values: '1x12'
+      - series: 'hyperspace_control_plane_gate_agent_connected{enabled="true",gate="gate-na-mia-71"}'
+        values: '1x12'
+    alert_rule_test:
+      - eval_time: 11m
+        alertname: HyperspaceBenchmarkRouteDataStale
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: hyperspace-control-plane-worker
+              cluster: mainnet
+              route: gate-eu-lon-01 -> gate-na-mia-71
+              source_gate: gate-eu-lon-01
+              source_probe_host: gate-eu-lon-01.hyperspace.zone
+              source_public_ipv4: 198.51.100.10
+              target_gate: gate-na-mia-71
+              target_probe_host: gate-na-mia-71.hyperspace.zone
+              target_public_ipv4: 198.51.100.20
+              transport: public
+            exp_annotations:
+              summary: Gate benchmark route data is stale
+              description: Route gate-eu-lon-01 -> gate-na-mia-71 has public benchmark data older than 15 minutes.
+
   - name: observability node exporter outage is critical
     interval: 15s
     input_series:

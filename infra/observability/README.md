@@ -52,6 +52,10 @@ remain visible in job metrics and admin job listings but do not page the
 operator again.
 Benchmark route alerts are suppressed when either endpoint gate is disconnected;
 that case is covered by the per-gate agent connectivity alert.
+Benchmark route notifications render separate copyable `Source gate access`
+and `Target gate access` blocks from explicit catalog `probeUrl` and
+`publicIpv4` values. They never fall back to the worker's control-plane
+`Service access` labels.
 Alertmanager groups benchmark route transports together by route to avoid
 separate adjacent Telegram messages for Internet and DoubleZero on the same
 route.
