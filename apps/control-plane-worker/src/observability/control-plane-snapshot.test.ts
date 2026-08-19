@@ -2,7 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { Database } from "@hyperspace-zone/db";
 import { createRuntimeMetrics } from "@hyperspace-zone/shared";
-import { collectBenchmarkMetrics, gateAlertProbeHost } from "./control-plane-snapshot.js";
+import {
+  collectBenchmarkMetrics,
+  collectGateAgentDeploymentMetrics,
+  gateAlertProbeHost
+} from "./control-plane-snapshot.js";
 
 test("gate alert probe host comes from explicit probe URL host", () => {
   assert.equal(
@@ -67,7 +71,7 @@ test("benchmark snapshot uses one route query and derives aggregate metrics in m
         rowCount: 3
       };
     }
-  } as Database;
+  } as unknown as Database;
   const metrics = createRuntimeMetrics({ service: "snapshot-test", flushIntervalMs: 60_000 });
 
   await collectBenchmarkMetrics(db, metrics);
@@ -83,6 +87,36 @@ test("benchmark snapshot uses one route query and derives aggregate metrics in m
   );
   assert.match(rendered, /hyperspace_control_plane_benchmark_routes_total\{service="snapshot-test",status="failed",transport="public"\} 2/);
   assert.match(rendered, /hyperspace_control_plane_benchmark_rtt_p50_ms\{service="snapshot-test",status="failed",transport="public"\} 15/);
+});
+
+test("gate-agent deployment snapshot exposes immutable release and gate access labels", async () => {
+  const db = {
+    async query() {
+      return {
+        rows: [{
+          gate: "gate-eu-lon-01",
+          publicIpv4: "192.0.2.10",
+          probeUrl: "https://gate-eu-lon-01.example.test/.well-known/hyperspace-probe",
+          phase: "verifying",
+          releaseVersion: "0.2.2",
+          releaseRevision: "a".repeat(40),
+          artifactSha256: "b".repeat(64),
+          ageSeconds: 700,
+          deadlineSecondsUntilExpiry: -400
+        }],
+        rowCount: 1
+      };
+    }
+  } as unknown as Database;
+  const metrics = createRuntimeMetrics({ service: "snapshot-test", flushIntervalMs: 60_000 });
+
+  await collectGateAgentDeploymentMetrics(db, metrics);
+  const rendered = metrics.renderPrometheus();
+  metrics.stop();
+
+  assert.match(rendered, /hyperspace_control_plane_gate_agent_deployment_latest_status\{[^}]*phase="verifying"[^}]*\} 1/);
+  assert.match(rendered, /hyperspace_control_plane_gate_agent_deployment_active_age_seconds\{[^}]*probe_host="gate-eu-lon-01\.example\.test"[^}]*public_ipv4="192\.0\.2\.10"[^}]*\} 700/);
+  assert.match(rendered, /artifact_sha256="b{64}"/);
 });
 
 function benchmarkRow(overrides: Record<string, unknown>): Record<string, unknown> {

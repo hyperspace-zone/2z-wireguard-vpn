@@ -481,6 +481,24 @@ groups:
           summary: Dead control-plane jobs are present
           description: At least one control-plane job reached the dead terminal phase and needs operator review.
 
+      - alert: HyperspaceGateAgentDeploymentStalled
+        expr: hyperspace_control_plane_gate_agent_deployment_active_age_seconds > 600
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: Hyperspace gate-agent deployment is stalled
+          description: Gate {{ $labels.gate }} has remained in {{ $labels.phase }} for more than 10 minutes while deploying release {{ $labels.release_version }} ({{ $labels.release_revision }}).
+
+      - alert: HyperspaceGateAgentDeploymentFailed
+        expr: hyperspace_control_plane_gate_agent_deployment_latest_status{phase="failed"} == 1
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: Hyperspace gate-agent deployment failed
+          description: The latest gate-agent deployment on {{ $labels.gate }} failed for release {{ $labels.release_version }} ({{ $labels.release_revision }}); review deployment history before retrying.
+
       - alert: HyperspaceBenchmarkRouteFailed
         expr: hyperspace_control_plane_benchmark_gate_confirmed_failed_routes > 0
         for: 30s

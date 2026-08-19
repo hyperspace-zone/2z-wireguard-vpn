@@ -38,6 +38,10 @@ failures, stale benchmark data, API 5xx rate, and public API rate-limit
 activity. Benchmark failure and staleness alerts are emitted per directed route
 and transport so notifications include the affected source gate, target gate,
 and Internet/DoubleZero path.
+Managed gate-agent rollouts export their latest phase, immutable release
+revision/SHA, age, deadline, and explicit gate access labels. An active rollout
+older than ten minutes or a latest `failed` rollout is critical; the latter
+remains visible until a later deployment supersedes it.
 Dead jobs are intentionally noisy until an operator reviews them. After review,
 keep the historical job row and move it from `dead` to `acknowledged_dead`:
 
