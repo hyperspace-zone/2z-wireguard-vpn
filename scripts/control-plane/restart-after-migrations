@@ -1,0 +1,105 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat >&2 <<'EOF'
+usage: restart-after-migrations --api-health-url URL [options]
+
+Apply and verify every migration from the deployed repository before restarting
+the control-plane API and worker. Run as root on the control-plane host.
+
+Options:
+  --repo-dir PATH       Repository/release root (default: /opt/2z-wireguard-vpn)
+  --env-file PATH       API environment file containing DATABASE_URL
+                        (default: /etc/hyperspace/control-plane-api.env)
+  --worker-env-file PATH
+                        Worker environment file containing its metrics address
+                        (default: /etc/hyperspace/control-plane-worker.env)
+  --service-user USER   Runtime owner (default: hyperspace)
+  --api-health-url URL  Direct API /health URL, required
+EOF
+}
+
+[[ "${EUID:-$(id -u)}" -eq 0 ]] || { echo "run as root" >&2; exit 2; }
+
+repo_dir="/opt/2z-wireguard-vpn"
+env_file="/etc/hyperspace/control-plane-api.env"
+worker_env_file="/etc/hyperspace/control-plane-worker.env"
+service_user="hyperspace"
+api_health_url=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --repo-dir) repo_dir="${2:-}"; shift 2 ;;
+    --env-file) env_file="${2:-}"; shift 2 ;;
+    --worker-env-file) worker_env_file="${2:-}"; shift 2 ;;
+    --service-user) service_user="${2:-}"; shift 2 ;;
+    --api-health-url) api_health_url="${2:-}"; shift 2 ;;
+    -h|--help) usage; exit 0 ;;
+    *) echo "unknown argument: $1" >&2; usage; exit 2 ;;
+  esac
+done
+
+[[ "$api_health_url" == https://* || "$api_health_url" == http://127.0.0.1:* ]] || {
+  echo "--api-health-url must use HTTPS or loopback HTTP" >&2
+  exit 2
+}
+[[ -f "$repo_dir/package.json" ]] || { echo "package.json not found in $repo_dir" >&2; exit 2; }
+[[ -f "$env_file" ]] || { echo "environment file not found: $env_file" >&2; exit 2; }
+[[ -f "$worker_env_file" ]] || { echo "worker environment file not found: $worker_env_file" >&2; exit 2; }
+id "$service_user" >/dev/null 2>&1 || { echo "service user not found: $service_user" >&2; exit 2; }
+command -v jq >/dev/null || { echo "jq is required" >&2; exit 2; }
+
+exec 9>/run/lock/hyperspace-control-plane-restart.lock
+flock -n 9 || { echo "another control-plane restart is already running" >&2; exit 1; }
+
+read_env_value() {
+  local file="$1" key="$2" line value
+  line="$(grep -E "^${key}=" "$file" | tail -n 1 || true)"
+  value="${line#*=}"
+  if [[ "$value" == \"*\" && "$value" == *\" ]]; then
+    value="${value:1:${#value}-2}"
+  elif [[ "$value" == \'*\' && "$value" == *\' ]]; then
+    value="${value:1:${#value}-2}"
+  fi
+  printf '%s' "$value"
+}
+
+database_url="$(read_env_value "$env_file" DATABASE_URL)"
+[[ -n "$database_url" ]] || { echo "DATABASE_URL is missing from $env_file" >&2; exit 2; }
+
+run_as_service() {
+  runuser -u "$service_user" -- env "DATABASE_URL=${database_url}" "$@"
+}
+
+echo "Applying control-plane database migrations before service restart."
+run_as_service npm --prefix "$repo_dir" run db:migrate
+
+echo "Verifying that no deployed migrations remain pending."
+migration_check="$(run_as_service node "$repo_dir/packages/db/dist/migrate.js")"
+printf '%s\n' "$migration_check" | jq -e '.ok == true and (.applied | length == 0)' >/dev/null || {
+  echo "migration verification failed; API and worker were not restarted" >&2
+  exit 1
+}
+
+systemctl daemon-reload
+systemctl restart hyperspace-control-plane-api.service hyperspace-control-plane-worker.service
+systemctl is-active --quiet hyperspace-control-plane-api.service hyperspace-control-plane-worker.service
+
+worker_host="$(read_env_value "$worker_env_file" WORKER_OBSERVABILITY_HOST)"
+worker_host="${worker_host:-127.0.0.1}"
+[[ "$worker_host" != "0.0.0.0" ]] || worker_host="127.0.0.1"
+worker_port="$(read_env_value "$worker_env_file" WORKER_OBSERVABILITY_PORT)"
+worker_port="${worker_port:-9091}"
+
+for _ in $(seq 1 30); do
+  if curl -fsS "$api_health_url" >/dev/null \
+    && curl -fsS "http://${worker_host}:${worker_port}/metrics" >/dev/null; then
+    echo "Control-plane migrations and service health checks passed."
+    exit 0
+  fi
+  sleep 2
+done
+
+echo "control-plane services restarted but post-restart health checks failed" >&2
+exit 1

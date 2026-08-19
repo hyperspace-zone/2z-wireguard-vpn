@@ -1,44 +1,94 @@
 import type { Database } from "@hyperspace-zone/db";
 import type { HealthRegistry, RuntimeMetrics } from "@hyperspace-zone/shared";
 
+export interface ControlPlaneSnapshotSection {
+  name: string;
+  collect(): Promise<void>;
+}
+
 export async function collectControlPlaneSnapshotMetrics(input: {
   db: Database;
   metrics: RuntimeMetrics;
   health: HealthRegistry;
+  sections?: readonly ControlPlaneSnapshotSection[];
 }): Promise<boolean> {
   const started = process.hrtime.bigint();
-  try {
-    await collectGateMetrics(input.db, input.metrics);
-    await collectSessionMetrics(input.db, input.metrics);
-    await collectAssignmentUsageMetrics(input.db, input.metrics);
-    await collectJobMetrics(input.db, input.metrics);
-    await collectGateAgentDeploymentMetrics(input.db, input.metrics);
-    await collectBenchmarkMetrics(input.db, input.metrics);
-    input.metrics.gauge("control_plane_snapshot_ready", 1, {
-      help: "Whether the worker has collected a complete control-plane business metrics snapshot."
-    });
+  const sections = input.sections ?? defaultSnapshotSections(input.db, input.metrics);
+  const failures: Array<{ section: string; message: string }> = [];
+
+  for (const section of sections) {
+    const sectionStarted = process.hrtime.bigint();
+    try {
+      await section.collect();
+      input.metrics.gauge("control_plane_snapshot_section_ready", 1, {
+        help: "Whether a control-plane business metrics snapshot section completed successfully.",
+        labels: { section: section.name }
+      });
+      input.metrics.gauge("control_plane_snapshot_section_last_success_timestamp_seconds", Date.now() / 1000, {
+        help: "Unix timestamp of the latest successful control-plane snapshot section collection.",
+        labels: { section: section.name }
+      });
+      input.metrics.histogram(
+        "control_plane_snapshot_section_duration_seconds",
+        Number(process.hrtime.bigint() - sectionStarted) / 1_000_000_000,
+        {
+          help: "Control-plane business metrics snapshot section collection duration.",
+          labels: { section: section.name }
+        }
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      failures.push({ section: section.name, message });
+      input.metrics.gauge("control_plane_snapshot_section_ready", 0, {
+        help: "Whether a control-plane business metrics snapshot section completed successfully.",
+        labels: { section: section.name }
+      });
+      input.metrics.counter("control_plane_snapshot_section_errors_total", 1, {
+        help: "Total control-plane business metrics snapshot section collection failures.",
+        labels: { section: section.name }
+      });
+    }
+  }
+
+  const durationMs = Number(process.hrtime.bigint() - started) / 1_000_000;
+  input.metrics.gauge("control_plane_snapshot_ready", failures.length === 0 ? 1 : 0, {
+    help: "Whether the worker has collected a complete control-plane business metrics snapshot."
+  });
+
+  if (failures.length === 0) {
     input.metrics.gauge("control_plane_snapshot_last_success_timestamp_seconds", Date.now() / 1000, {
       help: "Unix timestamp of the last successful control-plane business metrics snapshot."
     });
     input.health.setComponent("database", {
       state: "ready",
       message: "Control-plane database snapshot collected.",
-      details: { latencyMs: Number(process.hrtime.bigint() - started) / 1_000_000 }
+      details: { latencyMs: durationMs }
     });
     return true;
-  } catch (error) {
-    input.metrics.gauge("control_plane_snapshot_ready", 0, {
-      help: "Whether the worker has collected a complete control-plane business metrics snapshot."
-    });
-    input.metrics.counter("worker_snapshot_collection_errors_total", 1, {
-      help: "Total worker observability snapshot collection failures."
-    });
-    input.health.setComponent("database", {
-      state: "failed",
-      message: error instanceof Error ? error.message : String(error)
-    });
-    throw error;
   }
+
+  input.metrics.counter("worker_snapshot_collection_errors_total", 1, {
+    help: "Total worker observability snapshot collection failures."
+  });
+  input.health.setComponent("database", {
+    state: "degraded",
+    message: `Control-plane snapshot sections failed: ${failures.map(({ section }) => section).join(", ")}.`,
+    details: { latencyMs: durationMs }
+  });
+  throw new Error(
+    failures.map(({ section, message }) => `${section}: ${message}`).join("; ")
+  );
+}
+
+function defaultSnapshotSections(db: Database, metrics: RuntimeMetrics): ControlPlaneSnapshotSection[] {
+  return [
+    { name: "gates", collect: () => collectGateMetrics(db, metrics) },
+    { name: "sessions", collect: () => collectSessionMetrics(db, metrics) },
+    { name: "assignment-usage", collect: () => collectAssignmentUsageMetrics(db, metrics) },
+    { name: "jobs", collect: () => collectJobMetrics(db, metrics) },
+    { name: "gate-agent-deployments", collect: () => collectGateAgentDeploymentMetrics(db, metrics) },
+    { name: "benchmarks", collect: () => collectBenchmarkMetrics(db, metrics) }
+  ];
 }
 
 async function collectAssignmentUsageMetrics(db: Database, metrics: RuntimeMetrics): Promise<void> {

@@ -11,24 +11,22 @@ const db = createDatabase({
 });
 const health = createHealthRegistry("control-plane-worker");
 const metrics = createRuntimeMetrics({ service: "control-plane-worker" });
-let businessMetricsReady = false;
+metrics.gauge("control_plane_snapshot_ready", 0, {
+  help: "Whether the worker has collected a complete control-plane business metrics snapshot."
+});
 health.setComponent("process", { state: "starting", message: "Worker process is starting." });
 health.setComponent("configuration", { state: "ready", message: "Runtime configuration loaded." });
 const observability = createWorkerObservabilityServer({
   host: config.observabilityHost,
   port: config.observabilityPort,
   health,
-  metrics,
-  metricsReady: () => businessMetricsReady
+  metrics
 });
 const runner = createWorkerRunner({
   db,
   config,
   health,
-  metrics,
-  onSnapshotReady: () => {
-    businessMetricsReady = true;
-  }
+  metrics
 });
 
 process.on("SIGTERM", () => {

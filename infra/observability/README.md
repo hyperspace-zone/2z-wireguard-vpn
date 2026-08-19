@@ -48,6 +48,14 @@ metrics combine the standard postgres exporter with a local node-exporter
 textfile collector for connection pressure, long transactions, autovacuum,
 database growth, WAL size, and backup age.
 
+The worker `/metrics` endpoint remains HTTP 200 while a business snapshot is
+incomplete. `hyperspace_control_plane_snapshot_ready` reports aggregate
+readiness, while `hyperspace_control_plane_snapshot_section_ready{section=...}`
+isolates failures without suppressing healthy sections. Prometheus emits
+`HyperspaceControlPlaneSnapshotSectionFailed` for a section that remains broken
+for one minute; `HyperspaceControlPlaneWorkerDown` is reserved for an actual
+scrape, process, or network failure.
+
 Each Prometheus instance checks only services in its own cluster. No production,
 testnet, or staging Prometheus server is a dependency of another cluster. This
 also means a complete observability-VM power-off cannot be reported by that

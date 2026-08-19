@@ -1,13 +1,42 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { Database } from "@hyperspace-zone/db";
-import { createRuntimeMetrics } from "@hyperspace-zone/shared";
+import { createHealthRegistry, createRuntimeMetrics } from "@hyperspace-zone/shared";
 import {
+  collectControlPlaneSnapshotMetrics,
   collectBenchmarkMetrics,
   collectGateAgentDeploymentMetrics,
   gateAgentDeploymentFailureClass,
   gateAlertProbeHost
 } from "./control-plane-snapshot.js";
+
+test("snapshot sections continue after one collector fails", async () => {
+  const metrics = createRuntimeMetrics({ service: "snapshot-test", flushIntervalMs: 60_000 });
+  const health = createHealthRegistry("snapshot-test");
+  let laterSectionRan = false;
+
+  await assert.rejects(
+    collectControlPlaneSnapshotMetrics({
+      db: {} as Database,
+      metrics,
+      health,
+      sections: [
+        { name: "broken", collect: async () => { throw new Error("missing relation"); } },
+        { name: "healthy", collect: async () => { laterSectionRan = true; } }
+      ]
+    }),
+    /broken: missing relation/
+  );
+
+  const rendered = metrics.renderPrometheus();
+  metrics.stop();
+
+  assert.equal(laterSectionRan, true);
+  assert.match(rendered, /hyperspace_control_plane_snapshot_ready\{service="snapshot-test"\} 0/);
+  assert.match(rendered, /hyperspace_control_plane_snapshot_section_ready\{section="broken",service="snapshot-test"\} 0/);
+  assert.match(rendered, /hyperspace_control_plane_snapshot_section_ready\{section="healthy",service="snapshot-test"\} 1/);
+  assert.match(rendered, /hyperspace_control_plane_snapshot_section_errors_total\{section="broken",service="snapshot-test"\} 1/);
+});
 
 test("gate alert probe host comes from explicit probe URL host", () => {
   assert.equal(
