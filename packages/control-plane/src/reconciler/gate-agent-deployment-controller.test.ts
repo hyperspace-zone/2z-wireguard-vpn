@@ -10,7 +10,7 @@ test("deployment is verified only after the exact artifact reports a fresh succe
   const calls: Array<{ sql: string; params: readonly unknown[] }> = [];
   const db = deploymentDb(calls, deploymentRow({
     observedArtifactSha256: targetSha,
-    observedCapabilities: ["agent-artifact-self-test:passed"],
+    observedCapabilities: ["agent-artifact-self-test:passed", "doublezero-recovery:v1"],
     lastSeenAt: "2026-08-19T10:01:00Z",
     agentConnected: true
   }));
@@ -27,6 +27,21 @@ test("matching SHA without the installed-host self-test is not accepted", async 
   const db = deploymentDb(calls, deploymentRow({
     observedArtifactSha256: targetSha,
     observedCapabilities: [],
+    lastSeenAt: "2026-08-19T10:01:00Z",
+    agentConnected: true
+  }));
+
+  const result = await reconcileGateAgentDeployments(db, new Date("2026-08-19T10:02:00Z"));
+
+  assert.deepEqual(result, { verified: 0, rollbackRequested: 0, rolledBack: 0, failed: 0 });
+  assert.equal(calls.length, 1);
+});
+
+test("matching SHA without the DoubleZero recovery safety capability is not accepted", async () => {
+  const calls: Array<{ sql: string; params: readonly unknown[] }> = [];
+  const db = deploymentDb(calls, deploymentRow({
+    observedArtifactSha256: targetSha,
+    observedCapabilities: ["agent-artifact-self-test:passed"],
     lastSeenAt: "2026-08-19T10:01:00Z",
     agentConnected: true
   }));

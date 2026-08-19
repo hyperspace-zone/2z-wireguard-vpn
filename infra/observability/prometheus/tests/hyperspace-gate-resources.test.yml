@@ -4,6 +4,37 @@ rule_files:
 evaluation_interval: 15s
 
 tests:
+  - name: drained DoubleZero recovery failure is critical and reports completed automation
+    interval: 15s
+    input_series:
+      - series: 'hyperspace_control_plane_gate_doublezero_ready{job="hyperspace-control-plane-worker",cluster="mainnet",enabled="true",gate="gate-na-mia-71",probe_host="gate-na-mia-71.hyperspace.zone",public_ipv4="162.252.175.95",current_device="laconic-mia-sw01",current_device_status="drained",recovery_state="failed",recovery_reason="automatic_reconnect_failed_cooldown",recovery_last_outcome="failed",recovery_last_stage="verification_failed",recovery_attempted_at="2026-08-19T10:00:00Z",recovery_next_eligible_at="2026-08-19T16:00:00Z"}'
+        values: '0x45'
+      - series: 'hyperspace_control_plane_gate_agent_connected{enabled="true",gate="gate-na-mia-71"}'
+        values: '1x45'
+    alert_rule_test:
+      - eval_time: 10m15s
+        alertname: HyperspaceEnabledGateDoubleZeroNotReady
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: hyperspace-control-plane-worker
+              cluster: mainnet
+              enabled: "true"
+              gate: gate-na-mia-71
+              probe_host: gate-na-mia-71.hyperspace.zone
+              public_ipv4: 162.252.175.95
+              current_device: laconic-mia-sw01
+              current_device_status: drained
+              recovery_state: failed
+              recovery_reason: automatic_reconnect_failed_cooldown
+              recovery_last_outcome: failed
+              recovery_last_stage: verification_failed
+              recovery_attempted_at: "2026-08-19T10:00:00Z"
+              recovery_next_eligible_at: "2026-08-19T16:00:00Z"
+            exp_annotations:
+              summary: Enabled Hyperspace gate DoubleZero connectivity is unavailable
+              description: Gate gate-na-mia-71 is enabled but DoubleZero is not ready. Current device=laconic-mia-sw01, device status=drained, recovery state=failed, reason=automatic_reconnect_failed_cooldown. The gate-agent already attempted 'doublezero disconnect ibrl' followed by 'doublezero connect ibrl' at 2026-08-19T10:00:00Z, but BGP and routes were not restored. Do not loop the command before 2026-08-19T16:00:00Z; inspect gate-agent/doublezerod logs and escalate to DoubleZero if the device remains drained.
+
   - name: stalled gate agent deployment is critical and carries gate access
     interval: 15s
     input_series:

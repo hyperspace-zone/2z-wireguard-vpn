@@ -27,7 +27,7 @@ import (
 )
 
 var (
-	version       = "0.3.0"
+	version       = "0.4.0"
 	buildRevision = "unknown"
 	buildTime     = "unknown"
 )
@@ -96,17 +96,22 @@ var defaultNTPDiscoveryHosts = []string{
 }
 
 type config struct {
-	ControlPlaneURL     string
-	GateName            string
-	GateToken           string
-	PollInterval        time.Duration
-	HeartbeatInterval   time.Duration
-	ActualStateInterval time.Duration
-	ExecutionMode       string
-	StateDir            string
-	ProbeListenAddress  string
-	ProbePort           int
-	ProbeSharedSecret   string
+	ControlPlaneURL                string
+	GateName                       string
+	GateToken                      string
+	PollInterval                   time.Duration
+	HeartbeatInterval              time.Duration
+	ActualStateInterval            time.Duration
+	ExecutionMode                  string
+	StateDir                       string
+	ProbeListenAddress             string
+	ProbePort                      int
+	ProbeSharedSecret              string
+	DoubleZeroRecoveryEnabled      bool
+	DoubleZeroRecoveryConfirmation time.Duration
+	DoubleZeroRecoveryCooldown     time.Duration
+	DoubleZeroRecoveryVerify       time.Duration
+	DoubleZeroKeypairPath          string
 }
 
 type claimResponse struct {
@@ -138,7 +143,7 @@ func main() {
 			if err := json.NewEncoder(os.Stdout).Encode(map[string]any{
 				"ok":     true,
 				"build":  runningBuildInfo,
-				"checks": []string{"artifact_sha256", "nftables_assignment_rule_parser"},
+				"checks": []string{"artifact_sha256", "nftables_assignment_rule_parser", "doublezero_recovery_safety_policy"},
 			}); err != nil {
 				fatal(err)
 			}
@@ -152,6 +157,7 @@ func main() {
 	if err := runAgentSelfTest(); err != nil {
 		fatal(fmt.Errorf("installed gate-agent startup self-test failed: %w", err))
 	}
+	doubleZeroRecovery := newDoubleZeroRecoveryManager(cfg)
 	var probeManager *probeServerManager
 	if cfg.ProbePort > 0 {
 		probeManager = newProbeServerManager(cfg)
@@ -178,7 +184,7 @@ func main() {
 	lastActualState := time.Time{}
 	for {
 		if time.Since(lastHeartbeat) >= cfg.HeartbeatInterval {
-			if err := sendHeartbeat(client, cfg, probeManager); err != nil {
+			if err := sendHeartbeat(client, cfg, probeManager, doubleZeroRecovery); err != nil {
 				logJSON("heartbeat_failed", map[string]any{"error": err.Error()})
 			} else {
 				lastHeartbeat = time.Now()
@@ -2241,11 +2247,37 @@ func runAgentSelfTest() error {
 	if err != nil {
 		return fmt.Errorf("nftables assignment rule parser self-test failed: %w: %s", err, strings.TrimSpace(string(output)))
 	}
+	if err := validateDoubleZeroRecoverySafetyPolicy(); err != nil {
+		return err
+	}
 	return nil
 }
 
-func sendHeartbeat(client *http.Client, cfg config, probeManager *probeServerManager) error {
+func validateDoubleZeroRecoverySafetyPolicy() error {
+	now := time.Date(2026, 8, 19, 12, 0, 0, 0, time.UTC)
+	confirmed := doubleZeroRecoveryRecord{DrainedSince: now.Add(-3 * time.Minute).Format(time.RFC3339)}
+	if shouldStartDoubleZeroRecovery(confirmed, "activated", true, false, now, 2*time.Minute) {
+		return errors.New("DoubleZero recovery safety self-test allowed an activated device")
+	}
+	if !shouldStartDoubleZeroRecovery(confirmed, "drained", true, false, now, 2*time.Minute) {
+		return errors.New("DoubleZero recovery safety self-test rejected a confirmed drained device")
+	}
+	cooldown := confirmed
+	cooldown.NextEligibleAt = now.Add(time.Hour).Format(time.RFC3339)
+	if shouldStartDoubleZeroRecovery(cooldown, "drained", true, false, now, 2*time.Minute) {
+		return errors.New("DoubleZero recovery safety self-test ignored cooldown")
+	}
+	return nil
+}
+
+func sendHeartbeat(
+	client *http.Client,
+	cfg config,
+	probeManager *probeServerManager,
+	doubleZeroRecovery *doubleZeroRecoveryManager,
+) error {
 	doubleZero := doubleZeroStatus()
+	doubleZeroRecovery.Observe(doubleZero)
 	chronySummary := chronyTrackingSummary()
 	capabilities := []string{
 		"heartbeat",
@@ -2267,6 +2299,7 @@ func sendHeartbeat(client *http.Client, cfg config, probeManager *probeServerMan
 		"assignment-kernel-validation:enabled",
 		"agent-artifact-self-test:passed",
 		"control-plane-agent-rollout:v1",
+		"doublezero-recovery:v1",
 	}
 	if failure := releaseFailureCapability(); failure != "" {
 		capabilities = append(capabilities, failure)
@@ -2394,17 +2427,22 @@ func readConfig() (config, error) {
 		return config{}, errors.New("CONTROL_PLANE_URL, GATE_NAME, and GATE_TOKEN are required")
 	}
 	return config{
-		ControlPlaneURL:     controlPlaneURL,
-		GateName:            gateName,
-		GateToken:           gateToken,
-		PollInterval:        durationEnv("POLL_INTERVAL", 2*time.Second),
-		HeartbeatInterval:   durationEnv("HEARTBEAT_INTERVAL", 10*time.Second),
-		ActualStateInterval: durationEnv("ACTUAL_STATE_INTERVAL", time.Minute),
-		ExecutionMode:       stringEnv("GATE_AGENT_EXECUTION_MODE", "observe"),
-		StateDir:            stringEnv("GATE_AGENT_STATE_DIR", "/var/lib/hyperspace-gate"),
-		ProbeListenAddress:  stringEnv("GATE_PROBE_LISTEN_ADDRESS", "0.0.0.0"),
-		ProbePort:           intEnv("GATE_PROBE_PORT", 19192),
-		ProbeSharedSecret:   os.Getenv("GATE_PROBE_SHARED_SECRET"),
+		ControlPlaneURL:                controlPlaneURL,
+		GateName:                       gateName,
+		GateToken:                      gateToken,
+		PollInterval:                   durationEnv("POLL_INTERVAL", 2*time.Second),
+		HeartbeatInterval:              durationEnv("HEARTBEAT_INTERVAL", 10*time.Second),
+		ActualStateInterval:            durationEnv("ACTUAL_STATE_INTERVAL", time.Minute),
+		ExecutionMode:                  stringEnv("GATE_AGENT_EXECUTION_MODE", "observe"),
+		StateDir:                       stringEnv("GATE_AGENT_STATE_DIR", "/var/lib/hyperspace-gate"),
+		ProbeListenAddress:             stringEnv("GATE_PROBE_LISTEN_ADDRESS", "0.0.0.0"),
+		ProbePort:                      intEnv("GATE_PROBE_PORT", 19192),
+		ProbeSharedSecret:              os.Getenv("GATE_PROBE_SHARED_SECRET"),
+		DoubleZeroRecoveryEnabled:      boolEnv("DOUBLEZERO_AUTO_RECOVERY", true),
+		DoubleZeroRecoveryConfirmation: durationEnvMin("DOUBLEZERO_RECOVERY_CONFIRMATION", 2*time.Minute, time.Minute),
+		DoubleZeroRecoveryCooldown:     durationEnvMin("DOUBLEZERO_RECOVERY_COOLDOWN", 6*time.Hour, time.Hour),
+		DoubleZeroRecoveryVerify:       durationEnvMin("DOUBLEZERO_RECOVERY_VERIFY_TIMEOUT", 4*time.Minute, time.Minute),
+		DoubleZeroKeypairPath:          stringEnv("DOUBLEZERO_KEYPAIR_PATH", "/root/.config/doublezero/id.json"),
 	}, nil
 }
 
@@ -2418,6 +2456,14 @@ func durationEnv(name string, fallback time.Duration) time.Duration {
 		return fallback
 	}
 	return parsed
+}
+
+func durationEnvMin(name string, fallback time.Duration, minimum time.Duration) time.Duration {
+	value := durationEnv(name, fallback)
+	if value < minimum {
+		return fallback
+	}
+	return value
 }
 
 func stringEnv(name string, fallback string) string {
@@ -2434,6 +2480,18 @@ func intEnv(name string, fallback int) int {
 		return fallback
 	}
 	parsed, err := strconv.Atoi(raw)
+	if err != nil {
+		return fallback
+	}
+	return parsed
+}
+
+func boolEnv(name string, fallback bool) bool {
+	raw := strings.TrimSpace(os.Getenv(name))
+	if raw == "" {
+		return fallback
+	}
+	parsed, err := strconv.ParseBool(raw)
 	if err != nil {
 		return fallback
 	}
@@ -2522,6 +2580,426 @@ func doubleZeroStatus() map[string]any {
 	parsed["reportedAt"] = now
 	addDoubleZeroEdgeRTT(parsed, now)
 	return parsed
+}
+
+const doubleZeroRecoveryAction = "doublezero disconnect ibrl + doublezero connect ibrl"
+
+type doubleZeroRecoveryRecord struct {
+	SchemaVersion   int    `json:"schemaVersion"`
+	State           string `json:"state"`
+	Reason          string `json:"reason"`
+	DrainedSince    string `json:"drainedSince,omitempty"`
+	LastAttemptAt   string `json:"lastAttemptAt,omitempty"`
+	LastCompletedAt string `json:"lastCompletedAt,omitempty"`
+	LastOutcome     string `json:"lastOutcome,omitempty"`
+	LastStage       string `json:"lastStage,omitempty"`
+	LastError       string `json:"lastError,omitempty"`
+	BeforeDevice    string `json:"beforeDevice,omitempty"`
+	AfterDevice     string `json:"afterDevice,omitempty"`
+	NextEligibleAt  string `json:"nextEligibleAt,omitempty"`
+}
+
+type doubleZeroRecoveryManager struct {
+	cfg config
+
+	mu                sync.Mutex
+	record            doubleZeroRecoveryRecord
+	running           bool
+	cachedDevice      string
+	cachedDeviceState string
+	cachedDeviceAt    time.Time
+}
+
+type doubleZeroDeviceRecord struct {
+	Code          string `json:"code"`
+	Status        string `json:"status"`
+	DesiredStatus string `json:"desired_status"`
+	Health        string `json:"health"`
+}
+
+func newDoubleZeroRecoveryManager(cfg config) *doubleZeroRecoveryManager {
+	manager := &doubleZeroRecoveryManager{cfg: cfg}
+	manager.record = doubleZeroRecoveryRecord{
+		SchemaVersion: 1,
+		State:         "not_required",
+		Reason:        "doublezero_ready",
+	}
+	data, err := os.ReadFile(manager.statePath())
+	if err == nil {
+		var persisted doubleZeroRecoveryRecord
+		if json.Unmarshal(data, &persisted) == nil && persisted.SchemaVersion == 1 {
+			manager.record = persisted
+		}
+	}
+	return manager
+}
+
+func (manager *doubleZeroRecoveryManager) statePath() string {
+	return filepath.Join(manager.cfg.StateDir, "doublezero-recovery.json")
+}
+
+func (manager *doubleZeroRecoveryManager) Observe(status map[string]any) {
+	now := time.Now().UTC()
+	currentDevice := readMapString(status, "currentDevice")
+	tunnelStatus := readMapString(status, "tunnelStatus")
+	network := readMapString(status, "network")
+	routeState := doubleZeroRouteState()
+	status["routeState"] = routeState
+
+	deviceState, deviceErr := manager.readCurrentDeviceState(currentDevice, network, tunnelStatus, now)
+	if deviceState != "" {
+		status["currentDeviceStatus"] = deviceState
+	}
+	if deviceErr != "" {
+		status["currentDeviceStatusError"] = deviceErr
+	}
+
+	manager.mu.Lock()
+	healthy := tunnelStatus == "BGP Session Up" && routeState == "ready" && deviceState != "drained"
+	if healthy {
+		changed := manager.record.State != "not_required" || manager.record.Reason != "doublezero_ready" || manager.record.DrainedSince != ""
+		manager.record.State = "not_required"
+		manager.record.Reason = "doublezero_ready"
+		manager.record.DrainedSince = ""
+		if changed {
+			manager.persistLocked()
+		}
+		manager.decorateLocked(status)
+		manager.mu.Unlock()
+		return
+	}
+
+	if deviceState != "drained" {
+		state := "manual_required"
+		reason := "doublezero_not_ready_device_not_drained"
+		if currentDevice == "" {
+			reason = "doublezero_current_device_unknown"
+		} else if deviceState == "" {
+			reason = "doublezero_device_status_unknown"
+		}
+		manager.transitionLocked(state, reason, "")
+		manager.decorateLocked(status)
+		manager.mu.Unlock()
+		return
+	}
+
+	if manager.record.DrainedSince == "" {
+		manager.transitionLocked("observing", "current_doublezero_device_drained", now.Format(time.RFC3339))
+	}
+	if !manager.cfg.DoubleZeroRecoveryEnabled {
+		manager.transitionLocked("manual_required", "automatic_recovery_disabled", manager.record.DrainedSince)
+		manager.decorateLocked(status)
+		manager.mu.Unlock()
+		return
+	}
+	if manager.running {
+		manager.transitionLocked("in_progress", "automatic_reconnect_running", manager.record.DrainedSince)
+		manager.decorateLocked(status)
+		manager.mu.Unlock()
+		return
+	}
+	if nextEligible, ok := parseRecoveryTime(manager.record.NextEligibleAt); ok && now.Before(nextEligible) {
+		if manager.record.LastOutcome == "failed" {
+			manager.transitionLocked("failed", "automatic_reconnect_failed_cooldown", manager.record.DrainedSince)
+		} else {
+			manager.transitionLocked("cooldown", "automatic_reconnect_cooldown", manager.record.DrainedSince)
+		}
+		manager.decorateLocked(status)
+		manager.mu.Unlock()
+		return
+	}
+	drainedSince, ok := parseRecoveryTime(manager.record.DrainedSince)
+	if !ok || now.Sub(drainedSince) < manager.cfg.DoubleZeroRecoveryConfirmation {
+		manager.transitionLocked("observing", "current_doublezero_device_drained", manager.record.DrainedSince)
+		manager.decorateLocked(status)
+		manager.mu.Unlock()
+		return
+	}
+	if !shouldStartDoubleZeroRecovery(
+		manager.record,
+		deviceState,
+		manager.cfg.DoubleZeroRecoveryEnabled,
+		manager.running,
+		now,
+		manager.cfg.DoubleZeroRecoveryConfirmation,
+	) {
+		manager.transitionLocked("manual_required", "automatic_recovery_safety_guard", manager.record.DrainedSince)
+		manager.decorateLocked(status)
+		manager.mu.Unlock()
+		return
+	}
+
+	manager.running = true
+	manager.record.State = "in_progress"
+	manager.record.Reason = "automatic_reconnect_running"
+	manager.record.LastAttemptAt = now.Format(time.RFC3339)
+	manager.record.LastCompletedAt = ""
+	manager.record.LastOutcome = ""
+	manager.record.LastStage = "scheduled"
+	manager.record.LastError = ""
+	manager.record.BeforeDevice = currentDevice
+	manager.record.AfterDevice = ""
+	manager.record.NextEligibleAt = now.Add(manager.cfg.DoubleZeroRecoveryCooldown).Format(time.RFC3339)
+	manager.persistLocked()
+	manager.decorateLocked(status)
+	manager.mu.Unlock()
+
+	logJSON("doublezero_recovery_started", map[string]any{
+		"gate":         manager.cfg.GateName,
+		"reason":       "current_doublezero_device_drained",
+		"beforeDevice": currentDevice,
+		"network":      network,
+	})
+	go manager.runRecovery(network, currentDevice)
+}
+
+func (manager *doubleZeroRecoveryManager) transitionLocked(state string, reason string, drainedSince string) {
+	if manager.record.State == state && manager.record.Reason == reason && manager.record.DrainedSince == drainedSince {
+		return
+	}
+	manager.record.State = state
+	manager.record.Reason = reason
+	manager.record.DrainedSince = drainedSince
+	manager.persistLocked()
+}
+
+func (manager *doubleZeroRecoveryManager) decorateLocked(status map[string]any) {
+	status["recoveryAction"] = doubleZeroRecoveryAction
+	status["recoveryState"] = manager.record.State
+	status["recoveryReason"] = manager.record.Reason
+	copyRecoveryField(status, "recoveryDrainedSince", manager.record.DrainedSince)
+	copyRecoveryField(status, "recoveryAttemptedAt", manager.record.LastAttemptAt)
+	copyRecoveryField(status, "recoveryCompletedAt", manager.record.LastCompletedAt)
+	copyRecoveryField(status, "recoveryLastOutcome", manager.record.LastOutcome)
+	copyRecoveryField(status, "recoveryLastStage", manager.record.LastStage)
+	copyRecoveryField(status, "recoveryBeforeDevice", manager.record.BeforeDevice)
+	copyRecoveryField(status, "recoveryAfterDevice", manager.record.AfterDevice)
+	copyRecoveryField(status, "recoveryNextEligibleAt", manager.record.NextEligibleAt)
+}
+
+func copyRecoveryField(status map[string]any, key string, value string) {
+	if value != "" {
+		status[key] = value
+	}
+}
+
+func (manager *doubleZeroRecoveryManager) readCurrentDeviceState(
+	currentDevice string,
+	network string,
+	tunnelStatus string,
+	now time.Time,
+) (string, string) {
+	if currentDevice == "" || !validDoubleZeroNetwork(network) {
+		return "", "device lookup requires a current device and a supported network"
+	}
+	cacheTTL := 5 * time.Minute
+	if tunnelStatus != "BGP Session Up" {
+		cacheTTL = 30 * time.Second
+	}
+	manager.mu.Lock()
+	if manager.cachedDevice == currentDevice && now.Sub(manager.cachedDeviceAt) < cacheTTL {
+		state := manager.cachedDeviceState
+		manager.mu.Unlock()
+		return state, ""
+	}
+	manager.mu.Unlock()
+
+	state, err := lookupDoubleZeroDeviceState(network, currentDevice)
+	if err != nil {
+		return "", err.Error()
+	}
+	manager.mu.Lock()
+	manager.cachedDevice = currentDevice
+	manager.cachedDeviceState = state
+	manager.cachedDeviceAt = now
+	manager.mu.Unlock()
+	return state, ""
+}
+
+func lookupDoubleZeroDeviceState(network string, currentDevice string) (string, error) {
+	output, err := commandOutputTimeout(
+		12*time.Second,
+		"doublezero",
+		"--env", network,
+		"device", "get",
+		"--code", currentDevice,
+		"--json",
+	)
+	if err != nil {
+		return "", errors.New(compactRecoveryError(err, output))
+	}
+	var device doubleZeroDeviceRecord
+	if err := json.Unmarshal([]byte(output), &device); err != nil {
+		return "", errors.New(compactRecoveryError(err, "invalid device JSON"))
+	}
+	state := strings.ToLower(strings.TrimSpace(device.Status))
+	if state == "" {
+		return "", errors.New("device JSON did not include status")
+	}
+	return state, nil
+}
+
+func (manager *doubleZeroRecoveryManager) runRecovery(network string, beforeDevice string) {
+	failure := ""
+	stage := "preflight_failed"
+	if !validDoubleZeroNetwork(network) {
+		failure = "unsupported DoubleZero network"
+	} else if info, err := os.Stat(manager.cfg.DoubleZeroKeypairPath); err != nil || !info.Mode().IsRegular() {
+		failure = "DoubleZero keypair is unavailable"
+	} else {
+		common := []string{"--env", network, "--keypair", manager.cfg.DoubleZeroKeypairPath}
+		disconnectArgs := append(append([]string{}, common...), "disconnect", "ibrl")
+		stage = "disconnect_running"
+		output, err := commandOutputTimeout(3*time.Minute, "doublezero", disconnectArgs...)
+		if err != nil {
+			stage = "disconnect_failed"
+			failure = "disconnect failed: " + compactRecoveryError(err, output)
+		} else {
+			connectArgs := append(append([]string{}, common...), "connect", "ibrl")
+			stage = "connect_running"
+			output, err = commandOutputTimeout(3*time.Minute, "doublezero", connectArgs...)
+			if err != nil {
+				stage = "connect_failed"
+				failure = "connect failed: " + compactRecoveryError(err, output)
+			} else {
+				stage = "verifying"
+			}
+		}
+	}
+
+	afterDevice := ""
+	if failure == "" {
+		deadline := time.Now().Add(manager.cfg.DoubleZeroRecoveryVerify)
+		for time.Now().Before(deadline) {
+			output, err := commandOutputTimeout(8*time.Second, "doublezero", "--env", network, "status")
+			if err == nil {
+				observed := parseDoubleZeroStatus(output)
+				afterDevice = readMapString(observed, "currentDevice")
+				if readMapString(observed, "tunnelStatus") == "BGP Session Up" && doubleZeroRouteState() == "ready" {
+					deviceState, deviceErr := lookupDoubleZeroDeviceState(network, afterDevice)
+					if deviceErr == nil && deviceState != "drained" {
+						break
+					}
+				}
+			}
+			time.Sleep(10 * time.Second)
+		}
+		if output, err := commandOutputTimeout(8*time.Second, "doublezero", "--env", network, "status"); err != nil {
+			stage = "verification_failed"
+			failure = "post-reconnect status failed: " + compactRecoveryError(err, output)
+		} else {
+			observed := parseDoubleZeroStatus(output)
+			afterDevice = readMapString(observed, "currentDevice")
+			deviceState, deviceErr := lookupDoubleZeroDeviceState(network, afterDevice)
+			if readMapString(observed, "tunnelStatus") != "BGP Session Up" || doubleZeroRouteState() != "ready" {
+				stage = "verification_failed"
+				failure = "post-reconnect verification did not restore BGP and routes"
+			} else if deviceErr != nil {
+				stage = "verification_failed"
+				failure = "post-reconnect device verification failed: " + deviceErr.Error()
+			} else if deviceState == "drained" {
+				stage = "verification_failed"
+				failure = "post-reconnect verification remained attached to a drained device"
+			}
+		}
+	}
+
+	now := time.Now().UTC()
+	manager.mu.Lock()
+	manager.running = false
+	manager.record.LastCompletedAt = now.Format(time.RFC3339)
+	manager.record.AfterDevice = afterDevice
+	if failure == "" {
+		manager.record.State = "succeeded"
+		manager.record.Reason = "automatic_reconnect_restored_doublezero"
+		manager.record.LastOutcome = "succeeded"
+		manager.record.LastStage = "verified"
+		manager.record.LastError = ""
+		manager.record.DrainedSince = ""
+	} else {
+		manager.record.State = "failed"
+		manager.record.Reason = "automatic_reconnect_failed_cooldown"
+		manager.record.LastOutcome = "failed"
+		manager.record.LastStage = stage
+		manager.record.LastError = failure
+	}
+	manager.persistLocked()
+	manager.mu.Unlock()
+
+	if failure == "" {
+		logJSON("doublezero_recovery_succeeded", map[string]any{
+			"gate": manager.cfg.GateName, "beforeDevice": beforeDevice, "afterDevice": afterDevice,
+		})
+		return
+	}
+	logJSON("doublezero_recovery_failed", map[string]any{
+		"gate": manager.cfg.GateName, "beforeDevice": beforeDevice, "afterDevice": afterDevice, "error": failure,
+	})
+}
+
+func (manager *doubleZeroRecoveryManager) persistLocked() {
+	if err := os.MkdirAll(manager.cfg.StateDir, 0o750); err != nil {
+		logJSON("doublezero_recovery_state_write_failed", map[string]any{"error": err.Error()})
+		return
+	}
+	encoded, err := json.MarshalIndent(manager.record, "", "  ")
+	if err != nil {
+		logJSON("doublezero_recovery_state_write_failed", map[string]any{"error": err.Error()})
+		return
+	}
+	temporary := manager.statePath() + ".tmp"
+	if err := os.WriteFile(temporary, append(encoded, '\n'), 0o600); err != nil {
+		logJSON("doublezero_recovery_state_write_failed", map[string]any{"error": err.Error()})
+		return
+	}
+	if err := os.Rename(temporary, manager.statePath()); err != nil {
+		logJSON("doublezero_recovery_state_write_failed", map[string]any{"error": err.Error()})
+	}
+}
+
+func validDoubleZeroNetwork(network string) bool {
+	return network == "testnet" || network == "mainnet-beta"
+}
+
+func parseRecoveryTime(value string) (time.Time, bool) {
+	parsed, err := time.Parse(time.RFC3339, value)
+	return parsed, err == nil
+}
+
+func shouldStartDoubleZeroRecovery(
+	record doubleZeroRecoveryRecord,
+	deviceState string,
+	enabled bool,
+	running bool,
+	now time.Time,
+	confirmation time.Duration,
+) bool {
+	if !enabled || running || deviceState != "drained" {
+		return false
+	}
+	drainedSince, ok := parseRecoveryTime(record.DrainedSince)
+	if !ok || now.Sub(drainedSince) < confirmation {
+		return false
+	}
+	if nextEligible, ok := parseRecoveryTime(record.NextEligibleAt); ok && now.Before(nextEligible) {
+		return false
+	}
+	return true
+}
+
+func compactRecoveryError(err error, output string) string {
+	detail := strings.TrimSpace(output)
+	if detail == "" && err != nil {
+		detail = err.Error()
+	}
+	detail = strings.Join(strings.Fields(detail), " ")
+	if len(detail) > 240 {
+		detail = detail[:240]
+	}
+	if detail == "" {
+		return "unknown error"
+	}
+	return detail
 }
 
 func addDoubleZeroEdgeRTT(status map[string]any, measuredAt string) {

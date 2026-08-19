@@ -73,6 +73,7 @@ export async function readGateAgentRuntime(db: Queryable, gateId: string): Promi
 const doubleZeroGateSqlPredicate = `
   AND 'doublezero0:up' = ANY(gate_status.observed_capabilities)
   AND gate_status.doublezero_status->>'tunnelStatus' = 'BGP Session Up'
+  AND COALESCE(gate_status.doublezero_status->>'currentDeviceStatus', '') <> 'drained'
   AND gate_status.doublezero_status->>'network' = COALESCE(NULLIF(gates.spec->>'doubleZeroEnv', ''), 'testnet')
   AND gate_status.doublezero_status->>'tunnelSrc' = gates.public_ipv4
   AND ${freshGateLeaseSqlPredicate}
@@ -291,9 +292,14 @@ export async function saveGateHeartbeatStatus(
   db: Queryable,
   input: GateHeartbeatPersistenceInput
 ): Promise<void> {
-  const previous = await db.query<{ tunnelStatus: string | null }>(
+  const previous = await db.query<{
+    tunnelStatus: string | null;
+    recoveryCompletedAt: string | null;
+  }>(
     `
-      SELECT NULLIF(BTRIM(doublezero_status->>'tunnelStatus'), '') AS "tunnelStatus"
+      SELECT
+        NULLIF(BTRIM(doublezero_status->>'tunnelStatus'), '') AS "tunnelStatus",
+        NULLIF(BTRIM(doublezero_status->>'recoveryCompletedAt'), '') AS "recoveryCompletedAt"
       FROM gate_status
       WHERE gate_id = $1
       FOR UPDATE
@@ -301,7 +307,9 @@ export async function saveGateHeartbeatStatus(
     [input.gateId]
   );
   const previousTunnelStatus = previous.rows[0]?.tunnelStatus ?? null;
+  const previousRecoveryCompletedAt = previous.rows[0]?.recoveryCompletedAt ?? null;
   const currentTunnelStatus = normalizedStatus(input.doubleZeroStatus.tunnelStatus);
+  const currentRecoveryCompletedAt = normalizedStatus(input.doubleZeroStatus.recoveryCompletedAt);
 
   await db.query(
     `
@@ -381,6 +389,30 @@ export async function saveGateHeartbeatStatus(
           network: normalizedStatus(input.doubleZeroStatus.network),
           metro: normalizedStatus(input.doubleZeroStatus.metro),
           currentDevice: normalizedStatus(input.doubleZeroStatus.currentDevice)
+        })
+      ]
+    );
+  }
+
+  if (
+    currentRecoveryCompletedAt !== null
+    && currentRecoveryCompletedAt !== previousRecoveryCompletedAt
+  ) {
+    await db.query(
+      `
+        INSERT INTO audit_events (event_type, actor_type, gate_id, details)
+        VALUES ('gate_doublezero_recovery_completed', 'system', $1, $2::jsonb)
+      `,
+      [
+        input.gateId,
+        JSON.stringify({
+          attemptedAt: normalizedStatus(input.doubleZeroStatus.recoveryAttemptedAt),
+          completedAt: currentRecoveryCompletedAt,
+          outcome: normalizedStatus(input.doubleZeroStatus.recoveryLastOutcome),
+          stage: normalizedStatus(input.doubleZeroStatus.recoveryLastStage),
+          reason: normalizedStatus(input.doubleZeroStatus.recoveryReason),
+          beforeDevice: normalizedStatus(input.doubleZeroStatus.recoveryBeforeDevice),
+          afterDevice: normalizedStatus(input.doubleZeroStatus.recoveryAfterDevice)
         })
       ]
     );

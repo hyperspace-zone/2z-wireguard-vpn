@@ -75,6 +75,13 @@ nftables parser self-test before and after activation, and reports the installed
 SHA in a fresh heartbeat. The local helper automatically restores the previous
 artifact if any of those checks fail.
 
+The managed binary also reports `doublezero-recovery:v1`. Its recovery
+guard only reconnects a gate whose current DoubleZero device is confirmed
+`drained` for two minutes. One attempt is followed by live BGP/route
+verification and a six-hour cooldown; the state is persisted across service
+restarts. This is part of the post-rollout heartbeat verification and must not
+be replaced with an SSH loop that copies an untested binary directly.
+
 Inventory entries may set `resourceTier` to `standard` or `hub`. `standard`
 sets `nf_conntrack_max=65536`. `hub` sets `262144` and is rejected on hosts with
 less than 2 GiB RAM. Promote a gate to `hub` only after resizing the VM and a

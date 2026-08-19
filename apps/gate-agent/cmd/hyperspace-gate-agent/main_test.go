@@ -106,6 +106,54 @@ func TestParseDoubleZeroStatusParsesLatencyDeviceStatus(t *testing.T) {
 	}
 }
 
+func TestDoubleZeroRecoveryOnlyStartsForConfirmedDrainedDevice(t *testing.T) {
+	now := time.Date(2026, 8, 19, 12, 0, 0, 0, time.UTC)
+	confirmed := doubleZeroRecoveryRecord{
+		DrainedSince: now.Add(-3 * time.Minute).Format(time.RFC3339),
+	}
+
+	if !shouldStartDoubleZeroRecovery(confirmed, "drained", true, false, now, 2*time.Minute) {
+		t.Fatal("confirmed drained device should start one automatic recovery")
+	}
+	if shouldStartDoubleZeroRecovery(confirmed, "activated", true, false, now, 2*time.Minute) {
+		t.Fatal("activated device must never be disconnected automatically")
+	}
+	if shouldStartDoubleZeroRecovery(confirmed, "drained", false, false, now, 2*time.Minute) {
+		t.Fatal("disabled automatic recovery must not start")
+	}
+	if shouldStartDoubleZeroRecovery(confirmed, "drained", true, true, now, 2*time.Minute) {
+		t.Fatal("a second recovery must not start while one is running")
+	}
+}
+
+func TestDoubleZeroRecoveryRequiresConfirmationAndHonorsCooldown(t *testing.T) {
+	now := time.Date(2026, 8, 19, 12, 0, 0, 0, time.UTC)
+	unconfirmed := doubleZeroRecoveryRecord{
+		DrainedSince: now.Add(-30 * time.Second).Format(time.RFC3339),
+	}
+	if shouldStartDoubleZeroRecovery(unconfirmed, "drained", true, false, now, 2*time.Minute) {
+		t.Fatal("a transient drained observation must not trigger recovery")
+	}
+
+	cooldown := doubleZeroRecoveryRecord{
+		DrainedSince:   now.Add(-10 * time.Minute).Format(time.RFC3339),
+		NextEligibleAt: now.Add(6 * time.Hour).Format(time.RFC3339),
+	}
+	if shouldStartDoubleZeroRecovery(cooldown, "drained", true, false, now, 2*time.Minute) {
+		t.Fatal("recovery must not loop during cooldown")
+	}
+	if !shouldStartDoubleZeroRecovery(cooldown, "drained", true, false, now.Add(7*time.Hour), 2*time.Minute) {
+		t.Fatal("recovery may be attempted again after cooldown if the device is still drained")
+	}
+}
+
+func TestDoubleZeroRecoveryDurationSafetyMinimum(t *testing.T) {
+	t.Setenv("DOUBLEZERO_RECOVERY_CONFIRMATION_TEST", "0s")
+	if actual := durationEnvMin("DOUBLEZERO_RECOVERY_CONFIRMATION_TEST", 2*time.Minute, time.Minute); actual != 2*time.Minute {
+		t.Fatalf("unsafe recovery confirmation resolved to %s", actual)
+	}
+}
+
 func TestParsePingAverageRTT(t *testing.T) {
 	tests := []struct {
 		name     string

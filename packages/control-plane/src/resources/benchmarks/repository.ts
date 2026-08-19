@@ -83,6 +83,7 @@ export async function insertDueGateBenchmarkProbeJobs(
           AND COALESCE(schedulable.status = 'True', false)
           AND 'doublezero0:up' = ANY(gate_status.observed_capabilities)
           AND gate_status.doublezero_status->>'tunnelStatus' = 'BGP Session Up'
+          AND COALESCE(gate_status.doublezero_status->>'currentDeviceStatus', '') <> 'drained'
           AND gate_status.doublezero_status->>'network' = COALESCE(NULLIF(gates.spec->>'doubleZeroEnv', ''), 'testnet')
           AND gate_status.doublezero_status->>'tunnelSrc' = gates.public_ipv4
           AND ${freshGateLeaseSqlPredicate}

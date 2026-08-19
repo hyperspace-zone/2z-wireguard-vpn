@@ -275,6 +275,7 @@ async function collectGateMetrics(db: Database, metrics: RuntimeMetrics): Promis
       COUNT(*) FILTER (
         WHERE 'doublezero0:up' = ANY(gate_status.observed_capabilities)
           AND gate_status.doublezero_status->>'tunnelStatus' = 'BGP Session Up'
+          AND COALESCE(gate_status.doublezero_status->>'currentDeviceStatus', '') <> 'drained'
           AND gate_status.doublezero_status->>'network' = COALESCE(NULLIF(gates.spec->>'doubleZeroEnv', ''), 'testnet')
           AND gate_status.doublezero_status->>'tunnelSrc' = gates.public_ipv4
       )::int AS "doublezeroReady"
@@ -306,6 +307,14 @@ async function collectGateMetrics(db: Database, metrics: RuntimeMetrics): Promis
     ready: boolean;
     schedulable: boolean;
     doublezeroReady: boolean;
+    doublezeroCurrentDevice: string;
+    doublezeroCurrentDeviceStatus: string;
+    doublezeroRecoveryState: string;
+    doublezeroRecoveryReason: string;
+    doublezeroRecoveryLastOutcome: string;
+    doublezeroRecoveryLastStage: string;
+    doublezeroRecoveryAttemptedAt: string;
+    doublezeroRecoveryNextEligibleAt: string;
     lastSeenAgeSeconds: number | null;
     leaseSecondsUntilExpiry: number | null;
   }>(`
@@ -332,9 +341,18 @@ async function collectGateMetrics(db: Database, metrics: RuntimeMetrics): Promis
       (
         'doublezero0:up' = ANY(gate_status.observed_capabilities)
         AND gate_status.doublezero_status->>'tunnelStatus' = 'BGP Session Up'
+        AND COALESCE(gate_status.doublezero_status->>'currentDeviceStatus', '') <> 'drained'
         AND gate_status.doublezero_status->>'network' = COALESCE(NULLIF(gates.spec->>'doubleZeroEnv', ''), 'testnet')
         AND gate_status.doublezero_status->>'tunnelSrc' = gates.public_ipv4
       ) AS "doublezeroReady",
+      COALESCE(NULLIF(BTRIM(gate_status.doublezero_status->>'currentDevice'), ''), 'unknown') AS "doublezeroCurrentDevice",
+      COALESCE(NULLIF(BTRIM(gate_status.doublezero_status->>'currentDeviceStatus'), ''), 'unknown') AS "doublezeroCurrentDeviceStatus",
+      COALESCE(NULLIF(BTRIM(gate_status.doublezero_status->>'recoveryState'), ''), 'unavailable') AS "doublezeroRecoveryState",
+      COALESCE(NULLIF(BTRIM(gate_status.doublezero_status->>'recoveryReason'), ''), 'unavailable') AS "doublezeroRecoveryReason",
+      COALESCE(NULLIF(BTRIM(gate_status.doublezero_status->>'recoveryLastOutcome'), ''), 'none') AS "doublezeroRecoveryLastOutcome",
+      COALESCE(NULLIF(BTRIM(gate_status.doublezero_status->>'recoveryLastStage'), ''), 'none') AS "doublezeroRecoveryLastStage",
+      COALESCE(NULLIF(BTRIM(gate_status.doublezero_status->>'recoveryAttemptedAt'), ''), 'never') AS "doublezeroRecoveryAttemptedAt",
+      COALESCE(NULLIF(BTRIM(gate_status.doublezero_status->>'recoveryNextEligibleAt'), ''), 'not_set') AS "doublezeroRecoveryNextEligibleAt",
       EXTRACT(EPOCH FROM now() - gate_status.last_seen_at)::float AS "lastSeenAgeSeconds",
       EXTRACT(EPOCH FROM gate_leases.lease_expires_at - now())::float AS "leaseSecondsUntilExpiry"
     FROM gates
@@ -374,7 +392,17 @@ async function collectGateMetrics(db: Database, metrics: RuntimeMetrics): Promis
     });
     metrics.gauge("control_plane_gate_doublezero_ready", gate.doublezeroReady ? 1 : 0, {
       help: "Per-gate DoubleZero readiness state.",
-      labels
+      labels: {
+        ...labels,
+        current_device: gate.doublezeroCurrentDevice,
+        current_device_status: gate.doublezeroCurrentDeviceStatus,
+        recovery_state: gate.doublezeroRecoveryState,
+        recovery_reason: gate.doublezeroRecoveryReason,
+        recovery_last_outcome: gate.doublezeroRecoveryLastOutcome,
+        recovery_last_stage: gate.doublezeroRecoveryLastStage,
+        recovery_attempted_at: gate.doublezeroRecoveryAttemptedAt,
+        recovery_next_eligible_at: gate.doublezeroRecoveryNextEligibleAt
+      }
     });
     metrics.gauge("control_plane_gate_last_seen_age_seconds", gate.lastSeenAgeSeconds ?? 1_000_000_000, {
       help: "Age of the last gate-agent heartbeat in seconds. Missing heartbeat is represented as a large value.",
