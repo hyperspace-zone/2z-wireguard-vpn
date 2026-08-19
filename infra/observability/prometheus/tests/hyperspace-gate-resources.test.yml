@@ -4,6 +4,54 @@ rule_files:
 evaluation_interval: 15s
 
 tests:
+  - name: stalled gate agent deployment is critical and carries gate access
+    interval: 15s
+    input_series:
+      - series: 'hyperspace_control_plane_gate_agent_deployment_active_age_seconds{job="hyperspace-control-plane-worker",cluster="mainnet",gate="gate-eu-lon-01",phase="verifying",release_version="0.2.2",release_revision="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",artifact_sha256="bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",probe_host="gate-eu-lon-01.hyperspace.zone",public_ipv4="192.0.2.10"}'
+        values: '700x10'
+    alert_rule_test:
+      - eval_time: 2m15s
+        alertname: HyperspaceGateAgentDeploymentStalled
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: hyperspace-control-plane-worker
+              cluster: mainnet
+              gate: gate-eu-lon-01
+              phase: verifying
+              release_version: 0.2.2
+              release_revision: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+              artifact_sha256: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+              probe_host: gate-eu-lon-01.hyperspace.zone
+              public_ipv4: 192.0.2.10
+            exp_annotations:
+              summary: Hyperspace gate-agent deployment is stalled
+              description: Gate gate-eu-lon-01 has remained in verifying for more than 10 minutes while deploying release 0.2.2 (aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa).
+
+  - name: failed gate agent deployment remains critical until superseded
+    interval: 15s
+    input_series:
+      - series: 'hyperspace_control_plane_gate_agent_deployment_latest_status{job="hyperspace-control-plane-worker",cluster="mainnet",gate="gate-eu-lon-01",phase="failed",release_version="0.2.2",release_revision="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",artifact_sha256="bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",probe_host="gate-eu-lon-01.hyperspace.zone",public_ipv4="192.0.2.10"}'
+        values: '1x10'
+    alert_rule_test:
+      - eval_time: 2m15s
+        alertname: HyperspaceGateAgentDeploymentFailed
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: hyperspace-control-plane-worker
+              cluster: mainnet
+              gate: gate-eu-lon-01
+              phase: failed
+              release_version: 0.2.2
+              release_revision: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+              artifact_sha256: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+              probe_host: gate-eu-lon-01.hyperspace.zone
+              public_ipv4: 192.0.2.10
+            exp_annotations:
+              summary: Hyperspace gate-agent deployment failed
+              description: The latest gate-agent deployment on gate-eu-lon-01 failed for release 0.2.2 (aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa); review deployment history before retrying.
+
   - name: stale control-plane snapshot is reported independently of worker scrape health
     interval: 15s
     input_series:

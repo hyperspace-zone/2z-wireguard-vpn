@@ -12,6 +12,7 @@ export async function collectControlPlaneSnapshotMetrics(input: {
     await collectSessionMetrics(input.db, input.metrics);
     await collectAssignmentUsageMetrics(input.db, input.metrics);
     await collectJobMetrics(input.db, input.metrics);
+    await collectGateAgentDeploymentMetrics(input.db, input.metrics);
     await collectBenchmarkMetrics(input.db, input.metrics);
     await collectBillingMetrics(input.db, input.metrics);
     input.metrics.gauge("control_plane_snapshot_ready", 1, {
@@ -400,6 +401,66 @@ async function collectJobMetrics(db: Database, metrics: RuntimeMetrics): Promise
       help: "Control-plane jobs by type and phase.",
       labels: { type: row.type, phase: row.phase }
     });
+  }
+}
+
+export async function collectGateAgentDeploymentMetrics(db: Database, metrics: RuntimeMetrics): Promise<void> {
+  const result = await db.query<{
+    gate: string;
+    publicIpv4: string;
+    probeUrl: string | null;
+    phase: string;
+    releaseVersion: string;
+    releaseRevision: string;
+    artifactSha256: string;
+    ageSeconds: number;
+    deadlineSecondsUntilExpiry: number;
+  }>(`
+    SELECT DISTINCT ON (deployments.gate_id)
+      gates.name AS gate,
+      gates.public_ipv4 AS "publicIpv4",
+      gates.spec->>'probeUrl' AS "probeUrl",
+      deployments.phase,
+      releases.version AS "releaseVersion",
+      releases.revision AS "releaseRevision",
+      releases.artifact_sha256 AS "artifactSha256",
+      EXTRACT(EPOCH FROM now() - deployments.requested_at)::float AS "ageSeconds",
+      EXTRACT(EPOCH FROM deployments.verification_deadline_at - now())::float AS "deadlineSecondsUntilExpiry"
+    FROM gate_agent_deployments deployments
+    JOIN gate_agent_releases releases ON releases.id = deployments.release_id
+    JOIN gates ON gates.id = deployments.gate_id
+    ORDER BY deployments.gate_id, deployments.requested_at DESC, deployments.id DESC
+  `);
+  resetGauges(metrics, [
+    "control_plane_gate_agent_deployment_latest_status",
+    "control_plane_gate_agent_deployment_active_age_seconds",
+    "control_plane_gate_agent_deployment_deadline_seconds_until_expiry"
+  ]);
+  for (const row of result.rows) {
+    const labels = {
+      gate: row.gate,
+      phase: row.phase,
+      release_version: row.releaseVersion,
+      release_revision: row.releaseRevision,
+      artifact_sha256: row.artifactSha256,
+      probe_host: gateAlertProbeHost(row.probeUrl, row.publicIpv4),
+      public_ipv4: row.publicIpv4
+    };
+    metrics.gauge("control_plane_gate_agent_deployment_latest_status", 1, {
+      help: "Latest gate-agent deployment state per gate.",
+      labels
+    });
+    if (["queued", "staging", "verifying", "rollback_requested", "rolling_back"].includes(row.phase)) {
+      metrics.gauge("control_plane_gate_agent_deployment_active_age_seconds", row.ageSeconds, {
+        help: "Age of the active gate-agent deployment in seconds.",
+        labels
+      });
+      metrics.gauge(
+        "control_plane_gate_agent_deployment_deadline_seconds_until_expiry",
+        row.deadlineSecondsUntilExpiry,
+        { help: "Seconds until the active gate-agent deployment verification deadline.", labels }
+      );
+    }
   }
 }
 
