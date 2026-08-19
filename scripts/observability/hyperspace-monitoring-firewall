@@ -27,6 +27,7 @@ done
 iptables -N "$chain" 2>/dev/null || true
 iptables -F "$chain"
 iptables -C INPUT -j "$chain" 2>/dev/null || iptables -I INPUT 1 -j "$chain"
+iptables -A "$chain" -i lo -j ACCEPT
 
 for port in $monitoring_ports; do
   iptables -A "$chain" -p tcp -s "$OBSERVABILITY_IPV4" --dport "$port" -j ACCEPT
