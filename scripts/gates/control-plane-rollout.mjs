@@ -120,7 +120,10 @@ async function stageArtifact(releaseDir, sha256, contents) {
   const temporary = `${destination}.${process.pid}.partial`;
   await rm(temporary, { force: true });
   await copyFile(binary, temporary);
-  await chmod(temporary, 0o750);
+  // The rollout command runs as root because the nftables parser self-test
+  // requires CAP_NET_ADMIN. Keep the immutable artifact executable/readable by
+  // the unprivileged API process after root atomically stages it.
+  await chmod(temporary, 0o755);
   await rename(temporary, destination);
   const staged = await readFile(destination);
   if (createHash("sha256").update(staged).digest("hex") !== sha256 || !staged.equals(contents)) {
