@@ -68,6 +68,7 @@ chmod 0644 /etc/hyperspace/postgres-monitoring.env
 
 cat >/etc/hyperspace/monitoring-firewall.env <<EOF
 OBSERVABILITY_IPV4=${observability_ip}
+LOCAL_MONITORING_IPV4=${listen_ip}
 MONITORING_PORTS="9100 9187"
 MONITORING_PROBE_PORTS="5432"
 EOF
