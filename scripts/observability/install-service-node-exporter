@@ -54,4 +54,5 @@ systemctl enable --now hyperspace-monitoring-firewall.service
 systemctl restart hyperspace-monitoring-firewall.service
 systemctl enable --now prometheus-node-exporter
 systemctl restart prometheus-node-exporter
-curl -fsS "http://${listen_ip}:9100/metrics" >/dev/null
+curl --retry 10 --retry-connrefused --retry-delay 1 -fsS \
+  "http://${listen_ip}:9100/metrics" >/dev/null

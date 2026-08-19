@@ -80,5 +80,7 @@ systemctl restart prometheus-postgres-exporter
 systemctl enable --now hyperspace-postgres-health-exporter.timer
 systemctl start hyperspace-postgres-health-exporter.service
 
-curl -fsS "http://${listen_ip}:9187/metrics" | grep -q '^pg_up 1'
-curl -fsS "http://${listen_ip}:9100/metrics" | grep -q '^hyperspace_postgres_database_size_bytes '
+curl --retry 10 --retry-connrefused --retry-delay 1 -fsS \
+  "http://${listen_ip}:9187/metrics" | grep -q '^pg_up 1'
+curl --retry 10 --retry-connrefused --retry-delay 1 -fsS \
+  "http://${listen_ip}:9100/metrics" | grep -q '^hyperspace_postgres_database_size_bytes '
