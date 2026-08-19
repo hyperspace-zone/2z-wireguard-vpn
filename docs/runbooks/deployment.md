@@ -1390,8 +1390,9 @@ operators no longer copy a binary to every gate:
 # Build from a clean committed revision first.
 scripts/gates/build-agent --output /tmp/hyperspace-gate-agent
 
+# Run as root: nft --check needs CAP_NET_ADMIN even though no rules are applied.
 # Dry-run validates the exact artifact and canary order without API mutations.
-npm run gates:control-plane-rollout -- \
+sudo npm run gates:control-plane-rollout -- \
   --binary /tmp/hyperspace-gate-agent \
   --control-plane-url https://control-plane.hyperspace.zone \
   --admin-token-file /root/hyperspace/secrets/mainnet-admin.token \
@@ -1401,8 +1402,12 @@ npm run gates:control-plane-rollout -- \
 
 # Run this on the control-plane API host so the immutable artifact is staged in
 # GATE_AGENT_RELEASE_DIR, then registered and distributed through gate jobs.
-npm run gates:control-plane-rollout -- ... --execute
+sudo npm run gates:control-plane-rollout -- ... --execute
 ```
+
+The runner stages the non-secret immutable binary with mode `0755` inside the
+API-owned `GATE_AGENT_RELEASE_DIR`; the API remains unprivileged and verifies
+the registered metadata and SHA-256 again before serving it to a gate.
 
 The managed rollout processes one canary to a terminal `succeeded` state before
 requesting any remaining gate. A gate is temporarily excluded from new session
