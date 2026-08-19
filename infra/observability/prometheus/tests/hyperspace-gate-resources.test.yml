@@ -28,14 +28,14 @@ tests:
               summary: Hyperspace gate-agent deployment is stalled
               description: Gate gate-eu-lon-01 has remained in verifying for more than 10 minutes while deploying release 0.2.2 (aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa).
 
-  - name: failed gate agent deployment remains critical until superseded
+  - name: gate agent installation failure is classified and remains critical
     interval: 15s
     input_series:
-      - series: 'hyperspace_control_plane_gate_agent_deployment_latest_status{job="hyperspace-control-plane-worker",cluster="mainnet",gate="gate-eu-lon-01",phase="failed",release_version="0.2.2",release_revision="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",artifact_sha256="bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",probe_host="gate-eu-lon-01.hyperspace.zone",public_ipv4="192.0.2.10"}'
+      - series: 'hyperspace_control_plane_gate_agent_deployment_failure_info{job="hyperspace-control-plane-worker",cluster="mainnet",gate="gate-eu-lon-01",phase="failed",release_version="0.2.2",release_revision="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",artifact_sha256="bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",probe_host="gate-eu-lon-01.hyperspace.zone",public_ipv4="192.0.2.10",failure_class="installation",failure_code="agent_release_download_failed"}'
         values: '1x10'
     alert_rule_test:
       - eval_time: 2m15s
-        alertname: HyperspaceGateAgentDeploymentFailed
+        alertname: HyperspaceGateAgentInstallationFailed
         exp_alerts:
           - exp_labels:
               severity: critical
@@ -48,9 +48,60 @@ tests:
               artifact_sha256: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
               probe_host: gate-eu-lon-01.hyperspace.zone
               public_ipv4: 192.0.2.10
+              failure_class: installation
+              failure_code: agent_release_download_failed
             exp_annotations:
-              summary: Hyperspace gate-agent deployment failed
-              description: The latest gate-agent deployment on gate-eu-lon-01 failed for release 0.2.2 (aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa); review deployment history before retrying.
+              summary: Hyperspace gate-agent installation failed
+              description: Gate gate-eu-lon-01 could not install release 0.2.2 (aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa); failure code is agent_release_download_failed.
+
+  - name: gate agent post install validation failure is critical
+    interval: 15s
+    input_series:
+      - series: 'hyperspace_control_plane_gate_agent_deployment_failure_info{job="hyperspace-control-plane-worker",cluster="mainnet",gate="gate-eu-lon-01",phase="rolled_back",release_version="0.2.2",release_revision="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",artifact_sha256="bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",probe_host="gate-eu-lon-01.hyperspace.zone",public_ipv4="192.0.2.10",failure_class="validation",failure_code="post_install_self_test_failed"}'
+        values: '1x10'
+    alert_rule_test:
+      - eval_time: 2m15s
+        alertname: HyperspaceGateAgentPostInstallValidationFailed
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: hyperspace-control-plane-worker
+              cluster: mainnet
+              gate: gate-eu-lon-01
+              phase: rolled_back
+              release_version: 0.2.2
+              release_revision: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+              artifact_sha256: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+              probe_host: gate-eu-lon-01.hyperspace.zone
+              public_ipv4: 192.0.2.10
+              failure_class: validation
+              failure_code: post_install_self_test_failed
+            exp_annotations:
+              summary: Hyperspace gate-agent post-install validation failed
+              description: Gate gate-eu-lon-01 did not validate release 0.2.2 (aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa); failure code is post_install_self_test_failed.
+
+  - name: gate agent rollback is critical until a later deployment supersedes it
+    interval: 15s
+    input_series:
+      - series: 'hyperspace_control_plane_gate_agent_deployment_latest_status{job="hyperspace-control-plane-worker",cluster="mainnet",gate="gate-eu-lon-01",phase="rolled_back",release_version="0.2.2",release_revision="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",artifact_sha256="bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",probe_host="gate-eu-lon-01.hyperspace.zone",public_ipv4="192.0.2.10"}'
+        values: '1x6'
+    alert_rule_test:
+      - eval_time: 1m15s
+        alertname: HyperspaceGateAgentRollbackRequired
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: hyperspace-control-plane-worker
+              cluster: mainnet
+              gate: gate-eu-lon-01
+              release_version: 0.2.2
+              release_revision: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+              artifact_sha256: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+              probe_host: gate-eu-lon-01.hyperspace.zone
+              public_ipv4: 192.0.2.10
+            exp_annotations:
+              summary: Hyperspace gate-agent rollback was required
+              description: Gate gate-eu-lon-01 required rollback while deploying release 0.2.2 (aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa); inspect deployment history and the restored artifact before retrying.
 
   - name: stale control-plane snapshot is reported independently of worker scrape health
     interval: 15s
@@ -120,47 +171,139 @@ tests:
               summary: Gate benchmark route data is stale
               description: Route gate-eu-lon-01 -> gate-na-mia-71 has public benchmark data older than 15 minutes.
 
-  - name: observability node exporter outage is critical
+  - name: service host node exporter outage is critical
     interval: 15s
     input_series:
-      - series: 'up{job="hyperspace-observability-node",cluster="mainnet",role="observability",instance="127.0.0.1:9100"}'
+      - series: 'up{job="hyperspace-host-node",cluster="mainnet",role="observability",service_host="observability.hyperspace.zone",service_ipv4="84.32.83.71",instance="127.0.0.1:9100"}'
         values: '0x10'
     alert_rule_test:
       - eval_time: 2m15s
-        alertname: HyperspaceObservabilityNodeExporterDown
+        alertname: HyperspaceHostNodeExporterDown
         exp_alerts:
           - exp_labels:
               severity: critical
-              job: hyperspace-observability-node
+              job: hyperspace-host-node
               cluster: mainnet
               role: observability
+              service_host: observability.hyperspace.zone
+              service_ipv4: 84.32.83.71
               instance: 127.0.0.1:9100
             exp_annotations:
-              summary: Hyperspace observability host metrics scrape is down
-              description: Prometheus cannot scrape its local observability node exporter for 2 minutes, so host disk capacity is no longer monitored.
+              summary: Hyperspace service host metrics scrape is down
+              description: Prometheus cannot scrape node exporter on the observability host observability.hyperspace.zone for 2 minutes.
 
-  - name: observability root filesystem low space is critical
+  - name: service host root filesystem low space is critical
     interval: 15s
     input_series:
-      - series: 'node_filesystem_avail_bytes{job="hyperspace-observability-node",cluster="mainnet",role="observability",instance="127.0.0.1:9100",mountpoint="/",fstype="ext4"}'
-        values: '3000000000x22'
-      - series: 'node_filesystem_size_bytes{job="hyperspace-observability-node",cluster="mainnet",role="observability",instance="127.0.0.1:9100",mountpoint="/",fstype="ext4"}'
+      - series: 'node_filesystem_avail_bytes{job="hyperspace-host-node",cluster="mainnet",role="observability",service_host="observability.hyperspace.zone",service_ipv4="84.32.83.71",instance="127.0.0.1:9100",mountpoint="/",fstype="ext4"}'
+        values: '800000000x22'
+      - series: 'node_filesystem_size_bytes{job="hyperspace-host-node",cluster="mainnet",role="observability",service_host="observability.hyperspace.zone",service_ipv4="84.32.83.71",instance="127.0.0.1:9100",mountpoint="/",fstype="ext4"}'
         values: '42949672960x22'
     alert_rule_test:
       - eval_time: 5m15s
-        alertname: HyperspaceObservabilityRootFilesystemCritical
+        alertname: HyperspaceHostRootFilesystemCritical
         exp_alerts:
           - exp_labels:
               severity: critical
-              job: hyperspace-observability-node
+              job: hyperspace-host-node
               cluster: mainnet
               role: observability
+              service_host: observability.hyperspace.zone
+              service_ipv4: 84.32.83.71
               instance: 127.0.0.1:9100
               mountpoint: /
               fstype: ext4
             exp_annotations:
-              summary: Hyperspace observability root filesystem is critically full
-              description: Observability host 127.0.0.1:9100 in mainnet has less than 15% or 4GiB available on /; Prometheus may stop ingesting metrics and emitting alerts.
+              summary: Hyperspace service host root filesystem is critically full
+              description: The observability host observability.hyperspace.zone has less than 5% or 1GiB available on /.
+
+  - name: PostgreSQL exporter outage is critical
+    interval: 15s
+    input_series:
+      - series: 'up{job="hyperspace-postgresql",cluster="staging",role="postgresql",service_host="db.staging.hyperspace.zone",service_ipv4="84.32.97.140",instance="10.179.228.4:9187"}'
+        values: '0x10'
+    alert_rule_test:
+      - eval_time: 2m15s
+        alertname: HyperspacePostgreSQLDown
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: hyperspace-postgresql
+              cluster: staging
+              role: postgresql
+              service_host: db.staging.hyperspace.zone
+              service_ipv4: 84.32.97.140
+              instance: 10.179.228.4:9187
+            exp_annotations:
+              summary: Hyperspace PostgreSQL metrics scrape is down
+              description: Prometheus cannot scrape postgres_exporter on db.staging.hyperspace.zone for 2 minutes.
+
+  - name: missing PostgreSQL backup is critical
+    interval: 1m
+    input_series:
+      - series: 'hyperspace_postgres_backup_last_success_timestamp_seconds{job="hyperspace-host-node",cluster="testnet",role="postgresql",service_host="db.testnet.hyperspace.zone",service_ipv4="81.27.100.29",instance="81.27.100.29:9100"}'
+        values: '0x32'
+    alert_rule_test:
+      - eval_time: 31m
+        alertname: HyperspacePostgreSQLBackupMissing
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: hyperspace-host-node
+              cluster: testnet
+              role: postgresql
+              service_host: db.testnet.hyperspace.zone
+              service_ipv4: 81.27.100.29
+              instance: 81.27.100.29:9100
+            exp_annotations:
+              summary: Hyperspace PostgreSQL backup is missing
+              description: No PostgreSQL custom-format dump is visible on db.testnet.hyperspace.zone.
+
+  - name: public HTTP probe outage is critical
+    interval: 15s
+    input_series:
+      - series: 'probe_success{job="hyperspace-blackbox-http",cluster="mainnet",role="web",probe_name="app-home",service_host="app.hyperspace.zone",service_ipv4="84.32.83.69",instance="https://app.hyperspace.zone/"}'
+        values: '0x10'
+    alert_rule_test:
+      - eval_time: 2m15s
+        alertname: HyperspaceBlackboxHttpDown
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: hyperspace-blackbox-http
+              cluster: mainnet
+              role: web
+              probe_name: app-home
+              service_host: app.hyperspace.zone
+              service_ipv4: 84.32.83.69
+              instance: https://app.hyperspace.zone/
+            exp_annotations:
+              summary: Hyperspace public HTTP probe is failing
+              description: Probe app-home for app.hyperspace.zone has failed for 2 minutes.
+
+  - name: expiring TLS certificate emits warning
+    interval: 15s
+    input_series:
+      - series: 'probe_ssl_earliest_cert_expiry{job="hyperspace-blackbox-http",cluster="mainnet",role="web",probe_name="app-home",service_host="app.hyperspace.zone",service_ipv4="84.32.83.69",instance="https://app.hyperspace.zone/"}'
+        values: '1100000x370'
+      - series: 'probe_success{job="hyperspace-blackbox-http",cluster="mainnet",role="web",probe_name="app-home",service_host="app.hyperspace.zone",service_ipv4="84.32.83.69",instance="https://app.hyperspace.zone/"}'
+        values: '1x370'
+    alert_rule_test:
+      - eval_time: 1h30m
+        alertname: HyperspaceTlsCertificateExpiring
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: hyperspace-blackbox-http
+              cluster: mainnet
+              role: web
+              probe_name: app-home
+              service_host: app.hyperspace.zone
+              service_ipv4: 84.32.83.69
+              instance: https://app.hyperspace.zone/
+            exp_annotations:
+              summary: Hyperspace TLS certificate expires within 14 days
+              description: The TLS certificate checked by app-home for app.hyperspace.zone expires within 14 days.
 
   - name: low absolute memory fires critical even above ten percent
     interval: 15s

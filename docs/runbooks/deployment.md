@@ -1507,6 +1507,67 @@ export OBSERVABILITY_DOMAIN=observability.testnet.hyperspace.zone
 export HS_REPO_DIR=/opt/2z-wireguard-vpn
 ```
 
+### Service host and PostgreSQL exporters
+
+Every cluster monitors only its own web, control-plane, PostgreSQL, and
+observability VMs. Prefer a private scrape address; use a public address only
+when the cluster has no private network. The installer binds node exporter to
+that address and permits TCP/9100 only from the same cluster's observability
+source address.
+
+Current scrape inventory:
+
+| Cluster | Role | Scrape address | Public access label | Observability source |
+| --- | --- | --- | --- | --- |
+| mainnet | web | `10.179.228.36` | `app.hyperspace.zone` / `84.32.83.69` | `10.179.228.19` |
+| mainnet | control-plane | `10.179.228.41` | `control-plane.hyperspace.zone` / `5.199.161.13` | `10.179.228.19` |
+| mainnet | PostgreSQL | `10.179.228.12` | `db.hyperspace.zone` / `84.32.51.45` | `10.179.228.19` |
+| testnet | web | `212.147.234.79` | `app.testnet.hyperspace.zone` / `212.147.234.79` | `81.27.101.158` |
+| testnet | control-plane | `81.27.100.130` | `control-plane.testnet.hyperspace.zone` / `81.27.100.130` | `81.27.101.158` |
+| testnet | PostgreSQL | `81.27.100.29` | `db.testnet.hyperspace.zone` / `81.27.100.29` | `81.27.101.158` |
+| staging | web | `10.179.228.40` | `app.staging.hyperspace.zone` / `84.32.25.11` | `10.179.228.54` |
+| staging | control-plane | `10.179.228.44` | `control-plane.staging.hyperspace.zone` / `84.32.83.198` | `10.179.228.54` |
+| staging | PostgreSQL | `10.179.228.4` | `db.staging.hyperspace.zone` / `84.32.97.140` | `10.179.228.54` |
+
+Run on each web, control-plane, and PostgreSQL VM from its repository checkout:
+
+```bash
+scripts/observability/install-service-node-exporter \
+  --listen-ip "$HOST_SCRAPE_IPV4" \
+  --observability-ip "$CLUSTER_OBSERVABILITY_SOURCE_IPV4"
+```
+
+Run additionally on the PostgreSQL VM:
+
+```bash
+scripts/observability/install-postgres-monitoring \
+  --listen-ip "$HOST_SCRAPE_IPV4" \
+  --observability-ip "$CLUSTER_OBSERVABILITY_SOURCE_IPV4" \
+  --database hyperspace
+```
+
+`postgres_exporter` authenticates over the local Unix socket as a dedicated
+`prometheus` role with `pg_monitor`; no database password is stored. The local
+textfile collector exports connection utilization, longest transaction,
+autovacuum backlog, oldest XID, database size, WAL size, and latest dump age.
+TCP/9187 is restricted like TCP/9100. TCP/5432 is admitted from the local
+observability host for the blackbox TCP handshake while existing application
+access remains unchanged.
+
+Install and verify the daily backup timer on a new DB VM before accepting users:
+
+```bash
+scripts/db/install-backup
+systemctl status hyperspace-db-backup.timer
+systemctl start hyperspace-postgres-health-exporter.service
+grep '^hyperspace_postgres_backup_' \
+  /var/lib/node_exporter/textfile_collector/hyperspace_postgres_health.prom
+```
+
+Do not start a local production dump when free disk cannot hold the dump plus
+PostgreSQL working space. Add backup storage first. Until a verified dump is
+visible, `HyperspacePostgreSQLBackupMissing` intentionally remains critical.
+
 For a small observability host, provision swap once:
 
 ```bash
@@ -1531,7 +1592,7 @@ Install Prometheus, Alertmanager, Grafana, and Caddy:
 ```bash
 apt-get update
 apt-get install -y prometheus prometheus-alertmanager prometheus-node-exporter \
-  caddy gettext-base jq \
+  prometheus-blackbox-exporter caddy gettext-base jq \
   apt-transport-https software-properties-common wget gpg
 
 install -d -m 0755 /etc/apt/keyrings
@@ -1546,6 +1607,8 @@ Provision Prometheus rules, Grafana datasource, and dashboard:
 
 ```bash
 install -d -m 0755 /etc/prometheus/rules
+install -m 0644 "$HS_REPO_DIR/infra/observability/blackbox/blackbox.yml" \
+  /etc/prometheus/blackbox.yml
 install -m 0644 "$HS_REPO_DIR/infra/observability/prometheus/prometheus.${HS_CLUSTER}.yml" \
   /etc/prometheus/prometheus.yml
 install -m 0644 "$HS_REPO_DIR/infra/observability/prometheus/rules/hyperspace-alerts.yml" \
@@ -1566,7 +1629,7 @@ install -o grafana -g grafana -m 0644 "$HS_REPO_DIR/infra/observability/grafana/
 
 Prometheus must scrape the observability host itself so low disk space is
 reported before TSDB writes and alert evaluation fail. The cluster Prometheus
-configuration includes a local `hyperspace-observability-node` target at
+configuration includes the observability role in `hyperspace-host-node` at
 `127.0.0.1:9100`; enable its node exporter during every observability-host
 deployment:
 
@@ -1578,17 +1641,36 @@ curl -fsS http://127.0.0.1:9100/metrics >/dev/null
 The self-monitoring rules are critical and route through the normal critical
 Alertmanager receivers:
 
-- `HyperspaceObservabilityNodeExporterDown` fires after the local exporter is
+- `HyperspaceHostNodeExporterDown` fires after any service-host exporter is
   unavailable for two minutes.
-- `HyperspaceObservabilityRootFilesystemCritical` fires when `/` has less than
-  15% or 4 GiB available for five minutes and keeps firing for 30 minutes.
+- `HyperspaceHostRootFilesystemPressure` warns below 15% or 4 GiB free.
+- `HyperspaceHostRootFilesystemCritical` fires below 5% or 1 GiB free and
+  keeps firing for 30 minutes.
+- The same host job covers inode, RAM, OOM-kill, and sustained CPU pressure.
 
 Keep enough free space for TSDB compaction. A mainnet observability host should
 have at least 40 GiB of root storage for 30-day retention; use shorter retention
 or size-based retention when projected TSDB usage plus at least 20% compaction
 headroom does not fit. Because a fully exhausted disk can prevent Prometheus
 from emitting its own alert, retain an external readiness/dead-man check in
-addition to these early-warning rules.
+addition to these early-warning rules. A fully powered-off observability VM
+cannot notify through its own Prometheus and Alertmanager; without
+cross-cluster monitoring this is the one unavoidable blind spot.
+
+### Blackbox and PostgreSQL alerts
+
+`scripts/observability/install-gate-discovery` installs and starts blackbox
+exporter. The cluster Prometheus configuration probes its own app home page,
+app `/api/health`, direct control-plane `/health`, and PostgreSQL TCP/5432.
+HTTPS probes also export certificate expiry. Alerts cover HTTP/TCP failure and
+TLS expiry at 14-day warning and 3-day critical thresholds.
+
+PostgreSQL alerts cover postgres exporter loss, 80%/95% connection pressure,
+5/30-minute transactions, sustained autovacuum backlog, transaction-ID age,
+24-hour database growth, 4/8-GiB WAL pressure, collector staleness, and
+36/72-hour backup age. All host, PostgreSQL, and blackbox targets include
+`role`, `service_host`, and `service_ipv4`; Telegram therefore names the exact
+VM to inspect.
 
 ### Gate host resource alerts
 
@@ -1723,8 +1805,12 @@ install -m 0644 "$HS_REPO_DIR/infra/observability/alertmanager/templates/telegra
 install -m 0640 -o root -g prometheus /dev/null /etc/prometheus/telegram_bot_token
 printf '%s\n' "$TELEGRAM_BOT_TOKEN" >/etc/prometheus/telegram_bot_token
 
-install -m 0640 -o root -g prometheus \
-  "$HS_REPO_DIR/infra/observability/alertmanager/telegram-receivers.example.json" \
+if [[ "$HS_CLUSTER" == staging ]]; then
+  RECEIVER_EXAMPLE="$HS_REPO_DIR/infra/observability/alertmanager/telegram-receivers.staging.example.json"
+else
+  RECEIVER_EXAMPLE="$HS_REPO_DIR/infra/observability/alertmanager/telegram-receivers.example.json"
+fi
+install -m 0640 -o root -g prometheus "$RECEIVER_EXAMPLE" \
   /etc/prometheus/alertmanager_telegram_receivers.json
 nano /etc/prometheus/alertmanager_telegram_receivers.json
 
@@ -1794,8 +1880,9 @@ Start services and validate:
 
 ```bash
 systemctl daemon-reload
-systemctl enable --now prometheus prometheus-alertmanager prometheus-node-exporter grafana-server caddy
-systemctl restart prometheus prometheus-alertmanager grafana-server caddy
+systemctl enable --now prometheus prometheus-alertmanager prometheus-node-exporter \
+  prometheus-blackbox-exporter grafana-server caddy
+systemctl restart prometheus prometheus-alertmanager prometheus-blackbox-exporter grafana-server caddy
 
 promtool check config /etc/prometheus/prometheus.yml
 promtool check rules /etc/prometheus/rules/hyperspace-alerts.yml
@@ -1804,7 +1891,7 @@ amtool check-config /etc/prometheus/alertmanager.yml
 curl -fsS "http://127.0.0.1:9090/-/ready"
 curl -fsS "http://127.0.0.1:9093/-/ready"
 curl -fsSG "http://127.0.0.1:9090/api/v1/query" \
-  --data-urlencode 'query=up{job="hyperspace-observability-node"}' \
+  --data-urlencode 'query=up{job="hyperspace-host-node",role="observability"}' \
   | jq -e '.data.result | length == 1 and .[0].value[1] == "1"'
 curl -fsS "http://127.0.0.1:3000/api/health"
 curl -fsS "https://${OBSERVABILITY_DOMAIN}/api/health"

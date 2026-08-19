@@ -1,0 +1,13 @@
+[Unit]
+Description=Restrict Hyperspace monitoring ports to the cluster observability host
+Wants=network-online.target
+After=network-online.target ufw.service
+Before=prometheus-node-exporter.service prometheus-postgres-exporter.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/hyperspace-monitoring-firewall
+RemainAfterExit=true
+
+[Install]
+WantedBy=multi-user.target

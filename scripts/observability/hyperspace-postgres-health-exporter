@@ -1,0 +1,73 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+database="${HS_POSTGRES_DATABASE:-hyperspace}"
+backup_dir="${HS_DB_BACKUP_DIR:-/var/backups/hyperspace}"
+metrics_dir="${HS_POSTGRES_METRICS_DIR:-/var/lib/node_exporter/textfile_collector}"
+output="${metrics_dir}/hyperspace_postgres_health.prom"
+tmp="$(mktemp "${metrics_dir}/.hyperspace_postgres_health.XXXXXX")"
+trap 'test ! -e "$tmp" || unlink "$tmp"' EXIT
+
+IFS=$'\t' read -r connections max_connections longest_transaction tables_requiring_vacuum oldest_xid_age autovacuum_workers database_size wal_size < <(
+  psql --dbname="$database" --no-psqlrc --tuples-only --no-align --field-separator=$'\t' --command="
+    SELECT
+      count(*) FILTER (WHERE backend_type = 'client backend'),
+      current_setting('max_connections')::bigint,
+      COALESCE(max(EXTRACT(EPOCH FROM clock_timestamp() - xact_start))
+        FILTER (WHERE xact_start IS NOT NULL AND state <> 'idle'), 0)::bigint,
+      (SELECT count(*) FROM pg_stat_user_tables
+        WHERE n_dead_tup > GREATEST(1000, n_live_tup * 0.20))::bigint,
+      COALESCE((SELECT max(age(relfrozenxid)) FROM pg_class
+        WHERE relkind IN ('r', 'm')), 0)::bigint,
+      count(*) FILTER (WHERE backend_type = 'autovacuum worker'),
+      pg_database_size(current_database()),
+      COALESCE((SELECT sum(size) FROM pg_ls_waldir()), 0)
+    FROM pg_stat_activity;"
+)
+
+backup_timestamp=0
+backup_size=0
+latest_backup="$(find "$backup_dir" -maxdepth 1 -type f -name "${database}-*.dump" -printf '%T@\t%s\t%p\n' 2>/dev/null | sort -nr | head -n 1 || true)"
+if [[ -n "$latest_backup" ]]; then
+  IFS=$'\t' read -r backup_timestamp backup_size _ <<<"$latest_backup"
+  backup_timestamp="${backup_timestamp%%.*}"
+fi
+now="$(date +%s)"
+
+cat >"$tmp" <<EOF
+# HELP hyperspace_postgres_health_exporter_last_run_timestamp_seconds Unix timestamp of the latest successful PostgreSQL health collection.
+# TYPE hyperspace_postgres_health_exporter_last_run_timestamp_seconds gauge
+hyperspace_postgres_health_exporter_last_run_timestamp_seconds ${now}
+# HELP hyperspace_postgres_connections Current PostgreSQL client backend count.
+# TYPE hyperspace_postgres_connections gauge
+hyperspace_postgres_connections ${connections}
+# HELP hyperspace_postgres_max_connections Configured PostgreSQL max_connections.
+# TYPE hyperspace_postgres_max_connections gauge
+hyperspace_postgres_max_connections ${max_connections}
+# HELP hyperspace_postgres_longest_transaction_seconds Age of the longest active transaction.
+# TYPE hyperspace_postgres_longest_transaction_seconds gauge
+hyperspace_postgres_longest_transaction_seconds ${longest_transaction}
+# HELP hyperspace_postgres_tables_requiring_vacuum Tables whose dead tuple estimate exceeds the default autovacuum threshold.
+# TYPE hyperspace_postgres_tables_requiring_vacuum gauge
+hyperspace_postgres_tables_requiring_vacuum ${tables_requiring_vacuum}
+# HELP hyperspace_postgres_oldest_xid_age Oldest relation transaction ID age.
+# TYPE hyperspace_postgres_oldest_xid_age gauge
+hyperspace_postgres_oldest_xid_age ${oldest_xid_age}
+# HELP hyperspace_postgres_autovacuum_workers Active autovacuum workers.
+# TYPE hyperspace_postgres_autovacuum_workers gauge
+hyperspace_postgres_autovacuum_workers ${autovacuum_workers}
+# HELP hyperspace_postgres_database_size_bytes Current application database size.
+# TYPE hyperspace_postgres_database_size_bytes gauge
+hyperspace_postgres_database_size_bytes ${database_size}
+# HELP hyperspace_postgres_wal_size_bytes Current pg_wal directory size.
+# TYPE hyperspace_postgres_wal_size_bytes gauge
+hyperspace_postgres_wal_size_bytes ${wal_size}
+# HELP hyperspace_postgres_backup_last_success_timestamp_seconds Modification timestamp of the newest verified custom-format dump.
+# TYPE hyperspace_postgres_backup_last_success_timestamp_seconds gauge
+hyperspace_postgres_backup_last_success_timestamp_seconds ${backup_timestamp}
+# HELP hyperspace_postgres_backup_last_size_bytes Size of the newest custom-format dump.
+# TYPE hyperspace_postgres_backup_last_size_bytes gauge
+hyperspace_postgres_backup_last_size_bytes ${backup_size}
+EOF
+chmod 0644 "$tmp"
+mv "$tmp" "$output"

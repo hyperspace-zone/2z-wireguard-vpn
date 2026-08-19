@@ -41,6 +41,8 @@ Gate access:
 {{ end -}}
 {{ else if or .Labels.service_host .Labels.service_ipv4 -}}
 Service access:
+{{ if .Labels.role }}role <code>{{ .Labels.role | html }}</code>
+{{ end -}}
 {{ if .Labels.service_host }}host <code>{{ .Labels.service_host | html }}</code>
 {{ end -}}
 {{ if .Labels.service_ipv4 }}ip <code>{{ .Labels.service_ipv4 | html }}</code>

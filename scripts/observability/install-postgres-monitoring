@@ -1,0 +1,84 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat >&2 <<'EOF'
+usage: install-postgres-monitoring --listen-ip IPV4 --observability-ip IPV4 [--database NAME]
+
+Run as root on the PostgreSQL VM after install-service-node-exporter. Installs
+postgres_exporter plus Hyperspace database, WAL, autovacuum, transaction, and
+backup-age textfile metrics without storing a database password.
+EOF
+}
+
+[[ "${EUID:-$(id -u)}" -eq 0 ]] || { echo "run as root" >&2; exit 2; }
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+listen_ip=""
+observability_ip=""
+database="hyperspace"
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --listen-ip) listen_ip="${2:-}"; shift 2 ;;
+    --observability-ip) observability_ip="${2:-}"; shift 2 ;;
+    --database) database="${2:-}"; shift 2 ;;
+    -h|--help) usage; exit 0 ;;
+    *) echo "unknown argument: $1" >&2; usage; exit 2 ;;
+  esac
+done
+[[ "$listen_ip" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] || { usage; exit 2; }
+[[ "$observability_ip" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] || { usage; exit 2; }
+[[ "$database" =~ ^[A-Za-z_][A-Za-z0-9_-]*$ ]] || { echo "invalid database name" >&2; exit 2; }
+ip -4 address show | grep -Fq "inet ${listen_ip}/" || {
+  echo "--listen-ip is not assigned to this host: $listen_ip" >&2
+  exit 2
+}
+
+apt-get update
+apt-get install -y prometheus-postgres-exporter
+sudo -u postgres psql --no-psqlrc --set=ON_ERROR_STOP=1 <<'SQL'
+DO $block$
+BEGIN
+  IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'prometheus') THEN
+    CREATE ROLE prometheus LOGIN;
+  END IF;
+END
+$block$;
+GRANT pg_monitor TO prometheus;
+SQL
+
+install -d -o root -g root -m 0755 /etc/hyperspace /usr/local/sbin
+install -d -o root -g postgres -m 0775 /var/lib/node_exporter/textfile_collector
+install -m 0755 "$repo_root/scripts/observability/hyperspace-postgres-health-exporter" \
+  /usr/local/sbin/hyperspace-postgres-health-exporter
+install -m 0644 "$repo_root/infra/observability/systemd/hyperspace-postgres-health-exporter.service" \
+  /etc/systemd/system/hyperspace-postgres-health-exporter.service
+install -m 0644 "$repo_root/infra/observability/systemd/hyperspace-postgres-health-exporter.timer" \
+  /etc/systemd/system/hyperspace-postgres-health-exporter.timer
+
+cat >/etc/default/prometheus-postgres-exporter <<EOF
+DATA_SOURCE_NAME='user=prometheus host=/run/postgresql dbname=${database} sslmode=disable'
+ARGS='--web.listen-address=${listen_ip}:9187'
+EOF
+cat >/etc/hyperspace/postgres-monitoring.env <<EOF
+HS_POSTGRES_DATABASE=${database}
+HS_DB_BACKUP_DIR=/var/backups/hyperspace
+HS_POSTGRES_METRICS_DIR=/var/lib/node_exporter/textfile_collector
+EOF
+chmod 0644 /etc/hyperspace/postgres-monitoring.env
+
+cat >/etc/hyperspace/monitoring-firewall.env <<EOF
+OBSERVABILITY_IPV4=${observability_ip}
+MONITORING_PORTS="9100 9187"
+MONITORING_PROBE_PORTS="5432"
+EOF
+chmod 0644 /etc/hyperspace/monitoring-firewall.env
+
+systemctl daemon-reload
+systemctl restart hyperspace-monitoring-firewall.service
+systemctl enable --now prometheus-postgres-exporter
+systemctl restart prometheus-postgres-exporter
+systemctl enable --now hyperspace-postgres-health-exporter.timer
+systemctl start hyperspace-postgres-health-exporter.service
+
+curl -fsS "http://${listen_ip}:9187/metrics" | grep -q '^pg_up 1'
+curl -fsS "http://${listen_ip}:9100/metrics" | grep -q '^hyperspace_postgres_database_size_bytes '
