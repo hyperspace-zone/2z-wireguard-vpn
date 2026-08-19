@@ -341,7 +341,7 @@ func executeDeployAgentJob(client *http.Client, cfg config, item job) jobResult 
 	if err != nil {
 		return failed("agent_release_metadata_invalid", err)
 	}
-	if metadata.Version != payload.Version || metadata.Revision != payload.Revision || metadata.BuiltAt != payload.BuiltAt || metadata.ArtifactSHA256 != payload.ArtifactSHA256 {
+	if metadata.Version != payload.Version || metadata.Revision != payload.Revision || !sameBuildTimestamp(metadata.BuiltAt, payload.BuiltAt) || metadata.ArtifactSHA256 != payload.ArtifactSHA256 {
 		return failed("agent_release_metadata_mismatch", fmt.Errorf("candidate build metadata does not match registered release %s", payload.ReleaseID))
 	}
 	if output, err := exec.Command(candidatePath, "--self-test").CombinedOutput(); err != nil {
@@ -375,6 +375,12 @@ func executeDeployAgentJob(client *http.Client, cfg config, item job) jobResult 
 			"activationScheduled": true,
 		},
 	}
+}
+
+func sameBuildTimestamp(left string, right string) bool {
+	leftTime, leftErr := time.Parse(time.RFC3339Nano, left)
+	rightTime, rightErr := time.Parse(time.RFC3339Nano, right)
+	return leftErr == nil && rightErr == nil && leftTime.Equal(rightTime)
 }
 
 func executeRollbackAgentJob(cfg config, item job) jobResult {

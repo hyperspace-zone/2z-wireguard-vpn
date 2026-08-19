@@ -474,6 +474,18 @@ func TestReleaseFailureCapabilityReportsValidatedLocalRollbackCause(t *testing.T
 	}
 }
 
+func TestSameBuildTimestampAcceptsEquivalentPostgresSerialization(t *testing.T) {
+	if !sameBuildTimestamp("2026-08-19T09:49:29Z", "2026-08-19T09:49:29.000Z") {
+		t.Fatal("equivalent RFC3339 timestamps were rejected")
+	}
+	if sameBuildTimestamp("2026-08-19T09:49:29Z", "2026-08-19T09:49:30Z") {
+		t.Fatal("different build timestamps were accepted")
+	}
+	if sameBuildTimestamp("unknown", "2026-08-19T09:49:29Z") {
+		t.Fatal("invalid build timestamp was accepted")
+	}
+}
+
 func TestDownloadGateAgentReleaseAuthenticatesAndVerifiesArtifact(t *testing.T) {
 	artifact := []byte("immutable-gate-agent-artifact")
 	digest := sha256.Sum256(artifact)
