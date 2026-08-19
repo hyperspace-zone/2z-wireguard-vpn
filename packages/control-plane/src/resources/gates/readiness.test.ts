@@ -55,6 +55,19 @@ test("gate is ready but not DoubleZero-ready when DoubleZero BGP session is down
   assert.equal(readiness.doubleZeroReason, "DoubleZeroTunnelDown");
 });
 
+test("gate is not DoubleZero-ready while its current device is drained even if BGP is still up", () => {
+  const readiness = evaluateGateReadiness({
+    capabilities: readyCapabilities,
+    doubleZero: { ...readyDoubleZero, currentDeviceStatus: "drained" },
+    publicIpv4: "203.0.113.10",
+    doubleZeroEnv: "testnet",
+    hostReady: true
+  });
+  assert.equal(readiness.ready, true);
+  assert.equal(readiness.doubleZeroReady, false);
+  assert.equal(readiness.doubleZeroReason, "DoubleZeroDeviceDrained");
+});
+
 test("gate is ready but not DoubleZero-ready when DoubleZero environment mismatches catalog", () => {
   const readiness = evaluateGateReadiness({
     capabilities: readyCapabilities,

@@ -28,6 +28,7 @@ export async function reconcileGateAgentDeployments(
       && row.observedArtifactSha256 === row.previousArtifactSha256
     );
     const selfTestPassed = row.observedCapabilities.includes("agent-artifact-self-test:passed");
+    const doubleZeroRecoverySelfTestPassed = row.observedCapabilities.includes("doublezero-recovery:v1");
     const heartbeatAfterStage = Boolean(
       row.lastSeenAt
       && (!row.stagedAt || new Date(row.lastSeenAt).getTime() >= new Date(row.stagedAt).getTime())
@@ -38,6 +39,7 @@ export async function reconcileGateAgentDeployments(
       ["staging", "verifying"].includes(row.phase)
       && targetObserved
       && selfTestPassed
+      && doubleZeroRecoverySelfTestPassed
       && heartbeatAfterStage
       && row.agentConnected
     ) {

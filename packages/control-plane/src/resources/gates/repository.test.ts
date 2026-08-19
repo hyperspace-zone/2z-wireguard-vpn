@@ -32,7 +32,7 @@ test("gate heartbeat records a DoubleZero BGP status transition as an audit even
   const db: Queryable = {
     async query<Row extends object>(sql: string, params: readonly unknown[] = []) {
       calls.push({ sql, params });
-      if (/SELECT NULLIF\(BTRIM\(doublezero_status/.test(sql)) {
+      if (/SELECT\s+NULLIF\(BTRIM\(doublezero_status/.test(sql)) {
         return { rows: [{ tunnelStatus: "BGP Session Up" }] as Row[], rowCount: 1 };
       }
       return { rows: [] as Row[], rowCount: 1 };
@@ -83,7 +83,7 @@ test("gate heartbeat does not duplicate an audit event while BGP status is uncha
   const db: Queryable = {
     async query<Row extends object>(sql: string, params: readonly unknown[] = []) {
       calls.push({ sql, params });
-      if (/SELECT NULLIF\(BTRIM\(doublezero_status/.test(sql)) {
+      if (/SELECT\s+NULLIF\(BTRIM\(doublezero_status/.test(sql)) {
         return { rows: [{ tunnelStatus: "BGP Session Down" }] as Row[], rowCount: 1 };
       }
       return { rows: [] as Row[], rowCount: 1 };
@@ -93,4 +93,47 @@ test("gate heartbeat does not duplicate an audit event while BGP status is uncha
   await saveGateHeartbeatStatus(db, heartbeat);
 
   assert.equal(calls.some((call) => call.sql.includes("gate_doublezero_tunnel_status_changed")), false);
+});
+
+test("gate heartbeat records a completed DoubleZero recovery once", async () => {
+  const calls: Array<{ sql: string; params: readonly unknown[] }> = [];
+  const db: Queryable = {
+    async query<Row extends object>(sql: string, params: readonly unknown[] = []) {
+      calls.push({ sql, params });
+      if (/SELECT\s+NULLIF\(BTRIM\(doublezero_status/.test(sql)) {
+        return {
+          rows: [{ tunnelStatus: "BGP Session Down", recoveryCompletedAt: null }] as Row[],
+          rowCount: 1
+        };
+      }
+      return { rows: [] as Row[], rowCount: 1 };
+    }
+  };
+  const completedAt = "2026-08-19T12:05:00Z";
+
+  await saveGateHeartbeatStatus(db, {
+    ...heartbeat,
+    doubleZeroStatus: {
+      ...heartbeat.doubleZeroStatus,
+      recoveryAttemptedAt: "2026-08-19T12:00:00Z",
+      recoveryCompletedAt: completedAt,
+      recoveryLastOutcome: "failed",
+      recoveryLastStage: "verification_failed",
+      recoveryReason: "automatic_reconnect_failed_cooldown",
+      recoveryBeforeDevice: "laconic-mia-sw01",
+      recoveryAfterDevice: "laconic-mia-sw01"
+    }
+  });
+
+  const audit = calls.find((call) => call.sql.includes("gate_doublezero_recovery_completed"));
+  assert.ok(audit);
+  assert.deepEqual(JSON.parse(String(audit.params[1])), {
+    attemptedAt: "2026-08-19T12:00:00Z",
+    completedAt,
+    outcome: "failed",
+    stage: "verification_failed",
+    reason: "automatic_reconnect_failed_cooldown",
+    beforeDevice: "laconic-mia-sw01",
+    afterDevice: "laconic-mia-sw01"
+  });
 });

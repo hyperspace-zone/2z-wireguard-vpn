@@ -34,6 +34,17 @@ export function evaluateGateReadiness(input: {
       doubleZeroMessage: "doublezero0 is not up"
     };
   }
+  const currentDeviceStatus = readString(input.doubleZero, "currentDeviceStatus").toLowerCase();
+  if (currentDeviceStatus === "drained") {
+    return {
+      ready: true,
+      reason: "HostReady",
+      message: "Gate agent heartbeat is fresh and required host tools are present",
+      doubleZeroReady: false,
+      doubleZeroReason: "DoubleZeroDeviceDrained",
+      doubleZeroMessage: "The current DoubleZero device is administratively drained"
+    };
+  }
   const tunnelStatus = readString(input.doubleZero, "tunnelStatus");
   if (tunnelStatus !== "BGP Session Up") {
     return {

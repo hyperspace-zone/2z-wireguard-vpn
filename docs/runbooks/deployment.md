@@ -1266,6 +1266,29 @@ artifact; rollback is retried up to three times. Release metadata and
 `HyperspaceGateAgentDeploymentFailed` are critical. They include gate access
 labels in Telegram, so a failed rollout cannot remain invisible for weeks.
 
+The gate-agent also protects an enabled gate from remaining attached to an
+administratively `drained` DoubleZero device. It reads the current device from
+`doublezero status`, confirms the on-chain device status with
+`doublezero device get --json`, and requires the drained condition to persist
+for at least two minutes. It then performs exactly one asynchronous
+`doublezero disconnect ibrl` / `doublezero connect ibrl` cycle while heartbeats
+continue, and verifies both `BGP Session Up` and installed BGP routes. The
+result, timestamps, previous/new device, and six-hour retry cooldown are
+persisted in `/var/lib/hyperspace-gate/doublezero-recovery.json` and reported in
+every heartbeat. Each new completion is also copied to the central audit log as
+`gate_doublezero_recovery_completed`. Healthy devices, transient observations, unknown device state,
+and ordinary non-drained BGP failures are never disconnected automatically.
+
+`HyperspaceEnabledGateDoubleZeroNotReady` is critical. Its Telegram text says
+whether guarded recovery already ran and failed, is running, or was not
+eligible and therefore needs operator inspection. Operators must not loop the
+disconnect/connect commands during the reported cooldown. Defaults can be
+overridden in `/etc/hyperspace/gate-agent.env` with
+`DOUBLEZERO_AUTO_RECOVERY`, `DOUBLEZERO_RECOVERY_CONFIRMATION`,
+`DOUBLEZERO_RECOVERY_COOLDOWN`, `DOUBLEZERO_RECOVERY_VERIFY_TIMEOUT`, and
+`DOUBLEZERO_KEYPAIR_PATH`; production defaults enable recovery, require two
+minutes of confirmation, and allow one attempt per six hours.
+
 Bootstrap installs HWE where available, DoubleZero, WireGuard, chrony, Caddy,
 node exporter, `vnstat`, `sysstat`, journald limits, the disk janitor and the
 resource exporter. It also derives the UDP/19192 gate allowlist from all

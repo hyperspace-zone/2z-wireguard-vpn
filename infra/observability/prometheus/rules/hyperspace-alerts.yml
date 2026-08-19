@@ -415,10 +415,26 @@ groups:
             (hyperspace_control_plane_gate_agent_connected{enabled="true"} == 1)
         for: 10m
         labels:
-          severity: warning
+          severity: critical
         annotations:
-          summary: Enabled Hyperspace gate DoubleZero readiness failed
-          description: Gate {{ $labels.gate }} is enabled but DoubleZero tunnel state is not ready.
+          summary: Enabled Hyperspace gate DoubleZero connectivity is unavailable
+          description: >-
+            Gate {{ $labels.gate }} is enabled but DoubleZero is not ready.
+            Current device={{ $labels.current_device }}, device status={{ $labels.current_device_status }},
+            recovery state={{ $labels.recovery_state }}, reason={{ $labels.recovery_reason }}.
+            {{ if and (eq $labels.recovery_last_outcome "failed") (eq $labels.recovery_last_stage "preflight_failed") }}The
+            automatic recovery could not start at {{ $labels.recovery_attempted_at }} because its
+            preflight failed. Inspect the keypair, CLI and gate-agent logs, then run the guarded
+            disconnect/connect procedure manually.{{ else if eq $labels.recovery_last_outcome "failed" }}The gate-agent already attempted
+            'doublezero disconnect ibrl' followed by 'doublezero connect ibrl' at
+            {{ $labels.recovery_attempted_at }}, but BGP and routes were not restored. Do not loop the
+            command before {{ $labels.recovery_next_eligible_at }}; inspect gate-agent/doublezerod logs
+            and escalate to DoubleZero if the device remains drained.{{ else if eq $labels.recovery_state "in_progress" }}The
+            gate-agent is currently executing the guarded disconnect/connect recovery; inspect its logs
+            if this alert does not resolve.{{ else }}Automatic recovery has not completed successfully.
+            Operator action: inspect the current device and gate-agent logs, then run
+            'doublezero disconnect ibrl' and 'doublezero connect ibrl' manually only if the automatic
+            safety guard did not run.{{ end }}
 
       - alert: HyperspaceGateNodeExporterDown
         expr: up{job="hyperspace-gate-node"} == 0
