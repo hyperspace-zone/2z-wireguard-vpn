@@ -368,6 +368,15 @@ groups:
           summary: Hyperspace control-plane metrics snapshot is stale
           description: The worker has not completed a control-plane metrics snapshot for more than one minute; business-state alerts may be delayed.
 
+      - alert: HyperspaceControlPlaneSnapshotSectionFailed
+        expr: hyperspace_control_plane_snapshot_section_ready == 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: Hyperspace control-plane snapshot section is failing
+          description: The {{ $labels.section }} business metrics section has failed for more than one minute; other worker metrics remain available.
+
       - alert: HyperspaceTooFewSchedulableGates
         expr: hyperspace_control_plane_gates_total{state="schedulable"} < 2
         for: 5m

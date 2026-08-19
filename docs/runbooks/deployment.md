@@ -1657,17 +1657,24 @@ sudo -u hyperspace npm run build
 sudo -u hyperspace npm run typecheck
 sudo -u hyperspace npm test --workspaces --if-present
 
-set -a
-. /etc/hyperspace/control-plane-api.env
-set +a
-sudo -u hyperspace env DATABASE_URL="$DATABASE_URL" npm --prefix "$HS_REPO_DIR" run db:migrate
-
 install -o root -g root -m 0644 infra/systemd/hyperspace-control-plane-api.service /etc/systemd/system/
 install -o root -g root -m 0644 infra/systemd/hyperspace-control-plane-worker.service /etc/systemd/system/
-systemctl daemon-reload
-systemctl restart hyperspace-control-plane-api hyperspace-control-plane-worker
-systemctl is-active hyperspace-control-plane-api hyperspace-control-plane-worker
+install -o root -g root -m 0755 scripts/control-plane/restart-after-migrations \
+  /usr/local/sbin/hyperspace-control-plane-restart
+
+/usr/local/sbin/hyperspace-control-plane-restart \
+  --repo-dir "$HS_REPO_DIR" \
+  --env-file /etc/hyperspace/control-plane-api.env \
+  --worker-env-file /etc/hyperspace/control-plane-worker.env \
+  --api-health-url "https://${HS_API_HOST}/health"
 ```
+
+The restart wrapper applies every migration shipped with the deployed tree,
+runs the migration command a second time to prove that no migration remains
+pending, and only then restarts API and worker. A migration or verification
+failure leaves the old processes running. Do not replace this ordering with a
+bare `systemctl restart`: code that expects a newer schema can otherwise keep
+the worker business snapshot incomplete.
 
 If the web UI is served from the same host, sync the freshly built web assets
 locally:
