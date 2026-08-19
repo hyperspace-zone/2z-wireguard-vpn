@@ -76,6 +76,9 @@ Implemented in `milestone3-mainnet-scaleout`:
   - `scripts/gates/validate-host`
   - `scripts/gates/rollout-wave.mjs`
 - Wave-based dry-run rollout command exposed as `npm run gates:rollout-wave`.
+- Control-plane initiated immutable releases, per-gate deployment history,
+  canary gating, host verification, and automatic rollback exposed as
+  `npm run gates:control-plane-rollout`.
 - Deployment runbook updated to make the automation the preferred scale-out
   path.
 
@@ -86,7 +89,8 @@ Still pending for later Milestone 3 work:
   and alerts are implemented.
 - DoubleZero confirmation of the Hyperspace tenant billing token account,
   flat-per-epoch rate/output, and production 2Z quote-signature contract.
-- Broader deployment automation and the final PoP expansion wave.
+- The final PoP expansion wave and validation evidence from its managed
+  control-plane rollout.
 
 ## Workstream 1: Mainnet Footprint Scale-Out
 
@@ -159,6 +163,7 @@ Tasks:
    - `scripts/gates/deploy-agent`
    - `scripts/gates/validate-host`
    - `scripts/gates/rollout-wave`
+   - `scripts/gates/control-plane-rollout.mjs`
 
 4. Add validation outputs.
    - JSON summary per host.
@@ -170,6 +175,8 @@ Tasks:
    - Move gate to maintenance.
    - Roll back gate-agent.
    - Roll back `doublezerod` drop-ins.
+   - Retain immutable release SHA, build/install/verification dates and
+     automatic gate-agent rollback decisions in PostgreSQL.
 
 Deliverables:
 
