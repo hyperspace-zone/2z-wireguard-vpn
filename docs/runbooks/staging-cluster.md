@@ -14,8 +14,9 @@ issuing production configs.
 | PostgreSQL | `db.staging.hyperspace.zone` | `84.32.97.140` | `10.179.228.4` |
 | Observability | `observability.staging.hyperspace.zone` | `84.32.110.4` | `10.179.228.54` |
 
-PostgreSQL accepts port 5432 only from the control-plane private address.
-Worker metrics on port 9091 accept traffic only from the observability private
+PostgreSQL accepts port 5432 from the control-plane private address and from the
+observability private address used by the cluster-local TCP probe. Worker
+metrics on port 9091 accept traffic only from the observability private
 address. Prometheus, Alertmanager, and Grafana bind to loopback behind Caddy.
 Public hosts expose only SSH and the HTTP/HTTPS ports required by their role.
 
@@ -73,6 +74,44 @@ The service validates each archive with `pg_restore --list`, publishes it
 atomically, and retains 14 days by default. Override the database, directory, or
 retention in `/etc/hyperspace/db-backup.env`.
 
+## Service Host Monitoring
+
+Install the repository-managed node exporter on the web, control-plane, and
+database hosts. The observability host uses the package-managed node exporter,
+but must use the same textfile collector directory. Every exporter is bound to
+the host's staging private IPv4 and protected so only the staging observability
+host can scrape it:
+
+```bash
+# Run on web, control-plane, and database hosts with the host-specific IP.
+scripts/observability/install-service-node-exporter \
+  --listen-ip <host-private-ip> \
+  --observability-ip 10.179.228.54
+
+# Run on the PostgreSQL host after PostgreSQL itself is configured.
+scripts/observability/install-postgres-monitoring \
+  --listen-ip 10.179.228.4 \
+  --observability-ip 10.179.228.54 \
+  --database hyperspace
+```
+
+The PostgreSQL installer creates a local peer-authenticated `prometheus` role
+with `pg_monitor`, installs `postgres_exporter`, and schedules the supplementary
+health collector. It does not create or store a database password. Verify the
+services and collectors before configuring Prometheus:
+
+```bash
+systemctl is-active prometheus-node-exporter
+systemctl is-active prometheus-postgres-exporter
+systemctl is-active hyperspace-postgres-health-exporter.timer
+systemctl is-active hyperspace-monitoring-firewall.service
+```
+
+Install `prometheus-blackbox-exporter` on the staging observability host and use
+`infra/observability/blackbox/blackbox.yml`. The staging Prometheus file probes
+the app root, app `/api/health`, control-plane `/health`, PostgreSQL TCP/5432,
+and TLS certificate lifetime without contacting another Hyperspace cluster.
+
 ## Validation
 
 ```bash
@@ -83,9 +122,10 @@ curl -fsS https://observability.staging.hyperspace.zone/prometheus/api/v1/target
 curl -fsS https://observability.staging.hyperspace.zone/prometheus/api/v1/alerts | jq .
 ```
 
-Acceptance requires all five Prometheus targets up, no unexplained firing
-alerts, six fresh directed benchmark routes, and a passing browser billing and
-config-lifecycle E2E.
+Acceptance requires all four `hyperspace-host-node` targets, the PostgreSQL
+exporter, all three HTTP probes, and the PostgreSQL TCP probe to be up. It also
+requires no unexplained firing alerts, six fresh directed benchmark routes, and
+a passing browser billing and config-lifecycle E2E.
 
 ## External Configuration
 
@@ -97,9 +137,14 @@ Before authentication acceptance:
    `https://app.staging.hyperspace.zone` as an authorized JavaScript origin.
 2. Store a separate Resend Full Access key as `RESEND_RECEIVING_API_KEY` only in
    the E2E runner. The runtime API uses its send-only key.
-3. Configure staging-specific Alertmanager Telegram recipients. Until then the
-   staging Alertmanager uses the intentional null receiver and does not send
-   staging incidents into production channels.
+3. Store the staging Telegram bot token only in
+   `/etc/prometheus/telegram_bot_token`, render receivers from
+   `infra/observability/alertmanager/telegram-receivers.staging.example.json`,
+   and validate the result with `amtool check-config`. The checked-in receiver
+   file routes all severities to the staging group and operator account, and
+   critical alerts to the staging critical channel. Change recipient IDs in a
+   deployment-local receiver file when a different staging audience is needed;
+   never send staging incidents into production channels.
 
 The staging API and worker receive their control-plane-only Solana mainnet
 endpoint as `SOLANA_RPC_URL` through runtime environment configuration or secret
