@@ -7,6 +7,7 @@ env_file="${HYPERSPACE_MONITORING_FIREWALL_ENV:-/etc/hyperspace/monitoring-firew
 source "$env_file"
 
 : "${OBSERVABILITY_IPV4:?OBSERVABILITY_IPV4 is required}"
+: "${LOCAL_MONITORING_IPV4:?LOCAL_MONITORING_IPV4 is required}"
 monitoring_ports="${MONITORING_PORTS:-9100}"
 probe_ports="${MONITORING_PROBE_PORTS:-}"
 chain="HYPERSPACE_MONITORING"
@@ -20,6 +21,7 @@ valid_port() {
 }
 
 valid_ipv4 "$OBSERVABILITY_IPV4" || { echo "invalid OBSERVABILITY_IPV4" >&2; exit 2; }
+valid_ipv4 "$LOCAL_MONITORING_IPV4" || { echo "invalid LOCAL_MONITORING_IPV4" >&2; exit 2; }
 for port in $monitoring_ports $probe_ports; do
   valid_port "$port" || { echo "invalid monitoring port: $port" >&2; exit 2; }
 done
@@ -27,7 +29,7 @@ done
 iptables -N "$chain" 2>/dev/null || true
 iptables -F "$chain"
 iptables -C INPUT -j "$chain" 2>/dev/null || iptables -I INPUT 1 -j "$chain"
-iptables -A "$chain" -i lo -j ACCEPT
+iptables -A "$chain" -i lo -s "$LOCAL_MONITORING_IPV4" -j ACCEPT
 
 for port in $monitoring_ports; do
   iptables -A "$chain" -p tcp -s "$OBSERVABILITY_IPV4" --dport "$port" -j ACCEPT
