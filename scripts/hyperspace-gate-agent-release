@@ -137,8 +137,9 @@ wait_for_service() {
 read_gate_environment() {
   [[ -s "$env_path" ]] || return 1
   CONTROL_PLANE_URL="$(sed -n 's/^CONTROL_PLANE_URL=//p' "$env_path" | tail -1)"
+  GATE_NAME="$(sed -n 's/^GATE_NAME=//p' "$env_path" | tail -1)"
   GATE_TOKEN="$(sed -n 's/^GATE_TOKEN=//p' "$env_path" | tail -1)"
-  [[ -n "$CONTROL_PLANE_URL" && -n "$GATE_TOKEN" ]]
+  [[ -n "$CONTROL_PLANE_URL" && -n "$GATE_NAME" && -n "$GATE_TOKEN" ]]
 }
 
 wait_for_control_plane_sha() {
@@ -150,7 +151,7 @@ wait_for_control_plane_sha() {
   local deadline=$((SECONDS + activation_timeout))
   local response
   while (( SECONDS < deadline )); do
-    response="$($curl_bin -fsS --max-time 10 -H "Authorization: Bearer ${GATE_TOKEN}" "${CONTROL_PLANE_URL%/}/v1/gate/runtime" 2>/dev/null || true)"
+    response="$($curl_bin -fsS --max-time 10 -H "X-Gate-Name: ${GATE_NAME}" -H "X-Gate-Token: ${GATE_TOKEN}" "${CONTROL_PLANE_URL%/}/v1/gate/runtime" 2>/dev/null || true)"
     if [[ -n "$response" ]] && printf '%s' "$response" | "$jq_bin" -e --arg sha "$expected_sha" '.agentArtifactSha256 == $sha' >/dev/null 2>&1; then
       return 0
     fi

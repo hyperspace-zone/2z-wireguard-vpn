@@ -25,6 +25,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ControlPlaneAp
     downloadTokenTtlSeconds: Number(env.ARTIFACT_DOWNLOAD_TTL_SECONDS ?? 300),
     ...(env.ADMIN_TOKEN ? { adminToken: env.ADMIN_TOKEN } : {}),
     artifactEncryptionKey: artifactEncryptionKeyRaw ? parseAes256GcmKey(artifactEncryptionKeyRaw) : null,
+    gateAgentReleaseDir: env.GATE_AGENT_RELEASE_DIR ?? "/var/lib/hyperspace/gate-agent-releases",
     emailAuth: {
       provider: env.EMAIL_PROVIDER === "resend" ? "resend" : "console",
       resendApiKey: env.RESEND_API_KEY ?? "",

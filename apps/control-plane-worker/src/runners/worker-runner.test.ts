@@ -38,6 +38,7 @@ test("snapshot collection runs independently from a slow reconcile cycle", async
       reconcile: () => reconcileBlocked,
       retry: async () => undefined,
       cleanup: async () => undefined,
+      gateAgentDeployments: async () => undefined,
       benchmarkScheduler: async () => undefined,
       snapshot: async () => {
         snapshotRan();

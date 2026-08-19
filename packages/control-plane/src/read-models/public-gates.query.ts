@@ -54,7 +54,13 @@ export async function listPublicGates(
         gates.desired_state = 'Enabled'
           AND COALESCE(agent.status = 'True', false)
           AND ${freshGateLeaseSqlPredicate}
-          AND COALESCE(schedulable.status = 'True', false) AS schedulable
+          AND COALESCE(schedulable.status = 'True', false)
+          AND NOT EXISTS (
+            SELECT 1
+            FROM gate_agent_deployments
+            WHERE gate_agent_deployments.gate_id = gates.id
+              AND gate_agent_deployments.phase IN ('queued', 'staging', 'verifying', 'rollback_requested', 'rolling_back')
+          ) AS schedulable
       FROM gates
       LEFT JOIN gate_status ON gate_status.gate_id = gates.id
       LEFT JOIN gate_leases ON gate_leases.gate_id = gates.id

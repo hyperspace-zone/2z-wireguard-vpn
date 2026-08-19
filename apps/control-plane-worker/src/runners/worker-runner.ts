@@ -12,6 +12,7 @@ import { createBillingNotificationLoop } from "../loops/billing-notification-loo
 import { createSolanaWithdrawalLoop } from "../loops/solana-withdrawal-loop.js";
 import { createSolanaRevenueSweepLoop } from "../loops/solana-revenue-sweep-loop.js";
 import { createReconcileRunner } from "./reconcile-runner.js";
+import { reconcileGateAgentDeployments } from "@hyperspace-zone/control-plane";
 import { log, sleep } from "../support/runtime.js";
 
 export interface WorkerRunner {
@@ -23,6 +24,7 @@ interface WorkerRunnerTasks {
   reconcile(): Promise<void>;
   retry(): Promise<void>;
   cleanup(): Promise<void>;
+  gateAgentDeployments(): Promise<void>;
   benchmarkScheduler(): Promise<void>;
   snapshot(): Promise<boolean>;
 }
@@ -55,6 +57,7 @@ export function createWorkerRunner(input: {
     reconcile: () => reconcileRunner.runOnce(),
     retry: () => retryLoop.runOnce(),
     cleanup: () => cleanupLoop.runOnce(),
+    gateAgentDeployments: async () => { await reconcileGateAgentDeployments(input.db); },
     benchmarkScheduler: () => benchmarkSchedulerLoop.runOnce(),
     snapshot: () => collectControlPlaneSnapshotMetrics(input)
   };
@@ -75,6 +78,7 @@ export function createWorkerRunner(input: {
       await runMeasuredLoop("reconcile", input, tasks.reconcile);
       await runMeasuredLoop("retry", input, tasks.retry);
       await runMeasuredLoop("cleanup", input, tasks.cleanup);
+      await runMeasuredLoop("gate-agent-deployments", input, tasks.gateAgentDeployments);
       await runMeasuredLoop("solana-deposits", input, () => solanaDepositLoop.runOnce());
       if (retailBillingLoop.due()) {
         const settlement = await runMeasuredLoop("retail-billing", input, () => retailBillingLoop.runOnce());

@@ -13,6 +13,9 @@ export type ApplicationErrorCode =
   | "admin_auth_required"
   | "admin_surface_not_configured"
   | "agent_surface_disabled"
+  | "agent_release_artifact_invalid"
+  | "agent_release_artifact_missing"
+  | "agent_release_not_found"
   | "artifact_encryption_not_configured"
   | "artifact_not_ready"
   | "auth_required"
@@ -31,6 +34,9 @@ export type ApplicationErrorCode =
   | "email_not_verified"
   | "forbidden"
   | "gate_auth_required"
+  | "gate_agent_deployment_active"
+  | "gate_agent_deployment_not_found"
+  | "gate_agent_not_bootstrapped"
   | "gate_not_found"
   | "ingress_gate_required"
   | "invalid_auth_session"
@@ -49,6 +55,8 @@ export type ApplicationErrorCode =
   | "oauth_email_not_verified"
   | "oauth_exchange_failed"
   | "oauth_not_configured"
+  | "gate_agent_no_previous_release"
+  | "gate_agent_not_rollbackable"
   | "raw_config_not_available"
   | "rate_limited"
   | "route_policy_not_satisfied"
@@ -84,6 +92,11 @@ function applicationErrorStatus(code: ApplicationErrorCode): number {
     case "config_payment_unavailable":
       return 503;
     case "artifact_not_ready":
+    case "agent_release_artifact_missing":
+    case "gate_agent_deployment_active":
+    case "gate_agent_not_bootstrapped":
+    case "gate_agent_no_previous_release":
+    case "gate_agent_not_rollbackable":
     case "email_already_registered":
     case "session_requires_positive_balance":
     case "session_quota_exceeded":
@@ -110,11 +123,14 @@ function applicationErrorStatus(code: ApplicationErrorCode): number {
     case "oauth_email_not_verified":
       return 403;
     case "download_token_not_found":
+    case "agent_release_not_found":
+    case "gate_agent_deployment_not_found":
     case "gate_not_found":
     case "job_not_found":
     case "session_not_found":
       return 404;
     case "credentials_required":
+    case "agent_release_artifact_invalid":
     case "config_payment_request_required":
     case "destination_required":
     case "distinct_gates_required":

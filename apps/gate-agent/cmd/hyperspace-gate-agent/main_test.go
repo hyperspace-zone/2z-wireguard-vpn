@@ -1,8 +1,12 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -448,6 +452,57 @@ printf '%s' "$payload" | grep -F 'comment "hs-assignment-selftest:accept:to_dest
 
 	if err := runAgentSelfTest(); err != nil {
 		t.Fatalf("runAgentSelfTest() failed: %v", err)
+	}
+}
+
+func TestDownloadGateAgentReleaseAuthenticatesAndVerifiesArtifact(t *testing.T) {
+	artifact := []byte("immutable-gate-agent-artifact")
+	digest := sha256.Sum256(artifact)
+	expectedSHA := hex.EncodeToString(digest[:])
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/v1/gate/agent-releases/release-id/artifact" {
+			t.Fatalf("unexpected path: %s", request.URL.Path)
+		}
+		if request.Header.Get("x-gate-name") != "gate-eu-fra-21" || request.Header.Get("x-gate-token") != "gate-token" {
+			t.Fatal("gate authentication headers are missing")
+		}
+		_, _ = response.Write(artifact)
+	}))
+	t.Cleanup(server.Close)
+	destination := filepath.Join(t.TempDir(), "candidate")
+	err := downloadGateAgentRelease(server.Client(), config{
+		ControlPlaneURL: server.URL,
+		GateName:        "gate-eu-fra-21",
+		GateToken:       "gate-token",
+	}, "release-id", expectedSHA, destination)
+	if err != nil {
+		t.Fatalf("downloadGateAgentRelease() failed: %v", err)
+	}
+	data, err := os.ReadFile(destination)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != string(artifact) {
+		t.Fatalf("downloaded artifact = %q", data)
+	}
+}
+
+func TestDownloadGateAgentReleaseRejectsDigestMismatch(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		_, _ = response.Write([]byte("wrong-artifact"))
+	}))
+	t.Cleanup(server.Close)
+	destination := filepath.Join(t.TempDir(), "candidate")
+	err := downloadGateAgentRelease(server.Client(), config{
+		ControlPlaneURL: server.URL,
+		GateName:        "gate-eu-fra-21",
+		GateToken:       "gate-token",
+	}, "release-id", strings.Repeat("a", 64), destination)
+	if err == nil || !strings.Contains(err.Error(), "SHA-256 mismatch") {
+		t.Fatalf("expected digest mismatch, got %v", err)
+	}
+	if _, statErr := os.Stat(destination); !os.IsNotExist(statErr) {
+		t.Fatalf("invalid artifact was retained: %v", statErr)
 	}
 }
 

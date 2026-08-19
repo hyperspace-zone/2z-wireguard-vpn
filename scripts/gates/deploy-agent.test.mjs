@@ -41,10 +41,12 @@ function fixture() {
   const unit = join(etcDirectory, "hyperspace-gate-agent.service");
   const envFile = join(etcDirectory, "gate-agent.env");
   const systemctl = join(binDirectory, "systemctl");
+  const curl = join(binDirectory, "curl");
+  const curlLog = join(directory, "curl.log");
   const failedOnce = join(directory, "failed-once");
   fakeAgent(agent, "old");
   writeFileSync(unit, "[Service]\nExecStart=/test/agent\n");
-  writeFileSync(envFile, "CONTROL_PLANE_URL=https://control-plane.example.test\nGATE_TOKEN=test-token\n");
+  writeFileSync(envFile, "CONTROL_PLANE_URL=https://control-plane.example.test\nGATE_NAME=gate-eu-test-01\nGATE_TOKEN=test-token\n");
   writeFileSync(systemctl, `#!/usr/bin/env bash
 set -euo pipefail
 if [[ "\${1:-}" == "restart" ]] && grep -q 'bad-activation' "\${FAKE_AGENT_PATH}" && [[ ! -e "\${FAKE_FAILED_ONCE}" ]]; then
@@ -54,10 +56,16 @@ fi
 exit 0
 `);
   chmodSync(systemctl, 0o755);
-  return { directory, agent, unit, envFile, stateDirectory, systemctl, failedOnce };
+  writeFileSync(curl, `#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\\n' "$*" >>"\${FAKE_CURL_LOG}"
+printf '{"agentArtifactSha256":"%s"}\\n' "\${FAKE_EXPECTED_SHA}"
+`);
+  chmodSync(curl, 0o755);
+  return { directory, agent, unit, envFile, stateDirectory, systemctl, curl, curlLog, failedOnce };
 }
 
-function install(files, candidate) {
+function install(files, candidate, extraEnv = {}) {
   return spawnSync(releaseManager, [
     "install",
     "--candidate", candidate,
@@ -72,10 +80,14 @@ function install(files, candidate) {
       HYPERSPACE_AGENT_ENV_PATH: files.envFile,
       HYPERSPACE_AGENT_RELEASE_STATE_DIR: files.stateDirectory,
       HYPERSPACE_SYSTEMCTL_BIN: files.systemctl,
+      HYPERSPACE_CURL_BIN: files.curl,
       HYPERSPACE_RELEASE_SKIP_CP_CONFIRMATION: "true",
       HYPERSPACE_AGENT_ACTIVATION_TIMEOUT_SECONDS: "1",
       FAKE_AGENT_PATH: files.agent,
-      FAKE_FAILED_ONCE: files.failedOnce
+      FAKE_FAILED_ONCE: files.failedOnce,
+      FAKE_CURL_LOG: files.curlLog,
+      FAKE_EXPECTED_SHA: sha256(candidate),
+      ...extraEnv
     }
   });
 }
@@ -120,4 +132,18 @@ test("release manager automatically restores the previous artifact when activati
   const events = readFileSync(join(files.stateDirectory, "agent-deployments.jsonl"), "utf8");
   assert.match(events, /"phase":"activation_failed"/);
   assert.match(events, /"phase":"rolled_back"/);
+});
+
+test("release manager confirms the installed SHA with gate authentication headers", () => {
+  const files = fixture();
+  const candidate = join(files.directory, "candidate");
+  fakeAgent(candidate, "candidate");
+
+  const result = install(files, candidate, { HYPERSPACE_RELEASE_SKIP_CP_CONFIRMATION: "false" });
+
+  assert.equal(result.status, 0, result.stderr);
+  const curlArguments = readFileSync(files.curlLog, "utf8");
+  assert.match(curlArguments, /X-Gate-Name: gate-eu-test-01/);
+  assert.match(curlArguments, /X-Gate-Token: test-token/);
+  assert.match(curlArguments, /https:\/\/control-plane\.example\.test\/v1\/gate\/runtime/);
 });
