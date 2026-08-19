@@ -3,6 +3,8 @@ package main
 import (
 	"encoding/json"
 	"net"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -422,6 +424,30 @@ func TestNftRuleCommentIsQuotedForNftParser(t *testing.T) {
 	want := `"hs-assignment-a:accept:to_destination"`
 	if got != want {
 		t.Fatalf("nftRuleComment() = %q, want %q", got, want)
+	}
+}
+
+func TestAgentSelfTestExercisesRenderedNftAssignmentRule(t *testing.T) {
+	directory := t.TempDir()
+	nftPath := filepath.Join(directory, "nft")
+	script := `#!/bin/sh
+set -eu
+test "$1" = "--check"
+test "$2" = "-f"
+test "$3" = "-"
+payload=$(cat)
+printf '%s' "$payload" | grep -F 'comment "hs-assignment-selftest:accept:to_destination"' >/dev/null
+`
+	if err := os.WriteFile(nftPath, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", directory+string(os.PathListSeparator)+os.Getenv("PATH"))
+	previous := runningBuildInfo
+	runningBuildInfo.ArtifactSHA256 = strings.Repeat("a", 64)
+	t.Cleanup(func() { runningBuildInfo = previous })
+
+	if err := runAgentSelfTest(); err != nil {
+		t.Fatalf("runAgentSelfTest() failed: %v", err)
 	}
 }
 

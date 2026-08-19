@@ -1196,6 +1196,7 @@ the default dry-run before passing `--execute`:
 npm run gates:rollout-wave -- \
   --inventory infra/gates.mainnet.json \
   --wave 2026-07-a \
+  --canary-gate gate-eu-fra-21 \
   --ssh-key /root/hyperspace/.ssh_keys/hyperspace_mainnet_gatekeeper_20260526 \
   --known-hosts-file /root/.ssh/known_hosts \
   --control-plane-url https://control-plane.hyperspace.zone \
@@ -1206,6 +1207,13 @@ npm run gates:rollout-wave -- \
 
 npm run gates:rollout-wave -- ... --execute
 ```
+
+The canary must pass the exact artifact's on-host nftables parser self-test,
+restart cleanly, and report the expected SHA-256 back through a fresh
+control-plane heartbeat. The remaining wave does not start before those checks
+pass. Each host keeps an append-only deployment history, build/install dates,
+the previous artifact, and an automatic rollback path. A failed candidate is
+never treated as deployed merely because its systemd process remained active.
 
 Bootstrap installs HWE where available, DoubleZero, WireGuard, chrony, Caddy,
 node exporter, `vnstat`, `sysstat`, journald limits, the disk janitor and the
@@ -1966,30 +1974,31 @@ export PATH=/usr/local/go/bin:$PATH
 go version
 ```
 
-On the same control-plane or builder host, build and test the gate-agent
-binary:
+On the same control-plane or builder host, build and test an immutable
+gate-agent artifact. Do not use a bare `go build` or an untracked prebuilt
+binary for a rollout:
 
 ```bash
-cd "$HS_REPO_DIR/apps/gate-agent"
-sudo -u hyperspace env PATH="/usr/local/go/bin:$PATH" /usr/local/go/bin/go test ./...
-sudo -u hyperspace env PATH="/usr/local/go/bin:$PATH" /usr/local/go/bin/go build -buildvcs=false -o /tmp/hyperspace-gate-agent ./cmd/hyperspace-gate-agent
-chmod 0755 /tmp/hyperspace-gate-agent
+cd "$HS_REPO_DIR"
+sudo -u hyperspace env PATH="/usr/local/go/bin:$PATH" \
+  scripts/gates/build-agent --output /tmp/hyperspace-gate-agent
+/tmp/hyperspace-gate-agent --build-info | jq .
 ```
 
-Build as the `hyperspace` repository owner. Building as root from a checkout
-owned by `hyperspace` can fail with Git dubious ownership or VCS stamping
-errors. `-buildvcs=false` keeps the binary build independent from local Git
-ownership metadata.
+The build command refuses modified tracked files, runs the unit suite, embeds
+the commit and UTC build time, and verifies that the binary reports its own
+SHA-256. Build as the `hyperspace` repository owner.
 
-From the control-plane or builder host, copy the binary and systemd unit to
-each gate:
+Deploy through the release playbook. Direct `scp` to the live binary path is
+prohibited because it bypasses artifact validation, history and rollback:
 
 ```bash
-export GATE_PUBLIC_IPV4=203.0.113.10
-
-scp /tmp/hyperspace-gate-agent "root@${GATE_PUBLIC_IPV4}:/usr/local/bin/hyperspace-gate-agent"
-scp "$HS_REPO_DIR/infra/systemd/hyperspace-gate-agent.service" "root@${GATE_PUBLIC_IPV4}:/etc/systemd/system/hyperspace-gate-agent.service"
-ssh "root@${GATE_PUBLIC_IPV4}" 'chown root:root /usr/local/bin/hyperspace-gate-agent /etc/systemd/system/hyperspace-gate-agent.service && chmod 0755 /usr/local/bin/hyperspace-gate-agent && chmod 0644 /etc/systemd/system/hyperspace-gate-agent.service'
+scripts/gates/deploy-agent \
+  --host "$GATE_PUBLIC_IPV4" \
+  --binary /tmp/hyperspace-gate-agent \
+  --reuse-existing-env \
+  --ssh-key "$GATE_SSH_KEY" \
+  --known-hosts-file /root/.ssh/known_hosts
 ```
 
 On each gate host, create `/etc/hyperspace/gate-agent.env`:

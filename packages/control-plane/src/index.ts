@@ -71,6 +71,7 @@ export {
   type SessionAbuseControlConfig
 } from "./resources/sessions/abuse-controls.js";
 export { recordGateJobReport, type GateJobReport } from "./resources/jobs/attempts.js";
+export { readGateAgentRuntime, type GateAgentRuntimeRow } from "./resources/gates/repository.js";
 export {
   claimGateJob,
   type ClaimedGateJob,

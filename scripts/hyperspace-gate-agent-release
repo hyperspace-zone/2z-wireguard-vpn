@@ -1,0 +1,272 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+agent_path="${HYPERSPACE_AGENT_PATH:-/usr/local/bin/hyperspace-gate-agent}"
+unit_path="${HYPERSPACE_AGENT_UNIT_PATH:-/etc/systemd/system/hyperspace-gate-agent.service}"
+env_path="${HYPERSPACE_AGENT_ENV_PATH:-/etc/hyperspace/gate-agent.env}"
+state_dir="${HYPERSPACE_AGENT_RELEASE_STATE_DIR:-/var/lib/hyperspace-gate}"
+release_root="${state_dir}/agent-releases"
+current_metadata="${state_dir}/agent-release.json"
+event_log="${state_dir}/agent-deployments.jsonl"
+systemctl_bin="${HYPERSPACE_SYSTEMCTL_BIN:-systemctl}"
+curl_bin="${HYPERSPACE_CURL_BIN:-curl}"
+jq_bin="${HYPERSPACE_JQ_BIN:-jq}"
+activation_timeout="${HYPERSPACE_AGENT_ACTIVATION_TIMEOUT_SECONDS:-90}"
+
+usage() {
+  cat >&2 <<'EOF'
+usage:
+  hyperspace-gate-agent-release install --candidate PATH --unit PATH --expected-sha SHA256 [--env PATH]
+  hyperspace-gate-agent-release rollback --sha SHA256
+  hyperspace-gate-agent-release status
+
+The install command validates the exact candidate artifact with its built-in
+self-test, snapshots the current release, activates the candidate, waits for
+the control-plane to observe its SHA-256, and automatically rolls back on any
+failure. State and an append-only timestamped history are kept below
+/var/lib/hyperspace-gate.
+EOF
+}
+
+valid_sha() {
+  [[ "$1" =~ ^[a-f0-9]{64}$ ]]
+}
+
+artifact_sha() {
+  sha256sum "$1" | awk '{print $1}'
+}
+
+utc_now() {
+  date -u +%Y-%m-%dT%H:%M:%SZ
+}
+
+append_event() {
+  local phase="$1"
+  local target_sha="$2"
+  local previous_sha="${3:-}"
+  local message="${4:-}"
+  PHASE="$phase" TARGET_SHA="$target_sha" PREVIOUS_SHA="$previous_sha" MESSAGE="$message" python3 - "$event_log" <<'PY'
+import json
+import os
+import sys
+from datetime import datetime, timezone
+
+path = sys.argv[1]
+record = {
+    "recordedAt": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+    "phase": os.environ["PHASE"],
+    "targetArtifactSha256": os.environ["TARGET_SHA"],
+}
+if os.environ.get("PREVIOUS_SHA"):
+    record["previousArtifactSha256"] = os.environ["PREVIOUS_SHA"]
+if os.environ.get("MESSAGE"):
+    record["message"] = os.environ["MESSAGE"]
+with open(path, "a", encoding="utf-8") as stream:
+    stream.write(json.dumps(record, separators=(",", ":")) + "\n")
+PY
+  chmod 0600 "$event_log"
+}
+
+write_current_metadata() {
+  local build_info_file="$1"
+  local installed_at="$2"
+  local installed_by="$3"
+  BUILD_INFO_FILE="$build_info_file" INSTALLED_AT="$installed_at" INSTALLED_BY="$installed_by" python3 - "$current_metadata" <<'PY'
+import json
+import os
+import sys
+
+with open(os.environ["BUILD_INFO_FILE"], encoding="utf-8") as stream:
+    value = json.load(stream)
+value["installedAt"] = os.environ["INSTALLED_AT"]
+value["installedBy"] = os.environ["INSTALLED_BY"]
+temporary = sys.argv[1] + ".new"
+with open(temporary, "w", encoding="utf-8") as stream:
+    json.dump(value, stream, separators=(",", ":"))
+    stream.write("\n")
+os.replace(temporary, sys.argv[1])
+PY
+  chmod 0600 "$current_metadata"
+}
+
+snapshot_release() {
+  local binary="$1"
+  local sha="$2"
+  local destination="${release_root}/${sha}"
+  mkdir -p "$destination"
+  chmod 0700 "$destination"
+  install -m 0755 "$binary" "${destination}/hyperspace-gate-agent"
+  if [[ -s "$unit_path" ]]; then
+    install -m 0644 "$unit_path" "${destination}/hyperspace-gate-agent.service"
+  fi
+  if [[ -s "$env_path" ]]; then
+    install -m 0600 "$env_path" "${destination}/gate-agent.env"
+  fi
+  if ! "$binary" --build-info >"${destination}/build-info.json.new" 2>/dev/null; then
+    printf '{"version":"unknown","revision":"unknown","builtAt":"unknown","artifactSha256":"%s"}\n' "$sha" >"${destination}/build-info.json.new"
+  fi
+  mv -f "${destination}/build-info.json.new" "${destination}/build-info.json"
+  chmod 0600 "${destination}/build-info.json"
+}
+
+activate_release_files() {
+  local release_dir="$1"
+  install -m 0755 "${release_dir}/hyperspace-gate-agent" "$agent_path"
+  if [[ -s "${release_dir}/hyperspace-gate-agent.service" ]]; then
+    install -m 0644 "${release_dir}/hyperspace-gate-agent.service" "$unit_path"
+  fi
+  if [[ -s "${release_dir}/gate-agent.env" ]]; then
+    install -m 0600 "${release_dir}/gate-agent.env" "$env_path"
+  fi
+  "$systemctl_bin" daemon-reload
+  "$systemctl_bin" enable hyperspace-gate-agent.service >/dev/null
+  "$systemctl_bin" restart hyperspace-gate-agent.service
+}
+
+wait_for_service() {
+  local deadline=$((SECONDS + activation_timeout))
+  while (( SECONDS < deadline )); do
+    if "$systemctl_bin" is-active --quiet hyperspace-gate-agent.service; then
+      return 0
+    fi
+    sleep 2
+  done
+  return 1
+}
+
+read_gate_environment() {
+  [[ -s "$env_path" ]] || return 1
+  CONTROL_PLANE_URL="$(sed -n 's/^CONTROL_PLANE_URL=//p' "$env_path" | tail -1)"
+  GATE_TOKEN="$(sed -n 's/^GATE_TOKEN=//p' "$env_path" | tail -1)"
+  [[ -n "$CONTROL_PLANE_URL" && -n "$GATE_TOKEN" ]]
+}
+
+wait_for_control_plane_sha() {
+  local expected_sha="$1"
+  if [[ "${HYPERSPACE_RELEASE_SKIP_CP_CONFIRMATION:-false}" == "true" ]]; then
+    return 0
+  fi
+  read_gate_environment || return 1
+  local deadline=$((SECONDS + activation_timeout))
+  local response
+  while (( SECONDS < deadline )); do
+    response="$($curl_bin -fsS --max-time 10 -H "Authorization: Bearer ${GATE_TOKEN}" "${CONTROL_PLANE_URL%/}/v1/gate/runtime" 2>/dev/null || true)"
+    if [[ -n "$response" ]] && printf '%s' "$response" | "$jq_bin" -e --arg sha "$expected_sha" '.agentArtifactSha256 == $sha' >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 3
+  done
+  return 1
+}
+
+rollback_to() {
+  local sha="$1"
+  local reason="${2:-operator_requested}"
+  valid_sha "$sha" || { echo "invalid rollback SHA-256" >&2; return 2; }
+  local release_dir="${release_root}/${sha}"
+  [[ -x "${release_dir}/hyperspace-gate-agent" ]] || { echo "release not found: $sha" >&2; return 1; }
+  "${release_dir}/hyperspace-gate-agent" --self-test >/dev/null
+  local replaced_sha=""
+  if [[ -x "$agent_path" ]]; then
+    replaced_sha="$(artifact_sha "$agent_path")"
+  fi
+  write_current_metadata "${release_dir}/build-info.json" "$(utc_now)" "rollback"
+  activate_release_files "$release_dir"
+  wait_for_service
+  "$agent_path" --self-test >/dev/null
+  wait_for_control_plane_sha "$sha"
+  append_event "rolled_back" "$sha" "$replaced_sha" "$reason"
+}
+
+install_release() {
+  local candidate=""
+  local candidate_unit=""
+  local candidate_env=""
+  local expected_sha=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --candidate) candidate="${2:-}"; shift 2 ;;
+      --unit) candidate_unit="${2:-}"; shift 2 ;;
+      --env) candidate_env="${2:-}"; shift 2 ;;
+      --expected-sha) expected_sha="${2:-}"; shift 2 ;;
+      *) echo "unknown install argument: $1" >&2; return 2 ;;
+    esac
+  done
+  [[ -x "$candidate" && -s "$candidate_unit" ]] || { echo "candidate binary or unit is missing" >&2; return 2; }
+  valid_sha "$expected_sha" || { echo "invalid expected SHA-256" >&2; return 2; }
+  local actual_sha
+  actual_sha="$(artifact_sha "$candidate")"
+  [[ "$actual_sha" == "$expected_sha" ]] || { echo "candidate SHA-256 mismatch" >&2; return 1; }
+
+  "$candidate" --self-test >/dev/null
+  local candidate_info
+  candidate_info="$(mktemp "${state_dir}/candidate-build-info.XXXXXX")"
+  "$candidate" --build-info >"$candidate_info"
+  "$jq_bin" -e --arg sha "$expected_sha" '.artifactSha256 == $sha and (.version | type == "string")' "$candidate_info" >/dev/null
+
+  local previous_sha=""
+  if [[ -x "$agent_path" ]]; then
+    previous_sha="$(artifact_sha "$agent_path")"
+    snapshot_release "$agent_path" "$previous_sha"
+  fi
+
+  local release_dir="${release_root}/${expected_sha}"
+  mkdir -p "$release_dir"
+  chmod 0700 "$release_dir"
+  install -m 0755 "$candidate" "${release_dir}/hyperspace-gate-agent"
+  install -m 0644 "$candidate_unit" "${release_dir}/hyperspace-gate-agent.service"
+  if [[ -n "$candidate_env" ]]; then
+    install -m 0600 "$candidate_env" "${release_dir}/gate-agent.env"
+  elif [[ -s "$env_path" ]]; then
+    install -m 0600 "$env_path" "${release_dir}/gate-agent.env"
+  fi
+  install -m 0600 "$candidate_info" "${release_dir}/build-info.json"
+  unlink "$candidate_info"
+  append_event "activating" "$expected_sha" "$previous_sha"
+  write_current_metadata "${release_dir}/build-info.json" "$(utc_now)" "deployment"
+
+  rollback_after_failure() {
+    local rc=$?
+    trap - ERR
+    append_event "activation_failed" "$expected_sha" "$previous_sha" "candidate health or control-plane confirmation failed"
+    if [[ -n "$previous_sha" && -x "${release_root}/${previous_sha}/hyperspace-gate-agent" ]]; then
+      if rollback_to "$previous_sha" "automatic_activation_failure"; then
+        echo "candidate activation failed; previous release restored" >&2
+      else
+        echo "candidate activation and automatic rollback both failed" >&2
+      fi
+    fi
+    exit "$rc"
+  }
+  trap rollback_after_failure ERR
+
+  activate_release_files "$release_dir"
+  wait_for_service
+  "$agent_path" --self-test >/dev/null
+  wait_for_control_plane_sha "$expected_sha"
+  append_event "succeeded" "$expected_sha" "$previous_sha"
+  trap - ERR
+  printf '{"status":"succeeded","artifactSha256":"%s","previousArtifactSha256":"%s"}\n' "$expected_sha" "$previous_sha"
+}
+
+mkdir -p "$state_dir" "$release_root"
+chmod 0700 "$state_dir" "$release_root"
+
+command_name="${1:-}"
+[[ -n "$command_name" ]] || { usage; exit 2; }
+shift
+case "$command_name" in
+  install) install_release "$@" ;;
+  rollback)
+    [[ "${1:-}" == "--sha" && -n "${2:-}" && $# -eq 2 ]] || { usage; exit 2; }
+    rollback_to "$2"
+    ;;
+  status)
+    if [[ -s "$current_metadata" ]]; then
+      cat "$current_metadata"
+    else
+      printf '{"status":"unknown"}\n'
+    fi
+    ;;
+  *) usage; exit 2 ;;
+esac

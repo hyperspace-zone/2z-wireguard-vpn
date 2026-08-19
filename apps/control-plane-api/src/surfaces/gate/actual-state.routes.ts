@@ -27,6 +27,10 @@ export function registerGateActualStateRoutes(
     await recordGateActualState(deps.db, gate.id, {
       bootId: readString(body, "bootId"),
       agentVersion: readString(body, "agentVersion"),
+      agentRevision: readString(body, "agentRevision"),
+      agentBuiltAt: readString(body, "agentBuiltAt"),
+      agentArtifactSha256: readString(body, "agentArtifactSha256"),
+      agentInstalledAt: readString(body, "agentInstalledAt"),
       stateHash: readString(body, "stateHash"),
       managedHandles: readStringArray(body, "managedHandles"),
       assignmentCounters: readAssignmentCounters(body.assignmentCounters),

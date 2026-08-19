@@ -10,7 +10,7 @@ Options:
   --ssh-key PATH        SSH private key.
   --ssh-user USER       SSH user, default root.
   --known-hosts-file PATH  Pinned SSH known_hosts file, default ~/.ssh/known_hosts.
-  --binary PATH         Prebuilt hyperspace-gate-agent binary. If omitted, build to /tmp.
+  --binary PATH         Prebuilt immutable artifact. If omitted, build with revision metadata.
   --reuse-existing-env  Update the binary/unit without reading or replacing gate secrets.
   --gate-host HOSTNAME  Optional public HTTPS probe hostname for Caddy.
   --web-origin ORIGIN   Web origin allowed to read the browser probe.
@@ -93,16 +93,25 @@ if [[ -z "$binary_path" ]]; then
     if [[ -x /usr/local/go/bin/go ]]; then
       go_bin="${GO_BIN:-/usr/local/go/bin/go}"
     fi
-    (cd "$repo_root/apps/gate-agent" && "$go_bin" test ./... && "$go_bin" build -buildvcs=false -o "$binary_path" ./cmd/hyperspace-gate-agent)
-    chmod 0755 "$binary_path"
+    "$repo_root/scripts/gates/build-agent" --output "$binary_path" --go-bin "$go_bin" >/dev/null
   fi
+fi
+
+expected_sha="<calculated-at-execution>"
+if [[ "$dry_run" != true ]]; then
+  [[ -x "$binary_path" ]] || { echo "gate-agent artifact is not executable: $binary_path" >&2; exit 2; }
+  "$binary_path" --build-info | jq -e '.artifactSha256 | test("^[a-f0-9]{64}$")' >/dev/null
+  expected_sha="$(sha256sum "$binary_path" | awk '{print $1}')"
+  "$binary_path" --build-info | jq -e --arg sha "$expected_sha" '.artifactSha256 == $sha' >/dev/null
 fi
 
 if [[ "$dry_run" == true ]]; then
   cat <<EOF
 scp $binary_path ${ssh_user}@${host}:/usr/local/bin/hyperspace-gate-agent.new
 scp $repo_root/infra/systemd/hyperspace-gate-agent.service ${ssh_user}@${host}:/etc/systemd/system/hyperspace-gate-agent.service.new
-atomically replace the installed binary and unit, then restart the service
+scp $repo_root/scripts/hyperspace-gate-agent-release ${ssh_user}@${host}:/usr/local/sbin/hyperspace-gate-agent-release.new
+candidate runs --self-test against the host nft parser; activate SHA $expected_sha;
+wait for the control-plane heartbeat to report the same SHA; rollback automatically on failure
 EOF
   if [[ "$reuse_existing_env" == true ]]; then
     cat <<EOF
@@ -159,32 +168,41 @@ fi
 
 scp "${scp_args[@]}" "$binary_path" "${ssh_user}@${host}:/usr/local/bin/hyperspace-gate-agent.new"
 scp "${scp_args[@]}" "$repo_root/infra/systemd/hyperspace-gate-agent.service" "${ssh_user}@${host}:/etc/systemd/system/hyperspace-gate-agent.service.new"
+scp "${scp_args[@]}" "$repo_root/scripts/hyperspace-gate-agent-release" "${ssh_user}@${host}:/usr/local/sbin/hyperspace-gate-agent-release.new"
 if [[ "$reuse_existing_env" != true ]]; then
   scp "${scp_args[@]}" "$tmp_env" "${ssh_user}@${host}:/etc/hyperspace/gate-agent.env.new"
 fi
-ssh "${ssh_args[@]}" "${ssh_user}@${host}" 'set -euo pipefail
+ssh "${ssh_args[@]}" "${ssh_user}@${host}" "EXPECTED_SHA=$(printf '%q' "$expected_sha") REUSE_EXISTING_ENV=$(printf '%q' "$reuse_existing_env") bash -s" <<'REMOTE'
+set -euo pipefail
+cleanup_candidates() {
+  rm -f /usr/local/bin/hyperspace-gate-agent.new \
+    /etc/systemd/system/hyperspace-gate-agent.service.new \
+    /etc/hyperspace/gate-agent.env.new \
+    /usr/local/sbin/hyperspace-gate-agent-release.new
+}
+trap cleanup_candidates EXIT
 if [[ ! -s /etc/hyperspace/gate-agent.env && ! -s /etc/hyperspace/gate-agent.env.new ]]; then
   echo "missing gate agent environment" >&2
   exit 1
 fi
-chown root:root /usr/local/bin/hyperspace-gate-agent.new /etc/systemd/system/hyperspace-gate-agent.service.new
+chown root:root /usr/local/bin/hyperspace-gate-agent.new /etc/systemd/system/hyperspace-gate-agent.service.new /usr/local/sbin/hyperspace-gate-agent-release.new
 chmod 0755 /usr/local/bin/hyperspace-gate-agent.new
 chmod 0644 /etc/systemd/system/hyperspace-gate-agent.service.new
-mv -f /usr/local/bin/hyperspace-gate-agent.new /usr/local/bin/hyperspace-gate-agent
-mv -f /etc/systemd/system/hyperspace-gate-agent.service.new /etc/systemd/system/hyperspace-gate-agent.service
+chmod 0755 /usr/local/sbin/hyperspace-gate-agent-release.new
+install -m 0755 /usr/local/sbin/hyperspace-gate-agent-release.new /usr/local/sbin/hyperspace-gate-agent-release
 if [[ -e /etc/hyperspace/gate-agent.env.new ]]; then
   chown root:root /etc/hyperspace/gate-agent.env.new
   chmod 0600 /etc/hyperspace/gate-agent.env.new
-  mv -f /etc/hyperspace/gate-agent.env.new /etc/hyperspace/gate-agent.env
 fi
-test -s /etc/hyperspace/gate-agent.env
-chown root:root /etc/hyperspace/gate-agent.env
-chmod 0600 /etc/hyperspace/gate-agent.env
-systemctl daemon-reload
-systemctl enable --now hyperspace-gate-agent
-systemctl restart hyperspace-gate-agent
-systemctl is-active hyperspace-gate-agent
-'
+release_args=(install
+  --candidate /usr/local/bin/hyperspace-gate-agent.new
+  --unit /etc/systemd/system/hyperspace-gate-agent.service.new
+  --expected-sha "$EXPECTED_SHA")
+if [[ "$REUSE_EXISTING_ENV" != true ]]; then
+  release_args+=(--env /etc/hyperspace/gate-agent.env.new)
+fi
+/usr/local/sbin/hyperspace-gate-agent-release "${release_args[@]}"
+REMOTE
 
 if [[ -n "$gate_host" && -n "$web_origin" ]]; then
   ssh "${ssh_args[@]}" "${ssh_user}@${host}" \

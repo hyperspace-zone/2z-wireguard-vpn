@@ -26,7 +26,21 @@ import (
 	"time"
 )
 
-const version = "0.2.1"
+var (
+	version       = "0.2.2"
+	buildRevision = "unknown"
+	buildTime     = "unknown"
+)
+
+type agentBuildInfo struct {
+	Version        string `json:"version"`
+	Revision       string `json:"revision"`
+	BuiltAt        string `json:"builtAt"`
+	ArtifactSHA256 string `json:"artifactSha256"`
+	InstalledAt    string `json:"installedAt,omitempty"`
+}
+
+var runningBuildInfo agentBuildInfo
 
 var defaultNTPDiscoveryHosts = []string{
 	"0.pool.ntp.org",
@@ -107,6 +121,28 @@ type job struct {
 }
 
 func main() {
+	runningBuildInfo = currentAgentBuildInfo()
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "--version", "--build-info":
+			if err := json.NewEncoder(os.Stdout).Encode(runningBuildInfo); err != nil {
+				fatal(err)
+			}
+			return
+		case "--self-test":
+			if err := runAgentSelfTest(); err != nil {
+				fatal(err)
+			}
+			if err := json.NewEncoder(os.Stdout).Encode(map[string]any{
+				"ok":     true,
+				"build":  runningBuildInfo,
+				"checks": []string{"artifact_sha256", "nftables_assignment_rule_parser"},
+			}); err != nil {
+				fatal(err)
+			}
+			return
+		}
+	}
 	cfg, err := readConfig()
 	if err != nil {
 		fatal(err)
@@ -122,6 +158,10 @@ func main() {
 	logJSON("agent_started", map[string]any{
 		"gate":            cfg.GateName,
 		"version":         version,
+		"revision":        runningBuildInfo.Revision,
+		"builtAt":         runningBuildInfo.BuiltAt,
+		"artifactSha256":  runningBuildInfo.ArtifactSHA256,
+		"installedAt":     runningBuildInfo.InstalledAt,
 		"executionMode":   cfg.ExecutionMode,
 		"stateDir":        cfg.StateDir,
 		"probePort":       cfg.ProbePort,
@@ -1909,15 +1949,73 @@ func nftRuleComment(handle string, verdict string, direction string) string {
 	return strconv.Quote(strings.Join([]string{handle, verdict, direction}, ":"))
 }
 
+func currentAgentBuildInfo() agentBuildInfo {
+	info := agentBuildInfo{
+		Version:        version,
+		Revision:       buildRevision,
+		BuiltAt:        buildTime,
+		ArtifactSHA256: executableSHA256(),
+	}
+	data, err := os.ReadFile("/var/lib/hyperspace-gate/agent-release.json")
+	if err == nil {
+		var installed struct {
+			InstalledAt string `json:"installedAt"`
+		}
+		if json.Unmarshal(data, &installed) == nil {
+			info.InstalledAt = strings.TrimSpace(installed.InstalledAt)
+		}
+	}
+	return info
+}
+
+func executableSHA256() string {
+	path, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer file.Close()
+	digest := sha256.New()
+	if _, err := io.Copy(digest, file); err != nil {
+		return ""
+	}
+	return hex.EncodeToString(digest.Sum(nil))
+}
+
+func runAgentSelfTest() error {
+	if runningBuildInfo.ArtifactSHA256 == "" {
+		return errors.New("could not calculate gate-agent artifact SHA-256")
+	}
+	comment := nftRuleComment("hs-assignment-selftest", "accept", "to_destination")
+	script := strings.Join([]string{
+		"add table inet hyperspace_agent_selftest",
+		"add chain inet hyperspace_agent_selftest forward",
+		"add rule inet hyperspace_agent_selftest forward iifname \"hsc-test\" oifname \"hst-test\" ip saddr 10.77.0.2/32 ip daddr 198.51.100.0/24 counter accept comment " + comment,
+		"delete table inet hyperspace_agent_selftest",
+		"",
+	}, "\n")
+	command := exec.Command("nft", "--check", "-f", "-")
+	command.Stdin = strings.NewReader(script)
+	output, err := command.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("nftables assignment rule parser self-test failed: %w: %s", err, strings.TrimSpace(string(output)))
+	}
+	return nil
+}
+
 func sendHeartbeat(client *http.Client, cfg config, probeManager *probeServerManager) error {
 	doubleZero := doubleZeroStatus()
 	chronySummary := chronyTrackingSummary()
 	body := map[string]any{
-		"gateId":           cfg.GateName,
-		"agentVersion":     version,
-		"bootId":           bootID(),
-		"observedEndpoint": hostname(),
-		"doubleZero":       doubleZero,
+		"gateId":              cfg.GateName,
+		"agentVersion":        version,
+		"agentArtifactSha256": runningBuildInfo.ArtifactSHA256,
+		"bootId":              bootID(),
+		"observedEndpoint":    hostname(),
+		"doubleZero":          doubleZero,
 		"capabilities": []string{
 			"heartbeat",
 			"job-claim",
@@ -1936,9 +2034,11 @@ func sendHeartbeat(client *http.Client, cfg config, probeManager *probeServerMan
 			"ntp-discovery:" + ntpDiscoveryState(),
 			"assignment-rehydrate:enabled",
 			"assignment-kernel-validation:enabled",
+			"agent-artifact-self-test:passed",
 		},
 		"reportedAt": time.Now().UTC().Format(time.RFC3339),
 	}
+	addAgentBuildFields(body)
 	if clockErrorMs, ok := chronyClockErrorMs(chronySummary); ok {
 		body["clockErrorMs"] = clockErrorMs
 	}
@@ -1948,12 +2048,13 @@ func sendHeartbeat(client *http.Client, cfg config, probeManager *probeServerMan
 func sendActualState(client *http.Client, cfg config) error {
 	counters := assignmentCounters(cfg)
 	body := map[string]any{
-		"gateId":             cfg.GateName,
-		"bootId":             bootID(),
-		"agentVersion":       version,
-		"stateHash":          actualStateHash(),
-		"managedHandles":     actualManagedHandles(cfg),
-		"assignmentCounters": counters,
+		"gateId":              cfg.GateName,
+		"bootId":              bootID(),
+		"agentVersion":        version,
+		"agentArtifactSha256": runningBuildInfo.ArtifactSHA256,
+		"stateHash":           actualStateHash(),
+		"managedHandles":      actualManagedHandles(cfg),
+		"assignmentCounters":  counters,
 		"diagnosticSummary": map[string]any{
 			"assignmentCounters": len(counters),
 		},
@@ -1966,7 +2067,20 @@ func sendActualState(client *http.Client, cfg config) error {
 		},
 		"reportedAt": time.Now().UTC().Format(time.RFC3339),
 	}
+	addAgentBuildFields(body)
 	return postJSON(client, cfg, "/v1/gate/actual-state", body, nil)
+}
+
+func addAgentBuildFields(body map[string]any) {
+	if value := strings.TrimSpace(runningBuildInfo.Revision); value != "" && value != "unknown" {
+		body["agentRevision"] = value
+	}
+	if value := strings.TrimSpace(runningBuildInfo.BuiltAt); value != "" && value != "unknown" {
+		body["agentBuiltAt"] = value
+	}
+	if value := strings.TrimSpace(runningBuildInfo.InstalledAt); value != "" {
+		body["agentInstalledAt"] = value
+	}
 }
 
 func claimJob(client *http.Client, cfg config) (*job, error) {

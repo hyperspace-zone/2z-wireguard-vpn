@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat >&2 <<'EOF'
+usage: scripts/gates/build-agent --output PATH [--go-bin PATH]
+
+Runs the complete gate-agent unit suite, embeds an immutable Git revision and
+UTC build time, builds the artifact, and verifies that the metadata and
+SHA-256 reported by the resulting binary match the artifact on disk.
+EOF
+}
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+output=""
+go_bin="${GO_BIN:-go}"
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --output) output="${2:-}"; shift 2 ;;
+    --go-bin) go_bin="${2:-}"; shift 2 ;;
+    -h|--help) usage; exit 0 ;;
+    *) echo "unknown argument: $1" >&2; usage; exit 2 ;;
+  esac
+done
+
+[[ -n "$output" ]] || { usage; exit 2; }
+if [[ -x /usr/local/go/bin/go && "$go_bin" == "go" ]]; then
+  go_bin=/usr/local/go/bin/go
+fi
+
+revision="$(git -C "$repo_root" rev-parse --verify HEAD)"
+built_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+if [[ -n "$(git -C "$repo_root" status --short --untracked-files=no)" ]]; then
+  echo "refusing to build a release artifact from modified tracked files" >&2
+  exit 1
+fi
+
+mkdir -p "$(dirname "$output")"
+(
+  cd "$repo_root/apps/gate-agent"
+  "$go_bin" test ./...
+  "$go_bin" build -trimpath -buildvcs=false \
+    -ldflags "-X main.buildRevision=${revision} -X main.buildTime=${built_at}" \
+    -o "$output" ./cmd/hyperspace-gate-agent
+)
+chmod 0755 "$output"
+
+actual_sha="$(sha256sum "$output" | awk '{print $1}')"
+build_info="$($output --build-info)"
+printf '%s' "$build_info" | jq -e \
+  --arg revision "$revision" \
+  --arg builtAt "$built_at" \
+  --arg sha "$actual_sha" \
+  '.revision == $revision and .builtAt == $builtAt and .artifactSha256 == $sha' >/dev/null
+
+printf '%s\n' "$build_info"

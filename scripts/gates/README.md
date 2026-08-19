@@ -10,15 +10,20 @@ scripts assume a clean Ubuntu gate host reachable over SSH as root.
   `vnstat`, `sysstat`, log hygiene and resource-exporter timers. It disables
   unattended package/firmware jobs and installs the passive DoubleZero
   route-liveness tuning and aggregate metrics endpoint.
-- `deploy-agent` builds or copies `hyperspace-gate-agent`, installs the systemd
-  unit, writes `/etc/hyperspace/gate-agent.env` from secret files, optionally
-  writes a Caddy HTTPS probe host, and restarts the service. For binary-only
-  fleet upgrades, `--reuse-existing-env` requires the existing secret env and
-  does not read or replace it. Heartbeats default to 10 seconds; actual-state
-  and assignment counter reports default to 60 seconds.
-- `validate-host` prints a JSON readiness summary for operator review.
+- `build-agent` refuses modified tracked sources, runs all Go tests, embeds the
+  Git revision and UTC build time, and verifies the resulting artifact SHA.
+- `deploy-agent` stages an immutable `hyperspace-gate-agent` artifact and uses
+  `hyperspace-gate-agent-release` to test the exact binary with the host's real
+  nftables parser before activation. It snapshots the previous release,
+  restarts the service, waits until the control plane observes the exact new
+  SHA in a heartbeat, and rolls back automatically on any failure. For
+  binary-only upgrades, `--reuse-existing-env` preserves gate secrets.
+- `validate-host` prints the installed revision, build/install dates and SHA,
+  and can fail the rollout unless the service and artifact self-test pass.
 - `rollout-wave.mjs` runs the previous scripts for every inventory entry in a
-  selected rollout wave. It defaults to dry-run; pass `--execute` after review.
+  selected rollout wave. It always completes a named `--canary-gate` (or the
+  first gate by name) before continuing. Any failed canary or gate stops the
+  wave. It defaults to dry-run; pass `--execute` after review.
 
 ## Example
 
@@ -26,6 +31,7 @@ scripts assume a clean Ubuntu gate host reachable over SSH as root.
 scripts/gates/rollout-wave.mjs \
   --inventory infra/gates.mainnet.json \
   --wave 2026-07-a \
+  --canary-gate gate-eu-fra-21 \
   --ssh-key /root/hyperspace/.ssh_keys/hyperspace_mainnet_gatekeeper_20260526 \
   --known-hosts-file /root/.ssh/known_hosts \
   --control-plane-url https://control-plane.hyperspace.zone \
@@ -41,6 +47,15 @@ scripts/gates/rollout-wave.mjs ... --execute
 Each gate token is read from `${gateTokenDir}/${gateName}.token`. Secrets are
 not printed in dry-run output. Fleet execution requires a populated, verified
 `known_hosts` file; the scripts do not accept unknown or changed host keys.
+
+Every activation appends a timestamped record to
+`/var/lib/hyperspace-gate/agent-deployments.jsonl`; the current release is in
+`/var/lib/hyperspace-gate/agent-release.json`, and rollback artifacts are kept
+under `/var/lib/hyperspace-gate/agent-releases/<sha256>/`. Manual rollback is:
+
+```bash
+sudo /usr/local/sbin/hyperspace-gate-agent-release rollback --sha <previous-sha256>
+```
 
 Inventory entries may set `resourceTier` to `standard` or `hub`. `standard`
 sets `nf_conntrack_max=65536`. `hub` sets `262144` and is rejected on hosts with
