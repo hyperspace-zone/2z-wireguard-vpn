@@ -1,0 +1,150 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - /etc/prometheus/rules/hyperspace-alerts.yml
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            - 127.0.0.1:9093
+
+scrape_configs:
+  - job_name: hyperspace-host-node
+    scheme: http
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - 127.0.0.1:9100
+        labels:
+          cluster: staging
+          role: observability
+          service_host: observability.staging.hyperspace.zone
+          service_ipv4: 84.32.110.4
+      - targets:
+          - 10.179.228.40:9100
+        labels:
+          cluster: staging
+          role: web
+          service_host: app.staging.hyperspace.zone
+          service_ipv4: 84.32.25.11
+      - targets:
+          - 10.179.228.44:9100
+        labels:
+          cluster: staging
+          role: control-plane
+          service_host: control-plane.staging.hyperspace.zone
+          service_ipv4: 84.32.83.198
+      - targets:
+          - 10.179.228.4:9100
+        labels:
+          cluster: staging
+          role: postgresql
+          service_host: db.staging.hyperspace.zone
+          service_ipv4: 84.32.97.140
+
+  - job_name: hyperspace-postgresql
+    scheme: http
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - 10.179.228.4:9187
+        labels:
+          cluster: staging
+          role: postgresql
+          service_host: db.staging.hyperspace.zone
+          service_ipv4: 84.32.97.140
+
+  - job_name: hyperspace-blackbox-http
+    metrics_path: /probe
+    params:
+      module:
+        - http_2xx
+    static_configs:
+      - targets:
+          - https://app.staging.hyperspace.zone/
+        labels:
+          cluster: staging
+          role: web
+          probe_name: app-home
+          service_host: app.staging.hyperspace.zone
+          service_ipv4: 84.32.25.11
+      - targets:
+          - https://app.staging.hyperspace.zone/api/health
+        labels:
+          cluster: staging
+          role: web
+          probe_name: app-api-health
+          service_host: app.staging.hyperspace.zone
+          service_ipv4: 84.32.25.11
+      - targets:
+          - https://control-plane.staging.hyperspace.zone/health
+        labels:
+          cluster: staging
+          role: control-plane
+          probe_name: control-plane-health
+          service_host: control-plane.staging.hyperspace.zone
+          service_ipv4: 84.32.83.198
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: 127.0.0.1:9115
+
+  - job_name: hyperspace-blackbox-postgresql
+    metrics_path: /probe
+    params:
+      module:
+        - tcp_connect
+    static_configs:
+      - targets:
+          - 10.179.228.4:5432
+        labels:
+          cluster: staging
+          role: postgresql
+          probe_name: postgresql-tcp
+          service_host: db.staging.hyperspace.zone
+          service_ipv4: 84.32.97.140
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: 127.0.0.1:9115
+
+  - job_name: hyperspace-control-plane-api
+    scheme: https
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - control-plane.staging.hyperspace.zone
+        labels:
+          cluster: staging
+          role: control-plane-api
+          service_host: control-plane.staging.hyperspace.zone
+          service_ipv4: 84.32.83.198
+
+  - job_name: hyperspace-control-plane-worker
+    scheme: http
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - 10.179.228.44:9091
+        labels:
+          cluster: staging
+          role: control-plane-worker
+          service_host: control-plane.staging.hyperspace.zone
+          service_ipv4: 84.32.83.198
+
+  - job_name: hyperspace-gate-node
+    scheme: http
+    metrics_path: /metrics
+    file_sd_configs:
+      - files:
+          - /etc/prometheus/file_sd/gates.json
+        refresh_interval: 30s
