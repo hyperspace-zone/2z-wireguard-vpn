@@ -12,6 +12,7 @@ import { registerOpenApiRoute } from "./http/openapi.js";
 import { registerPublicRateLimits, type PublicRateLimitConfig } from "./http/rate-limit.js";
 import { registerAdminAuditRoutes } from "./surfaces/admin/audit.routes.js";
 import { registerAdminGatesRoutes } from "./surfaces/admin/gates.routes.js";
+import { registerGateAgentDeploymentRoutes } from "./surfaces/admin/gate-agent-deployments.routes.js";
 import { registerAdminJobRoutes } from "./surfaces/admin/jobs.routes.js";
 import { registerAdminSessionRoutes } from "./surfaces/admin/sessions.routes.js";
 import { registerAgentEntitlementRoutes } from "./surfaces/agent/entitlements.routes.js";
@@ -32,6 +33,7 @@ export interface ControlPlaneApiRuntimeConfig {
   downloadTokenTtlSeconds: number;
   adminToken?: string;
   artifactEncryptionKey: Buffer | null;
+  gateAgentReleaseDir: string;
   publicRateLimit: PublicRateLimitConfig;
   selfServiceAbuseControls: SessionAbuseControlConfig;
 }
@@ -82,6 +84,12 @@ export function createApp(input: CreateControlPlaneApiAppInput): FastifyInstance
     requireUser: auth.requireUser
   });
   registerAdminGatesRoutes(app, { db, requireAdmin: auth.requireAdmin });
+  registerGateAgentDeploymentRoutes(app, {
+    db,
+    releaseDir: config.gateAgentReleaseDir,
+    requireAdmin: auth.requireAdmin,
+    requireGate: auth.requireGate
+  });
   registerAdminSessionRoutes(app, { db, requireAdmin: auth.requireAdmin });
   registerAdminJobRoutes(app, { db, requireAdmin: auth.requireAdmin });
   registerAdminAuditRoutes(app, { db, requireAdmin: auth.requireAdmin });

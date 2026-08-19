@@ -41,6 +41,7 @@ export {
 } from "./reconciler/assignment-controller.js";
 export { runCleanupTasks, type CleanupResult } from "./reconciler/cleanup-controller.js";
 export { reconcileDrift } from "./reconciler/drift-controller.js";
+export { reconcileGateAgentDeployments, type GateAgentDeploymentReconcileResult } from "./reconciler/gate-agent-deployment-controller.js";
 export { reconcileExpiry } from "./reconciler/expiry-controller.js";
 export { markStaleGates } from "./reconciler/gate-controller.js";
 export { requeueExpiredJobs } from "./reconciler/job-controller.js";
@@ -72,6 +73,18 @@ export {
 } from "./resources/sessions/abuse-controls.js";
 export { recordGateJobReport, type GateJobReport } from "./resources/jobs/attempts.js";
 export { readGateAgentRuntime, type GateAgentRuntimeRow } from "./resources/gates/repository.js";
+export {
+  createGateAgentRelease,
+  requestGateAgentDeployment,
+  requestGateAgentRollback,
+  readGateAgentDeploymentHistory,
+  readGateAgentReleases
+} from "./resources/gate-agent-deployments/service.js";
+export {
+  markDeploymentJobReported,
+  readGateAgentRelease,
+  readGateAgentReleaseForGate
+} from "./resources/gate-agent-deployments/repository.js";
 export {
   claimGateJob,
   type ClaimedGateJob,

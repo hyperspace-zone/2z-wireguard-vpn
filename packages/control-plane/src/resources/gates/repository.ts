@@ -100,6 +100,12 @@ export async function selectSchedulableGate(
         AND COALESCE(agent.status = 'True', false)
         AND COALESCE(ready.status = 'True', false)
         AND COALESCE(schedulable.status = 'True', false)
+        AND NOT EXISTS (
+          SELECT 1
+          FROM gate_agent_deployments
+          WHERE gate_agent_deployments.gate_id = gates.id
+            AND gate_agent_deployments.phase IN ('queued', 'staging', 'verifying', 'rollback_requested', 'rolling_back')
+        )
         ${doubleZeroGateSqlPredicate}
         AND ($2::uuid IS NULL OR gates.id = $2::uuid)
         AND ($3::text IS NULL OR gates.name = $3)

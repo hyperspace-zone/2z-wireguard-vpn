@@ -24,6 +24,7 @@
     "test:live:policy": "node scripts/testnet/live-policy-smoke.mjs",
     "test:live": "npm run test:live:ui && npm run test:live:policy",
     "gates:rollout-wave": "node scripts/gates/rollout-wave.mjs",
+    "gates:control-plane-rollout": "node scripts/gates/control-plane-rollout.mjs",
     "gates:build-agent": "scripts/gates/build-agent",
     "test:gate-discovery": "node --test scripts/observability/render-gate-file-sd.test.mjs",
     "test:gate-provisioning": "node --test scripts/gates/*.test.mjs",

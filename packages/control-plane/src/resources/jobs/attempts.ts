@@ -17,6 +17,7 @@ import {
 } from "./repository.js";
 import { recordGateBenchmarkJobReport } from "../benchmarks/service.js";
 import { resolveReportedJobTransition, type JobReportStatus } from "./transitions.js";
+import { markDeploymentJobReported } from "../gate-agent-deployments/repository.js";
 
 export interface GateJobReport {
   status: JobReportStatus;
@@ -63,6 +64,20 @@ export async function recordGateJobReport(
         payload: row.payload,
         resultSummary: report.resultSummary
       });
+    }
+
+    if (row.type === "deploy_agent" || row.type === "rollback_agent") {
+      const deploymentId = readString(row.payload, "deploymentId");
+      if (deploymentId) {
+        await markDeploymentJobReported(client, {
+          deploymentId,
+          jobType: row.type,
+          succeeded: report.status === "succeeded",
+          terminalFailure: transition.terminalFailure,
+          errorCode: report.errorCode,
+          resultSummary: report.resultSummary
+        });
+      }
     }
 
     return true;

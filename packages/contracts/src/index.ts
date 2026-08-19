@@ -18,6 +18,7 @@ export * from "./resources/benchmark.js";
 export * from "./resources/condition.js";
 export * from "./resources/entitlement.js";
 export * from "./resources/gate-assignment.js";
+export * from "./resources/gate-agent-deployment.js";
 export * from "./resources/gate-lease.js";
 export * from "./resources/gate.js";
 export * from "./resources/job.js";

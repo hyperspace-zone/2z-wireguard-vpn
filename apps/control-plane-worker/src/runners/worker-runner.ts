@@ -6,6 +6,7 @@ import { createCleanupLoop } from "../loops/cleanup-loop.js";
 import { collectControlPlaneSnapshotMetrics } from "../observability/control-plane-snapshot.js";
 import { createRetryLoop } from "../loops/retry-loop.js";
 import { createReconcileRunner } from "./reconcile-runner.js";
+import { reconcileGateAgentDeployments } from "@hyperspace-zone/control-plane";
 import { log, sleep } from "../support/runtime.js";
 
 export interface WorkerRunner {
@@ -17,6 +18,7 @@ interface WorkerRunnerTasks {
   reconcile(): Promise<void>;
   retry(): Promise<void>;
   cleanup(): Promise<void>;
+  gateAgentDeployments(): Promise<void>;
   benchmarkScheduler(): Promise<void>;
   snapshot(): Promise<boolean>;
 }
@@ -43,6 +45,7 @@ export function createWorkerRunner(input: {
     reconcile: () => reconcileRunner.runOnce(),
     retry: () => retryLoop.runOnce(),
     cleanup: () => cleanupLoop.runOnce(),
+    gateAgentDeployments: async () => { await reconcileGateAgentDeployments(input.db); },
     benchmarkScheduler: () => benchmarkSchedulerLoop.runOnce(),
     snapshot: () => collectControlPlaneSnapshotMetrics(input)
   };
@@ -63,6 +66,7 @@ export function createWorkerRunner(input: {
       await runMeasuredLoop("reconcile", input, tasks.reconcile);
       await runMeasuredLoop("retry", input, tasks.retry);
       await runMeasuredLoop("cleanup", input, tasks.cleanup);
+      await runMeasuredLoop("gate-agent-deployments", input, tasks.gateAgentDeployments);
       if (!stopping) {
         await waitForNextRun(input.config.pollMs);
       }

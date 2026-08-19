@@ -27,7 +27,7 @@ import (
 )
 
 var (
-	version       = "0.2.2"
+	version       = "0.3.0"
 	buildRevision = "unknown"
 	buildTime     = "unknown"
 )
@@ -201,7 +201,7 @@ func main() {
 			continue
 		}
 
-		result := executeJob(cfg, *claimed)
+		result := executeJob(client, cfg, *claimed)
 		if err := reportJob(client, cfg, claimed.ID, result); err != nil {
 			logJSON("report_failed", map[string]any{
 				"jobId": claimed.ID,
@@ -218,7 +218,7 @@ type jobResult struct {
 	ResultSummary   map[string]any `json:"resultSummary"`
 }
 
-func executeJob(cfg config, item job) jobResult {
+func executeJob(client *http.Client, cfg config, item job) jobResult {
 	logJSON("job_received", map[string]any{
 		"jobId":         item.ID,
 		"type":          item.Type,
@@ -226,6 +226,10 @@ func executeJob(cfg config, item job) jobResult {
 	})
 
 	switch item.Type {
+	case "deploy_agent":
+		return executeDeployAgentJob(client, cfg, item)
+	case "rollback_agent":
+		return executeRollbackAgentJob(cfg, item)
 	case "probe":
 		return executeProbeJob(cfg, item)
 	case "apply_assignment":
@@ -281,6 +285,228 @@ func executeJob(cfg config, item job) jobResult {
 			},
 		}
 	}
+}
+
+type agentDeploymentPayload struct {
+	DeploymentID   string `json:"deploymentId"`
+	ReleaseID      string `json:"releaseId"`
+	Version        string `json:"version"`
+	Revision       string `json:"revision"`
+	BuiltAt        string `json:"builtAt"`
+	ArtifactSHA256 string `json:"artifactSha256"`
+}
+
+type agentRollbackPayload struct {
+	DeploymentID   string `json:"deploymentId"`
+	ArtifactSHA256 string `json:"artifactSha256"`
+}
+
+func executeDeployAgentJob(client *http.Client, cfg config, item job) jobResult {
+	var payload agentDeploymentPayload
+	if err := json.Unmarshal(item.Payload, &payload); err != nil {
+		return failed("invalid_agent_deployment_payload", err)
+	}
+	if !validArtifactSHA256(payload.ArtifactSHA256) || strings.TrimSpace(payload.ReleaseID) == "" || strings.TrimSpace(payload.DeploymentID) == "" {
+		return failed("invalid_agent_deployment_payload", errors.New("deploymentId, releaseId, and a lowercase SHA-256 are required"))
+	}
+	if runningBuildInfo.ArtifactSHA256 == payload.ArtifactSHA256 {
+		return jobResult{
+			Status: "succeeded",
+			ResultSummary: map[string]any{
+				"deploymentId":        payload.DeploymentID,
+				"releaseId":           payload.ReleaseID,
+				"artifactSha256":      payload.ArtifactSHA256,
+				"activationScheduled": false,
+				"alreadyInstalled":    true,
+			},
+		}
+	}
+	if _, err := os.Stat("/usr/local/sbin/hyperspace-gate-agent-release"); err != nil {
+		return failed("agent_release_manager_missing", err)
+	}
+	incomingDir := filepath.Join(cfg.StateDir, "agent-incoming")
+	if err := os.MkdirAll(incomingDir, 0o700); err != nil {
+		return retryable("agent_release_stage_failed", err)
+	}
+	candidatePath := filepath.Join(incomingDir, payload.ArtifactSHA256)
+	if err := downloadGateAgentRelease(client, cfg, payload.ReleaseID, payload.ArtifactSHA256, candidatePath); err != nil {
+		return retryable("agent_release_download_failed", err)
+	}
+	if err := os.Chmod(candidatePath, 0o755); err != nil {
+		return retryable("agent_release_stage_failed", err)
+	}
+	metadata, err := readCandidateBuildInfo(candidatePath)
+	if err != nil {
+		return failed("agent_release_metadata_invalid", err)
+	}
+	if metadata.Version != payload.Version || metadata.Revision != payload.Revision || metadata.BuiltAt != payload.BuiltAt || metadata.ArtifactSHA256 != payload.ArtifactSHA256 {
+		return failed("agent_release_metadata_mismatch", fmt.Errorf("candidate build metadata does not match registered release %s", payload.ReleaseID))
+	}
+	if output, err := exec.Command(candidatePath, "--self-test").CombinedOutput(); err != nil {
+		return failed("agent_release_self_test_failed", fmt.Errorf("%w: %s", err, strings.TrimSpace(string(output))))
+	}
+	unitName := fmt.Sprintf(
+		"hyperspace-gate-agent-deploy-%s-attempt-%d",
+		safeSystemdUnitSuffix(payload.DeploymentID),
+		item.AttemptNumber,
+	)
+	command := exec.Command(
+		"systemd-run",
+		"--unit="+unitName,
+		"--on-active=30s",
+		"--collect",
+		"/usr/local/sbin/hyperspace-gate-agent-release",
+		"install",
+		"--candidate", candidatePath,
+		"--unit", "/etc/systemd/system/hyperspace-gate-agent.service",
+		"--expected-sha", payload.ArtifactSHA256,
+	)
+	if output, err := command.CombinedOutput(); err != nil {
+		return retryable("agent_release_activation_schedule_failed", fmt.Errorf("%w: %s", err, strings.TrimSpace(string(output))))
+	}
+	return jobResult{
+		Status: "succeeded",
+		ResultSummary: map[string]any{
+			"deploymentId":        payload.DeploymentID,
+			"releaseId":           payload.ReleaseID,
+			"artifactSha256":      payload.ArtifactSHA256,
+			"activationScheduled": true,
+		},
+	}
+}
+
+func executeRollbackAgentJob(cfg config, item job) jobResult {
+	var payload agentRollbackPayload
+	if err := json.Unmarshal(item.Payload, &payload); err != nil {
+		return failed("invalid_agent_rollback_payload", err)
+	}
+	if !validArtifactSHA256(payload.ArtifactSHA256) || strings.TrimSpace(payload.DeploymentID) == "" {
+		return failed("invalid_agent_rollback_payload", errors.New("deploymentId and a lowercase SHA-256 are required"))
+	}
+	if runningBuildInfo.ArtifactSHA256 == payload.ArtifactSHA256 {
+		return jobResult{
+			Status: "succeeded",
+			ResultSummary: map[string]any{
+				"deploymentId":      payload.DeploymentID,
+				"artifactSha256":    payload.ArtifactSHA256,
+				"rollbackScheduled": false,
+				"alreadyInstalled":  true,
+			},
+		}
+	}
+	releasePath := filepath.Join(cfg.StateDir, "agent-releases", payload.ArtifactSHA256, "hyperspace-gate-agent")
+	if _, err := os.Stat(releasePath); err != nil {
+		return failed("agent_rollback_release_missing", err)
+	}
+	unitName := fmt.Sprintf(
+		"hyperspace-gate-agent-rollback-%s-attempt-%d",
+		safeSystemdUnitSuffix(payload.DeploymentID),
+		item.AttemptNumber,
+	)
+	command := exec.Command(
+		"systemd-run",
+		"--unit="+unitName,
+		"--on-active=30s",
+		"--collect",
+		"/usr/local/sbin/hyperspace-gate-agent-release",
+		"rollback",
+		"--sha", payload.ArtifactSHA256,
+	)
+	if output, err := command.CombinedOutput(); err != nil {
+		return retryable("agent_rollback_schedule_failed", fmt.Errorf("%w: %s", err, strings.TrimSpace(string(output))))
+	}
+	return jobResult{
+		Status: "succeeded",
+		ResultSummary: map[string]any{
+			"deploymentId":      payload.DeploymentID,
+			"artifactSha256":    payload.ArtifactSHA256,
+			"rollbackScheduled": true,
+		},
+	}
+}
+
+func validArtifactSHA256(value string) bool {
+	matched, _ := regexp.MatchString(`^[a-f0-9]{64}$`, value)
+	return matched
+}
+
+func safeSystemdUnitSuffix(value string) string {
+	value = strings.ToLower(value)
+	value = regexp.MustCompile(`[^a-z0-9]+`).ReplaceAllString(value, "-")
+	value = strings.Trim(value, "-")
+	if len(value) > 48 {
+		value = value[:48]
+	}
+	if value == "" {
+		return "unknown"
+	}
+	return value
+}
+
+func readCandidateBuildInfo(path string) (agentBuildInfo, error) {
+	output, err := exec.Command(path, "--build-info").CombinedOutput()
+	if err != nil {
+		return agentBuildInfo{}, fmt.Errorf("candidate --build-info failed: %w: %s", err, strings.TrimSpace(string(output)))
+	}
+	var info agentBuildInfo
+	if err := json.Unmarshal(output, &info); err != nil {
+		return agentBuildInfo{}, fmt.Errorf("candidate build info is invalid JSON: %w", err)
+	}
+	return info, nil
+}
+
+func downloadGateAgentRelease(
+	client *http.Client,
+	cfg config,
+	releaseID string,
+	expectedSHA256 string,
+	destination string,
+) error {
+	request, err := http.NewRequest(
+		"GET",
+		strings.TrimRight(cfg.ControlPlaneURL, "/")+"/v1/gate/agent-releases/"+releaseID+"/artifact",
+		nil,
+	)
+	if err != nil {
+		return err
+	}
+	request.Header.Set("x-gate-name", cfg.GateName)
+	request.Header.Set("x-gate-token", cfg.GateToken)
+	response, err := client.Do(request)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		body, _ := io.ReadAll(io.LimitReader(response.Body, 1<<20))
+		return fmt.Errorf("control-plane returned %s: %s", response.Status, strings.TrimSpace(string(body)))
+	}
+	temporary := destination + ".partial"
+	file, err := os.OpenFile(temporary, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	if err != nil {
+		return err
+	}
+	digest := sha256.New()
+	written, copyErr := io.Copy(io.MultiWriter(file, digest), io.LimitReader(response.Body, 64*1024*1024+1))
+	closeErr := file.Close()
+	if copyErr != nil {
+		_ = os.Remove(temporary)
+		return copyErr
+	}
+	if closeErr != nil {
+		_ = os.Remove(temporary)
+		return closeErr
+	}
+	if written > 64*1024*1024 {
+		_ = os.Remove(temporary)
+		return errors.New("gate-agent artifact exceeds 64 MiB")
+	}
+	actual := hex.EncodeToString(digest.Sum(nil))
+	if actual != expectedSHA256 {
+		_ = os.Remove(temporary)
+		return fmt.Errorf("gate-agent artifact SHA-256 mismatch: expected %s, got %s", expectedSHA256, actual)
+	}
+	return os.Rename(temporary, destination)
 }
 
 type assignmentPayload struct {
@@ -2039,6 +2265,7 @@ func sendHeartbeat(client *http.Client, cfg config, probeManager *probeServerMan
 			"assignment-rehydrate:enabled",
 			"assignment-kernel-validation:enabled",
 			"agent-artifact-self-test:passed",
+			"control-plane-agent-rollout:v1",
 		},
 		"reportedAt": time.Now().UTC().Format(time.RFC3339),
 	}
