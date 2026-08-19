@@ -31,8 +31,8 @@ fi
 
 revision="$(git -C "$repo_root" rev-parse --verify HEAD)"
 built_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-if [[ -n "$(git -C "$repo_root" status --short --untracked-files=no)" ]]; then
-  echo "refusing to build a release artifact from modified tracked files" >&2
+if [[ -n "$(git -C "$repo_root" status --short)" ]]; then
+  echo "refusing to build a release artifact from a dirty worktree (including untracked files)" >&2
   exit 1
 fi
 

@@ -10,7 +10,8 @@ scripts assume a clean Ubuntu gate host reachable over SSH as root.
   `vnstat`, `sysstat`, log hygiene and resource-exporter timers. It disables
   unattended package/firmware jobs and installs the passive DoubleZero
   route-liveness tuning and aggregate metrics endpoint.
-- `build-agent` refuses modified tracked sources, runs all Go tests, embeds the
+- `build-agent` requires a completely clean worktree (including no untracked
+  files), runs all Go tests, embeds the
   Git revision and UTC build time, and verifies the resulting artifact SHA.
 - `deploy-agent` stages an immutable `hyperspace-gate-agent` artifact and uses
   `hyperspace-gate-agent-release` to test the exact binary with the host's real
@@ -18,6 +19,8 @@ scripts assume a clean Ubuntu gate host reachable over SSH as root.
   restarts the service, waits until the control plane observes the exact new
   SHA in a heartbeat, and rolls back automatically on any failure. For
   binary-only upgrades, `--reuse-existing-env` preserves gate secrets.
+  The daemon repeats the same host parser self-test at every service start and
+  refuses to emit a successful heartbeat if it fails.
 - `validate-host` prints the installed revision, build/install dates and SHA,
   and can fail the rollout unless the service and artifact self-test pass.
 - `rollout-wave.mjs` runs the previous scripts for every inventory entry in a

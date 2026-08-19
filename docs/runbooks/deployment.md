@@ -1214,6 +1214,9 @@ control-plane heartbeat. The remaining wave does not start before those checks
 pass. Each host keeps an append-only deployment history, build/install dates,
 the previous artifact, and an automatic rollback path. A failed candidate is
 never treated as deployed merely because its systemd process remained active.
+The daemon also repeats the host-level nftables self-test on every service
+start, so an artifact cannot advertise a healthy heartbeat after bypassing the
+release playbook.
 
 Bootstrap installs HWE where available, DoubleZero, WireGuard, chrony, Caddy,
 node exporter, `vnstat`, `sysstat`, journald limits, the disk janitor and the
@@ -1985,7 +1988,7 @@ sudo -u hyperspace env PATH="/usr/local/go/bin:$PATH" \
 /tmp/hyperspace-gate-agent --build-info | jq .
 ```
 
-The build command refuses modified tracked files, runs the unit suite, embeds
+The build command refuses any dirty or untracked worktree files, runs the unit suite, embeds
 the commit and UTC build time, and verifies that the binary reports its own
 SHA-256. Build as the `hyperspace` repository owner.
 

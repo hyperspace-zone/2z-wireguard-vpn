@@ -147,6 +147,9 @@ func main() {
 	if err != nil {
 		fatal(err)
 	}
+	if err := runAgentSelfTest(); err != nil {
+		fatal(fmt.Errorf("installed gate-agent startup self-test failed: %w", err))
+	}
 	var probeManager *probeServerManager
 	if cfg.ProbePort > 0 {
 		probeManager = newProbeServerManager(cfg)
@@ -1959,9 +1962,10 @@ func currentAgentBuildInfo() agentBuildInfo {
 	data, err := os.ReadFile("/var/lib/hyperspace-gate/agent-release.json")
 	if err == nil {
 		var installed struct {
-			InstalledAt string `json:"installedAt"`
+			ArtifactSHA256 string `json:"artifactSha256"`
+			InstalledAt    string `json:"installedAt"`
 		}
-		if json.Unmarshal(data, &installed) == nil {
+		if json.Unmarshal(data, &installed) == nil && installed.ArtifactSHA256 == info.ArtifactSHA256 {
 			info.InstalledAt = strings.TrimSpace(installed.InstalledAt)
 		}
 	}
