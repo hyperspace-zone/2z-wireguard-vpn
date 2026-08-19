@@ -1161,6 +1161,7 @@ AUTH_SESSION_TTL_SECONDS=2592000
 ARTIFACT_DOWNLOAD_TTL_SECONDS=300
 ADMIN_TOKEN=${ADMIN_TOKEN}
 ARTIFACT_ENCRYPTION_KEY=${ARTIFACT_ENCRYPTION_KEY}
+GATE_AGENT_RELEASE_DIR=/var/lib/hyperspace/gate-agent-releases
 PUBLIC_RATE_LIMIT_ENABLED=true
 PUBLIC_RATE_LIMIT_READ_WINDOW_SECONDS=60
 PUBLIC_RATE_LIMIT_READ_MAX=300
@@ -1177,6 +1178,7 @@ SELF_SERVICE_ALLOW_PRIVATE_DESTINATIONS=false
 EOF
 chown root:hyperspace /etc/hyperspace/control-plane-api.env
 chmod 0640 /etc/hyperspace/control-plane-api.env
+install -d -o hyperspace -g hyperspace -m 0750 /var/lib/hyperspace/gate-agent-releases
 ```
 
 The self-service API enables basic abuse controls by default. Public API rate
@@ -1217,6 +1219,44 @@ never treated as deployed merely because its systemd process remained active.
 The daemon also repeats the host-level nftables self-test on every service
 start, so an artifact cannot advertise a healthy heartbeat after bypassing the
 release playbook.
+
+The SSH rollout is also the one-time bootstrap path for agents installed before
+managed releases were introduced. The control plane refuses to queue a managed
+release until the gate heartbeat reports `control-plane-agent-rollout:v1`.
+After that bootstrap, normal binary rollout is initiated by the control plane;
+operators no longer copy a binary to every gate:
+
+```bash
+# Build from a clean committed revision first.
+scripts/gates/build-agent --output /tmp/hyperspace-gate-agent
+
+# Dry-run validates the exact artifact and canary order without API mutations.
+npm run gates:control-plane-rollout -- \
+  --binary /tmp/hyperspace-gate-agent \
+  --control-plane-url https://control-plane.hyperspace.zone \
+  --admin-token-file /root/hyperspace/secrets/mainnet-admin.token \
+  --gate gate-eu-fra-21 \
+  --gate gate-eu-lon-01 \
+  --canary-gate gate-eu-fra-21
+
+# Run this on the control-plane API host so the immutable artifact is staged in
+# GATE_AGENT_RELEASE_DIR, then registered and distributed through gate jobs.
+npm run gates:control-plane-rollout -- ... --execute
+```
+
+The managed rollout processes one canary to a terminal `succeeded` state before
+requesting any remaining gate. A gate is temporarily excluded from new session
+scheduling while its deployment is active. Success requires all of the
+following from the specific host: the exact registered SHA-256, a heartbeat
+newer than activation, a connected lease, and the startup nftables self-test
+capability. A verification timeout requests rollback to the previous immutable
+artifact; rollback is retried up to three times. Release metadata and
+`requestedAt`, `stagedAt`, `installedAt`, `verifiedAt`, `rolledBackAt`, and
+`failedAt` remain queryable from `/v1/admin/gate-agent/deployments`.
+
+`HyperspaceGateAgentDeploymentStalled` and
+`HyperspaceGateAgentDeploymentFailed` are critical. They include gate access
+labels in Telegram, so a failed rollout cannot remain invisible for weeks.
 
 Bootstrap installs HWE where available, DoubleZero, WireGuard, chrony, Caddy,
 node exporter, `vnstat`, `sysstat`, journald limits, the disk janitor and the

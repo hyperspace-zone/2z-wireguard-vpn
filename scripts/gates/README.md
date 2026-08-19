@@ -27,6 +27,11 @@ scripts assume a clean Ubuntu gate host reachable over SSH as root.
   selected rollout wave. It always completes a named `--canary-gate` (or the
   first gate by name) before continuing. Any failed canary or gate stops the
   wave. It defaults to dry-run; pass `--execute` after review.
+- `control-plane-rollout.mjs` is the normal post-bootstrap binary release path.
+  It validates and stages one immutable artifact on the control-plane API host,
+  registers its revision/build date/SHA, requests a canary through the admin
+  API, waits for host-level verification, and only then proceeds gate by gate.
+  No SSH gate credentials are used by this path.
 
 ## Example
 
@@ -59,6 +64,14 @@ under `/var/lib/hyperspace-gate/agent-releases/<sha256>/`. Manual rollback is:
 ```bash
 sudo /usr/local/sbin/hyperspace-gate-agent-release rollback --sha <previous-sha256>
 ```
+
+An older gate must first receive one successful SSH deployment of an agent and
+release helper that report `control-plane-agent-rollout:v1`. Subsequent releases
+and rollbacks are requested by the control plane. The gate pulls the artifact
+with gate authentication, verifies its SHA and build metadata, runs its
+nftables parser self-test before and after activation, and reports the installed
+SHA in a fresh heartbeat. The local helper automatically restores the previous
+artifact if any of those checks fail.
 
 Inventory entries may set `resourceTier` to `standard` or `hub`. `standard`
 sets `nf_conntrack_max=65536`. `hub` sets `262144` and is rejected on hosts with
