@@ -343,6 +343,8 @@ export async function collectBenchmarkMetrics(db: Database, metrics: RuntimeMetr
     sourceProbeUrl: string | null;
     sourceAgentConnected: boolean;
     targetGate: string;
+    targetPublicIpv4: string;
+    targetProbeUrl: string | null;
     targetAgentConnected: boolean;
     transport: string;
     status: string | null;
@@ -377,6 +379,8 @@ export async function collectBenchmarkMetrics(db: Database, metrics: RuntimeMetr
         source.probe_url AS "sourceProbeUrl",
         source.agent_connected AS "sourceAgentConnected",
         target.name AS "targetGate",
+        target.public_ipv4 AS "targetPublicIpv4",
+        target.probe_url AS "targetProbeUrl",
         target.agent_connected AS "targetAgentConnected",
         transports.transport,
         sample.status,
@@ -427,6 +431,8 @@ export async function collectBenchmarkMetrics(db: Database, metrics: RuntimeMetr
       latest."sourceProbeUrl",
       latest."sourceAgentConnected",
       latest."targetGate",
+      latest."targetPublicIpv4",
+      latest."targetProbeUrl",
       latest."targetAgentConnected",
       latest.transport,
       latest.status,
@@ -511,7 +517,11 @@ export async function collectBenchmarkMetrics(db: Database, metrics: RuntimeMetr
     const labels = {
       route: `${row.sourceGate} -> ${row.targetGate}`,
       source_gate: row.sourceGate,
+      source_probe_host: gateAlertProbeHost(row.sourceProbeUrl, row.sourcePublicIpv4),
+      source_public_ipv4: row.sourcePublicIpv4,
       target_gate: row.targetGate,
+      target_probe_host: gateAlertProbeHost(row.targetProbeUrl, row.targetPublicIpv4),
+      target_public_ipv4: row.targetPublicIpv4,
       transport: row.transport
     };
     metrics.gauge("control_plane_benchmark_route_failed", row.status === "failed" ? 1 : 0, {

@@ -14,7 +14,26 @@ started UTC <code>{{ .StartsAt.UTC.Format "2006-01-02T15:04:05Z" }}</code>
 {{ if eq .Status "resolved" -}}
 resolved UTC <code>{{ .EndsAt.UTC.Format "2006-01-02T15:04:05Z" }}</code>
 {{ end -}}
-{{ if or .Labels.probe_host .Labels.public_ipv4 -}}
+{{ if .Labels.route -}}
+{{ if or .Labels.source_probe_host .Labels.source_public_ipv4 -}}
+Source gate access:
+{{ if .Labels.source_gate }}gate <code>{{ .Labels.source_gate | html }}</code>
+{{ end -}}
+{{ if .Labels.source_probe_host }}host <code>{{ .Labels.source_probe_host | html }}</code>
+{{ end -}}
+{{ if .Labels.source_public_ipv4 }}ip <code>{{ .Labels.source_public_ipv4 | html }}</code>
+{{ end -}}
+{{ end -}}
+{{ if or .Labels.target_probe_host .Labels.target_public_ipv4 -}}
+Target gate access:
+{{ if .Labels.target_gate }}gate <code>{{ .Labels.target_gate | html }}</code>
+{{ end -}}
+{{ if .Labels.target_probe_host }}host <code>{{ .Labels.target_probe_host | html }}</code>
+{{ end -}}
+{{ if .Labels.target_public_ipv4 }}ip <code>{{ .Labels.target_public_ipv4 | html }}</code>
+{{ end -}}
+{{ end -}}
+{{ else if or .Labels.probe_host .Labels.public_ipv4 -}}
 Gate access:
 {{ if .Labels.probe_host }}host <code>{{ .Labels.probe_host | html }}</code>
 {{ end -}}

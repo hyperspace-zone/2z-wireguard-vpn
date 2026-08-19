@@ -77,6 +77,10 @@ test("benchmark snapshot uses one route query and derives aggregate metrics in m
   assert.equal(queries.length, 1);
   assert.match(queries[0] ?? "", /LIMIT 2/);
   assert.match(rendered, /hyperspace_control_plane_benchmark_gate_confirmed_failed_routes\{gate="gate-a"[^}]*\} 1/);
+  assert.match(
+    rendered,
+    /hyperspace_control_plane_benchmark_route_age_seconds\{[^}]*source_probe_host="gate-a\.example\.test"[^}]*source_public_ipv4="192\.0\.2\.10"[^}]*target_probe_host="gate-b\.example\.test"[^}]*target_public_ipv4="192\.0\.2\.11"[^}]*\}/
+  );
   assert.match(rendered, /hyperspace_control_plane_benchmark_routes_total\{service="snapshot-test",status="failed",transport="public"\} 2/);
   assert.match(rendered, /hyperspace_control_plane_benchmark_rtt_p50_ms\{service="snapshot-test",status="failed",transport="public"\} 15/);
 });
@@ -88,6 +92,8 @@ function benchmarkRow(overrides: Record<string, unknown>): Record<string, unknow
     sourceProbeUrl: "https://gate-a.example.test/.well-known/hyperspace-probe",
     sourceAgentConnected: true,
     targetGate: "gate-b",
+    targetPublicIpv4: "192.0.2.11",
+    targetProbeUrl: "https://gate-b.example.test/.well-known/hyperspace-probe",
     targetAgentConnected: true,
     transport: "public",
     status: "succeeded",
