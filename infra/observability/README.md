@@ -21,9 +21,11 @@ Deployment artifacts:
 - `prometheus/prometheus.testnet.yml`
 - `prometheus/prometheus.staging.yml`
 - `prometheus/prometheus.mainnet.yml`
+- `blackbox/blackbox.yml`
 - `prometheus/rules/hyperspace-alerts.yml`
 - `alertmanager/alertmanager.yml.template`
 - `alertmanager/telegram-receivers.example.json`
+- `alertmanager/telegram-receivers.staging.example.json`
 - `alertmanager/templates/telegram.tmpl`
 - `grafana/provisioning/datasources/prometheus.yml`
 - `grafana/provisioning/dashboards/hyperspace.yml`
@@ -39,10 +41,25 @@ failures, stale benchmark data, API 5xx rate, and public API rate-limit
 activity. Benchmark failure and staleness alerts are emitted per directed route
 and transport so notifications include the affected source gate, target gate,
 and Internet/DoubleZero path.
+Web, control-plane, PostgreSQL, and observability hosts are scraped through the
+cluster-local `hyperspace-host-node` job. Every static target carries `role`,
+`service_host`, and `service_ipv4`, so host, PostgreSQL, and blackbox alerts
+render the concrete machine's `Service access` block. PostgreSQL operational
+metrics combine the standard postgres exporter with a local node-exporter
+textfile collector for connection pressure, long transactions, autovacuum,
+database growth, WAL size, and backup age.
+
+Each Prometheus instance checks only services in its own cluster. No production,
+testnet, or staging Prometheus server is a dependency of another cluster. This
+also means a complete observability-VM power-off cannot be reported by that
+same VM; detecting that single remaining failure mode requires a provider-level
+or external dead-man check and is intentionally outside this autonomous setup.
 Managed gate-agent rollouts export their latest phase, immutable release
 revision/SHA, age, deadline, and explicit gate access labels. An active rollout
-older than ten minutes or a latest `failed` rollout is critical; the latter
-remains visible until a later deployment supersedes it.
+older than ten minutes is critical. Latest failures are classified into
+installation, post-install host validation, and other failures. A requested or
+completed rollback has its own critical alert. Terminal failure and rollback
+alerts remain visible until a later deployment supersedes them.
 Dead jobs are intentionally noisy until an operator reviews them. After review,
 keep the historical job row and move it from `dead` to `acknowledged_dead`:
 

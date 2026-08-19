@@ -42,12 +42,13 @@ fi
 
 prometheus_config="$repo_root/infra/observability/prometheus/prometheus.${cluster}.yml"
 apt-get update
-apt-get install -y nodejs jq
+apt-get install -y nodejs jq prometheus-blackbox-exporter
 command -v promtool >/dev/null 2>&1 || {
   echo "promtool is required; install the prometheus package first" >&2
   exit 1
 }
 install -d -o prometheus -g prometheus -m 0755 /etc/prometheus/file_sd /etc/prometheus/rules /etc/hyperspace /usr/local/lib/hyperspace
+install -m 0644 "$repo_root/infra/observability/blackbox/blackbox.yml" /etc/prometheus/blackbox.yml
 install -m 0755 "$repo_root/scripts/observability/render-gate-file-sd.mjs" /usr/local/lib/hyperspace/render-gate-file-sd.mjs
 install -m 0644 "$repo_root/infra/observability/systemd/hyperspace-gate-discovery.service" /etc/systemd/system/hyperspace-gate-discovery.service
 install -m 0644 "$repo_root/infra/observability/systemd/hyperspace-gate-discovery.timer" /etc/systemd/system/hyperspace-gate-discovery.timer
@@ -77,11 +78,14 @@ test -s /etc/prometheus/file_sd/gates.json
 promtool check config /etc/prometheus/prometheus.yml
 promtool check rules /etc/prometheus/rules/hyperspace-alerts.yml
 systemctl enable --now hyperspace-gate-discovery.timer
+systemctl enable --now prometheus-blackbox-exporter
+systemctl restart prometheus-blackbox-exporter
 systemctl restart prometheus
 if systemctl list-unit-files grafana-server.service >/dev/null 2>&1; then
   systemctl restart grafana-server
 fi
-systemctl is-active --quiet prometheus hyperspace-gate-discovery.timer
+systemctl is-active --quiet prometheus prometheus-blackbox-exporter hyperspace-gate-discovery.timer
+curl -fsS http://127.0.0.1:9115/-/healthy >/dev/null
 
 printf 'installed gate discovery cluster=%s targets=%s retention=%s\n' \
   "$cluster" "$(jq 'length' /etc/prometheus/file_sd/gates.json)" "$retention"

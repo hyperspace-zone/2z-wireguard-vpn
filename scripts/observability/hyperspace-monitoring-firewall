@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+env_file="${HYPERSPACE_MONITORING_FIREWALL_ENV:-/etc/hyperspace/monitoring-firewall.env}"
+[[ -r "$env_file" ]] || { echo "missing $env_file" >&2; exit 1; }
+# shellcheck disable=SC1090
+source "$env_file"
+
+: "${OBSERVABILITY_IPV4:?OBSERVABILITY_IPV4 is required}"
+monitoring_ports="${MONITORING_PORTS:-9100}"
+probe_ports="${MONITORING_PROBE_PORTS:-}"
+chain="HYPERSPACE_MONITORING"
+
+valid_ipv4() {
+  [[ "$1" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]
+}
+
+valid_port() {
+  [[ "$1" =~ ^[0-9]+$ ]] && (( $1 >= 1 && $1 <= 65535 ))
+}
+
+valid_ipv4 "$OBSERVABILITY_IPV4" || { echo "invalid OBSERVABILITY_IPV4" >&2; exit 2; }
+for port in $monitoring_ports $probe_ports; do
+  valid_port "$port" || { echo "invalid monitoring port: $port" >&2; exit 2; }
+done
+
+iptables -N "$chain" 2>/dev/null || true
+iptables -F "$chain"
+iptables -C INPUT -j "$chain" 2>/dev/null || iptables -I INPUT 1 -j "$chain"
+
+for port in $monitoring_ports; do
+  iptables -A "$chain" -p tcp -s "$OBSERVABILITY_IPV4" --dport "$port" -j ACCEPT
+  iptables -A "$chain" -p tcp --dport "$port" -j REJECT --reject-with tcp-reset
+done
+for port in $probe_ports; do
+  iptables -A "$chain" -p tcp -s "$OBSERVABILITY_IPV4" --dport "$port" -j ACCEPT
+done
+iptables -A "$chain" -j RETURN

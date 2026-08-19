@@ -1,0 +1,17 @@
+[Unit]
+Description=Export Hyperspace PostgreSQL health and backup metrics
+After=postgresql.service
+Requires=postgresql.service
+
+[Service]
+Type=oneshot
+User=postgres
+Group=postgres
+EnvironmentFile=-/etc/hyperspace/postgres-monitoring.env
+ExecStart=/usr/local/sbin/hyperspace-postgres-health-exporter
+PrivateTmp=true
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadOnlyPaths=-/var/backups/hyperspace
+ReadWritePaths=/var/lib/node_exporter/textfile_collector

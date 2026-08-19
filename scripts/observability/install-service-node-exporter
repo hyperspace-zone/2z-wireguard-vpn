@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat >&2 <<'EOF'
+usage: install-service-node-exporter --listen-ip IPV4 --observability-ip IPV4
+
+Run as root on a web, control-plane, or PostgreSQL VM. The exporter is bound to
+the selected address and TCP/9100 is accepted only from the cluster's own
+observability host.
+EOF
+}
+
+[[ "${EUID:-$(id -u)}" -eq 0 ]] || { echo "run as root" >&2; exit 2; }
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+listen_ip=""
+observability_ip=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --listen-ip) listen_ip="${2:-}"; shift 2 ;;
+    --observability-ip) observability_ip="${2:-}"; shift 2 ;;
+    -h|--help) usage; exit 0 ;;
+    *) echo "unknown argument: $1" >&2; usage; exit 2 ;;
+  esac
+done
+[[ "$listen_ip" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] || { usage; exit 2; }
+[[ "$observability_ip" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] || { usage; exit 2; }
+ip -4 address show | grep -Fq "inet ${listen_ip}/" || {
+  echo "--listen-ip is not assigned to this host: $listen_ip" >&2
+  exit 2
+}
+
+apt-get update
+apt-get install -y iptables prometheus-node-exporter
+install -d -o root -g root -m 0755 /etc/hyperspace /usr/local/sbin
+install -d -o root -g prometheus -m 0775 /var/lib/node_exporter/textfile_collector
+install -m 0755 "$repo_root/scripts/observability/hyperspace-monitoring-firewall" \
+  /usr/local/sbin/hyperspace-monitoring-firewall
+install -m 0644 "$repo_root/infra/observability/systemd/hyperspace-monitoring-firewall.service" \
+  /etc/systemd/system/hyperspace-monitoring-firewall.service
+
+cat >/etc/default/prometheus-node-exporter <<EOF
+ARGS="--web.listen-address=${listen_ip}:9100 --collector.textfile.directory=/var/lib/node_exporter/textfile_collector"
+EOF
+cat >/etc/hyperspace/monitoring-firewall.env <<EOF
+OBSERVABILITY_IPV4=${observability_ip}
+MONITORING_PORTS="9100"
+MONITORING_PROBE_PORTS=""
+EOF
+chmod 0644 /etc/hyperspace/monitoring-firewall.env
+
+systemctl daemon-reload
+systemctl enable --now hyperspace-monitoring-firewall.service
+systemctl restart hyperspace-monitoring-firewall.service
+systemctl enable --now prometheus-node-exporter
+systemctl restart prometheus-node-exporter
+curl -fsS "http://${listen_ip}:9100/metrics" >/dev/null

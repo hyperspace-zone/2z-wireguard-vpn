@@ -12,7 +12,7 @@ alerting:
             - 127.0.0.1:9093
 
 scrape_configs:
-  - job_name: hyperspace-observability-node
+  - job_name: hyperspace-host-node
     scheme: http
     metrics_path: /metrics
     static_configs:
@@ -21,6 +21,101 @@ scrape_configs:
         labels:
           cluster: testnet
           role: observability
+          service_host: observability.testnet.hyperspace.zone
+          service_ipv4: 81.27.101.158
+      - targets:
+          - 212.147.234.79:9100
+        labels:
+          cluster: testnet
+          role: web
+          service_host: app.testnet.hyperspace.zone
+          service_ipv4: 212.147.234.79
+      - targets:
+          - 81.27.100.130:9100
+        labels:
+          cluster: testnet
+          role: control-plane
+          service_host: control-plane.testnet.hyperspace.zone
+          service_ipv4: 81.27.100.130
+      - targets:
+          - 81.27.100.29:9100
+        labels:
+          cluster: testnet
+          role: postgresql
+          service_host: db.testnet.hyperspace.zone
+          service_ipv4: 81.27.100.29
+
+  - job_name: hyperspace-postgresql
+    scheme: http
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - 81.27.100.29:9187
+        labels:
+          cluster: testnet
+          role: postgresql
+          service_host: db.testnet.hyperspace.zone
+          service_ipv4: 81.27.100.29
+
+  - job_name: hyperspace-blackbox-http
+    metrics_path: /probe
+    params:
+      module:
+        - http_2xx
+    static_configs:
+      - targets:
+          - https://app.testnet.hyperspace.zone/
+        labels:
+          cluster: testnet
+          role: web
+          probe_name: app-home
+          service_host: app.testnet.hyperspace.zone
+          service_ipv4: 212.147.234.79
+      - targets:
+          - https://app.testnet.hyperspace.zone/api/health
+        labels:
+          cluster: testnet
+          role: web
+          probe_name: app-api-health
+          service_host: app.testnet.hyperspace.zone
+          service_ipv4: 212.147.234.79
+      - targets:
+          - https://control-plane.testnet.hyperspace.zone/health
+        labels:
+          cluster: testnet
+          role: control-plane
+          probe_name: control-plane-health
+          service_host: control-plane.testnet.hyperspace.zone
+          service_ipv4: 81.27.100.130
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: 127.0.0.1:9115
+
+  - job_name: hyperspace-blackbox-postgresql
+    metrics_path: /probe
+    params:
+      module:
+        - tcp_connect
+    static_configs:
+      - targets:
+          - 81.27.100.29:5432
+        labels:
+          cluster: testnet
+          role: postgresql
+          probe_name: postgresql-tcp
+          service_host: db.testnet.hyperspace.zone
+          service_ipv4: 81.27.100.29
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: 127.0.0.1:9115
 
   - job_name: hyperspace-control-plane-api
     scheme: https

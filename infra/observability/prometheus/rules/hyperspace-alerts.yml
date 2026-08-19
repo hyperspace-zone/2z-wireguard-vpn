@@ -35,30 +35,121 @@ groups:
 
   - name: hyperspace-control-plane
     rules:
-      - alert: HyperspaceObservabilityNodeExporterDown
-        expr: up{job="hyperspace-observability-node"} == 0
+      - alert: HyperspaceHostNodeExporterDown
+        expr: up{job="hyperspace-host-node"} == 0
         for: 2m
+        keep_firing_for: 10m
         labels:
           severity: critical
         annotations:
-          summary: Hyperspace observability host metrics scrape is down
-          description: Prometheus cannot scrape its local observability node exporter for 2 minutes, so host disk capacity is no longer monitored.
+          summary: Hyperspace service host metrics scrape is down
+          description: Prometheus cannot scrape node exporter on the {{ $labels.role }} host {{ $labels.service_host }} for 2 minutes.
 
-      - alert: HyperspaceObservabilityRootFilesystemCritical
+      - alert: HyperspaceHostRootFilesystemPressure
         expr: |
           (
-            node_filesystem_avail_bytes{job="hyperspace-observability-node",mountpoint="/"}
-              / node_filesystem_size_bytes{job="hyperspace-observability-node",mountpoint="/"} < 0.15
+            node_filesystem_avail_bytes{job="hyperspace-host-node",mountpoint="/",fstype!~"tmpfs|overlay"}
+              / node_filesystem_size_bytes{job="hyperspace-host-node",mountpoint="/",fstype!~"tmpfs|overlay"} < 0.15
           )
           or
-          node_filesystem_avail_bytes{job="hyperspace-observability-node",mountpoint="/"} < 4294967296
+          node_filesystem_avail_bytes{job="hyperspace-host-node",mountpoint="/",fstype!~"tmpfs|overlay"} < 4294967296
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Hyperspace service host root filesystem is under pressure
+          description: The {{ $labels.role }} host {{ $labels.service_host }} has less than 15% or 4GiB available on /.
+
+      - alert: HyperspaceHostRootFilesystemCritical
+        expr: |
+          (
+            node_filesystem_avail_bytes{job="hyperspace-host-node",mountpoint="/",fstype!~"tmpfs|overlay"}
+              / node_filesystem_size_bytes{job="hyperspace-host-node",mountpoint="/",fstype!~"tmpfs|overlay"} < 0.05
+          )
+          or
+          node_filesystem_avail_bytes{job="hyperspace-host-node",mountpoint="/",fstype!~"tmpfs|overlay"} < 1073741824
         for: 5m
         keep_firing_for: 30m
         labels:
           severity: critical
         annotations:
-          summary: Hyperspace observability root filesystem is critically full
-          description: Observability host {{ $labels.instance }} in {{ $labels.cluster }} has less than 15% or 4GiB available on /; Prometheus may stop ingesting metrics and emitting alerts.
+          summary: Hyperspace service host root filesystem is critically full
+          description: The {{ $labels.role }} host {{ $labels.service_host }} has less than 5% or 1GiB available on /.
+
+      - alert: HyperspaceHostInodePressure
+        expr: |
+          node_filesystem_files_free{job="hyperspace-host-node",mountpoint="/",fstype!~"tmpfs|overlay"}
+            / node_filesystem_files{job="hyperspace-host-node",mountpoint="/",fstype!~"tmpfs|overlay"} < 0.15
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Hyperspace service host inode headroom is low
+          description: The {{ $labels.role }} host {{ $labels.service_host }} has less than 15% free inodes on /.
+
+      - alert: HyperspaceHostInodeCritical
+        expr: |
+          node_filesystem_files_free{job="hyperspace-host-node",mountpoint="/",fstype!~"tmpfs|overlay"}
+            / node_filesystem_files{job="hyperspace-host-node",mountpoint="/",fstype!~"tmpfs|overlay"} < 0.05
+        for: 5m
+        keep_firing_for: 30m
+        labels:
+          severity: critical
+        annotations:
+          summary: Hyperspace service host inodes are critically exhausted
+          description: The {{ $labels.role }} host {{ $labels.service_host }} has less than 5% free inodes on /.
+
+      - alert: HyperspaceHostMemoryPressure
+        expr: |
+          (
+            node_memory_MemAvailable_bytes{job="hyperspace-host-node"}
+              / node_memory_MemTotal_bytes{job="hyperspace-host-node"} < 0.20
+          )
+          or
+          node_memory_MemAvailable_bytes{job="hyperspace-host-node"} < 268435456
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Hyperspace service host memory headroom is low
+          description: The {{ $labels.role }} host {{ $labels.service_host }} has less than 20% or 256MiB available RAM.
+
+      - alert: HyperspaceHostMemoryCritical
+        expr: |
+          (
+            node_memory_MemAvailable_bytes{job="hyperspace-host-node"}
+              / node_memory_MemTotal_bytes{job="hyperspace-host-node"} < 0.10
+          )
+          or
+          node_memory_MemAvailable_bytes{job="hyperspace-host-node"} < 134217728
+        for: 30s
+        keep_firing_for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: Hyperspace service host memory is critically low
+          description: The {{ $labels.role }} host {{ $labels.service_host }} has less than 10% or 128MiB available RAM.
+
+      - alert: HyperspaceHostOOMKill
+        expr: increase(node_vmstat_oom_kill{job="hyperspace-host-node"}[5m]) > 0
+        keep_firing_for: 30m
+        labels:
+          severity: critical
+        annotations:
+          summary: Linux OOM killer terminated a process on a Hyperspace service host
+          description: The {{ $labels.role }} host {{ $labels.service_host }} reported at least one OOM kill during the last 5 minutes.
+
+      - alert: HyperspaceHostCpuSustained
+        expr: |
+          100 * (1 - avg by (cluster, role, service_host, service_ipv4, instance) (
+            rate(node_cpu_seconds_total{job="hyperspace-host-node",mode="idle"}[5m])
+          )) > 90
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: Hyperspace service host CPU usage is sustained above 90%
+          description: The {{ $labels.role }} host {{ $labels.service_host }} has averaged more than 90% CPU usage for 15 minutes.
 
       - alert: HyperspaceControlPlaneApiDown
         expr: up{job="hyperspace-control-plane-api"} == 0
@@ -77,6 +168,196 @@ groups:
         annotations:
           summary: Hyperspace control-plane worker metrics scrape is down
           description: Prometheus cannot scrape the worker observability endpoint for 2 minutes.
+
+      - alert: HyperspacePostgreSQLDown
+        expr: up{job="hyperspace-postgresql"} == 0
+        for: 2m
+        keep_firing_for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: Hyperspace PostgreSQL metrics scrape is down
+          description: Prometheus cannot scrape postgres_exporter on {{ $labels.service_host }} for 2 minutes.
+
+      - alert: HyperspacePostgreSQLConnectionsPressure
+        expr: |
+          hyperspace_postgres_connections{job="hyperspace-host-node"}
+            / hyperspace_postgres_max_connections{job="hyperspace-host-node"} > 0.80
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Hyperspace PostgreSQL connections are above 80%
+          description: PostgreSQL on {{ $labels.service_host }} has used more than 80% of max_connections for 10 minutes.
+
+      - alert: HyperspacePostgreSQLConnectionsCritical
+        expr: |
+          hyperspace_postgres_connections{job="hyperspace-host-node"}
+            / hyperspace_postgres_max_connections{job="hyperspace-host-node"} > 0.95
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: Hyperspace PostgreSQL connections are critically high
+          description: PostgreSQL on {{ $labels.service_host }} has used more than 95% of max_connections for 2 minutes.
+
+      - alert: HyperspacePostgreSQLLongTransaction
+        expr: hyperspace_postgres_longest_transaction_seconds{job="hyperspace-host-node"} > 300
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: Hyperspace PostgreSQL has a long-running transaction
+          description: PostgreSQL on {{ $labels.service_host }} has an active transaction older than 5 minutes.
+
+      - alert: HyperspacePostgreSQLLongTransactionCritical
+        expr: hyperspace_postgres_longest_transaction_seconds{job="hyperspace-host-node"} > 1800
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: Hyperspace PostgreSQL transaction is critically old
+          description: PostgreSQL on {{ $labels.service_host }} has an active transaction older than 30 minutes.
+
+      - alert: HyperspacePostgreSQLAutovacuumBacklog
+        expr: hyperspace_postgres_tables_requiring_vacuum{job="hyperspace-host-node"} > 0
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: Hyperspace PostgreSQL tables need vacuum attention
+          description: PostgreSQL on {{ $labels.service_host }} has tables above the dead-tuple autovacuum threshold for 30 minutes.
+
+      - alert: HyperspacePostgreSQLTransactionIdAgeCritical
+        expr: hyperspace_postgres_oldest_xid_age{job="hyperspace-host-node"} > 1000000000
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          summary: Hyperspace PostgreSQL transaction ID age is critical
+          description: PostgreSQL on {{ $labels.service_host }} has a relation transaction ID age above one billion.
+
+      - alert: HyperspacePostgreSQLDatabaseGrowth
+        expr: |
+          (
+            hyperspace_postgres_database_size_bytes{job="hyperspace-host-node"}
+              - hyperspace_postgres_database_size_bytes{job="hyperspace-host-node"} offset 24h
+          ) > 1073741824
+          and
+          (
+            hyperspace_postgres_database_size_bytes{job="hyperspace-host-node"}
+              / hyperspace_postgres_database_size_bytes{job="hyperspace-host-node"} offset 24h
+          ) > 1.20
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: Hyperspace PostgreSQL database grew rapidly
+          description: PostgreSQL on {{ $labels.service_host }} grew by more than 1GiB and 20% during the last 24 hours.
+
+      - alert: HyperspacePostgreSQLWalPressure
+        expr: hyperspace_postgres_wal_size_bytes{job="hyperspace-host-node"} > 4294967296
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: Hyperspace PostgreSQL WAL directory is large
+          description: PostgreSQL on {{ $labels.service_host }} has more than 4GiB in pg_wal.
+
+      - alert: HyperspacePostgreSQLWalCritical
+        expr: hyperspace_postgres_wal_size_bytes{job="hyperspace-host-node"} > 8589934592
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: Hyperspace PostgreSQL WAL directory is critically large
+          description: PostgreSQL on {{ $labels.service_host }} has more than 8GiB in pg_wal.
+
+      - alert: HyperspacePostgreSQLBackupStale
+        expr: |
+          hyperspace_postgres_backup_last_success_timestamp_seconds{job="hyperspace-host-node"} > 0
+          and
+          time() - hyperspace_postgres_backup_last_success_timestamp_seconds{job="hyperspace-host-node"} > 129600
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: Hyperspace PostgreSQL backup is stale
+          description: The newest PostgreSQL dump on {{ $labels.service_host }} is older than 36 hours.
+
+      - alert: HyperspacePostgreSQLBackupMissing
+        expr: hyperspace_postgres_backup_last_success_timestamp_seconds{job="hyperspace-host-node"} == 0
+        for: 30m
+        labels:
+          severity: critical
+        annotations:
+          summary: Hyperspace PostgreSQL backup is missing
+          description: No PostgreSQL custom-format dump is visible on {{ $labels.service_host }}.
+
+      - alert: HyperspacePostgreSQLBackupCritical
+        expr: |
+          hyperspace_postgres_backup_last_success_timestamp_seconds{job="hyperspace-host-node"} > 0
+          and
+          time() - hyperspace_postgres_backup_last_success_timestamp_seconds{job="hyperspace-host-node"} > 259200
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          summary: Hyperspace PostgreSQL backup is critically stale
+          description: The newest PostgreSQL dump on {{ $labels.service_host }} is older than 72 hours.
+
+      - alert: HyperspacePostgreSQLHealthMetricsStale
+        expr: time() - hyperspace_postgres_health_exporter_last_run_timestamp_seconds{job="hyperspace-host-node"} > 300
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Hyperspace PostgreSQL health metrics are stale
+          description: The PostgreSQL health collector on {{ $labels.service_host }} has not completed for more than 5 minutes.
+
+      - alert: HyperspaceBlackboxHttpDown
+        expr: probe_success{job="hyperspace-blackbox-http"} == 0
+        for: 2m
+        keep_firing_for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: Hyperspace public HTTP probe is failing
+          description: Probe {{ $labels.probe_name }} for {{ $labels.service_host }} has failed for 2 minutes.
+
+      - alert: HyperspacePostgreSQLTcpDown
+        expr: probe_success{job="hyperspace-blackbox-postgresql"} == 0
+        for: 2m
+        keep_firing_for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: Hyperspace PostgreSQL TCP probe is failing
+          description: The cluster observability host cannot establish TCP/5432 to {{ $labels.service_host }}.
+
+      - alert: HyperspaceTlsCertificateExpiring
+        expr: |
+          probe_ssl_earliest_cert_expiry{job="hyperspace-blackbox-http"} - time() < 1209600
+          and
+          probe_success{job="hyperspace-blackbox-http"} == 1
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: Hyperspace TLS certificate expires within 14 days
+          description: The TLS certificate checked by {{ $labels.probe_name }} for {{ $labels.service_host }} expires within 14 days.
+
+      - alert: HyperspaceTlsCertificateCritical
+        expr: |
+          probe_ssl_earliest_cert_expiry{job="hyperspace-blackbox-http"} - time() < 259200
+          and
+          probe_success{job="hyperspace-blackbox-http"} == 1
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          summary: Hyperspace TLS certificate expires within 3 days
+          description: The TLS certificate checked by {{ $labels.probe_name }} for {{ $labels.service_host }} expires within 3 days.
 
       - alert: HyperspaceControlPlaneSnapshotStale
         expr: time() - hyperspace_control_plane_snapshot_last_success_timestamp_seconds > 60
@@ -550,14 +831,41 @@ groups:
           summary: Hyperspace gate-agent deployment is stalled
           description: Gate {{ $labels.gate }} has remained in {{ $labels.phase }} for more than 10 minutes while deploying release {{ $labels.release_version }} ({{ $labels.release_revision }}).
 
+      - alert: HyperspaceGateAgentInstallationFailed
+        expr: hyperspace_control_plane_gate_agent_deployment_failure_info{failure_class="installation"} == 1
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: Hyperspace gate-agent installation failed
+          description: Gate {{ $labels.gate }} could not install release {{ $labels.release_version }} ({{ $labels.release_revision }}); failure code is {{ $labels.failure_code }}.
+
+      - alert: HyperspaceGateAgentPostInstallValidationFailed
+        expr: hyperspace_control_plane_gate_agent_deployment_failure_info{failure_class="validation"} == 1
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: Hyperspace gate-agent post-install validation failed
+          description: Gate {{ $labels.gate }} did not validate release {{ $labels.release_version }} ({{ $labels.release_revision }}); failure code is {{ $labels.failure_code }}.
+
       - alert: HyperspaceGateAgentDeploymentFailed
-        expr: hyperspace_control_plane_gate_agent_deployment_latest_status{phase="failed"} == 1
+        expr: hyperspace_control_plane_gate_agent_deployment_failure_info{failure_class="other"} == 1
         for: 2m
         labels:
           severity: critical
         annotations:
           summary: Hyperspace gate-agent deployment failed
-          description: The latest gate-agent deployment on {{ $labels.gate }} failed for release {{ $labels.release_version }} ({{ $labels.release_revision }}); review deployment history before retrying.
+          description: Gate {{ $labels.gate }} failed release {{ $labels.release_version }} ({{ $labels.release_revision }}) with {{ $labels.failure_code }}.
+
+      - alert: HyperspaceGateAgentRollbackRequired
+        expr: max without (phase) (hyperspace_control_plane_gate_agent_deployment_latest_status{phase=~"rollback_requested|rolling_back|rolled_back"}) == 1
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: Hyperspace gate-agent rollback was required
+          description: Gate {{ $labels.gate }} required rollback while deploying release {{ $labels.release_version }} ({{ $labels.release_revision }}); inspect deployment history and the restored artifact before retrying.
 
       - alert: HyperspaceBenchmarkRouteFailed
         expr: hyperspace_control_plane_benchmark_gate_confirmed_failed_routes > 0

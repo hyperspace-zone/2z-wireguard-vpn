@@ -758,6 +758,203 @@
       ],
       "title": "Per-Assignment Forwarded and Dropped Traffic",
       "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 60 },
+      "id": 19,
+      "panels": [],
+      "title": "Web",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "hyperspace-prometheus" },
+      "fieldConfig": { "defaults": { "unit": "percentunit", "min": 0, "max": 1 }, "overrides": [] },
+      "gridPos": { "h": 7, "w": 5, "x": 0, "y": 61 },
+      "id": 20,
+      "options": { "colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto" },
+      "targets": [{ "datasource": { "type": "prometheus", "uid": "hyperspace-prometheus" }, "expr": "probe_success{job=\"hyperspace-blackbox-http\",role=\"web\"}", "legendFormat": "{{probe_name}}", "refId": "A" }],
+      "title": "Web Endpoint Availability",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "hyperspace-prometheus" },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "gridPos": { "h": 7, "w": 6, "x": 5, "y": 61 },
+      "id": 21,
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi" } },
+      "targets": [{ "datasource": { "type": "prometheus", "uid": "hyperspace-prometheus" }, "expr": "probe_duration_seconds{job=\"hyperspace-blackbox-http\",role=\"web\"}", "legendFormat": "{{probe_name}}", "refId": "A" }],
+      "title": "Web Probe Duration",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "hyperspace-prometheus" },
+      "fieldConfig": { "defaults": { "unit": "d" }, "overrides": [] },
+      "gridPos": { "h": 7, "w": 5, "x": 11, "y": 61 },
+      "id": 22,
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi" } },
+      "targets": [{ "datasource": { "type": "prometheus", "uid": "hyperspace-prometheus" }, "expr": "(probe_ssl_earliest_cert_expiry{job=\"hyperspace-blackbox-http\"} - time()) / 86400", "legendFormat": "{{service_host}}", "refId": "A" }],
+      "title": "TLS Certificate Days Remaining",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "hyperspace-prometheus" },
+      "fieldConfig": { "defaults": { "unit": "percentunit", "min": 0, "max": 1 }, "overrides": [] },
+      "gridPos": { "h": 7, "w": 8, "x": 16, "y": 61 },
+      "id": 36,
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        { "datasource": { "type": "prometheus", "uid": "hyperspace-prometheus" }, "expr": "1 - avg(rate(node_cpu_seconds_total{job=\"hyperspace-host-node\",role=\"web\",mode=\"idle\"}[5m]))", "legendFormat": "CPU used", "refId": "A" },
+        { "datasource": { "type": "prometheus", "uid": "hyperspace-prometheus" }, "expr": "1 - node_memory_MemAvailable_bytes{job=\"hyperspace-host-node\",role=\"web\"} / node_memory_MemTotal_bytes{job=\"hyperspace-host-node\",role=\"web\"}", "legendFormat": "Memory used", "refId": "B" }
+      ],
+      "title": "Web Host CPU and Memory",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 68 },
+      "id": 25,
+      "panels": [],
+      "title": "Control-plane Host",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "hyperspace-prometheus" },
+      "fieldConfig": { "defaults": { "unit": "percentunit", "min": 0, "max": 1 }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 69 },
+      "id": 23,
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        { "datasource": { "type": "prometheus", "uid": "hyperspace-prometheus" }, "expr": "1 - avg(rate(node_cpu_seconds_total{job=\"hyperspace-host-node\",role=\"control-plane\",mode=\"idle\"}[5m]))", "legendFormat": "CPU used", "refId": "A" },
+        { "datasource": { "type": "prometheus", "uid": "hyperspace-prometheus" }, "expr": "1 - node_memory_MemAvailable_bytes{job=\"hyperspace-host-node\",role=\"control-plane\"} / node_memory_MemTotal_bytes{job=\"hyperspace-host-node\",role=\"control-plane\"}", "legendFormat": "Memory used", "refId": "B" }
+      ],
+      "title": "Control-plane CPU and Memory",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "hyperspace-prometheus" },
+      "fieldConfig": { "defaults": { "unit": "percentunit", "min": 0, "max": 1 }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 69 },
+      "id": 24,
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        { "datasource": { "type": "prometheus", "uid": "hyperspace-prometheus" }, "expr": "node_filesystem_avail_bytes{job=\"hyperspace-host-node\",role=\"control-plane\",mountpoint=\"/\"} / node_filesystem_size_bytes{job=\"hyperspace-host-node\",role=\"control-plane\",mountpoint=\"/\"}", "legendFormat": "Disk free", "refId": "A" },
+        { "datasource": { "type": "prometheus", "uid": "hyperspace-prometheus" }, "expr": "node_filesystem_files_free{job=\"hyperspace-host-node\",role=\"control-plane\",mountpoint=\"/\"} / node_filesystem_files{job=\"hyperspace-host-node\",role=\"control-plane\",mountpoint=\"/\"}", "legendFormat": "Inodes free", "refId": "B" }
+      ],
+      "title": "Control-plane Filesystem Headroom",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 77 },
+      "id": 32,
+      "panels": [],
+      "title": "PostgreSQL",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "hyperspace-prometheus" },
+      "fieldConfig": { "defaults": { "unit": "percentunit", "min": 0, "max": 1 }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 6, "x": 0, "y": 78 },
+      "id": 26,
+      "options": { "colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto" },
+      "targets": [
+        { "datasource": { "type": "prometheus", "uid": "hyperspace-prometheus" }, "expr": "up{job=\"hyperspace-postgresql\"}", "legendFormat": "exporter", "refId": "A" },
+        { "datasource": { "type": "prometheus", "uid": "hyperspace-prometheus" }, "expr": "probe_success{job=\"hyperspace-blackbox-postgresql\"}", "legendFormat": "TCP/5432", "refId": "B" }
+      ],
+      "title": "PostgreSQL Availability",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "hyperspace-prometheus" },
+      "fieldConfig": { "defaults": { "unit": "percentunit", "min": 0, "max": 1 }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 6, "x": 6, "y": 78 },
+      "id": 27,
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi" } },
+      "targets": [{ "datasource": { "type": "prometheus", "uid": "hyperspace-prometheus" }, "expr": "hyperspace_postgres_connections / hyperspace_postgres_max_connections", "legendFormat": "connections", "refId": "A" }],
+      "title": "Connection Utilization",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "hyperspace-prometheus" },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 78 },
+      "id": 28,
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi" } },
+      "targets": [{ "datasource": { "type": "prometheus", "uid": "hyperspace-prometheus" }, "expr": "hyperspace_postgres_longest_transaction_seconds", "legendFormat": "oldest transaction", "refId": "A" }],
+      "title": "Longest Active Transaction",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "hyperspace-prometheus" },
+      "fieldConfig": { "defaults": { "unit": "short", "min": 0 }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 78 },
+      "id": 29,
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        { "datasource": { "type": "prometheus", "uid": "hyperspace-prometheus" }, "expr": "hyperspace_postgres_tables_requiring_vacuum", "legendFormat": "tables requiring vacuum", "refId": "A" },
+        { "datasource": { "type": "prometheus", "uid": "hyperspace-prometheus" }, "expr": "hyperspace_postgres_autovacuum_workers", "legendFormat": "workers", "refId": "B" }
+      ],
+      "title": "Autovacuum",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "hyperspace-prometheus" },
+      "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 86 },
+      "id": 30,
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        { "datasource": { "type": "prometheus", "uid": "hyperspace-prometheus" }, "expr": "hyperspace_postgres_database_size_bytes", "legendFormat": "database", "refId": "A" },
+        { "datasource": { "type": "prometheus", "uid": "hyperspace-prometheus" }, "expr": "hyperspace_postgres_database_size_bytes - hyperspace_postgres_database_size_bytes offset 24h", "legendFormat": "24h growth", "refId": "B" },
+        { "datasource": { "type": "prometheus", "uid": "hyperspace-prometheus" }, "expr": "hyperspace_postgres_wal_size_bytes", "legendFormat": "pg_wal", "refId": "C" }
+      ],
+      "title": "Database Growth and WAL",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "hyperspace-prometheus" },
+      "fieldConfig": { "defaults": { "unit": "h" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 86 },
+      "id": 31,
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi" } },
+      "targets": [{ "datasource": { "type": "prometheus", "uid": "hyperspace-prometheus" }, "expr": "(time() - hyperspace_postgres_backup_last_success_timestamp_seconds) / 3600", "legendFormat": "backup age", "refId": "A" }],
+      "title": "Backup Age",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 94 },
+      "id": 35,
+      "panels": [],
+      "title": "Observability",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "hyperspace-prometheus" },
+      "fieldConfig": { "defaults": { "unit": "percentunit", "min": 0, "max": 1 }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 95 },
+      "id": 33,
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        { "datasource": { "type": "prometheus", "uid": "hyperspace-prometheus" }, "expr": "1 - avg(rate(node_cpu_seconds_total{job=\"hyperspace-host-node\",role=\"observability\",mode=\"idle\"}[5m]))", "legendFormat": "CPU used", "refId": "A" },
+        { "datasource": { "type": "prometheus", "uid": "hyperspace-prometheus" }, "expr": "1 - node_memory_MemAvailable_bytes{job=\"hyperspace-host-node\",role=\"observability\"} / node_memory_MemTotal_bytes{job=\"hyperspace-host-node\",role=\"observability\"}", "legendFormat": "Memory used", "refId": "B" }
+      ],
+      "title": "Observability CPU and Memory",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "hyperspace-prometheus" },
+      "fieldConfig": { "defaults": { "unit": "percentunit", "min": 0, "max": 1 }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 95 },
+      "id": 34,
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        { "datasource": { "type": "prometheus", "uid": "hyperspace-prometheus" }, "expr": "node_filesystem_avail_bytes{job=\"hyperspace-host-node\",role=\"observability\",mountpoint=\"/\"} / node_filesystem_size_bytes{job=\"hyperspace-host-node\",role=\"observability\",mountpoint=\"/\"}", "legendFormat": "Disk free", "refId": "A" },
+        { "datasource": { "type": "prometheus", "uid": "hyperspace-prometheus" }, "expr": "node_filesystem_files_free{job=\"hyperspace-host-node\",role=\"observability\",mountpoint=\"/\"} / node_filesystem_files{job=\"hyperspace-host-node\",role=\"observability\",mountpoint=\"/\"}", "legendFormat": "Inodes free", "refId": "B" }
+      ],
+      "title": "Observability Filesystem Headroom",
+      "type": "timeseries"
     }
   ],
   "refresh": "30s",
