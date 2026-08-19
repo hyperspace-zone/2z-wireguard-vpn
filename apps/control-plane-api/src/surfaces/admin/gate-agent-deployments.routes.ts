@@ -34,7 +34,7 @@ export function registerGateAgentDeploymentRoutes(
   deps: {
     db: Database;
     releaseDir: string;
-    requireAdmin: (request: FastifyRequest, reply: FastifyReply) => Promise<AdminAuthContext | null>;
+    requireAdmin: (request: FastifyRequest, reply: FastifyReply) => AdminAuthContext | null | Promise<AdminAuthContext | null>;
     requireGate: (request: FastifyRequest, reply: FastifyReply) => Promise<GateAuthContext | null>;
   }
 ): void {
