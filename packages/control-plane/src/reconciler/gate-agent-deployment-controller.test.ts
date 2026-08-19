@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { Queryable } from "../db/queryable.js";
-import { reconcileGateAgentDeployments } from "./gate-agent-deployment-controller.js";
+import { readReleaseFailureCode, reconcileGateAgentDeployments } from "./gate-agent-deployment-controller.js";
 
 const targetSha = "a".repeat(64);
 const previousSha = "b".repeat(64);
@@ -63,6 +63,33 @@ test("verification timeout queues rollback to the previously observed immutable 
   assert.equal(result.rollbackRequested, 1);
   assert.ok(calls.some((call) => /SELECT 'rollback_agent'/.test(call.sql)));
   assert.ok(calls.some((call) => call.params[1] === "rollback_requested"));
+});
+
+test("automatic rollback records the post-install failure reported by the restored agent", async () => {
+  const calls: Array<{ sql: string; params: readonly unknown[] }> = [];
+  const db = deploymentDb(calls, deploymentRow({
+    observedArtifactSha256: previousSha,
+    observedCapabilities: [`agent-release-failure:post_install_self_test_failed:${targetSha}`],
+    lastSeenAt: "2026-08-19T10:01:00Z",
+    agentConnected: true
+  }));
+
+  const result = await reconcileGateAgentDeployments(db, new Date("2026-08-19T10:02:00Z"));
+
+  assert.equal(result.rolledBack, 1);
+  const update = calls.find((call) => /SET phase = 'rolled_back'/.test(call.sql));
+  assert.equal(update?.params[1], "post_install_self_test_failed");
+});
+
+test("release failure capability must match the exact deployment artifact", () => {
+  assert.equal(
+    readReleaseFailureCode([`agent-release-failure:service_start_failed:${targetSha}`], targetSha),
+    "service_start_failed"
+  );
+  assert.equal(
+    readReleaseFailureCode([`agent-release-failure:service_start_failed:${previousSha}`], targetSha),
+    null
+  );
 });
 
 function deploymentDb(

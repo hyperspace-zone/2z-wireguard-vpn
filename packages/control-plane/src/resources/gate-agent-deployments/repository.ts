@@ -434,19 +434,28 @@ export async function retryDeploymentRollback(
   return true;
 }
 
-export async function markDeploymentRolledBack(db: Queryable, deploymentId: string): Promise<void> {
+export async function markDeploymentRolledBack(
+  db: Queryable,
+  deploymentId: string,
+  failureCode: string | null = null
+): Promise<void> {
   await db.query(
     `
       UPDATE gate_agent_deployments
       SET phase = 'rolled_back',
           rolled_back_at = now(),
+          failure_code = COALESCE($2, failure_code),
+          failure_message = CASE
+            WHEN $2 IS NOT NULL THEN 'Gate release helper restored the previous artifact after ' || $2
+            ELSE failure_message
+          END,
           updated_at = now()
       WHERE id = $1
         AND phase IN ('staging', 'verifying', 'rollback_requested', 'rolling_back')
     `,
-    [deploymentId]
+    [deploymentId, failureCode]
   );
-  await insertDeploymentEvent(db, deploymentId, "rolled_back", {});
+  await insertDeploymentEvent(db, deploymentId, "rolled_back", { failureCode });
 }
 
 export async function markDeploymentFailed(

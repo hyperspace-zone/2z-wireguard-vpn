@@ -5,6 +5,7 @@ import { createRuntimeMetrics } from "@hyperspace-zone/shared";
 import {
   collectBenchmarkMetrics,
   collectGateAgentDeploymentMetrics,
+  gateAgentDeploymentFailureClass,
   gateAlertProbeHost
 } from "./control-plane-snapshot.js";
 
@@ -101,6 +102,7 @@ test("gate-agent deployment snapshot exposes immutable release and gate access l
           releaseVersion: "0.2.2",
           releaseRevision: "a".repeat(40),
           artifactSha256: "b".repeat(64),
+          failureCode: null,
           ageSeconds: 700,
           deadlineSecondsUntilExpiry: -400
         }],
@@ -117,6 +119,14 @@ test("gate-agent deployment snapshot exposes immutable release and gate access l
   assert.match(rendered, /hyperspace_control_plane_gate_agent_deployment_latest_status\{[^}]*phase="verifying"[^}]*\} 1/);
   assert.match(rendered, /hyperspace_control_plane_gate_agent_deployment_active_age_seconds\{[^}]*probe_host="gate-eu-lon-01\.example\.test"[^}]*public_ipv4="192\.0\.2\.10"[^}]*\} 700/);
   assert.match(rendered, /artifact_sha256="b{64}"/);
+});
+
+test("gate-agent deployment failures distinguish installation from host validation", () => {
+  assert.equal(gateAgentDeploymentFailureClass("agent_release_download_failed"), "installation");
+  assert.equal(gateAgentDeploymentFailureClass("service_start_failed"), "installation");
+  assert.equal(gateAgentDeploymentFailureClass("agent_release_self_test_failed"), "validation");
+  assert.equal(gateAgentDeploymentFailureClass("post_install_self_test_failed"), "validation");
+  assert.equal(gateAgentDeploymentFailureClass("rollback_timeout"), "other");
 });
 
 function benchmarkRow(overrides: Record<string, unknown>): Record<string, unknown> {

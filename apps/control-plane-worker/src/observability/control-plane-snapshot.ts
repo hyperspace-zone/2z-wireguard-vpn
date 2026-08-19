@@ -346,6 +346,7 @@ export async function collectGateAgentDeploymentMetrics(db: Database, metrics: R
     releaseVersion: string;
     releaseRevision: string;
     artifactSha256: string;
+    failureCode: string | null;
     ageSeconds: number;
     deadlineSecondsUntilExpiry: number;
   }>(`
@@ -357,6 +358,7 @@ export async function collectGateAgentDeploymentMetrics(db: Database, metrics: R
       releases.version AS "releaseVersion",
       releases.revision AS "releaseRevision",
       releases.artifact_sha256 AS "artifactSha256",
+      deployments.failure_code AS "failureCode",
       EXTRACT(EPOCH FROM now() - deployments.requested_at)::float AS "ageSeconds",
       EXTRACT(EPOCH FROM deployments.verification_deadline_at - now())::float AS "deadlineSecondsUntilExpiry"
     FROM gate_agent_deployments deployments
@@ -366,6 +368,7 @@ export async function collectGateAgentDeploymentMetrics(db: Database, metrics: R
   `);
   resetGauges(metrics, [
     "control_plane_gate_agent_deployment_latest_status",
+    "control_plane_gate_agent_deployment_failure_info",
     "control_plane_gate_agent_deployment_active_age_seconds",
     "control_plane_gate_agent_deployment_deadline_seconds_until_expiry"
   ]);
@@ -383,6 +386,16 @@ export async function collectGateAgentDeploymentMetrics(db: Database, metrics: R
       help: "Latest gate-agent deployment state per gate.",
       labels
     });
+    if (row.phase === "failed" || (row.phase === "rolled_back" && row.failureCode)) {
+      metrics.gauge("control_plane_gate_agent_deployment_failure_info", 1, {
+        help: "Latest failed gate-agent deployment classified for operator alerting.",
+        labels: {
+          ...labels,
+          failure_class: gateAgentDeploymentFailureClass(row.failureCode),
+          failure_code: row.failureCode || "unknown"
+        }
+      });
+    }
     if (["queued", "staging", "verifying", "rollback_requested", "rolling_back"].includes(row.phase)) {
       metrics.gauge("control_plane_gate_agent_deployment_active_age_seconds", row.ageSeconds, {
         help: "Age of the active gate-agent deployment in seconds.",
@@ -395,6 +408,27 @@ export async function collectGateAgentDeploymentMetrics(db: Database, metrics: R
       );
     }
   }
+}
+
+export function gateAgentDeploymentFailureClass(failureCode: string | null): "installation" | "validation" | "other" {
+  if ([
+    "deployment_not_claimed",
+    "agent_release_manager_missing",
+    "agent_release_stage_failed",
+    "agent_release_download_failed",
+    "agent_release_activation_schedule_failed",
+    "activation_failed",
+    "service_start_failed"
+  ].includes(failureCode || "")) return "installation";
+  if ([
+    "agent_release_metadata_invalid",
+    "agent_release_metadata_mismatch",
+    "agent_release_self_test_failed",
+    "post_install_self_test_failed",
+    "control_plane_confirmation_failed",
+    "verification_timeout"
+  ].includes(failureCode || "")) return "validation";
+  return "other";
 }
 
 export async function collectBenchmarkMetrics(db: Database, metrics: RuntimeMetrics): Promise<void> {

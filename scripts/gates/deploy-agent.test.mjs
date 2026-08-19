@@ -132,6 +132,9 @@ test("release manager automatically restores the previous artifact when activati
   const events = readFileSync(join(files.stateDirectory, "agent-deployments.jsonl"), "utf8");
   assert.match(events, /"phase":"activation_failed"/);
   assert.match(events, /"phase":"rolled_back"/);
+  const failure = JSON.parse(readFileSync(join(files.stateDirectory, "agent-last-release-failure.json"), "utf8"));
+  assert.equal(failure.code, "activation_failed");
+  assert.equal(failure.targetArtifactSha256, sha256(candidate));
 });
 
 test("release manager confirms the installed SHA with gate authentication headers", () => {

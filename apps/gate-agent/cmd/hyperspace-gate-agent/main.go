@@ -41,6 +41,8 @@ type agentBuildInfo struct {
 }
 
 var runningBuildInfo agentBuildInfo
+var agentReleaseFailurePath = "/var/lib/hyperspace-gate/agent-last-release-failure.json"
+var agentReleaseFailureCodePattern = regexp.MustCompile(`^[a-z0-9_]{1,64}$`)
 
 var defaultNTPDiscoveryHosts = []string{
 	"0.pool.ntp.org",
@@ -2239,6 +2241,30 @@ func runAgentSelfTest() error {
 func sendHeartbeat(client *http.Client, cfg config, probeManager *probeServerManager) error {
 	doubleZero := doubleZeroStatus()
 	chronySummary := chronyTrackingSummary()
+	capabilities := []string{
+		"heartbeat",
+		"job-claim",
+		"actual-state-report",
+		"host-mutation:" + cfg.ExecutionMode,
+		"wireguard-tools:" + commandState("wg"),
+		"iproute2:" + commandState("ip"),
+		"nft:" + commandState("nft"),
+		"doublezero0:" + linkState("doublezero0"),
+		"doublezero-routes:" + doubleZeroRouteState(),
+		"udp-probe:" + probeState(cfg),
+		"udp-probe-public-bind:" + probeBindState(cfg, probeManager, "public"),
+		"udp-probe-doublezero-bind:" + probeBindState(cfg, probeManager, "doublezero"),
+		"udp-probe-hmac:" + hmacState(cfg),
+		"chrony:" + chronyState(),
+		"ntp-discovery:" + ntpDiscoveryState(),
+		"assignment-rehydrate:enabled",
+		"assignment-kernel-validation:enabled",
+		"agent-artifact-self-test:passed",
+		"control-plane-agent-rollout:v1",
+	}
+	if failure := releaseFailureCapability(); failure != "" {
+		capabilities = append(capabilities, failure)
+	}
 	body := map[string]any{
 		"gateId":              cfg.GateName,
 		"agentVersion":        version,
@@ -2246,34 +2272,33 @@ func sendHeartbeat(client *http.Client, cfg config, probeManager *probeServerMan
 		"bootId":              bootID(),
 		"observedEndpoint":    hostname(),
 		"doubleZero":          doubleZero,
-		"capabilities": []string{
-			"heartbeat",
-			"job-claim",
-			"actual-state-report",
-			"host-mutation:" + cfg.ExecutionMode,
-			"wireguard-tools:" + commandState("wg"),
-			"iproute2:" + commandState("ip"),
-			"nft:" + commandState("nft"),
-			"doublezero0:" + linkState("doublezero0"),
-			"doublezero-routes:" + doubleZeroRouteState(),
-			"udp-probe:" + probeState(cfg),
-			"udp-probe-public-bind:" + probeBindState(cfg, probeManager, "public"),
-			"udp-probe-doublezero-bind:" + probeBindState(cfg, probeManager, "doublezero"),
-			"udp-probe-hmac:" + hmacState(cfg),
-			"chrony:" + chronyState(),
-			"ntp-discovery:" + ntpDiscoveryState(),
-			"assignment-rehydrate:enabled",
-			"assignment-kernel-validation:enabled",
-			"agent-artifact-self-test:passed",
-			"control-plane-agent-rollout:v1",
-		},
-		"reportedAt": time.Now().UTC().Format(time.RFC3339),
+		"capabilities":        capabilities,
+		"reportedAt":          time.Now().UTC().Format(time.RFC3339),
 	}
 	addAgentBuildFields(body)
 	if clockErrorMs, ok := chronyClockErrorMs(chronySummary); ok {
 		body["clockErrorMs"] = clockErrorMs
 	}
 	return postJSON(client, cfg, "/v1/gate/heartbeat", body, nil)
+}
+
+func releaseFailureCapability() string {
+	data, err := os.ReadFile(agentReleaseFailurePath)
+	if err != nil {
+		return ""
+	}
+	var failure struct {
+		Code                 string `json:"code"`
+		TargetArtifactSHA256 string `json:"targetArtifactSha256"`
+	}
+	if json.Unmarshal(data, &failure) != nil || !validArtifactSHA256(failure.TargetArtifactSHA256) {
+		return ""
+	}
+	code := strings.TrimSpace(failure.Code)
+	if !agentReleaseFailureCodePattern.MatchString(code) {
+		return ""
+	}
+	return "agent-release-failure:" + code + ":" + failure.TargetArtifactSHA256
 }
 
 func sendActualState(client *http.Client, cfg config) error {
