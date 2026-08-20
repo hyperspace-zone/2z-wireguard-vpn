@@ -139,7 +139,7 @@ export function registerPublicSessionsRoutes(
           requiredLamports: payment.requiredLamports.toString()
         }, "SOL config payment treasury is not initialized");
         return sendApplicationError(reply, "config_payment_unavailable", {
-          message: "SOL payments are temporarily unavailable while the staging treasury is being initialized."
+          message: "SOL payments are temporarily unavailable while the payment treasury is being initialized."
         });
       }
       if (payment.status === "in_progress") {
