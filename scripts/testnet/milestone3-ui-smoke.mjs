@@ -275,7 +275,9 @@ try {
   if (await page.locator("#excluded-countries-settings").getAttribute("open") !== "") {
     throw new Error("excluded countries collapsed after selecting a country");
   }
+  await page.locator("#event-log").evaluate((element) => { element.style.display = "none"; });
   await capture(page, "routing-exclusions");
+  await page.locator("#event-log").evaluate((element) => { element.style.display = ""; });
   await page.getByRole("button", { name: "Clear routing policy" }).click();
   await page.getByText("Optional settings", { exact: true }).click();
   await page.locator("select[name=egressGateName]").selectOption("gate-na-sjc-01");
