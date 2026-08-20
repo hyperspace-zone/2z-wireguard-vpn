@@ -6,7 +6,6 @@ test("native SOL billing defaults use lamports and the 0.0001 SOL config price",
   const config = loadConfig({
     DATABASE_URL: "postgres://hyperspace:secret@db.test/hyperspace",
     SOLANA_ASSET_KIND: "native",
-    SOLANA_ARCHIVAL_RPC_URL: "https://solana-archive.invalid",
     SOLANA_CONFIG_PAYMENT_ENABLED: "true",
     SOLANA_REVENUE_TREASURY_ADDRESS: "DWAg34bbga73yiCh1ic9KLAv3B7FDk62GmUcamXF2Ds8"
   });
@@ -18,5 +17,4 @@ test("native SOL billing defaults use lamports and the 0.0001 SOL config price",
   assert.equal(config.billing.solanaTokenBaseUnitsPerBillingMinor, 1);
   assert.equal(config.billing.configPriceLamports, 100_000);
   assert.equal(config.billing.configPaymentEnabled, true);
-  assert.equal(config.billing.solanaArchivalRpcUrl, "https://solana-archive.invalid");
 });
