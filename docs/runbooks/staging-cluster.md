@@ -146,9 +146,12 @@ Before authentication acceptance:
    deployment-local receiver file when a different staging audience is needed;
    never send staging incidents into production channels.
 
-The staging API and worker receive their control-plane-only Solana mainnet
-endpoint as `SOLANA_RPC_URL` through runtime environment configuration or secret
-management. Never commit private or credential-bearing endpoints. The
+The staging API and worker receive Solana mainnet `SOLANA_RPC_URL` values through
+runtime environment configuration or secret management. The values may differ:
+the API endpoint must support transaction execution, while the worker endpoint
+must provide finalized history through `getSignaturesForAddress`,
+`getSignatureStatuses` and `getTransaction`. Never commit private or
+credential-bearing endpoints. The
 placeholders
 `https://solana-rpc.example.invalid` and `wss://solana-rpc.example.invalid` are
 intentionally non-resolving; the WebSocket value is not used by the current HTTP

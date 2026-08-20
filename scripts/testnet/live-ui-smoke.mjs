@@ -56,6 +56,7 @@ const context = await browser.newContext({ acceptDownloads: true });
 const page = await context.newPage();
 const consoleErrors = [];
 const pageErrors = [];
+const httpErrors = [];
 page.on("console", (message) => {
   if (message.type() === "error") {
     consoleErrors.push(message.text());
@@ -63,6 +64,15 @@ page.on("console", (message) => {
 });
 page.on("pageerror", (error) => {
   pageErrors.push(error.message);
+});
+page.on("response", (response) => {
+  if (response.status() >= 400) {
+    httpErrors.push({
+      method: response.request().method(),
+      status: response.status(),
+      url: response.url()
+    });
+  }
 });
 
 try {
@@ -123,8 +133,7 @@ try {
   await expectText(page, "DoubleZero node");
   await expectText(page, "Browser RTT");
   assert(await page.getByText("Gate benchmark routes").count() === 0, "benchmark table must not be rendered on dashboard");
-  await page.getByRole("button", { name: /Measure browser RTT|Measuring/ }).click().catch(() => undefined);
-  await page.waitForTimeout(5000);
+  await page.getByRole("button", { name: /Measure browser RTT|Measuring/ }).waitFor();
   await screenshot(page, "02-dashboard-gates");
   await page.setViewportSize({ width: 390, height: 844 });
   assert(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), "dashboard overflows the mobile viewport");
@@ -153,7 +162,7 @@ try {
   await expectText(page, "One-Way Saved");
   await expectText(page, "fresh within 15m");
   await expectText(page, "Legend:");
-  await screenshot(page, "03-benchmarks");
+  await screenshotViewport(page, "03-benchmarks");
   result.steps.push("benchmarks_checked");
 
   await page.getByRole("link", { name: "Create config" }).first().click();
@@ -258,7 +267,24 @@ try {
   await screenshot(page, "05-deleted");
   result.steps.push("config_deleted");
 
-  assert(consoleErrors.length === 0, `browser console errors: ${consoleErrors.join(" | ")}`);
+  const expectedPaymentRetries = httpErrors.filter((entry) =>
+    entry.method === "POST"
+      && entry.status === 409
+      && entry.url === `${apiBase}/v1/public/sessions`
+  );
+  const unexpectedHttpErrors = httpErrors.filter((entry) => !expectedPaymentRetries.includes(entry));
+  const unexpectedConsoleErrors = consoleErrors.filter((entry) =>
+    !entry.includes("Failed to load resource: the server responded with a status of 409")
+  );
+  assert(
+    unexpectedHttpErrors.length === 0 && unexpectedConsoleErrors.length === 0,
+    `unexpected browser errors: ${unexpectedConsoleErrors.join(" | ")}; HTTP errors: ${JSON.stringify(unexpectedHttpErrors)}`
+  );
+  assert(
+    consoleErrors.length <= expectedPaymentRetries.length,
+    `unmatched browser console errors: ${consoleErrors.join(" | ")}`
+  );
+  result.expectedPaymentFinalizationRetries = expectedPaymentRetries.length;
   assert(pageErrors.length === 0, `page errors: ${pageErrors.join(" | ")}`);
   result.status = "passed";
 } catch (error) {
@@ -269,6 +295,7 @@ try {
 } finally {
   result.consoleErrors = consoleErrors;
   result.pageErrors = pageErrors;
+  result.httpErrors = httpErrors;
   await writeFile(path.join(outputDir, `live-ui-smoke-${runId}.json`), JSON.stringify(result, null, 2));
   await browser.close();
 }

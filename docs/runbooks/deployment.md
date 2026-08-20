@@ -1154,10 +1154,13 @@ export CUSTODIAL_WALLET_ENCRYPTION_KEY="$(node -e 'console.log(require("node:cry
 
 Create `/etc/hyperspace/control-plane-api.env`:
 
-Load an environment-specific RPC from secret management before rendering either
-control-plane env file. The private endpoint is only for Solana-mainnet-backed
-staging and production; testnet must use its Solana testnet RPC. Never commit
-the real endpoint.
+Load environment-specific RPC endpoints from secret management before rendering
+the control-plane env files. The API and worker values may differ: the API needs
+transaction execution methods, while the deposit worker requires finalized
+history through `getSignaturesForAddress`, `getSignatureStatuses` and
+`getTransaction`. The private endpoint is only for Solana-mainnet-backed
+staging and production; testnet must use its Solana testnet RPC. Never commit a
+real endpoint.
 
 ```bash
 # Non-resolving placeholder; inject the real staging/production value securely.
@@ -1484,7 +1487,8 @@ All fleet scripts require verified SSH host keys. Populate the selected
 new or changed key must stop the rollout.
 
 Create `/etc/hyperspace/control-plane-worker.env` with the same
-`ARTIFACT_ENCRYPTION_KEY`:
+`ARTIFACT_ENCRYPTION_KEY`. Set its `SOLANA_RPC_URL` to a history-capable endpoint;
+it does not have to match the API execution endpoint:
 
 ```bash
 cat >/etc/hyperspace/control-plane-worker.env <<EOF

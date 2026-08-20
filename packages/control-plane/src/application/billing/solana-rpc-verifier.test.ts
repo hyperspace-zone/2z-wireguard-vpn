@@ -106,6 +106,31 @@ test("Solana reference lookup requests finalized signatures in one RPC config ob
   assert.deepEqual(params, [reference, { limit: 10, commitment: "finalized" }]);
 });
 
+test("Solana RPC retries a rate-limited call using Retry-After", async () => {
+  let calls = 0;
+  const fetchImpl: typeof fetch = async () => {
+    calls += 1;
+    if (calls === 1) {
+      return new Response(JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        error: { code: 429, message: "Too many requests for a specific RPC call" }
+      }), { status: 429, headers: { "retry-after": "0" } });
+    }
+    return new Response(JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      result: [{ signature, err: null }]
+    }));
+  };
+
+  assert.deepEqual(await findFinalizedSolanaSignaturesForReference(reference, {
+    rpcUrl: "https://solana-rpc.example.invalid",
+    fetchImpl
+  }), [signature]);
+  assert.equal(calls, 2);
+});
+
 test("direct Solana deposits accept the finalized positive USDC delta without a memo", async () => {
   const result = await verifySolanaDirectDepositTransaction({
     transactionSignature: signature,
