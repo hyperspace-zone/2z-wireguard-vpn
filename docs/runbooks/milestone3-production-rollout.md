@@ -71,8 +71,11 @@ Never commit runtime values. Prepare separate production values for:
 
 - `CUSTODIAL_WALLET_ENCRYPTION_KEY`, shared only by the production API and
   worker;
-- `SOLANA_RPC_URL`, using the same control-plane-only mainnet RPC service as
-  staging;
+- API `SOLANA_RPC_URL`, using a mainnet endpoint that supports transaction
+  execution;
+- worker `SOLANA_RPC_URL`, using a mainnet endpoint that supports finalized
+  history through `getSignaturesForAddress`, `getSignatureStatuses` and
+  `getTransaction` (it may differ from the API endpoint);
 - `SOLANA_REVENUE_TREASURY_ADDRESS`, backed by a production-only keypair and
   initialized with at least the current zero-data rent exemption;
 - production Resend sending key, Google client secret, OTP hash secret and

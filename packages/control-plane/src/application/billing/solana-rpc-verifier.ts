@@ -326,18 +326,30 @@ export async function verifyNativeSolDirectDepositTransaction(
 }
 
 async function rpcCall(fetchImpl: typeof fetch, rpcUrl: string, method: string, params: unknown[]): Promise<unknown> {
-  const response = await fetchImpl(rpcUrl, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params })
-  });
-  const text = await response.text();
-  const payload = text ? asRecord(JSON.parse(text)) : {};
-  if (!response.ok || payload.error) {
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    const response = await fetchImpl(rpcUrl, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params })
+    });
+    const text = await response.text();
+    const payload = text ? asRecord(JSON.parse(text)) : {};
+    if (response.ok && !payload.error) {
+      return payload.result;
+    }
     const message = asRecord(payload.error).message;
-    throw new Error(`Solana RPC ${method} failed: ${typeof message === "string" ? message : response.status}`);
+    const retryable = response.status === 429
+      || (typeof message === "string" && /too many requests|rate limit/i.test(message));
+    if (!retryable || attempt === 5) {
+      throw new Error(`Solana RPC ${method} failed: ${typeof message === "string" ? message : response.status}`);
+    }
+    const retryAfterSeconds = Number(response.headers.get("retry-after"));
+    const delayMs = Number.isFinite(retryAfterSeconds) && retryAfterSeconds >= 0
+      ? retryAfterSeconds * 1_000
+      : Math.min(8_000, 500 * (2 ** attempt));
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
   }
-  return payload.result;
+  throw new Error(`Solana RPC ${method} retry loop ended unexpectedly`);
 }
 
 function tokenBalanceDelta(preValue: unknown[], postValue: unknown[], owner: string, mint: string): bigint {

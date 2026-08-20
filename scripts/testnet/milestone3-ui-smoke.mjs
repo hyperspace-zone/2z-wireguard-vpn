@@ -168,6 +168,8 @@ try {
         usage: [],
         withdrawals: [],
         walletBalanceBaseUnits: "2500000",
+        walletSpendableBaseUnits: "1609120",
+        walletRentReserveBaseUnits: "890880",
         configPriceBaseUnits: "100000"
       });
     }
@@ -228,7 +230,7 @@ try {
   await page.locator("#email-code-verify-form input[name=code]").fill(mockedOtp);
   await page.locator("#email-code-verify-form button[type=submit]").click();
 
-  await page.getByLabel("Billing balance 0.0025 SOL").waitFor();
+  await page.getByLabel("Billing balance 0.00160912 SOL").waitFor();
   await page.getByLabel("Primary").getByRole("link", { name: "Billing", exact: true }).click();
   await page.getByRole("heading", { name: "Billing", exact: true }).waitFor();
   await page.getByText(depositWalletPublicKey, { exact: true }).waitFor();
@@ -273,6 +275,7 @@ try {
   if (await page.locator("#excluded-countries-settings").getAttribute("open") !== "") {
     throw new Error("excluded countries collapsed after selecting a country");
   }
+  await capture(page, "routing-exclusions");
   await page.getByRole("button", { name: "Clear routing policy" }).click();
   await page.getByText("Optional settings", { exact: true }).click();
   await page.locator("select[name=egressGateName]").selectOption("gate-na-sjc-01");
@@ -281,7 +284,7 @@ try {
   await page.getByText("0.0001 SOL", { exact: true }).waitFor();
   await capture(page, "simple-config-review");
   await page.getByRole("button", { name: "Pay 0.0001 SOL and create" }).click();
-  await page.getByText("Insufficient SOL for 0.0001 SOL plus the Solana network fee. Top up your wallet on Billing, then retry Confirm.", { exact: true }).waitFor();
+  await page.getByText("Insufficient spendable SOL for 0.0001 SOL, the network fee, and the Solana account rent reserve. Top up your wallet on Billing, then retry Confirm.", { exact: true }).waitFor();
   await page.getByRole("link", { name: "Open Billing" }).waitFor();
   await page.getByRole("button", { name: "Pay 0.0001 SOL and create" }).click();
 

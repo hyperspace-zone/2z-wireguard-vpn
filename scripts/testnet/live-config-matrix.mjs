@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { createResendAuthHelper, uniqueResendAddress } from "./resend-auth-helper.mjs";
@@ -18,6 +19,8 @@ const nonTarget = nodeFromEnv("HS_NON_TARGET", "non-target");
 const runId = new Date().toISOString().replace(/[:.]/g, "-");
 const email = process.env.HS_CONFIG_MATRIX_EMAIL || uniqueResendAddress("config-matrix");
 const password = process.env.HS_CONFIG_MATRIX_PASSWORD || `Config-matrix-${Date.now()}-strong-password`;
+const existingAccount = process.env.HS_CONFIG_MATRIX_EXISTING_ACCOUNT === "true";
+const existingAccessToken = process.env.HS_CONFIG_MATRIX_TOKEN?.trim() || "";
 const api = makeApiClient(apiBase);
 const resendAuth = createResendAuthHelper({ api });
 const sessionsToCleanup = [];
@@ -228,6 +231,16 @@ async function assertProbeServersReachable() {
 }
 
 async function register() {
+  if (existingAccessToken) {
+    return existingAccessToken;
+  }
+  if (existingAccount) {
+    const response = await api("/v1/public/auth/login", {
+      method: "POST",
+      body: { email, password }
+    });
+    return String(response.accessToken);
+  }
   const response = await resendAuth.registerPassword({
     email,
     password,
@@ -237,19 +250,29 @@ async function register() {
 }
 
 async function createSession(scenario) {
-  const response = await api("/v1/public/sessions", {
-    method: "POST",
-    token,
-    body: {
-      mode: scenario.destinationRestricted ? "IpToIp" : "FullTunnel",
-      label: scenario.id,
-      ...(scenario.sourceRestricted ? { sourceIp: allowedSource.publicIp } : {}),
-      ...(scenario.destinationRestricted ? { targetIp: target.publicIp } : {}),
-      ingressGateName,
-      egressGateName,
-      ...(scenario.providedPublicKey ? { clientPublicKey: scenario.providedPublicKeyValue } : {})
+  const body = {
+    mode: scenario.destinationRestricted ? "IpToIp" : "FullTunnel",
+    label: scenario.id,
+    paymentRequestId: randomUUID(),
+    ...(scenario.sourceRestricted ? { sourceIp: allowedSource.publicIp } : {}),
+    ...(scenario.destinationRestricted ? { targetIp: target.publicIp } : {}),
+    ingressGateName,
+    egressGateName,
+    ...(scenario.providedPublicKey ? { clientPublicKey: scenario.providedPublicKeyValue } : {})
+  };
+  let response = null;
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    try {
+      response = await api("/v1/public/sessions", { method: "POST", token, body });
+      break;
+    } catch (error) {
+      if (!String(error).includes("config_payment_in_progress") || attempt === 4) {
+        throw error;
+      }
+      await wait(1_000);
     }
-  });
+  }
+  assert(response?.session?.id, "session create response did not include an id");
   const sessionId = String(response.session.id);
   return await waitForSession(sessionId, "active", Number(process.env.HS_CONFIG_MATRIX_SESSION_TIMEOUT_MS || "180000"));
 }
