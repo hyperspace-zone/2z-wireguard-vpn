@@ -1,0 +1,450 @@
+{
+  "generatedAt": "2026-08-20T13:56:41.731Z",
+  "environment": "production",
+  "apiBase": "https://app.hyperspace.zone/api",
+  "status": "passed",
+  "gateCount": 29,
+  "routesTested": 29,
+  "passed": 29,
+  "failed": 0,
+  "ingressGatesCovered": 29,
+  "egressGatesCovered": 29,
+  "testMethod": "Sequential paid IpToIp WireGuard configs applied with wg-quick on temporary external Cherry Servers testnodes; UDP probes passed; every config was revoked and deleted.",
+  "routes": [
+    {
+      "index": 1,
+      "ingressGateName": "gate-ap-bom-81",
+      "egressGateName": "gate-ap-hkg-21",
+      "status": "passed",
+      "cleanedUp": true,
+      "paymentFinalizationRetries": 2,
+      "probe": {
+        "sent": 5,
+        "received": 5,
+        "lost": 0,
+        "lossPercent": 0,
+        "rttP50Ms": 266.309
+      }
+    },
+    {
+      "index": 2,
+      "ingressGateName": "gate-ap-hkg-21",
+      "egressGateName": "gate-ap-sin-21",
+      "status": "passed",
+      "cleanedUp": true,
+      "paymentFinalizationRetries": 1,
+      "probe": {
+        "sent": 5,
+        "received": 5,
+        "lost": 0,
+        "lossPercent": 0,
+        "rttP50Ms": 227.734
+      }
+    },
+    {
+      "index": 3,
+      "ingressGateName": "gate-ap-sin-21",
+      "egressGateName": "gate-ap-tyo-21",
+      "status": "passed",
+      "cleanedUp": true,
+      "paymentFinalizationRetries": 2,
+      "probe": {
+        "sent": 5,
+        "received": 5,
+        "lost": 0,
+        "lossPercent": 0,
+        "rttP50Ms": 403.938
+      }
+    },
+    {
+      "index": 4,
+      "ingressGateName": "gate-ap-tyo-21",
+      "egressGateName": "gate-eu-ams-21",
+      "status": "passed",
+      "cleanedUp": true,
+      "paymentFinalizationRetries": 2,
+      "probe": {
+        "sent": 5,
+        "received": 5,
+        "lost": 0,
+        "lossPercent": 0,
+        "rttP50Ms": 570.922
+      }
+    },
+    {
+      "index": 5,
+      "ingressGateName": "gate-eu-ams-21",
+      "egressGateName": "gate-eu-dub-31",
+      "status": "passed",
+      "cleanedUp": true,
+      "paymentFinalizationRetries": 2,
+      "probe": {
+        "sent": 5,
+        "received": 5,
+        "lost": 0,
+        "lossPercent": 0,
+        "rttP50Ms": 184.993
+      }
+    },
+    {
+      "index": 6,
+      "ingressGateName": "gate-eu-dub-31",
+      "egressGateName": "gate-eu-fra-21",
+      "status": "passed",
+      "cleanedUp": true,
+      "paymentFinalizationRetries": 2,
+      "probe": {
+        "sent": 5,
+        "received": 5,
+        "lost": 0,
+        "lossPercent": 0,
+        "rttP50Ms": 193.101
+      }
+    },
+    {
+      "index": 7,
+      "ingressGateName": "gate-eu-fra-21",
+      "egressGateName": "gate-eu-lon-01",
+      "status": "passed",
+      "cleanedUp": true,
+      "paymentFinalizationRetries": 2,
+      "probe": {
+        "sent": 5,
+        "received": 5,
+        "lost": 0,
+        "lossPercent": 0,
+        "rttP50Ms": 185.059
+      }
+    },
+    {
+      "index": 8,
+      "ingressGateName": "gate-eu-lon-01",
+      "egressGateName": "gate-eu-lon-41",
+      "status": "passed",
+      "cleanedUp": true,
+      "paymentFinalizationRetries": 2,
+      "probe": {
+        "sent": 5,
+        "received": 5,
+        "lost": 0,
+        "lossPercent": 0,
+        "rttP50Ms": 176.66
+      }
+    },
+    {
+      "index": 9,
+      "ingressGateName": "gate-eu-lon-41",
+      "egressGateName": "gate-eu-mrs-91",
+      "status": "passed",
+      "cleanedUp": true,
+      "paymentFinalizationRetries": 1,
+      "probe": {
+        "sent": 5,
+        "received": 5,
+        "lost": 0,
+        "lossPercent": 0,
+        "rttP50Ms": 169.595
+      }
+    },
+    {
+      "index": 10,
+      "ingressGateName": "gate-eu-mrs-91",
+      "egressGateName": "gate-eu-muc-51",
+      "status": "passed",
+      "cleanedUp": true,
+      "paymentFinalizationRetries": 1,
+      "probe": {
+        "sent": 5,
+        "received": 5,
+        "lost": 0,
+        "lossPercent": 0,
+        "rttP50Ms": 208.628
+      }
+    },
+    {
+      "index": 11,
+      "ingressGateName": "gate-eu-muc-51",
+      "egressGateName": "gate-eu-osl-01",
+      "status": "passed",
+      "cleanedUp": true,
+      "paymentFinalizationRetries": 1,
+      "probe": {
+        "sent": 5,
+        "received": 5,
+        "lost": 0,
+        "lossPercent": 0,
+        "rttP50Ms": 214.614
+      }
+    },
+    {
+      "index": 12,
+      "ingressGateName": "gate-eu-osl-01",
+      "egressGateName": "gate-eu-prg-31",
+      "status": "passed",
+      "cleanedUp": true,
+      "paymentFinalizationRetries": 1,
+      "probe": {
+        "sent": 5,
+        "received": 5,
+        "lost": 0,
+        "lossPercent": 0,
+        "rttP50Ms": 224.305
+      }
+    },
+    {
+      "index": 13,
+      "ingressGateName": "gate-eu-prg-31",
+      "egressGateName": "gate-eu-sqq-21",
+      "status": "passed",
+      "cleanedUp": true,
+      "paymentFinalizationRetries": 1,
+      "probe": {
+        "sent": 5,
+        "received": 5,
+        "lost": 0,
+        "lossPercent": 0,
+        "rttP50Ms": 244.678
+      }
+    },
+    {
+      "index": 14,
+      "ingressGateName": "gate-eu-sqq-21",
+      "egressGateName": "gate-eu-sto-21",
+      "status": "passed",
+      "cleanedUp": true,
+      "paymentFinalizationRetries": 1,
+      "probe": {
+        "sent": 5,
+        "received": 5,
+        "lost": 0,
+        "lossPercent": 0,
+        "rttP50Ms": 235.153
+      }
+    },
+    {
+      "index": 15,
+      "ingressGateName": "gate-eu-sto-21",
+      "egressGateName": "gate-eu-sxb-41",
+      "status": "passed",
+      "cleanedUp": true,
+      "paymentFinalizationRetries": 1,
+      "probe": {
+        "sent": 5,
+        "received": 5,
+        "lost": 0,
+        "lossPercent": 0,
+        "rttP50Ms": 214.655
+      }
+    },
+    {
+      "index": 16,
+      "ingressGateName": "gate-eu-sxb-41",
+      "egressGateName": "gate-na-chi-21",
+      "status": "passed",
+      "cleanedUp": true,
+      "paymentFinalizationRetries": 2,
+      "probe": {
+        "sent": 5,
+        "received": 5,
+        "lost": 0,
+        "lossPercent": 0,
+        "rttP50Ms": 615.535
+      }
+    },
+    {
+      "index": 17,
+      "ingressGateName": "gate-na-chi-21",
+      "egressGateName": "gate-na-dfw-31",
+      "status": "passed",
+      "cleanedUp": true,
+      "paymentFinalizationRetries": 2,
+      "probe": {
+        "sent": 5,
+        "received": 5,
+        "lost": 0,
+        "lossPercent": 0,
+        "rttP50Ms": 350.503
+      }
+    },
+    {
+      "index": 18,
+      "ingressGateName": "gate-na-dfw-31",
+      "egressGateName": "gate-na-lax-31",
+      "status": "passed",
+      "cleanedUp": true,
+      "paymentFinalizationRetries": 1,
+      "probe": {
+        "sent": 5,
+        "received": 5,
+        "lost": 0,
+        "lossPercent": 0,
+        "rttP50Ms": 458.116
+      }
+    },
+    {
+      "index": 19,
+      "ingressGateName": "gate-na-lax-31",
+      "egressGateName": "gate-na-mia-71",
+      "status": "passed",
+      "cleanedUp": true,
+      "paymentFinalizationRetries": 2,
+      "probe": {
+        "sent": 5,
+        "received": 5,
+        "lost": 0,
+        "lossPercent": 0,
+        "rttP50Ms": 477.456
+      }
+    },
+    {
+      "index": 20,
+      "ingressGateName": "gate-na-mia-71",
+      "egressGateName": "gate-na-nyc-01",
+      "status": "passed",
+      "cleanedUp": true,
+      "paymentFinalizationRetries": 3,
+      "probe": {
+        "sent": 5,
+        "received": 5,
+        "lost": 0,
+        "lossPercent": 0,
+        "rttP50Ms": 413.411
+      }
+    },
+    {
+      "index": 21,
+      "ingressGateName": "gate-na-nyc-01",
+      "egressGateName": "gate-na-pit-61",
+      "status": "passed",
+      "cleanedUp": true,
+      "paymentFinalizationRetries": 3,
+      "probe": {
+        "sent": 5,
+        "received": 5,
+        "lost": 0,
+        "lossPercent": 0,
+        "rttP50Ms": 292.735
+      }
+    },
+    {
+      "index": 22,
+      "ingressGateName": "gate-na-pit-61",
+      "egressGateName": "gate-na-sea-81",
+      "status": "passed",
+      "cleanedUp": true,
+      "paymentFinalizationRetries": 2,
+      "probe": {
+        "sent": 20,
+        "received": 20,
+        "lost": 0,
+        "lossPercent": 0,
+        "rttP50Ms": 171.337
+      }
+    },
+    {
+      "index": 23,
+      "ingressGateName": "gate-na-sea-81",
+      "egressGateName": "gate-na-sjc-01",
+      "status": "passed",
+      "cleanedUp": true,
+      "paymentFinalizationRetries": 3,
+      "probe": {
+        "sent": 20,
+        "received": 20,
+        "lost": 0,
+        "lossPercent": 0,
+        "rttP50Ms": 204.611
+      }
+    },
+    {
+      "index": 24,
+      "ingressGateName": "gate-na-sjc-01",
+      "egressGateName": "gate-na-slc-21",
+      "status": "passed",
+      "cleanedUp": true,
+      "paymentFinalizationRetries": 2,
+      "probe": {
+        "sent": 5,
+        "received": 5,
+        "lost": 0,
+        "lossPercent": 0,
+        "rttP50Ms": 703.874
+      }
+    },
+    {
+      "index": 25,
+      "ingressGateName": "gate-na-slc-21",
+      "egressGateName": "gate-na-was-91",
+      "status": "passed",
+      "cleanedUp": true,
+      "paymentFinalizationRetries": 1,
+      "probe": {
+        "sent": 5,
+        "received": 5,
+        "lost": 0,
+        "lossPercent": 0,
+        "rttP50Ms": 394.853
+      }
+    },
+    {
+      "index": 26,
+      "ingressGateName": "gate-na-was-91",
+      "egressGateName": "gate-na-ymq-31",
+      "status": "passed",
+      "cleanedUp": true,
+      "paymentFinalizationRetries": 2,
+      "probe": {
+        "sent": 20,
+        "received": 20,
+        "lost": 0,
+        "lossPercent": 0,
+        "rttP50Ms": 121.524
+      }
+    },
+    {
+      "index": 27,
+      "ingressGateName": "gate-na-ymq-31",
+      "egressGateName": "gate-na-yto-81",
+      "status": "passed",
+      "cleanedUp": true,
+      "paymentFinalizationRetries": 2,
+      "probe": {
+        "sent": 20,
+        "received": 20,
+        "lost": 0,
+        "lossPercent": 0,
+        "rttP50Ms": 113.12
+      }
+    },
+    {
+      "index": 28,
+      "ingressGateName": "gate-na-yto-81",
+      "egressGateName": "gate-sa-sao-21",
+      "status": "passed",
+      "cleanedUp": true,
+      "paymentFinalizationRetries": 3,
+      "probe": {
+        "sent": 20,
+        "received": 20,
+        "lost": 0,
+        "lossPercent": 0,
+        "rttP50Ms": 342.513
+      }
+    },
+    {
+      "index": 29,
+      "ingressGateName": "gate-sa-sao-21",
+      "egressGateName": "gate-ap-bom-81",
+      "status": "passed",
+      "cleanedUp": true,
+      "paymentFinalizationRetries": 2,
+      "probe": {
+        "sent": 5,
+        "received": 5,
+        "lost": 0,
+        "lossPercent": 0,
+        "rttP50Ms": 484.972
+      }
+    }
+  ]
+}

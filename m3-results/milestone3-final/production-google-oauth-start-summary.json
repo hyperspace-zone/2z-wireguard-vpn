@@ -1,0 +1,6 @@
+{
+  "status": "passed",
+  "authorizationHost": "accounts.google.com",
+  "redirectUri": "https://app.hyperspace.zone/api/v1/public/auth/google/callback",
+  "clientIdSuffix": "ps.googleusercontent.com"
+}

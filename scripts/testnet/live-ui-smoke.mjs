@@ -11,6 +11,7 @@ const chromiumExecutable = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE || "/snap/
 const targetIp = process.env.HS_TEST_TARGET_IP || "1.1.1.1";
 const preferredIngress = process.env.HS_TEST_INGRESS || "gate-eu-fra-01";
 const preferredEgress = process.env.HS_TEST_EGRESS || "gate-eu-lon-01";
+const excludedCountry = process.env.HS_TEST_EXCLUDE_COUNTRY || "";
 const headless = process.env.HS_HEADLESS !== "false";
 const runId = new Date().toISOString().replace(/[:.]/g, "-");
 const email = process.env.HS_TEST_EMAIL || uniqueResendAddress("codex-live");
@@ -31,8 +32,9 @@ assert(schedulableGates.length >= 2, "expected at least two ready/schedulable ga
 
 const ingress = findGate(schedulableGates, preferredIngress) || schedulableGates[0];
 const egress = findGate(schedulableGates, preferredEgress, ingress.name) ||
-  schedulableGates.find((gate) => gate.name !== ingress.name);
+  schedulableGates.find((gate) => gate.name !== ingress.name && gate.country !== excludedCountry);
 assert(ingress && egress && ingress.name !== egress.name, "expected distinct ingress and egress gates");
+assert(!excludedCountry || egress.country !== excludedCountry, "preferred egress belongs to the excluded country");
 
 const result = {
   runId,
@@ -42,6 +44,7 @@ const result = {
   targetIp,
   ingressGateName: ingress.name,
   egressGateName: egress.name,
+  ...(excludedCountry ? { excludedCountry } : {}),
   gates: schedulableGates.map((gate) => ({
     name: gate.name,
     ready: gate.ready,
@@ -123,6 +126,7 @@ try {
   await page.getByRole("heading", { name: "Deposit SOL" }).waitFor({ timeout: 30000 });
   assert(await page.locator("#topup-form").count() === 0, "fixed-amount top-up form must not be present");
   assert(await page.getByRole("button", { name: /Connect external wallet/ }).count() === 0, "external wallet link must not be present");
+  await screenshot(page, "01-billing");
   result.custodialWallet = depositAddress;
   result.steps.push("custodial_deposit_wallet_checked");
 
@@ -177,9 +181,30 @@ try {
   result.steps.push("egress_validation_checked");
 
   await page.locator('select[name="egressGateName"]').selectOption(egress.name);
+  if (excludedCountry) {
+    await page.locator("#optional-config-settings > summary").click();
+    await page.locator("#excluded-countries-settings > summary").click();
+    const exclusion = page.locator(`input[name="excludeCountry"][value="${excludedCountry}"]`);
+    assert(await exclusion.count() === 1, `excluded country is absent from the live catalog: ${excludedCountry}`);
+    await exclusion.check();
+    assert(await page.locator("#excluded-countries-settings").getAttribute("open") !== null, "excluded countries section collapsed after selection");
+    assert(await exclusion.isChecked(), `country exclusion was not retained: ${excludedCountry}`);
+    for (const excludedGate of schedulableGates.filter((gate) => gate.country === excludedCountry)) {
+      assert(
+        await page.locator(`select[name="egressGateName"] option[value="${excludedGate.name}"]`).count() === 0,
+        `excluded-country egress remained selectable: ${excludedGate.name}`
+      );
+    }
+    assert(await page.locator('select[name="egressGateName"]').inputValue() === egress.name, "valid egress selection changed after applying route policy");
+    await screenshot(page, "03-routing-exclusion");
+    result.steps.push("country_exclusion_checked");
+  }
   await page.getByRole("button", { name: "Review config" }).click();
   await expectText(page, "Step 2");
   await expectText(page, "Pay 0.0001 SOL and create");
+  if (excludedCountry) {
+    await expectText(page, `Avoid countries: ${excludedCountry}`);
+  }
   await page.getByText("Full tunnel", { exact: true }).first().waitFor();
   const reviewText = await page.locator(".review-step").innerText();
   assert(!/RTT/i.test(reviewText), "review route overview must not show browser RTT values");

@@ -1,0 +1,42 @@
+{
+  "mode": "dry-run",
+  "artifact": {
+    "version": "0.4.0",
+    "revision": "15fc8732ee5c8d2f14d1faa79692900ced4e5518",
+    "builtAt": "2026-08-21T09:04:42Z",
+    "artifactSha256": "ed6c2d50fd5c2af8e4798bf308c75f8f36a1cce08c1721cc1cb6c2bf2bc815c4"
+  },
+  "releaseDir": "/var/lib/hyperspace/gate-agent-releases",
+  "canary": "gate-eu-sxb-41",
+  "gates": [
+    "gate-eu-sxb-41",
+    "gate-sa-sao-21",
+    "gate-na-ymq-31",
+    "gate-na-yto-81",
+    "gate-eu-prg-31",
+    "gate-eu-mrs-91",
+    "gate-eu-fra-21",
+    "gate-eu-muc-51",
+    "gate-ap-hkg-21",
+    "gate-ap-bom-81",
+    "gate-eu-dub-31",
+    "gate-ap-tyo-21",
+    "gate-eu-sqq-21",
+    "gate-eu-ams-21",
+    "gate-eu-osl-01",
+    "gate-ap-sin-21",
+    "gate-eu-sto-21",
+    "gate-eu-lon-01",
+    "gate-eu-lon-41",
+    "gate-na-was-91",
+    "gate-na-chi-21",
+    "gate-na-dfw-31",
+    "gate-na-lax-31",
+    "gate-na-mia-71",
+    "gate-na-nyc-01",
+    "gate-na-pit-61",
+    "gate-na-slc-21",
+    "gate-na-sjc-01",
+    "gate-na-sea-81"
+  ]
+}

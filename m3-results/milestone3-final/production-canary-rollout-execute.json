@@ -1,0 +1,16 @@
+{
+  "artifact": {
+    "version": "0.4.0",
+    "revision": "15fc8732ee5c8d2f14d1faa79692900ced4e5518",
+    "builtAt": "2026-08-21T09:04:42Z",
+    "artifactSha256": "ed6c2d50fd5c2af8e4798bf308c75f8f36a1cce08c1721cc1cb6c2bf2bc815c4"
+  },
+  "releaseId": "8f107ad5-a21f-4ec9-bd07-9e7fb891627f",
+  "deployments": [
+    {
+      "gate": "gate-eu-sxb-41",
+      "deploymentId": "eee703a4-68cf-4070-8c09-af85a44ed74b",
+      "phase": "succeeded"
+    }
+  ]
+}

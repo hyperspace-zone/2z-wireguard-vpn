@@ -1,0 +1,30 @@
+{
+    "phase": "revoked",
+    "hidden": true,
+    "sessionId": "90386aa8-73e5-4fe0-82c2-8b442e3ad47d",
+    "pathPolicy": {
+        "reason": "user-routing-policy",
+        "excludeCities": [
+        ],
+        "excludeCountries": [
+            "Germany"
+        ],
+        "preferredRegions": [
+        ]
+    },
+    "verifiedAt": "2026-08-21T09:10:07.560113",
+    "desiredState": "Revoked",
+    "selectedPath": {
+        "egressGateId": "94212377-661f-476b-ac8f-93e4a0ccad2e",
+        "ingressGateId": "04939825-20de-48c6-8f68-411f0b47020f",
+        "egressGateName": "gate-eu-osl-01",
+        "ingressGateName": "gate-eu-sto-21",
+        "egressPublicIpv4": "91.190.155.145",
+        "ingressPublicIpv4": "84.32.99.242"
+    },
+    "paymentStatus": "confirmed",
+    "paymentConfirmed": true,
+    "paymentAmountLamports": 100000,
+    "selectedEgressCountry": "Norway",
+    "selectedIngressCountry": "Sweden"
+}

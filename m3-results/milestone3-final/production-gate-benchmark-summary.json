@@ -1,0 +1,86 @@
+{
+  "generatedAt": "2026-08-20T13:57:41.915Z",
+  "environment": "production",
+  "webBase": "https://app.hyperspace.zone",
+  "catalogGates": 30,
+  "readySchedulableGates": 29,
+  "uniqueCities": 28,
+  "countries": 16,
+  "uniqueDoubleZeroDevices": 29,
+  "allSchedulableBgpSessionsUp": true,
+  "allSchedulableRouteStatesReady": true,
+  "expectedDirectedRoutes": 812,
+  "directedRoutes": 812,
+  "publicSucceeded": 812,
+  "doubleZeroApplicableSucceeded": 802,
+  "doubleZeroNotApplicable": 10,
+  "notApplicable": [
+    {
+      "sourceGateName": "gate-eu-fra-21",
+      "targetGateName": "gate-eu-muc-51",
+      "reason": "same_doublezero_metro",
+      "metro": "Frankfurt"
+    },
+    {
+      "sourceGateName": "gate-eu-fra-21",
+      "targetGateName": "gate-eu-sxb-41",
+      "reason": "same_doublezero_metro",
+      "metro": "Frankfurt"
+    },
+    {
+      "sourceGateName": "gate-eu-lon-01",
+      "targetGateName": "gate-eu-lon-41",
+      "reason": "same_doublezero_metro",
+      "metro": "London"
+    },
+    {
+      "sourceGateName": "gate-eu-lon-41",
+      "targetGateName": "gate-eu-lon-01",
+      "reason": "same_doublezero_metro",
+      "metro": "London"
+    },
+    {
+      "sourceGateName": "gate-eu-muc-51",
+      "targetGateName": "gate-eu-fra-21",
+      "reason": "same_doublezero_metro",
+      "metro": "Frankfurt"
+    },
+    {
+      "sourceGateName": "gate-eu-muc-51",
+      "targetGateName": "gate-eu-sxb-41",
+      "reason": "same_doublezero_metro",
+      "metro": "Frankfurt"
+    },
+    {
+      "sourceGateName": "gate-eu-sxb-41",
+      "targetGateName": "gate-eu-fra-21",
+      "reason": "same_doublezero_metro",
+      "metro": "Frankfurt"
+    },
+    {
+      "sourceGateName": "gate-eu-sxb-41",
+      "targetGateName": "gate-eu-muc-51",
+      "reason": "same_doublezero_metro",
+      "metro": "Frankfurt"
+    },
+    {
+      "sourceGateName": "gate-na-mia-71",
+      "targetGateName": "gate-na-was-91",
+      "reason": "same_doublezero_metro",
+      "metro": "Washington DC"
+    },
+    {
+      "sourceGateName": "gate-na-was-91",
+      "targetGateName": "gate-na-mia-71",
+      "reason": "same_doublezero_metro",
+      "metro": "Washington DC"
+    }
+  ],
+  "rttComparison": {
+    "comparableRoutes": 802,
+    "doubleZeroFasterRoutes": 649,
+    "medianDoubleZeroSavingsMs": 7.549,
+    "maximumDoubleZeroSavingsMs": 360.727,
+    "maximumDoubleZeroPenaltyMs": 33.161
+  }
+}

@@ -1,0 +1,55 @@
+{
+  "verifiedAt": "2026-08-21T09:18:30Z",
+  "environment": "production",
+  "sourceUnderLiveTest": "15fc873",
+  "checks": {
+    "workspaceBuild": "passed",
+    "workspaceTypecheck": "passed",
+    "workspaceTests": {
+      "status": "passed",
+      "tests": 143
+    },
+    "gateAgentGoTests": "passed",
+    "gateProvisioningTests": {
+      "status": "passed",
+      "tests": 11
+    },
+    "controlPlaneDeploymentTests": {
+      "status": "passed",
+      "tests": 2
+    },
+    "billingOperationsTests": {
+      "status": "passed",
+      "tests": 3
+    },
+    "prometheusConfig": "passed",
+    "prometheusRules": {
+      "status": "passed",
+      "rules": 99
+    },
+    "prometheusRuleTests": "passed",
+    "billingAlignmentFocusedTests": {
+      "status": "passed",
+      "tests": 4
+    },
+    "productionResendOtpFlow": "passed",
+    "productionGoogleOAuthRedirect": "passed",
+    "productionGoogleOAuthManualIdentity": "passed",
+    "productionUiPaidConfigAndRoutingExclusion": "passed",
+    "productionWireGuardPolicyChecks": {
+      "status": "passed",
+      "checks": 32
+    },
+    "productionGateCycle": {
+      "status": "passed",
+      "routes": 29,
+      "ingressGatesCovered": 29,
+      "egressGatesCovered": 29
+    },
+    "productionManagedCanaryRollout": "passed"
+  },
+  "cleanup": {
+    "routingAcceptanceConfig": "revoked_and_hidden",
+    "temporaryCherryServersRemaining": 0
+  }
+}

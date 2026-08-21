@@ -1,0 +1,10 @@
+{
+  "verifiedAt": "2026-08-21T09:13:38Z",
+  "environment": "production",
+  "status": "passed",
+  "receivingDomain": "vutcenoi.resend.app",
+  "flows": {
+    "passwordThenOtpThenPassword": "passed",
+    "otpThenOtp": "passed"
+  }
+}
