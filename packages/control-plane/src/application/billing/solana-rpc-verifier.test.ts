@@ -54,6 +54,27 @@ test("Solana top-up verifier keeps a non-finalized transaction pending", async (
   assert.deepEqual(result, { status: "pending", reason: "transaction_not_finalized" });
 });
 
+test("known transaction hashes query only the private RPC recent status cache", async () => {
+  let statusParams: unknown[] = [];
+  const result = await verifySolanaTopupTransaction({
+    transactionSignature: signature,
+    treasuryAddress: treasury,
+    reference,
+    amountMinor: 2500
+  }, {
+    rpcUrl: "https://private-rpc.invalid",
+    tokenMint: mint,
+    tokenBaseUnitsPerBillingMinor: 10_000,
+    fetchImpl: async (_url, init) => {
+      const request = JSON.parse(String(init?.body)) as { method: string; params: unknown[] };
+      statusParams = request.params;
+      return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: { value: [null] } }));
+    }
+  });
+  assert.deepEqual(result, { status: "pending", reason: "transaction_not_found" });
+  assert.deepEqual(statusParams, [[signature], { searchTransactionHistory: false }]);
+});
+
 test("Solana top-up verifier rejects a transaction without the intent memo", async () => {
   const result = await verifySolanaTopupTransaction({
     transactionSignature: signature,
