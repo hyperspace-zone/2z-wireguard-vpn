@@ -4,6 +4,48 @@ rule_files:
 evaluation_interval: 15s
 
 tests:
+  - name: stale independent meta monitor is critical
+    interval: 1m
+    input_series:
+      - series: 'hyperspace_meta_watch_last_run_timestamp_seconds{job="hyperspace-host-node",role="observability",cluster="staging",service_host="observability.staging.hyperspace.zone",service_ipv4="84.32.110.4",instance="127.0.0.1:9100"}'
+        values: '1x10'
+    alert_rule_test:
+      - eval_time: 8m
+        alertname: HyperspaceMetaWatchStale
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: hyperspace-host-node
+              role: observability
+              cluster: staging
+              service_host: observability.staging.hyperspace.zone
+              service_ipv4: 84.32.110.4
+              instance: 127.0.0.1:9100
+            exp_annotations:
+              summary: Hyperspace independent meta-monitor is stale
+              description: The independent alert-delivery meta-monitor on observability.staging.hyperspace.zone has not completed a run for more than 5 minutes.
+
+  - name: independent meta monitor failure is critical
+    interval: 1m
+    input_series:
+      - series: 'hyperspace_meta_watch_healthy{job="hyperspace-host-node",role="observability",cluster="staging",service_host="observability.staging.hyperspace.zone",service_ipv4="84.32.110.4",instance="127.0.0.1:9100"}'
+        values: '0x8'
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: HyperspaceMetaWatchDetectedFailure
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: hyperspace-host-node
+              role: observability
+              cluster: staging
+              service_host: observability.staging.hyperspace.zone
+              service_ipv4: 84.32.110.4
+              instance: 127.0.0.1:9100
+            exp_annotations:
+              summary: Hyperspace independent meta-monitor detected a failure
+              description: The independent alert-delivery meta-monitor on observability.staging.hyperspace.zone detected an Alertmanager, Telegram delivery, or peer observability failure. Its direct Telegram and Resend notifications do not depend on this Alertmanager alert.
+
   - name: drained DoubleZero recovery failure is critical and reports completed automation
     interval: 15s
     input_series:

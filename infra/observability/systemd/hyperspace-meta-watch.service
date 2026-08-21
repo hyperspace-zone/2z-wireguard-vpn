@@ -1,0 +1,21 @@
+[Unit]
+Description=Hyperspace independent alert-delivery meta-monitor
+After=network-online.target prometheus-alertmanager.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+EnvironmentFile=/etc/hyperspace/meta-watch.env
+ExecStart=/usr/local/sbin/hyperspace-meta-watch run
+TimeoutStartSec=90s
+PrivateTmp=true
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+ReadOnlyPaths=/etc/hyperspace /etc/prometheus
+ReadWritePaths=/var/lib/hyperspace/meta-watch /var/lib/prometheus/node-exporter

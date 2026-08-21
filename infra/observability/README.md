@@ -9,6 +9,8 @@ This bundle keeps the three observability ontologies separate:
 - Notification delivery is handled by Alertmanager. Telegram recipients are
   configured in `/etc/prometheus/alertmanager_telegram_receivers.json`; each
   chat, channel, or private user `chat_id` declares the severities it receives.
+- Alert delivery itself is supervised by `hyperspace-meta-watch`, which sends
+  directly through a separate Telegram bot and Resend instead of Alertmanager.
 
 Runtime endpoints:
 
@@ -31,6 +33,9 @@ Deployment artifacts:
 - `grafana/provisioning/dashboards/hyperspace.yml`
 - `grafana/dashboards/hyperspace-control-plane.json`
 - `caddy/Caddyfile`
+- `systemd/hyperspace-meta-watch.service`
+- `systemd/hyperspace-meta-watch.timer`
+- `systemd/hyperspace-meta-watch.env.example`
 
 The dashboard covers service scrape health, schedulable gates, sessions, jobs,
 API request rate and p95 latency, worker loop duration, benchmark RTT, packet
@@ -57,11 +62,14 @@ isolates failures without suppressing healthy sections. Prometheus emits
 for one minute; `HyperspaceControlPlaneWorkerDown` is reserved for an actual
 scrape, process, or network failure.
 
-Each Prometheus instance checks only services in its own cluster. No production,
-testnet, or staging Prometheus server is a dependency of another cluster. This
-also means a complete observability-VM power-off cannot be reported by that
-same VM; detecting that single remaining failure mode requires a provider-level
-or external dead-man check and is intentionally outside this autonomous setup.
+Each Prometheus instance checks only services in its own cluster. The separate
+meta-monitor forms a one-way readiness ring solely for detecting a complete
+observability outage: production watches staging, staging watches testnet, and
+testnet watches production. The meta-monitor also validates local Alertmanager,
+the cluster's primary Telegram bot and every configured receiver. It pages the
+operator through `HyperspaceMetaWatcher_bot` and emails the operator through
+Resend after two failed runs; resolution also requires two successful runs.
+These direct channels do not depend on Prometheus or Alertmanager.
 Managed gate-agent rollouts export their latest phase, immutable release
 revision/SHA, age, deadline, and explicit gate access labels. An active rollout
 older than ten minutes is critical. Latest failures are classified into

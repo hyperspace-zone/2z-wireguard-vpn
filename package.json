@@ -35,6 +35,7 @@
     "gates:control-plane-rollout": "node scripts/gates/control-plane-rollout.mjs",
     "gates:build-agent": "scripts/gates/build-agent",
     "test:gate-discovery": "node --test scripts/observability/render-gate-file-sd.test.mjs",
+    "test:meta-watch": "node --test scripts/observability/hyperspace-meta-watch.test.mjs",
     "test:gate-provisioning": "node --test scripts/gates/*.test.mjs",
     "test:control-plane-deployment": "node --test scripts/control-plane/*.test.mjs",
     "test:billing-operations": "node --test scripts/billing/*.test.mjs",
