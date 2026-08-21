@@ -971,7 +971,7 @@ function adminBillingView(summary: AdminBillingSummary | null): string {
             <option value="active" ${adminConfigFilter === "active" ? "selected" : ""}>Active configs</option>
             <option value="paid" ${adminConfigFilter === "paid" ? "selected" : ""}>Paid configs</option>
             <option value="payment-issue" ${adminConfigFilter === "payment-issue" ? "selected" : ""}>Payment issues</option>
-            <option value="legacy" ${adminConfigFilter === "legacy" ? "selected" : ""}>Legacy / no payment</option>
+            <option value="legacy" ${adminConfigFilter === "legacy" ? "selected" : ""}>No payment record</option>
             <option value="all" ${adminConfigFilter === "all" ? "selected" : ""}>All configs</option>
           </select>
         </label>
@@ -1030,7 +1030,7 @@ function filterAdminConfigs(configs: AdminBillingConfig[]): AdminBillingConfig[]
 function adminConfigRow(config: AdminBillingConfig, asset: AdminBillingAsset): string {
   const payment = config.paymentStatus
     ? `<span class="status-badge ${adminStatusClass(config.paymentStatus)}">${escapeHtml(config.paymentStatus)}</span>${config.paymentAmountLamports ? `<small>${escapeHtml(formatTokenBaseUnits(config.paymentAmountLamports, asset.decimals))} ${escapeHtml(asset.symbol)}</small>` : ""}`
-    : '<span class="status-badge neutral">legacy</span><small>No config payment</small>';
+    : '<span class="status-badge neutral">no payment</span><small>No config payment record</small>';
   return `<tr data-admin-config-row="${escapeHtml(config.sessionId)}">
     <td><strong>${escapeHtml(config.label?.trim() || config.sessionId.slice(0, 8))}</strong><small class="mono">${escapeHtml(config.sessionId)}</small><small>${escapeHtml(config.mode)}</small></td>
     <td>${escapeHtml(config.customerEmail)}</td>
