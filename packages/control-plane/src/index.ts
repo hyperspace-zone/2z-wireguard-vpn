@@ -169,11 +169,18 @@ export {
   grantUserRoleByEmail,
   listBillingCustomers,
   listAdminBillingConfigs,
+  listAdminSolanaConfigPayments,
+  listAdminSolanaDeposits,
   listBillingPlans,
+  readAdminTrafficSeries,
   listWithdrawalRequests,
   insertDoubleZeroTenantCostEvent,
   type WithdrawalRequestRow,
   userHasRole,
+  type AdminBillingConfigRow,
+  type AdminSolanaConfigPaymentRow,
+  type AdminSolanaDepositRow,
+  type AdminTrafficSeriesPointRow,
   type BillingCustomerRow
 } from "./resources/billing/prepaid-repository.js";
 export {

@@ -124,15 +124,64 @@ export interface AdminBillingConfigRow {
   accountId: string;
   customerEmail: string;
   label: string | null;
+  mode: string;
   phase: string;
   desiredState: string;
   ingressGateName: string | null;
   egressGateName: string | null;
   activeSeconds: number;
+  bytesToDestination: string;
+  bytesFromDestination: string;
+  droppedBytes: string;
   payloadBytes: string;
   chargeMinor: number;
+  firstTrafficAt: string | null;
+  lastTrafficAt: string | null;
+  paymentStatus: string | null;
+  paymentAmountLamports: string | null;
+  paymentFeeLamports: string | null;
+  paymentTransactionSignature: string | null;
+  paymentConfirmedAt: string | null;
   createdAt: string;
+  updatedAt: string;
+  hiddenAt: string | null;
   lastRatedAt: string | null;
+}
+
+export interface AdminSolanaConfigPaymentRow {
+  paymentId: string;
+  sessionId: string | null;
+  accountId: string;
+  customerEmail: string;
+  sessionLabel: string | null;
+  status: string;
+  amountLamports: string;
+  feeLamports: string | null;
+  transactionSignature: string | null;
+  failureCode: string | null;
+  failureReason: string | null;
+  createdAt: string;
+  submittedAt: string | null;
+  confirmedAt: string | null;
+}
+
+export interface AdminSolanaDepositRow {
+  transactionSignature: string;
+  accountId: string;
+  customerEmail: string;
+  walletAddress: string | null;
+  tokenMint: string | null;
+  amountBaseUnits: string | null;
+  creditedAmountMinor: string;
+  observedAt: string;
+}
+
+export interface AdminTrafficSeriesPointRow {
+  bucketStart: string;
+  bytesToDestination: string;
+  bytesFromDestination: string;
+  droppedBytes: string;
+  configCount: number;
 }
 
 export async function ensurePrepaidBillingState(db: Queryable, accountId: string): Promise<void> {
@@ -633,20 +682,70 @@ export async function listBillingCustomers(db: Queryable, limit = 200): Promise<
 export async function listAdminBillingConfigs(db: Queryable, limit = 500): Promise<AdminBillingConfigRow[]> {
   const result = await db.query<AdminBillingConfigRow>(
     `
+      WITH usage_by_session AS (
+        SELECT
+          gate_assignments.session_id,
+          COALESCE(SUM(gate_assignment_usage_deltas.forwarded_to_destination_bytes), 0)::text AS "bytesToDestination",
+          COALESCE(SUM(gate_assignment_usage_deltas.forwarded_from_destination_bytes), 0)::text AS "bytesFromDestination",
+          COALESCE(SUM(
+            gate_assignment_usage_deltas.dropped_to_destination_bytes
+            + gate_assignment_usage_deltas.dropped_from_destination_bytes
+          ), 0)::text AS "droppedBytes",
+          MIN(gate_assignment_usage_deltas.window_start) AS "firstTrafficAt",
+          MAX(gate_assignment_usage_deltas.window_end) AS "lastTrafficAt"
+        FROM gate_assignment_usage_deltas
+        JOIN gate_assignments
+          ON gate_assignments.id = gate_assignment_usage_deltas.assignment_id
+        WHERE gate_assignments.role = 'Egress'
+          AND gate_assignment_usage_deltas.role = 'Egress'
+        GROUP BY gate_assignments.session_id
+      ), rating_by_session AS (
+        SELECT
+          session_id,
+          COALESCE(SUM(posted_charge_minor), 0)::text::int AS "chargeMinor",
+          MAX(window_end) AS "lastRatedAt"
+        FROM retail_usage_ratings
+        GROUP BY session_id
+      )
       SELECT
         sessions.id AS "sessionId",
         sessions.account_id AS "accountId",
         users.email::text AS "customerEmail",
         sessions.label,
+        sessions.mode::text,
         session_status.phase::text,
         sessions.desired_state::text AS "desiredState",
-        session_status.selected_path->>'ingressGateName' AS "ingressGateName",
-        session_status.selected_path->>'egressGateName' AS "egressGateName",
-        COALESCE(SUM(retail_usage_ratings.active_seconds), 0)::text::int AS "activeSeconds",
-        COALESCE(SUM(retail_usage_ratings.bytes_to_destination + retail_usage_ratings.bytes_from_destination), 0)::text AS "payloadBytes",
-        COALESCE(SUM(retail_usage_ratings.posted_charge_minor), 0)::text::int AS "chargeMinor",
+        COALESCE(session_status.selected_path->>'ingressGateName', ingress_gate.name) AS "ingressGateName",
+        COALESCE(session_status.selected_path->>'egressGateName', egress_gate.name) AS "egressGateName",
+        CASE
+          WHEN egress_assignment_status.applied_at IS NULL THEN 0
+          ELSE GREATEST(EXTRACT(EPOCH FROM (
+            COALESCE(
+              egress_assignment_status.revoked_at,
+              CASE
+                WHEN session_status.phase IN ('active', 'degraded', 'revoking') THEN now()
+                ELSE session_status.updated_at
+              END
+            ) - egress_assignment_status.applied_at
+          )), 0)::int
+        END AS "activeSeconds",
+        COALESCE(usage_by_session."bytesToDestination", '0') AS "bytesToDestination",
+        COALESCE(usage_by_session."bytesFromDestination", '0') AS "bytesFromDestination",
+        COALESCE(usage_by_session."droppedBytes", '0') AS "droppedBytes",
+        (COALESCE(usage_by_session."bytesToDestination", '0')::numeric
+          + COALESCE(usage_by_session."bytesFromDestination", '0')::numeric)::text AS "payloadBytes",
+        COALESCE(rating_by_session."chargeMinor", 0) AS "chargeMinor",
+        usage_by_session."firstTrafficAt",
+        usage_by_session."lastTrafficAt",
+        solana_config_payments.status AS "paymentStatus",
+        solana_config_payments.amount_lamports::text AS "paymentAmountLamports",
+        solana_config_payments.fee_lamports::text AS "paymentFeeLamports",
+        solana_config_payments.transaction_signature AS "paymentTransactionSignature",
+        solana_config_payments.confirmed_at AS "paymentConfirmedAt",
         sessions.created_at AS "createdAt",
-        MAX(retail_usage_ratings.window_end) AS "lastRatedAt"
+        sessions.updated_at AS "updatedAt",
+        sessions.hidden_at AS "hiddenAt",
+        rating_by_session."lastRatedAt"
       FROM sessions
       JOIN session_status ON session_status.session_id = sessions.id
       JOIN LATERAL (
@@ -654,13 +753,126 @@ export async function listAdminBillingConfigs(db: Queryable, limit = 500): Promi
         WHERE users.account_id = sessions.account_id AND users.disabled_at IS NULL
         ORDER BY users.created_at LIMIT 1
       ) users ON true
-      LEFT JOIN retail_usage_ratings ON retail_usage_ratings.session_id = sessions.id
+      LEFT JOIN usage_by_session ON usage_by_session.session_id = sessions.id
+      LEFT JOIN rating_by_session ON rating_by_session.session_id = sessions.id
+      LEFT JOIN solana_config_payments ON solana_config_payments.session_id = sessions.id
+      LEFT JOIN gate_assignments ingress_assignment
+        ON ingress_assignment.session_id = sessions.id AND ingress_assignment.role = 'Ingress'
+      LEFT JOIN gates ingress_gate ON ingress_gate.id = ingress_assignment.gate_id
+      LEFT JOIN gate_assignments egress_assignment
+        ON egress_assignment.session_id = sessions.id AND egress_assignment.role = 'Egress'
+      LEFT JOIN gates egress_gate ON egress_gate.id = egress_assignment.gate_id
+      LEFT JOIN gate_assignment_status egress_assignment_status
+        ON egress_assignment_status.assignment_id = egress_assignment.id
       WHERE sessions.account_id IS NOT NULL
-      GROUP BY sessions.id, users.email, session_status.phase, session_status.selected_path
       ORDER BY sessions.created_at DESC
       LIMIT $1
     `,
     [limit]
+  );
+  return result.rows;
+}
+
+export async function listAdminSolanaConfigPayments(
+  db: Queryable,
+  limit = 500
+): Promise<AdminSolanaConfigPaymentRow[]> {
+  const result = await db.query<AdminSolanaConfigPaymentRow>(
+    `
+      SELECT
+        solana_config_payments.id AS "paymentId",
+        solana_config_payments.session_id AS "sessionId",
+        solana_config_payments.account_id AS "accountId",
+        users.email::text AS "customerEmail",
+        sessions.label AS "sessionLabel",
+        solana_config_payments.status,
+        solana_config_payments.amount_lamports::text AS "amountLamports",
+        solana_config_payments.fee_lamports::text AS "feeLamports",
+        solana_config_payments.transaction_signature AS "transactionSignature",
+        solana_config_payments.failure_code AS "failureCode",
+        solana_config_payments.failure_reason AS "failureReason",
+        solana_config_payments.created_at AS "createdAt",
+        solana_config_payments.submitted_at AS "submittedAt",
+        solana_config_payments.confirmed_at AS "confirmedAt"
+      FROM solana_config_payments
+      LEFT JOIN sessions ON sessions.id = solana_config_payments.session_id
+      JOIN LATERAL (
+        SELECT email FROM users
+        WHERE users.account_id = solana_config_payments.account_id
+          AND users.disabled_at IS NULL
+        ORDER BY users.created_at LIMIT 1
+      ) users ON true
+      ORDER BY solana_config_payments.created_at DESC
+      LIMIT $1
+    `,
+    [limit]
+  );
+  return result.rows;
+}
+
+export async function listAdminSolanaDeposits(
+  db: Queryable,
+  limit = 500
+): Promise<AdminSolanaDepositRow[]> {
+  const result = await db.query<AdminSolanaDepositRow>(
+    `
+      SELECT
+        solana_payment_receipts.transaction_signature AS "transactionSignature",
+        solana_payment_receipts.account_id AS "accountId",
+        users.email::text AS "customerEmail",
+        custodial_wallets.public_key AS "walletAddress",
+        solana_payment_receipts.token_mint AS "tokenMint",
+        solana_payment_receipts.amount_base_units::text AS "amountBaseUnits",
+        solana_payment_receipts.credited_amount_minor::text AS "creditedAmountMinor",
+        solana_payment_receipts.observed_at AS "observedAt"
+      FROM solana_payment_receipts
+      JOIN LATERAL (
+        SELECT email FROM users
+        WHERE users.account_id = solana_payment_receipts.account_id
+          AND users.disabled_at IS NULL
+        ORDER BY users.created_at LIMIT 1
+      ) users ON true
+      LEFT JOIN custodial_wallets
+        ON custodial_wallets.account_id = solana_payment_receipts.account_id
+       AND custodial_wallets.chain = 'solana'
+      ORDER BY solana_payment_receipts.observed_at DESC
+      LIMIT $1
+    `,
+    [limit]
+  );
+  return result.rows;
+}
+
+export async function readAdminTrafficSeries(
+  db: Queryable,
+  input: { from: string; bucketSeconds: number; sessionId?: string }
+): Promise<AdminTrafficSeriesPointRow[]> {
+  const result = await db.query<AdminTrafficSeriesPointRow>(
+    `
+      SELECT
+        date_bin(
+          $2::int * interval '1 second',
+          gate_assignment_usage_deltas.window_end,
+          '1970-01-01 00:00:00+00'::timestamptz
+        ) AS "bucketStart",
+        COALESCE(SUM(gate_assignment_usage_deltas.forwarded_to_destination_bytes), 0)::text AS "bytesToDestination",
+        COALESCE(SUM(gate_assignment_usage_deltas.forwarded_from_destination_bytes), 0)::text AS "bytesFromDestination",
+        COALESCE(SUM(
+          gate_assignment_usage_deltas.dropped_to_destination_bytes
+          + gate_assignment_usage_deltas.dropped_from_destination_bytes
+        ), 0)::text AS "droppedBytes",
+        COUNT(DISTINCT gate_assignments.session_id)::int AS "configCount"
+      FROM gate_assignment_usage_deltas
+      JOIN gate_assignments
+        ON gate_assignments.id = gate_assignment_usage_deltas.assignment_id
+      WHERE gate_assignments.role = 'Egress'
+        AND gate_assignment_usage_deltas.role = 'Egress'
+        AND gate_assignment_usage_deltas.window_end >= $1::timestamptz
+        AND ($3::uuid IS NULL OR gate_assignments.session_id = $3::uuid)
+      GROUP BY 1
+      ORDER BY 1
+    `,
+    [input.from, input.bucketSeconds, input.sessionId ?? null]
   );
   return result.rows;
 }

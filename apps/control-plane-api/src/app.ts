@@ -38,6 +38,7 @@ export interface ControlPlaneApiRuntimeConfig {
   authSessionTtlSeconds: number;
   downloadTokenTtlSeconds: number;
   adminToken?: string;
+  billingAdminEmails: string[];
   artifactEncryptionKey: Buffer | null;
   gateAgentReleaseDir: string;
   publicRateLimit: PublicRateLimitConfig;
@@ -71,7 +72,11 @@ export interface CreateControlPlaneApiAppInput {
 
 export function createApp(input: CreateControlPlaneApiAppInput): FastifyInstance {
   const { db, config } = input;
-  const auth = createHttpAuth({ db, adminToken: config.adminToken });
+  const auth = createHttpAuth({
+    db,
+    adminToken: config.adminToken,
+    billingAdminEmails: config.billingAdminEmails
+  });
   const health = input.health ?? createHealthRegistry("control-plane-api");
   const metrics = input.metrics ?? createRuntimeMetrics({ service: "control-plane-api" });
   const configPaymentService = input.configPaymentService !== undefined
@@ -113,7 +118,8 @@ export function createApp(input: CreateControlPlaneApiAppInput): FastifyInstance
     authSessionTtlSeconds: config.authSessionTtlSeconds,
     emailAuth: config.emailAuth,
     googleOAuth: config.googleOAuth,
-    requireUser: auth.requireUser
+    requireUser: auth.requireUser,
+    hasBillingAdminAccess: auth.hasBillingAdminAccess
   });
   registerPublicBenchmarkRoutes(app, { db });
   registerPublicGatesRoutes(app, { db });

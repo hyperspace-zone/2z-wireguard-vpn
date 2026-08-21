@@ -565,6 +565,7 @@ small {
 
 .app-nav {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   margin-bottom: 16px;
 }
@@ -1121,6 +1122,221 @@ small {
   padding-bottom: 14px;
 }
 
+.admin-metric-strip {
+  border-bottom: 1px solid #d8dee8;
+  border-top: 1px solid #d8dee8;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(120px, 1fr));
+}
+
+.admin-metric-strip > div {
+  border-right: 1px solid #d8dee8;
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 14px;
+}
+
+.admin-metric-strip > div:last-child {
+  border-right: 0;
+}
+
+.admin-metric-strip small,
+.admin-toolbar small,
+.admin-legacy-controls small,
+[data-admin-config-row] small {
+  color: #57606a;
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.admin-metric-strip strong {
+  font-size: 18px;
+  overflow-wrap: anywhere;
+}
+
+.admin-toolbar,
+.admin-filter-row {
+  align-items: end;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.admin-toolbar label,
+.admin-filter-row label {
+  min-width: min(320px, 100%);
+}
+
+.admin-filter-row label:first-child {
+  flex: 1 1 320px;
+}
+
+.admin-filter-row label:nth-child(2) {
+  flex: 0 1 220px;
+  min-width: 180px;
+}
+
+.segmented-control {
+  border: 1px solid #c9d1d9;
+  border-radius: 6px;
+  display: flex;
+  overflow: hidden;
+}
+
+.segmented-control button {
+  border: 0;
+  border-radius: 0;
+  margin: 0;
+  min-height: 38px;
+}
+
+.segmented-control button + button {
+  border-left: 1px solid #c9d1d9;
+}
+
+.segmented-control button.active {
+  background: #1f6feb;
+  color: #ffffff;
+}
+
+.admin-chart-wrap {
+  border-top: 1px solid #d8dee8;
+  padding-top: 14px;
+}
+
+.admin-chart-empty {
+  align-items: center;
+  border: 1px dashed #aab4c3;
+  color: #57606a;
+  display: flex;
+  justify-content: center;
+  min-height: 220px;
+  padding: 20px;
+  text-align: center;
+}
+
+.admin-chart-legend {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-bottom: 8px;
+}
+
+.admin-chart-legend span::before {
+  background: currentColor;
+  content: "";
+  display: inline-block;
+  height: 3px;
+  margin-right: 6px;
+  vertical-align: middle;
+  width: 20px;
+}
+
+.admin-chart-legend strong {
+  margin-left: auto;
+}
+
+.admin-chart-legend .outbound,
+.chart-line.outbound {
+  color: #0969da;
+  stroke: #0969da;
+}
+
+.admin-chart-legend .inbound,
+.chart-line.inbound {
+  color: #1a7f37;
+  stroke: #1a7f37;
+}
+
+.admin-chart-legend .dropped,
+.chart-line.dropped {
+  color: #cf222e;
+  stroke: #cf222e;
+}
+
+.admin-traffic-chart {
+  display: block;
+  height: auto;
+  max-height: 300px;
+  overflow: visible;
+  width: 100%;
+}
+
+.chart-axis {
+  stroke: #8c959f;
+  stroke-width: 1;
+}
+
+.chart-grid {
+  stroke: #d8dee8;
+  stroke-dasharray: 4 5;
+  stroke-width: 1;
+}
+
+.chart-line {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 3;
+}
+
+.chart-label {
+  fill: #57606a;
+  font-size: 12px;
+}
+
+.status-badge {
+  background: #eef1f4;
+  border: 1px solid #aab4c3;
+  border-radius: 4px;
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  padding: 4px 6px;
+  text-transform: uppercase;
+}
+
+.status-badge.confirmed {
+  background: #dafbe1;
+  border-color: #4ac26b;
+  color: #116329;
+}
+
+.status-badge.pending {
+  background: #fff8c5;
+  border-color: #d4a72c;
+  color: #633c01;
+}
+
+.status-badge.failed {
+  background: #ffebe9;
+  border-color: #ff8182;
+  color: #a40e26;
+}
+
+[data-admin-config-row] {
+  cursor: pointer;
+}
+
+[data-admin-config-row]:hover {
+  background: #f1f6fc;
+}
+
+.admin-legacy-controls summary {
+  cursor: pointer;
+  font-size: 15px;
+  font-weight: 700;
+  padding: 2px 0;
+}
+
+.admin-legacy-controls[open] summary {
+  margin-bottom: 16px;
+}
+
 .qr-overlay {
   align-items: center;
   background: rgba(22, 27, 34, 0.72);
@@ -1513,6 +1729,7 @@ small {
   .topbar,
   .grid,
   .account-grid,
+  .admin-metric-strip,
   .admin-plan-create,
   .gate-select-row,
   .optional-config-grid,
@@ -1525,6 +1742,35 @@ small {
   .session-form {
     grid-template-columns: 1fr;
     display: grid;
+  }
+
+  .admin-metric-strip > div {
+    border-bottom: 1px solid #d8dee8;
+    border-right: 0;
+  }
+
+  .admin-metric-strip > div:last-child {
+    border-bottom: 0;
+  }
+
+  .admin-toolbar,
+  .admin-filter-row {
+    align-items: stretch;
+    display: grid;
+  }
+
+  .admin-toolbar label,
+  .admin-filter-row label {
+    min-width: 0;
+  }
+
+  .segmented-control button {
+    flex: 1 1 0;
+  }
+
+  .admin-chart-legend strong {
+    margin-left: 0;
+    width: 100%;
   }
 
   .identity {

@@ -114,6 +114,22 @@ and TLS certificate lifetime without contacting another Hyperspace cluster.
 
 ## Validation
 
+Assign staging network administrators in the deployment-local API environment.
+Only verified identities matching this allowlist receive the browser admin
+capability; do not commit real operator addresses into the repository:
+
+```bash
+sed -i '/^BILLING_ADMIN_EMAILS=/d' /etc/hyperspace/control-plane-api.env
+printf '%s\n' 'BILLING_ADMIN_EMAILS=<verified-operator-email>' \
+  >>/etc/hyperspace/control-plane-api.env
+systemctl restart hyperspace-control-plane-api
+```
+
+The `Admin` page must show all customer configs, their native SOL payment
+states, finalized deposits, aggregate raw egress traffic, and per-config traffic
+charts. Validate both the global and per-config 24-hour, 7-day, and 30-day
+ranges after deployment.
+
 ```bash
 curl -fsS https://app.staging.hyperspace.zone/api/health
 curl -fsS https://app.staging.hyperspace.zone/api/v1/public/gates | jq .

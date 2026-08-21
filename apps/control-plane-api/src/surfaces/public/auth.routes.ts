@@ -16,7 +16,6 @@ import {
   loginUser,
   registerUser,
   requestEmailLoginCode,
-  userHasRole,
   verifyEmailLoginCode,
   type EmailSender,
   type GoogleOAuthConfig
@@ -42,6 +41,7 @@ export function registerPublicAuthRoutes(
     };
     googleOAuth: GoogleOAuthConfig | null;
     requireUser: (request: FastifyRequest, reply: FastifyReply) => Promise<PublicAuthUser | null>;
+    hasBillingAdminAccess: (user: PublicAuthUser) => Promise<boolean>;
   }
 ): void {
   const emailSender = createEmailSender(deps.emailAuth);
@@ -214,13 +214,10 @@ export function registerPublicAuthRoutes(
     if (!user) {
       return;
     }
-    const [billingAdmin, platformAdmin] = await Promise.all([
-      userHasRole(deps.db, user.id, "billing_admin"),
-      userHasRole(deps.db, user.id, "platform_admin")
-    ]);
+    const billingAdmin = await deps.hasBillingAdminAccess(user);
     return reply.send({
       user,
-      capabilities: billingAdmin || platformAdmin ? ["billing:admin"] : []
+      capabilities: billingAdmin ? ["billing:admin"] : []
     });
   });
 

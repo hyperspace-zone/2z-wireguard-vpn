@@ -261,6 +261,9 @@ interface AdminBillingSummary {
   customers: AdminBillingCustomer[];
   plans: AdminBillingPlan[];
   configs: AdminBillingConfig[];
+  payments: AdminConfigPayment[];
+  deposits: AdminDeposit[];
+  asset: AdminBillingAsset;
 }
 
 interface AdminBillingConfig {
@@ -268,15 +271,80 @@ interface AdminBillingConfig {
   accountId: string;
   customerEmail: string;
   label?: string | null;
+  mode: string;
   phase: string;
   desiredState: string;
   ingressGateName?: string | null;
   egressGateName?: string | null;
   activeSeconds: number;
+  bytesToDestination: string;
+  bytesFromDestination: string;
+  droppedBytes: string;
   payloadBytes: string;
   chargeMinor: number;
+  firstTrafficAt?: string | null;
+  lastTrafficAt?: string | null;
+  paymentStatus?: string | null;
+  paymentAmountLamports?: string | null;
+  paymentFeeLamports?: string | null;
+  paymentTransactionSignature?: string | null;
+  paymentConfirmedAt?: string | null;
   createdAt: string;
+  updatedAt: string;
+  hiddenAt?: string | null;
   lastRatedAt?: string | null;
+}
+
+interface AdminConfigPayment {
+  paymentId: string;
+  sessionId?: string | null;
+  accountId: string;
+  customerEmail: string;
+  sessionLabel?: string | null;
+  status: string;
+  amountLamports: string;
+  feeLamports?: string | null;
+  transactionSignature?: string | null;
+  failureCode?: string | null;
+  failureReason?: string | null;
+  createdAt: string;
+  submittedAt?: string | null;
+  confirmedAt?: string | null;
+}
+
+interface AdminDeposit {
+  transactionSignature: string;
+  accountId: string;
+  customerEmail: string;
+  walletAddress?: string | null;
+  tokenMint?: string | null;
+  amountBaseUnits?: string | null;
+  creditedAmountMinor: string;
+  observedAt: string;
+}
+
+interface AdminBillingAsset {
+  symbol: string;
+  decimals: number;
+  explorerTransactionBaseUrl: string;
+  configPriceBaseUnits: string;
+}
+
+interface AdminTrafficPoint {
+  bucketStart: string;
+  bytesToDestination: string;
+  bytesFromDestination: string;
+  droppedBytes: string;
+  configCount: number;
+}
+
+interface AdminTrafficSeries {
+  range: "24h" | "7d" | "30d";
+  sessionId?: string | null;
+  from: string;
+  to: string;
+  bucketSeconds: number;
+  points: AdminTrafficPoint[];
 }
 
 const apiBase = (window as unknown as { HYPERSPACE_API_BASE?: string }).HYPERSPACE_API_BASE ?? "/api";
@@ -289,6 +357,12 @@ let latestMe: Me | null = null;
 let latestBenchmarkMatrix: BenchmarkMatrix | null = null;
 let latestBilling: BillingSummary | null = null;
 let latestAdminBilling: AdminBillingSummary | null = null;
+let latestAdminTraffic: AdminTrafficSeries | null = null;
+let adminTrafficRange: AdminTrafficSeries["range"] = "24h";
+let adminTrafficSessionId = "";
+let adminConfigFilter = "active";
+let adminConfigSearch = "";
+let adminTrafficLoading = false;
 const gateLatencyById = new Map<string, { medianMs: number | null; minMs: number | null; maxMs: number | null; sampleCount: number }>();
 const gateLatencyInProgressIds = new Set<string>();
 const revokingConfigIds = new Set<string>();
@@ -388,9 +462,12 @@ async function refresh(options: { skipAutoMeasure?: boolean } = {}): Promise<voi
     getBenchmarkMatrix().catch(() => null),
     token ? getBilling().catch(() => null) : Promise.resolve(null)
   ]);
-  const adminBilling = token && me?.billingAdmin
-    ? await getAdminBilling().catch(() => null)
-    : null;
+  const [adminBilling, adminTraffic] = token && me?.billingAdmin
+    ? await Promise.all([
+      getAdminBilling().catch(() => null),
+      getAdminTraffic().catch(() => null)
+    ])
+    : [null, null];
   const gates = gateResult.gates ?? benchmarkMatrix?.gates ?? latestGates;
   gateCatalogLoadError = gateResult.error !== null && gates.length === 0;
   if (gateCatalogLoadError) {
@@ -402,6 +479,7 @@ async function refresh(options: { skipAutoMeasure?: boolean } = {}): Promise<voi
   latestBenchmarkMatrix = benchmarkMatrix;
   latestBilling = billing;
   latestAdminBilling = adminBilling;
+  latestAdminTraffic = adminTraffic;
   render({ gates: decorateGates(gates), sessions, me, benchmarkMatrix, billing });
   if (!options.skipAutoMeasure && me) {
     maybeMeasureGatesAutomatically();
@@ -611,7 +689,7 @@ function appNav(view: AppView): string {
       <a href="/create-config" data-view="create-config" class="${view === "create-config" ? "active" : ""}">Create config</a>
       <a href="/benchmarks" data-view="benchmarks" class="${view === "benchmarks" ? "active" : ""}">Benchmarks</a>
       <a href="/billing" data-view="billing" class="${view === "billing" ? "active" : ""}">Billing</a>
-      ${latestAdminBilling ? `<a href="/admin/billing" data-view="admin-billing" class="${view === "admin-billing" ? "active" : ""}">Billing admin</a>` : ""}
+      ${latestAdminBilling ? `<a href="/admin/billing" data-view="admin-billing" class="${view === "admin-billing" ? "active" : ""}">Admin</a>` : ""}
     </nav>
   `;
 }
@@ -839,11 +917,87 @@ function billingUsagePanel(usage: BillingUsageSummary[], currency: string): stri
 }
 
 function adminBillingView(summary: AdminBillingSummary | null): string {
-  if (!summary) return `<section class="panel primary-panel"><h2>Billing admin</h2><p>Billing administrator access is required.</p></section>`;
+  if (!summary) return `<section class="panel primary-panel"><h2>Admin</h2><p>Billing administrator access is required.</p></section>`;
+  const activeConfigs = summary.configs.filter(adminConfigIsActive);
+  const visibleConfigs = filterAdminConfigs(summary.configs);
+  const confirmedPayments = summary.payments.filter((payment) => payment.status === "confirmed");
+  const confirmedRevenue = confirmedPayments.reduce((total, payment) => total + safeBigInt(payment.amountLamports), 0n);
+  const totalPayload = summary.configs.reduce((total, config) => total + safeBigInt(config.payloadBytes), 0n);
+  const totalDeposits = summary.deposits.reduce((total, deposit) => total + safeBigInt(deposit.amountBaseUnits), 0n);
   const planOptions = summary.plans.map((plan) => `<option value="${escapeHtml(`${plan.code}:${plan.version}`)}">${escapeHtml(plan.displayName)} v${plan.version}</option>`).join("");
+  const configOptions = summary.configs.map((config) => {
+    const label = config.label?.trim() || config.sessionId.slice(0, 8);
+    const selected = adminTrafficSessionId === config.sessionId ? "selected" : "";
+    return `<option value="${escapeHtml(config.sessionId)}" ${selected}>${escapeHtml(`${label} · ${config.customerEmail}`)}</option>`;
+  }).join("");
   return `
     <section class="panel primary-panel">
-      <div class="panel-heading"><h2>Billing admin</h2><small>${summary.customers.length} customers</small></div>
+      <div class="panel-heading"><h2>Network admin</h2><small>All customer accounts</small></div>
+      <div class="admin-metric-strip">
+        <div><small>Customers</small><strong>${summary.customers.length}</strong></div>
+        <div><small>Active configs</small><strong>${activeConfigs.length}</strong></div>
+        <div><small>Confirmed config revenue</small><strong>${escapeHtml(formatTokenBaseUnits(confirmedRevenue.toString(), summary.asset.decimals))} ${escapeHtml(summary.asset.symbol)}</strong></div>
+        <div><small>Observed payload</small><strong>${escapeHtml(formatByteCount(totalPayload))}</strong></div>
+        <div><small>Finalized deposits</small><strong>${escapeHtml(formatTokenBaseUnits(totalDeposits.toString(), summary.asset.decimals))} ${escapeHtml(summary.asset.symbol)}</strong></div>
+      </div>
+    </section>
+
+    <section class="panel secondary-panel admin-traffic-panel">
+      <div class="panel-heading"><h2>Traffic consumption</h2><small>Egress payload counters</small></div>
+      <div class="admin-toolbar">
+        <label>Config
+          <select id="admin-traffic-config">
+            <option value="">All configs</option>
+            ${configOptions}
+          </select>
+        </label>
+        <div class="segmented-control" aria-label="Traffic range">
+          ${(["24h", "7d", "30d"] as const).map((range) => `<button type="button" data-admin-traffic-range="${range}" class="${adminTrafficRange === range ? "active" : "secondary-button"}">${range}</button>`).join("")}
+        </div>
+        <button id="refresh-admin-traffic" class="secondary-button" type="button" ${adminTrafficLoading ? "disabled" : ""}>${adminTrafficLoading ? "Refreshing..." : "Refresh"}</button>
+      </div>
+      ${adminTrafficChart(latestAdminTraffic, adminTrafficLoading)}
+    </section>
+
+    <section class="panel secondary-panel">
+      <div class="panel-heading"><h2>VPN configs</h2><small>${visibleConfigs.length} of ${summary.configs.length}</small></div>
+      <form id="admin-config-filters" class="admin-filter-row">
+        <label>Search <input name="search" value="${escapeHtml(adminConfigSearch)}" placeholder="Email, config, gate or ID" /></label>
+        <label>Show
+          <select name="status">
+            <option value="active" ${adminConfigFilter === "active" ? "selected" : ""}>Active configs</option>
+            <option value="paid" ${adminConfigFilter === "paid" ? "selected" : ""}>Paid configs</option>
+            <option value="payment-issue" ${adminConfigFilter === "payment-issue" ? "selected" : ""}>Payment issues</option>
+            <option value="legacy" ${adminConfigFilter === "legacy" ? "selected" : ""}>Legacy / no payment</option>
+            <option value="all" ${adminConfigFilter === "all" ? "selected" : ""}>All configs</option>
+          </select>
+        </label>
+        <button type="submit">Apply</button>
+      </form>
+      <div class="table-scroll"><table>
+        <thead><tr><th>Config</th><th>Customer</th><th>Route</th><th>State</th><th>Payment</th><th>Traffic</th><th>Last traffic</th><th>Created</th></tr></thead>
+        <tbody>${visibleConfigs.length ? visibleConfigs.map((config) => adminConfigRow(config, summary.asset)).join("") : '<tr><td colspan="8" class="empty-marker">No configs match this filter.</td></tr>'}</tbody>
+      </table></div>
+    </section>
+
+    <section class="panel secondary-panel">
+      <div class="panel-heading"><h2>Config payments</h2><small>${confirmedPayments.length} confirmed</small></div>
+      <div class="table-scroll"><table>
+        <thead><tr><th>Time</th><th>Customer</th><th>Config</th><th>Amount</th><th>Network fee</th><th>Status</th><th>Transaction</th></tr></thead>
+        <tbody>${summary.payments.length ? summary.payments.map((payment) => adminPaymentRow(payment, summary.asset)).join("") : '<tr><td colspan="7" class="empty-marker">No config payments recorded.</td></tr>'}</tbody>
+      </table></div>
+    </section>
+
+    <section class="panel secondary-panel">
+      <div class="panel-heading"><h2>Deposits</h2><small>${summary.deposits.length} finalized</small></div>
+      <div class="table-scroll"><table>
+        <thead><tr><th>Received</th><th>Customer</th><th>Wallet</th><th>Amount</th><th>Status</th><th>Transaction</th></tr></thead>
+        <tbody>${summary.deposits.length ? summary.deposits.map((deposit) => adminDepositRow(deposit, summary.asset)).join("") : '<tr><td colspan="6" class="empty-marker">No deposits recorded.</td></tr>'}</tbody>
+      </table></div>
+    </section>
+
+    <details class="panel secondary-panel admin-legacy-controls">
+      <summary>Legacy usage plans and promotional credits</summary>
       <form id="admin-plan-create" class="admin-plan-create">
         <label>Code <input name="code" required /></label><label>Name <input name="displayName" required /></label><label>Version <input name="version" type="number" min="1" value="1" required /></label>
         <label>Per config / month, USD <input name="activeConfigMonthlyUsd" inputmode="decimal" required /></label><label>Per GB, USD <input name="trafficPerGbUsd" inputmode="decimal" required /></label>
@@ -868,15 +1022,130 @@ function adminBillingView(summary: AdminBillingSummary | null): string {
           </tr>
         `).join("")}</tbody>
       </table></div>
-    </section>
-    <section class="panel secondary-panel">
-      <div class="panel-heading"><h2>VPN config usage</h2><small>${summary.configs.length} configs</small></div>
-      <div class="table-scroll"><table>
-        <thead><tr><th>Config</th><th>Customer</th><th>Route</th><th>State</th><th>Active time</th><th>Payload</th><th>Charged</th><th>Last rated</th></tr></thead>
-        <tbody>${summary.configs.map((config) => `<tr><td><strong>${escapeHtml(config.label || config.sessionId.slice(0, 8))}</strong><small class="mono">${escapeHtml(config.sessionId)}</small></td><td>${escapeHtml(config.customerEmail)}</td><td>${escapeHtml(config.ingressGateName || "n/a")} → ${escapeHtml(config.egressGateName || "n/a")}</td><td>${escapeHtml(config.phase)}</td><td>${escapeHtml(formatDurationSeconds(config.activeSeconds))}</td><td>${escapeHtml(formatByteCount(BigInt(config.payloadBytes)))}</td><td>${escapeHtml(formatMoneyMinor(config.chargeMinor, "USD"))}</td><td>${config.lastRatedAt ? escapeHtml(relativeTime(config.lastRatedAt)) : "not rated"}</td></tr>`).join("")}</tbody>
-      </table></div>
-    </section>
+    </details>
   `;
+}
+
+function adminConfigIsActive(config: AdminBillingConfig): boolean {
+  return !config.hiddenAt && config.desiredState !== "Revoked" && !["revoked", "failed"].includes(config.phase);
+}
+
+function filterAdminConfigs(configs: AdminBillingConfig[]): AdminBillingConfig[] {
+  const search = adminConfigSearch.trim().toLowerCase();
+  return configs.filter((config) => {
+    const matchesState = adminConfigFilter === "all"
+      || (adminConfigFilter === "active" && adminConfigIsActive(config))
+      || (adminConfigFilter === "paid" && config.paymentStatus === "confirmed")
+      || (adminConfigFilter === "payment-issue" && Boolean(config.paymentStatus) && config.paymentStatus !== "confirmed")
+      || (adminConfigFilter === "legacy" && !config.paymentStatus);
+    if (!matchesState || !search) return matchesState;
+    return [
+      config.sessionId,
+      config.label,
+      config.customerEmail,
+      config.ingressGateName,
+      config.egressGateName,
+      config.phase,
+      config.paymentStatus
+    ].some((value) => value?.toLowerCase().includes(search));
+  });
+}
+
+function adminConfigRow(config: AdminBillingConfig, asset: AdminBillingAsset): string {
+  const payment = config.paymentStatus
+    ? `<span class="status-badge ${adminStatusClass(config.paymentStatus)}">${escapeHtml(config.paymentStatus)}</span>${config.paymentAmountLamports ? `<small>${escapeHtml(formatTokenBaseUnits(config.paymentAmountLamports, asset.decimals))} ${escapeHtml(asset.symbol)}</small>` : ""}`
+    : '<span class="status-badge neutral">legacy</span><small>No config payment</small>';
+  return `<tr data-admin-config-row="${escapeHtml(config.sessionId)}">
+    <td><strong>${escapeHtml(config.label?.trim() || config.sessionId.slice(0, 8))}</strong><small class="mono">${escapeHtml(config.sessionId)}</small><small>${escapeHtml(config.mode)}</small></td>
+    <td>${escapeHtml(config.customerEmail)}</td>
+    <td>${escapeHtml(config.ingressGateName || "n/a")} → ${escapeHtml(config.egressGateName || "n/a")}</td>
+    <td><span class="status-badge ${adminStatusClass(config.phase)}">${escapeHtml(config.phase)}</span><small>${escapeHtml(formatDurationSeconds(config.activeSeconds))}</small></td>
+    <td>${payment}</td>
+    <td><strong>${escapeHtml(formatByteCount(safeBigInt(config.payloadBytes)))}</strong><small>out ${escapeHtml(formatByteCount(safeBigInt(config.bytesToDestination)))} · in ${escapeHtml(formatByteCount(safeBigInt(config.bytesFromDestination)))}</small>${safeBigInt(config.droppedBytes) > 0n ? `<small class="amount-debit">dropped ${escapeHtml(formatByteCount(safeBigInt(config.droppedBytes)))}</small>` : ""}</td>
+    <td>${config.lastTrafficAt ? escapeHtml(relativeTime(config.lastTrafficAt)) : "No traffic"}</td>
+    <td>${escapeHtml(relativeTime(config.createdAt))}</td>
+  </tr>`;
+}
+
+function adminPaymentRow(payment: AdminConfigPayment, asset: AdminBillingAsset): string {
+  const transaction = payment.transactionSignature
+    ? `<a href="${escapeHtml(`${asset.explorerTransactionBaseUrl}${payment.transactionSignature}`)}" target="_blank" rel="noopener noreferrer">${escapeHtml(shortTransaction(payment.transactionSignature))}</a>`
+    : "Not submitted";
+  const time = payment.confirmedAt || payment.submittedAt || payment.createdAt;
+  return `<tr>
+    <td>${escapeHtml(relativeTime(time))}</td>
+    <td>${escapeHtml(payment.customerEmail)}</td>
+    <td><strong>${escapeHtml(payment.sessionLabel?.trim() || payment.sessionId?.slice(0, 8) || "pending")}</strong>${payment.sessionId ? `<small class="mono">${escapeHtml(payment.sessionId)}</small>` : ""}</td>
+    <td>${escapeHtml(formatTokenBaseUnits(payment.amountLamports, asset.decimals))} ${escapeHtml(asset.symbol)}</td>
+    <td>${payment.feeLamports ? `${escapeHtml(formatTokenBaseUnits(payment.feeLamports, asset.decimals))} ${escapeHtml(asset.symbol)}` : "n/a"}</td>
+    <td><span class="status-badge ${adminStatusClass(payment.status)}" title="${escapeHtml(payment.failureReason || payment.failureCode || "")}">${escapeHtml(payment.status)}</span></td>
+    <td>${transaction}</td>
+  </tr>`;
+}
+
+function adminDepositRow(deposit: AdminDeposit, asset: AdminBillingAsset): string {
+  const amount = deposit.amountBaseUnits ?? String(deposit.creditedAmountMinor);
+  return `<tr>
+    <td>${escapeHtml(relativeTime(deposit.observedAt))}</td>
+    <td>${escapeHtml(deposit.customerEmail)}</td>
+    <td class="mono" title="${escapeHtml(deposit.walletAddress || "")}">${escapeHtml(deposit.walletAddress ? shortWallet(deposit.walletAddress) : "n/a")}</td>
+    <td><strong>${escapeHtml(formatTokenBaseUnits(amount, asset.decimals))} ${escapeHtml(asset.symbol)}</strong></td>
+    <td><span class="status-badge confirmed">finalized</span></td>
+    <td><a href="${escapeHtml(`${asset.explorerTransactionBaseUrl}${deposit.transactionSignature}`)}" target="_blank" rel="noopener noreferrer">${escapeHtml(shortTransaction(deposit.transactionSignature))}</a></td>
+  </tr>`;
+}
+
+function adminTrafficChart(series: AdminTrafficSeries | null, loading: boolean): string {
+  if (loading && !series) return '<div class="admin-chart-empty">Loading traffic counters...</div>';
+  const points = series?.points ?? [];
+  if (points.length === 0) return '<div class="admin-chart-empty">No traffic was observed in this time range.</div>';
+  const width = 1000;
+  const height = 240;
+  const left = 54;
+  const right = 18;
+  const top = 18;
+  const bottom = 34;
+  const plotWidth = width - left - right;
+  const plotHeight = height - top - bottom;
+  const outbound = points.map((point) => Number(safeBigInt(point.bytesToDestination)));
+  const inbound = points.map((point) => Number(safeBigInt(point.bytesFromDestination)));
+  const dropped = points.map((point) => Number(safeBigInt(point.droppedBytes)));
+  const maxValue = Math.max(1, ...outbound, ...inbound, ...dropped);
+  const polyline = (values: number[]) => values.map((value, index) => {
+    const x = left + (values.length === 1 ? plotWidth / 2 : index * plotWidth / (values.length - 1));
+    const y = top + plotHeight - (value / maxValue) * plotHeight;
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(" ");
+  const total = points.reduce((sum, point) => sum + safeBigInt(point.bytesToDestination) + safeBigInt(point.bytesFromDestination), 0n);
+  return `<div class="admin-chart-wrap">
+    <div class="admin-chart-legend"><span class="outbound">To destination</span><span class="inbound">From destination</span><span class="dropped">Dropped</span><strong>${escapeHtml(formatByteCount(total))} total</strong></div>
+    <svg class="admin-traffic-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="Traffic consumption over ${escapeHtml(series?.range || adminTrafficRange)}">
+      <line x1="${left}" y1="${top}" x2="${left}" y2="${height - bottom}" class="chart-axis" />
+      <line x1="${left}" y1="${height - bottom}" x2="${width - right}" y2="${height - bottom}" class="chart-axis" />
+      ${[0.25, 0.5, 0.75].map((ratio) => `<line x1="${left}" y1="${(top + plotHeight * ratio).toFixed(1)}" x2="${width - right}" y2="${(top + plotHeight * ratio).toFixed(1)}" class="chart-grid" />`).join("")}
+      <polyline points="${polyline(outbound)}" class="chart-line outbound" />
+      <polyline points="${polyline(inbound)}" class="chart-line inbound" />
+      <polyline points="${polyline(dropped)}" class="chart-line dropped" />
+      <text x="${left}" y="${height - 10}" class="chart-label">${escapeHtml(new Date(series?.from || "").toLocaleString())}</text>
+      <text x="${width - right}" y="${height - 10}" text-anchor="end" class="chart-label">${escapeHtml(new Date(series?.to || "").toLocaleString())}</text>
+      <text x="${left - 8}" y="${top + 4}" text-anchor="end" class="chart-label">${escapeHtml(formatByteCount(BigInt(Math.round(maxValue))))}</text>
+    </svg>
+  </div>`;
+}
+
+function adminStatusClass(status: string): string {
+  if (["confirmed", "active", "succeeded"].includes(status)) return "confirmed";
+  if (["failed", "revoked", "dead"].includes(status)) return "failed";
+  if (["pending", "processing", "submitted", "payment_pending", "requested", "provisioning"].includes(status)) return "pending";
+  return "neutral";
+}
+
+function safeBigInt(value: string | number | bigint | null | undefined): bigint {
+  try {
+    return BigInt(value ?? 0);
+  } catch {
+    return 0n;
+  }
 }
 
 function billingLedgerPanel(entries: BillingLedgerEntry[], currency: string): string {
@@ -2396,6 +2665,7 @@ function bindHandlers(): void {
     latestMe = null;
     latestSessions = [];
     latestAdminBilling = null;
+    latestAdminTraffic = null;
     gateLatencyInProgressIds.clear();
     gateLatencyMeasurementInFlight = false;
     automaticGateLatencyMeasurementStarted = false;
@@ -2562,6 +2832,39 @@ function bindHandlers(): void {
     button.addEventListener("click", () => {
       const id = (button as HTMLElement).dataset.cancelWithdrawal;
       if (id) void cancelWithdrawal(id);
+    });
+  }
+  document.getElementById("admin-config-filters")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const form = new FormData(event.target as HTMLFormElement);
+    adminConfigSearch = String(form.get("search") ?? "").trim();
+    adminConfigFilter = String(form.get("status") ?? "active");
+    render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
+  });
+  document.getElementById("admin-traffic-config")?.addEventListener("change", (event) => {
+    adminTrafficSessionId = String((event.target as HTMLSelectElement).value ?? "");
+    void refreshAdminTraffic();
+  });
+  for (const button of document.querySelectorAll("[data-admin-traffic-range]")) {
+    button.addEventListener("click", () => {
+      const range = (button as HTMLElement).dataset.adminTrafficRange;
+      if (range === "24h" || range === "7d" || range === "30d") {
+        adminTrafficRange = range;
+        void refreshAdminTraffic();
+      }
+    });
+  }
+  document.getElementById("refresh-admin-traffic")?.addEventListener("click", () => {
+    void refreshAdminTraffic();
+  });
+  for (const row of document.querySelectorAll("[data-admin-config-row]")) {
+    row.addEventListener("click", (event) => {
+      if ((event.target as HTMLElement).closest("a,button,input,select")) return;
+      const sessionId = (row as HTMLElement).dataset.adminConfigRow;
+      if (sessionId) {
+        adminTrafficSessionId = sessionId;
+        void refreshAdminTraffic();
+      }
     });
   }
   for (const form of document.querySelectorAll("[data-admin-credit]")) {
@@ -2997,6 +3300,20 @@ async function createAdminPlan(form: FormData): Promise<void> {
   }
 }
 
+async function refreshAdminTraffic(): Promise<void> {
+  if (adminTrafficLoading) return;
+  adminTrafficLoading = true;
+  render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
+  try {
+    latestAdminTraffic = await getAdminTraffic();
+  } catch (error) {
+    log(error instanceof Error ? error.message : "Could not load traffic counters.");
+  } finally {
+    adminTrafficLoading = false;
+    render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
+  }
+}
+
 function validateSessionDraft(): SessionValidationErrors {
   const errors: SessionValidationErrors = {};
   const sourceIp = sessionDraft.sourceIp.trim();
@@ -3247,6 +3564,12 @@ async function getBilling(): Promise<BillingSummary> {
 
 async function getAdminBilling(): Promise<AdminBillingSummary> {
   return api("/v1/admin/billing/customers", { method: "GET" });
+}
+
+async function getAdminTraffic(): Promise<AdminTrafficSeries> {
+  const query = new URLSearchParams({ range: adminTrafficRange });
+  if (adminTrafficSessionId) query.set("sessionId", adminTrafficSessionId);
+  return api(`/v1/admin/billing/traffic?${query.toString()}`, { method: "GET" });
 }
 
 async function refreshDashboardSessions(): Promise<void> {
