@@ -119,12 +119,13 @@ into the API and worker runtime environments. The worker additionally receives
 
 - the API execution endpoint must support balance, rent, blockhash, fee,
   transaction submission and signature-status methods;
-- the history endpoint is used only for finalized `getSignaturesForAddress`;
-- every known or discovered transaction hash is checked with
-  `getSignatureStatuses` and `getTransaction` through the private endpoint.
+- the history endpoint performs the complete periodic reconciliation path:
+  finalized `getSignaturesForAddress`, status lookup and transaction decoding;
+- a hash submitted to the live payment flow is checked with
+  `getSignatureStatuses` and `getTransaction` only through the private endpoint.
 
 The private endpoint does not need address history, but it must return recent
-transactions by known hash. The history endpoint is polled every 10 minutes and
+transactions by submitted hash. The history endpoint is polled every 10 minutes and
 rate-limited to 8 requests per second. Failed wallet scans back off through
 1, 5, 15 and 60 minutes with jitter and reset after a success.
 Validate the required calls from the corresponding control-plane service host

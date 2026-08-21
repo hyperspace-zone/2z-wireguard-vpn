@@ -1488,9 +1488,9 @@ new or changed key must stop the rollout.
 
 Create `/etc/hyperspace/control-plane-worker.env` with the same
 `ARTIFACT_ENCRYPTION_KEY`. `SOLANA_RPC_URL` is the private live endpoint used
-for every known transaction hash. `SOLANA_HISTORY_RPC_URL` is worker-only and
-used solely for periodic address history discovery. Never put its credential in
-Git:
+for transaction hashes supplied to the live payment flow.
+`SOLANA_HISTORY_RPC_URL` is worker-only and runs the complete periodic history
+reconciliation path. Never put its credential in Git:
 
 ```bash
 cat >/etc/hyperspace/control-plane-worker.env <<EOF

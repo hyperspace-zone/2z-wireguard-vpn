@@ -25,12 +25,18 @@ test("an intent without a transaction hash discovers signatures only through the
   const result = await reconcileSubmittedSolanaTopups(topupDb(null), billingConfig(async (url, init) => {
     const request = JSON.parse(String(init?.body)) as { method: string };
     calls.push({ url: String(url), method: request.method });
-    return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: [] }));
+    const result = request.method === "getSignaturesForAddress"
+      ? [{ signature: transactionSignature, err: null }]
+      : { value: [null] };
+    return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result }));
   }));
 
   assert.equal(result.checked, 1);
   assert.equal(result.pending, 1);
-  assert.deepEqual(calls, [{ url: historyRpc, method: "getSignaturesForAddress" }]);
+  assert.deepEqual(calls, [
+    { url: historyRpc, method: "getSignaturesForAddress" },
+    { url: historyRpc, method: "getSignatureStatuses" }
+  ]);
 });
 
 function billingConfig(fetchImpl: typeof fetch): BillingConfig {

@@ -145,15 +145,19 @@ async function scanWallet(
           transactionSignature: record.signature,
           recipientOwner: wallet.publicKey
         }, {
-          rpcUrl: config.solanaRpcUrl,
+          rpcUrl: historyRpcUrl,
+          beforeRequest: historyRequestLimiter,
+          searchTransactionHistory: true,
           ...(config.fetchImpl ? { fetchImpl: config.fetchImpl } : {})
         })
         : await verifySolanaDirectDepositTransaction({
         transactionSignature: record.signature,
         recipientOwner: wallet.publicKey
       }, {
-        rpcUrl: config.solanaRpcUrl,
+        rpcUrl: historyRpcUrl,
         tokenMint: config.solanaTokenMint,
+        beforeRequest: historyRequestLimiter,
+        searchTransactionHistory: true,
         ...(config.fetchImpl ? { fetchImpl: config.fetchImpl } : {})
       });
       if (verification.status === "pending") {
@@ -168,7 +172,9 @@ async function scanWallet(
         wallet.accountId,
         record.signature,
         verification.references,
-        config
+        config,
+        historyRpcUrl,
+        historyRequestLimiter
       )) {
         result.delegatedToIntent += 1;
         continue;
@@ -227,7 +233,9 @@ async function belongsToVerifiableOpenIntent(
   accountId: string,
   transactionSignature: string,
   references: string[],
-  config: BillingConfig
+  config: BillingConfig,
+  historyRpcUrl: string,
+  historyRequestLimiter: () => Promise<void>
 ): Promise<boolean> {
   for (const reference of references) {
     const topup = await findOpenTopupByReference(db, accountId, reference);
@@ -239,9 +247,11 @@ async function belongsToVerifiableOpenIntent(
       amountMinor: topup.amountMinor,
       expectedSender: topup.expectedSender
     }, {
-      rpcUrl: config.solanaRpcUrl,
+      rpcUrl: historyRpcUrl,
       tokenMint: topup.tokenMint ?? config.solanaTokenMint,
       tokenBaseUnitsPerBillingMinor: config.solanaTokenBaseUnitsPerBillingMinor,
+      beforeRequest: historyRequestLimiter,
+      searchTransactionHistory: true,
       ...(config.fetchImpl ? { fetchImpl: config.fetchImpl } : {})
     });
     if (verification.status === "verified") return true;

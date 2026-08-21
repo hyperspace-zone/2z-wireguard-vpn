@@ -75,6 +75,36 @@ test("known transaction hashes query only the private RPC recent status cache", 
   assert.deepEqual(statusParams, [[signature], { searchTransactionHistory: false }]);
 });
 
+test("historical transaction verification stays on the history RPC and rate limiter", async () => {
+  const historyRpc = "https://mainnet.helius-rpc.com/?api-key=fixture";
+  const calls: Array<{ url: string; method: string; params: unknown[] }> = [];
+  let limiterCalls = 0;
+  const fixture = nativeSolRpcFixture({ recipientDeltaLamports: 1_819_440 });
+  const result = await verifyNativeSolDirectDepositTransaction({
+    transactionSignature: signature,
+    recipientOwner: treasury
+  }, {
+    rpcUrl: historyRpc,
+    searchTransactionHistory: true,
+    beforeRequest: async () => {
+      limiterCalls += 1;
+    },
+    fetchImpl: async (url, init) => {
+      const request = JSON.parse(String(init?.body)) as { method: string; params: unknown[] };
+      calls.push({ url: String(url), method: request.method, params: request.params });
+      return fixture(url, init);
+    }
+  });
+
+  assert.equal(result.status, "verified");
+  assert.equal(limiterCalls, 2);
+  assert.deepEqual(calls.map(({ url, method }) => ({ url, method })), [
+    { url: historyRpc, method: "getSignatureStatuses" },
+    { url: historyRpc, method: "getTransaction" }
+  ]);
+  assert.deepEqual(calls[0]?.params, [[signature], { searchTransactionHistory: true }]);
+});
+
 test("Solana top-up verifier rejects a transaction without the intent memo", async () => {
   const result = await verifySolanaTopupTransaction({
     transactionSignature: signature,
