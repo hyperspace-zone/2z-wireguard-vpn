@@ -1940,10 +1940,10 @@ Keep enough free space for TSDB compaction. A mainnet observability host should
 have at least 40 GiB of root storage for 30-day retention; use shorter retention
 or size-based retention when projected TSDB usage plus at least 20% compaction
 headroom does not fit. Because a fully exhausted disk can prevent Prometheus
-from emitting its own alert, retain an external readiness/dead-man check in
+from emitting its own alert, install the independent meta-monitor below in
 addition to these early-warning rules. A fully powered-off observability VM
-cannot notify through its own Prometheus and Alertmanager; without
-cross-cluster monitoring this is the one unavoidable blind spot.
+cannot notify through its own Prometheus and Alertmanager, so the neighboring
+cluster checks its public Prometheus readiness endpoint.
 
 ### Blackbox and PostgreSQL alerts
 
@@ -2211,6 +2211,62 @@ amtool --alertmanager.url=http://127.0.0.1:9093 alert add \
   alertname=HyperspaceSyntheticTest severity=info cluster="${HS_CLUSTER}" \
   summary="Hyperspace synthetic Telegram alert"
 ```
+
+### Independent alert-delivery meta-monitor
+
+Install `hyperspace-meta-watch` on every observability host. It runs every two
+minutes outside Prometheus and Alertmanager and checks:
+
+- the separate meta bot token and access to the operator's private chat;
+- local Alertmanager readiness and Telegram notification-failure counters;
+- the primary cluster Telegram token and access to every configured receiver;
+- one peer observability readiness endpoint, forming this ring:
+  production → staging → testnet → production.
+
+Two identical failed runs create an incident; two healthy runs resolve it. The
+monitor sends transitions directly to the operator through a separate Telegram
+bot and through Resend. It also exports `hyperspace_meta_watch_*` metrics through
+node exporter's textfile collector for secondary in-cluster visibility.
+
+Keep all credentials outside Git. Copy the cluster's existing send-capable
+Resend API key from its control-plane secret store into the meta-monitor key
+file. The Telegram user must first start a private conversation with
+`HyperspaceMetaWatcher_bot`.
+
+```bash
+install -d -m 0750 /etc/hyperspace
+install -m 0600 /dev/null /etc/hyperspace/meta-watch-telegram-bot-token
+install -m 0600 /dev/null /etc/hyperspace/meta-watch-resend-api-key
+printf '%s\n' "$META_WATCH_TELEGRAM_BOT_TOKEN" \
+  >/etc/hyperspace/meta-watch-telegram-bot-token
+printf '%s\n' "$RESEND_API_KEY" \
+  >/etc/hyperspace/meta-watch-resend-api-key
+
+install -m 0600 \
+  "$HS_REPO_DIR/infra/observability/systemd/hyperspace-meta-watch.env.example" \
+  /etc/hyperspace/meta-watch.env
+nano /etc/hyperspace/meta-watch.env
+
+cat >/etc/hyperspace/meta-watch-peers.tsv <<'EOF'
+# peer<TAB>public Prometheus readiness URL
+EOF
+# Add exactly the next member of the ring for this cluster.
+
+"$HS_REPO_DIR/scripts/observability/install-meta-watch"
+systemctl start hyperspace-meta-watch.service
+systemctl status hyperspace-meta-watch.timer --no-pager
+cat /var/lib/prometheus/node-exporter/hyperspace_meta_watch.prom
+
+# Explicitly tests both independent delivery channels and sends labelled TEST
+# notifications to Telegram and email.
+set -a; source /etc/hyperspace/meta-watch.env; set +a
+/usr/local/sbin/hyperspace-meta-watch test
+```
+
+The Prometheus rules `HyperspaceMetaWatchStale` and
+`HyperspaceMetaWatchDetectedFailure` are deliberately secondary. The direct
+meta-monitor message is authoritative when the local observability stack is
+unavailable.
 
 Dead control-plane jobs are retained for review. `phase="dead"` means an
 operator still needs to inspect the failed job and it triggers

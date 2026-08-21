@@ -1,0 +1,335 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+mode="${1:-run}"
+cluster="${HS_META_CLUSTER:?HS_META_CLUSTER is required}"
+meta_token_file="${HS_META_TELEGRAM_BOT_TOKEN_FILE:-/etc/hyperspace/meta-watch-telegram-bot-token}"
+meta_chat_id="${HS_META_TELEGRAM_CHAT_ID:?HS_META_TELEGRAM_CHAT_ID is required}"
+meta_username="${HS_META_TELEGRAM_USERNAME:-}"
+resend_key_file="${HS_META_RESEND_API_KEY_FILE:-/etc/hyperspace/meta-watch-resend-api-key}"
+email_from="${HS_META_EMAIL_FROM:-Hyperspace <no-reply@hyperspace.zone>}"
+email_to="${HS_META_EMAIL_TO:?HS_META_EMAIL_TO is required}"
+primary_token_file="${HS_META_PRIMARY_TELEGRAM_BOT_TOKEN_FILE:-/etc/prometheus/telegram_bot_token}"
+primary_receivers_file="${HS_META_PRIMARY_RECEIVERS_FILE:-/etc/prometheus/alertmanager_telegram_receivers.json}"
+primary_username="${HS_META_PRIMARY_TELEGRAM_USERNAME:-}"
+alertmanager_url="${HS_META_ALERTMANAGER_URL:-http://127.0.0.1:9093}"
+peers_file="${HS_META_PEERS_FILE:-/etc/hyperspace/meta-watch-peers.tsv}"
+state_dir="${HS_META_STATE_DIR:-/var/lib/hyperspace/meta-watch}"
+metrics_dir="${HS_META_METRICS_DIR:-/var/lib/prometheus/node-exporter}"
+failure_threshold="${HS_META_FAILURE_THRESHOLD:-2}"
+recovery_threshold="${HS_META_RECOVERY_THRESHOLD:-2}"
+notification_failure_hold_seconds="${HS_META_NOTIFICATION_FAILURE_HOLD_SECONDS:-600}"
+curl_bin="${HS_META_CURL_BIN:-curl}"
+now="$(date +%s)"
+
+for value_name in failure_threshold recovery_threshold notification_failure_hold_seconds; do
+  value="${!value_name}"
+  [[ "$value" =~ ^[1-9][0-9]*$ ]] || {
+    echo "$value_name must be a positive integer" >&2
+    exit 2
+  }
+done
+
+command -v "$curl_bin" >/dev/null
+command -v jq >/dev/null
+command -v flock >/dev/null
+install -d -m 0700 "$state_dir"
+install -d -m 0755 "$metrics_dir"
+exec 9>"$state_dir/lock"
+flock -n 9 || exit 0
+
+read_secret() {
+  local path="$1"
+  [[ -s "$path" ]] || return 1
+  sed -n '1p' "$path"
+}
+
+write_state() {
+  local name="$1"
+  local value="$2"
+  local tmp="$state_dir/.${name}.tmp"
+  printf '%s\n' "$value" >"$tmp"
+  mv "$tmp" "$state_dir/$name"
+}
+
+read_state() {
+  local name="$1"
+  local fallback="${2:-}"
+  if [[ -r "$state_dir/$name" ]]; then
+    sed -n '1p' "$state_dir/$name"
+  else
+    printf '%s\n' "$fallback"
+  fi
+}
+
+send_telegram() {
+  local body="$1"
+  local token response
+  token="$(read_secret "$meta_token_file")" || return 1
+  response="$($curl_bin -fsS --max-time 15 -X POST \
+    "https://api.telegram.org/bot${token}/sendMessage" \
+    --data-urlencode "chat_id=${meta_chat_id}" \
+    --data-urlencode "text=${body}")" || return 1
+  jq -e '.ok == true' <<<"$response" >/dev/null
+}
+
+send_email() {
+  local subject="$1"
+  local body="$2"
+  local key payload response
+  key="$(read_secret "$resend_key_file")" || return 1
+  payload="$(jq -cn \
+    --arg from "$email_from" \
+    --arg to "$email_to" \
+    --arg subject "$subject" \
+    --arg text "$body" \
+    '{from:$from,to:[$to],subject:$subject,text:$text}')"
+  response="$($curl_bin -fsS --max-time 15 \
+    -X POST https://api.resend.com/emails \
+    -H "Authorization: Bearer ${key}" \
+    -H 'Content-Type: application/json' \
+    --data "$payload")" || return 1
+  jq -e '.id | type == "string" and length > 0' <<<"$response" >/dev/null
+}
+
+deliver_transition() {
+  local transition_key="$1"
+  local subject="$2"
+  local body="$3"
+  local telegram_key email_key telegram_ok=0 email_ok=0
+  telegram_key="$(read_state telegram_delivered_key)"
+  email_key="$(read_state email_delivered_key)"
+
+  if [[ "$telegram_key" == "$transition_key" ]]; then
+    telegram_ok=1
+  elif send_telegram "$body"; then
+    write_state telegram_delivered_key "$transition_key"
+    telegram_ok=1
+  else
+    echo "meta Telegram delivery failed for $cluster" >&2
+  fi
+
+  if [[ "$email_key" == "$transition_key" ]]; then
+    email_ok=1
+  elif send_email "$subject" "$body"; then
+    write_state email_delivered_key "$transition_key"
+    email_ok=1
+  else
+    echo "meta Resend delivery failed for $cluster" >&2
+  fi
+
+  [[ "$telegram_ok" == 1 && "$email_ok" == 1 ]]
+}
+
+if [[ "$mode" == "test" ]]; then
+  test_body="Hyperspace meta-monitor TEST
+watcher cluster: ${cluster}
+time UTC: $(date -u +%Y-%m-%dT%H:%M:%SZ)
+Synthetic delivery check; no incident is present."
+  send_telegram "$test_body"
+  send_email "[Hyperspace meta][${cluster}] TEST" "$test_body"
+  echo "meta Telegram and Resend test deliveries succeeded for $cluster"
+  exit 0
+elif [[ "$mode" != "run" ]]; then
+  echo "usage: hyperspace-meta-watch [run|test]" >&2
+  exit 2
+fi
+
+failures=()
+add_failure() {
+  failures+=("$1")
+}
+
+meta_token=""
+if ! meta_token="$(read_secret "$meta_token_file")"; then
+  add_failure "meta Telegram token file is missing or empty"
+elif ! meta_response="$($curl_bin -fsS --max-time 10 \
+    "https://api.telegram.org/bot${meta_token}/getMe" 2>/dev/null)" \
+    || ! jq -e '.ok == true' <<<"$meta_response" >/dev/null; then
+  add_failure "meta Telegram bot token is invalid or Telegram getMe failed"
+else
+  observed_meta_username="$(jq -r '.result.username' <<<"$meta_response")"
+  if [[ -n "$meta_username" && "$observed_meta_username" != "$meta_username" ]]; then
+    add_failure "meta Telegram bot username mismatch: expected @${meta_username}, observed @${observed_meta_username}"
+  fi
+  if ! meta_chat_response="$($curl_bin -fsS --max-time 10 \
+      "https://api.telegram.org/bot${meta_token}/getChat?chat_id=${meta_chat_id}" 2>/dev/null)" \
+      || ! jq -e '.ok == true' <<<"$meta_chat_response" >/dev/null; then
+    add_failure "meta Telegram bot cannot access operator chat ${meta_chat_id}"
+  fi
+fi
+
+if ! $curl_bin -fsS --max-time 10 "${alertmanager_url}/-/ready" >/dev/null; then
+  add_failure "local Alertmanager is not ready at ${alertmanager_url}"
+fi
+
+primary_token=""
+primary_bot_id=""
+if ! primary_token="$(read_secret "$primary_token_file")"; then
+  add_failure "primary Telegram token file is missing or empty"
+else
+  if primary_response="$($curl_bin -fsS --max-time 10 \
+      "https://api.telegram.org/bot${primary_token}/getMe" 2>/dev/null)" \
+      && jq -e '.ok == true' <<<"$primary_response" >/dev/null; then
+    primary_bot_id="$(jq -r '.result.id' <<<"$primary_response")"
+    observed_username="$(jq -r '.result.username' <<<"$primary_response")"
+    if [[ -n "$primary_username" && "$observed_username" != "$primary_username" ]]; then
+      add_failure "primary Telegram bot username mismatch: expected @${primary_username}, observed @${observed_username}"
+    fi
+  else
+    add_failure "primary Telegram bot token is invalid or Telegram getMe failed"
+  fi
+fi
+
+if [[ ! -s "$primary_receivers_file" ]] || ! jq -e '.receivers | type == "array"' "$primary_receivers_file" >/dev/null 2>&1; then
+  add_failure "primary Telegram receiver configuration is missing or invalid"
+elif [[ -n "$primary_bot_id" ]]; then
+  while IFS= read -r chat_id; do
+    [[ -n "$chat_id" ]] || continue
+    if ! chat_response="$($curl_bin -fsS --max-time 10 \
+        "https://api.telegram.org/bot${primary_token}/getChat?chat_id=${chat_id}" 2>/dev/null)" \
+        || ! jq -e '.ok == true' <<<"$chat_response" >/dev/null; then
+      add_failure "primary Telegram bot cannot access receiver chat ${chat_id}"
+      continue
+    fi
+    chat_type="$(jq -r '.result.type' <<<"$chat_response")"
+    if [[ "$chat_type" == "channel" || "$chat_type" == "group" || "$chat_type" == "supergroup" ]]; then
+      if ! member_response="$($curl_bin -fsS --max-time 10 \
+          "https://api.telegram.org/bot${primary_token}/getChatMember?chat_id=${chat_id}&user_id=${primary_bot_id}" 2>/dev/null)" \
+          || ! jq -e '.ok == true' <<<"$member_response" >/dev/null; then
+        add_failure "primary Telegram bot membership cannot be verified for chat ${chat_id}"
+        continue
+      fi
+      member_status="$(jq -r '.result.status' <<<"$member_response")"
+      if [[ "$member_status" == "left" || "$member_status" == "kicked" ]]; then
+        add_failure "primary Telegram bot is ${member_status} in chat ${chat_id}"
+      elif [[ "$chat_type" == "channel" ]] \
+          && ! jq -e '.result.status == "creator" or (.result.status == "administrator" and .result.can_post_messages == true)' \
+            <<<"$member_response" >/dev/null; then
+        add_failure "primary Telegram bot cannot post messages in channel ${chat_id}"
+      elif [[ "$member_status" == "restricted" ]] \
+          && ! jq -e '.result.can_send_messages == true' <<<"$member_response" >/dev/null; then
+        add_failure "primary Telegram bot cannot send messages in chat ${chat_id}"
+      fi
+    fi
+  done < <(jq -r '.receivers[] | select(.enabled != false) | .chatId | tostring' "$primary_receivers_file" | sort -u)
+fi
+
+if alertmanager_metrics="$($curl_bin -fsS --max-time 10 "${alertmanager_url}/metrics" 2>/dev/null)"; then
+  failed_total="$(awk '/^alertmanager_notifications_failed_total\{.*integration="telegram"/ {sum += $NF} END {printf "%.0f", sum + 0}' <<<"$alertmanager_metrics")"
+  previous_failed_total="$(read_state alertmanager_failed_total)"
+  if [[ "$previous_failed_total" =~ ^[0-9]+$ && "$failed_total" -gt "$previous_failed_total" ]]; then
+    write_state notification_failure_until "$((now + notification_failure_hold_seconds))"
+  fi
+  write_state alertmanager_failed_total "$failed_total"
+else
+  add_failure "local Alertmanager metrics endpoint is unavailable"
+fi
+
+failure_until="$(read_state notification_failure_until 0)"
+if [[ "$failure_until" =~ ^[0-9]+$ && "$now" -lt "$failure_until" ]]; then
+  add_failure "primary Telegram notification failure counter increased"
+fi
+
+if [[ -s "$peers_file" ]]; then
+  while IFS=$'\t' read -r peer_name peer_url; do
+    [[ -n "$peer_name" && -n "$peer_url" ]] || continue
+    if ! $curl_bin -fsS --max-time 10 "$peer_url" >/dev/null; then
+      add_failure "peer observability ${peer_name} is not ready at ${peer_url}"
+    fi
+  done <"$peers_file"
+fi
+
+if [[ "${#failures[@]}" -gt 0 ]]; then
+  failure_body="$(printf '%s\n' "${failures[@]}" | sort -u)"
+  raw_fingerprint="$(printf '%s' "$failure_body" | sha256sum | awk '{print $1}')"
+  previous_candidate="$(read_state candidate_fingerprint)"
+  candidate_count="$(read_state candidate_count 0)"
+  if [[ "$raw_fingerprint" == "$previous_candidate" && "$candidate_count" =~ ^[0-9]+$ ]]; then
+    candidate_count="$((candidate_count + 1))"
+  else
+    candidate_count=1
+  fi
+  write_state candidate_fingerprint "$raw_fingerprint"
+  write_state candidate_count "$candidate_count"
+  write_state recovery_count 0
+
+  if [[ "$candidate_count" -ge "$failure_threshold" ]]; then
+    active_fingerprint="$(read_state active_fingerprint)"
+    if [[ "$active_fingerprint" != "$raw_fingerprint" ]]; then
+      message="Hyperspace meta-monitor FIRING
+watcher cluster: ${cluster}
+started UTC: $(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+${failure_body}"
+      transition_key="firing:${cluster}:${raw_fingerprint}"
+      if deliver_transition "$transition_key" "[Hyperspace meta][${cluster}] FIRING" "$message"; then
+        write_state active_fingerprint "$raw_fingerprint"
+        write_state active_body "$failure_body"
+        write_state last_notification_timestamp "$now"
+      fi
+    fi
+  fi
+  healthy=0
+else
+  healthy=1
+  write_state candidate_fingerprint ""
+  write_state candidate_count 0
+  active_fingerprint="$(read_state active_fingerprint)"
+  if [[ -n "$active_fingerprint" ]]; then
+    recovery_count="$(read_state recovery_count 0)"
+    [[ "$recovery_count" =~ ^[0-9]+$ ]] || recovery_count=0
+    recovery_count="$((recovery_count + 1))"
+    write_state recovery_count "$recovery_count"
+    if [[ "$recovery_count" -ge "$recovery_threshold" ]]; then
+      active_body="$(read_state active_body 'previous meta-monitor failure')"
+      message="Hyperspace meta-monitor RESOLVED
+watcher cluster: ${cluster}
+resolved UTC: $(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+${active_body}"
+      transition_key="resolved:${cluster}:${active_fingerprint}"
+      if deliver_transition "$transition_key" "[Hyperspace meta][${cluster}] RESOLVED" "$message"; then
+        write_state active_fingerprint ""
+        write_state active_body ""
+        write_state recovery_count 0
+        write_state last_notification_timestamp "$now"
+      fi
+    fi
+  else
+    write_state recovery_count 0
+  fi
+fi
+
+active_fingerprint="$(read_state active_fingerprint)"
+active=0
+[[ -n "$active_fingerprint" ]] && active=1
+last_notification="$(read_state last_notification_timestamp 0)"
+[[ "$last_notification" =~ ^[0-9]+$ ]] || last_notification=0
+metrics_tmp="$(mktemp "$metrics_dir/.hyperspace_meta_watch.XXXXXX")"
+trap 'test ! -e "$metrics_tmp" || unlink "$metrics_tmp"' EXIT
+cat >"$metrics_tmp" <<EOF
+# HELP hyperspace_meta_watch_last_run_timestamp_seconds Unix timestamp of the latest completed meta-monitor run.
+# TYPE hyperspace_meta_watch_last_run_timestamp_seconds gauge
+hyperspace_meta_watch_last_run_timestamp_seconds ${now}
+# HELP hyperspace_meta_watch_healthy Whether the latest meta-monitor checks found no delivery or peer failures.
+# TYPE hyperspace_meta_watch_healthy gauge
+hyperspace_meta_watch_healthy ${healthy}
+# HELP hyperspace_meta_watch_failure_count Number of failures found during the latest meta-monitor run.
+# TYPE hyperspace_meta_watch_failure_count gauge
+hyperspace_meta_watch_failure_count ${#failures[@]}
+# HELP hyperspace_meta_watch_incident_active Whether the meta-monitor has an active notified incident.
+# TYPE hyperspace_meta_watch_incident_active gauge
+hyperspace_meta_watch_incident_active ${active}
+# HELP hyperspace_meta_watch_last_notification_timestamp_seconds Unix timestamp of the latest completed meta notification transition.
+# TYPE hyperspace_meta_watch_last_notification_timestamp_seconds gauge
+hyperspace_meta_watch_last_notification_timestamp_seconds ${last_notification}
+EOF
+chmod 0644 "$metrics_tmp"
+mv "$metrics_tmp" "$metrics_dir/hyperspace_meta_watch.prom"
+
+if [[ "$healthy" == 1 ]]; then
+  echo "meta-watch healthy for $cluster"
+else
+  echo "meta-watch detected ${#failures[@]} failure(s) for $cluster" >&2
+fi

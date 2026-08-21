@@ -182,6 +182,13 @@ Before authentication acceptance:
    default drops unlabeled and informational alerts. Change recipient IDs in a
    deployment-local receiver file when a different staging audience is needed;
    never send staging incidents into testnet or production channels.
+4. Install the independent `hyperspace-meta-watch` timer with the separate
+   `HyperspaceMetaWatcher_bot` token, operator chat ID, and a send-capable Resend
+   key. Configure staging's sole peer as
+   `https://observability.testnet.hyperspace.zone/prometheus/-/ready`. This
+   direct path bypasses staging Alertmanager and emails
+   `gatekeepers@hyperspace.zone`; its secrets remain only under
+   `/etc/hyperspace` and are never committed.
 
 The staging API and worker receive the private Solana mainnet `SOLANA_RPC_URL`.
 The worker also receives a credential-bearing `SOLANA_HISTORY_RPC_URL` for

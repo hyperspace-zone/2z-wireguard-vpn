@@ -99,6 +99,34 @@ groups:
           summary: Hyperspace service host inodes are critically exhausted
           description: The {{ $labels.role }} host {{ $labels.service_host }} has less than 5% free inodes on /.
 
+      - alert: HyperspaceMetaWatchStale
+        expr: |
+          time() - hyperspace_meta_watch_last_run_timestamp_seconds{
+            job="hyperspace-host-node",
+            role="observability"
+          } > 300
+        for: 2m
+        keep_firing_for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: Hyperspace independent meta-monitor is stale
+          description: The independent alert-delivery meta-monitor on {{ $labels.service_host }} has not completed a run for more than 5 minutes.
+
+      - alert: HyperspaceMetaWatchDetectedFailure
+        expr: |
+          hyperspace_meta_watch_healthy{
+            job="hyperspace-host-node",
+            role="observability"
+          } == 0
+        for: 5m
+        keep_firing_for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: Hyperspace independent meta-monitor detected a failure
+          description: The independent alert-delivery meta-monitor on {{ $labels.service_host }} detected an Alertmanager, Telegram delivery, or peer observability failure. Its direct Telegram and Resend notifications do not depend on this Alertmanager alert.
+
       - alert: HyperspaceHostMemoryPressure
         expr: |
           (
