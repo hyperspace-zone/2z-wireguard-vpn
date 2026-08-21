@@ -37,7 +37,6 @@ export {
 export {
   accountHasSufficientBalance,
   readAccountBillingSummary,
-  reconcileSubmittedSolanaTopups,
   type BillingConfig,
   type BillingSummary
 } from "./application/billing/public-billing.scenario.js";

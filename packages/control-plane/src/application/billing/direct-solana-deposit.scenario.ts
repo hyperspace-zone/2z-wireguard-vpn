@@ -1,7 +1,6 @@
 import type { TransactionalQueryable } from "../../db/queryable.js";
 import {
   ensureBillingAccount,
-  findOpenTopupByReference,
   insertLedgerEntry
 } from "../../resources/billing/repository.js";
 import {
@@ -29,7 +28,6 @@ import {
   findSolanaTokenAccountsByOwner,
   verifyNativeSolDirectDepositTransaction,
   verifySolanaDirectDepositTransaction,
-  verifySolanaTopupTransaction,
   type SolanaAddressSignature
 } from "./solana-rpc-verifier.js";
 
@@ -49,7 +47,6 @@ export interface DirectSolanaDepositReconcileResult {
   depositsCredited: number;
   creditedMinor: number;
   duplicates: number;
-  delegatedToIntent: number;
   ignored: number;
   errors: number;
 }
@@ -65,7 +62,6 @@ export async function reconcileDirectSolanaDeposits(
     depositsCredited: 0,
     creditedMinor: 0,
     duplicates: 0,
-    delegatedToIntent: 0,
     ignored: 0,
     errors: 0
   };
@@ -167,18 +163,6 @@ async function scanWallet(
         result.ignored += 1;
         continue;
       }
-      if (config.solanaAssetKind !== "native" && await belongsToVerifiableOpenIntent(
-        db,
-        wallet.accountId,
-        record.signature,
-        verification.references,
-        config,
-        historyRpcUrl,
-        historyRequestLimiter
-      )) {
-        result.delegatedToIntent += 1;
-        continue;
-      }
       const credited = await creditDirectDeposit(db, wallet, record.signature, verification, config);
       if (credited.duplicate) {
         result.duplicates += 1;
@@ -226,37 +210,6 @@ async function loadNewSignatures(
     before = batch.at(-1)?.signature;
   }
   return records;
-}
-
-async function belongsToVerifiableOpenIntent(
-  db: TransactionalQueryable,
-  accountId: string,
-  transactionSignature: string,
-  references: string[],
-  config: BillingConfig,
-  historyRpcUrl: string,
-  historyRequestLimiter: () => Promise<void>
-): Promise<boolean> {
-  for (const reference of references) {
-    const topup = await findOpenTopupByReference(db, accountId, reference);
-    if (!topup?.treasuryAddress) continue;
-    const verification = await verifySolanaTopupTransaction({
-      transactionSignature,
-      treasuryAddress: topup.treasuryAddress,
-      reference: topup.reference,
-      amountMinor: topup.amountMinor,
-      expectedSender: topup.expectedSender
-    }, {
-      rpcUrl: historyRpcUrl,
-      tokenMint: topup.tokenMint ?? config.solanaTokenMint,
-      tokenBaseUnitsPerBillingMinor: config.solanaTokenBaseUnitsPerBillingMinor,
-      beforeRequest: historyRequestLimiter,
-      searchTransactionHistory: true,
-      ...(config.fetchImpl ? { fetchImpl: config.fetchImpl } : {})
-    });
-    if (verification.status === "verified") return true;
-  }
-  return false;
 }
 
 async function creditDirectDeposit(

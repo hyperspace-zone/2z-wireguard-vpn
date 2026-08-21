@@ -103,31 +103,6 @@ CREATE UNIQUE INDEX balance_ledger_entries_source_idx
 CREATE INDEX balance_ledger_entries_account_created_idx
   ON balance_ledger_entries (account_id, created_at DESC);
 
-CREATE TABLE topup_intents (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  account_id uuid NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
-  provider text NOT NULL,
-  status text NOT NULL,
-  amount_minor bigint NOT NULL,
-  currency text NOT NULL DEFAULT 'USD',
-  chain text,
-  token_symbol text,
-  token_mint text,
-  treasury_address text,
-  reference text NOT NULL,
-  expected_sender text,
-  transaction_signature text,
-  metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
-  created_at timestamptz NOT NULL DEFAULT now(),
-  updated_at timestamptz NOT NULL DEFAULT now(),
-  expires_at timestamptz NOT NULL,
-  submitted_at timestamptz,
-  confirmed_at timestamptz
-);
-
-CREATE UNIQUE INDEX topup_intents_reference_idx ON topup_intents (reference);
-CREATE INDEX topup_intents_account_created_idx ON topup_intents (account_id, created_at DESC);
-
 CREATE TABLE doublezero_tenant_billing_snapshots (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   cluster text NOT NULL,

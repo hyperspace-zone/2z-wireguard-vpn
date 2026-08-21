@@ -1,7 +1,6 @@
 export interface SolanaRpcVerifierConfig {
   rpcUrl: string;
   tokenMint: string;
-  tokenBaseUnitsPerBillingMinor: number;
   fetchImpl?: typeof fetch;
   beforeRequest?: () => Promise<void>;
   searchTransactionHistory?: boolean;
@@ -24,19 +23,6 @@ export function createSolanaRpcRequestLimiter(
   };
 }
 
-export interface SolanaTopupExpectation {
-  transactionSignature: string;
-  treasuryAddress: string;
-  reference: string;
-  amountMinor: number;
-  expectedSender?: string | null;
-}
-
-export type SolanaTopupVerification =
-  | { status: "verified"; evidence: Record<string, unknown> }
-  | { status: "pending"; reason: string }
-  | { status: "invalid"; reason: string };
-
 export interface SolanaAddressSignature {
   signature: string;
   blockTime: number | null;
@@ -46,23 +32,6 @@ export type SolanaDirectDepositVerification =
   | { status: "verified"; amountBaseUnits: bigint; references: string[]; evidence: Record<string, unknown> }
   | { status: "pending"; reason: string }
   | { status: "invalid"; reason: string };
-
-export async function findFinalizedSolanaSignaturesForReference(
-  reference: string,
-  config: Pick<SolanaRpcVerifierConfig, "rpcUrl" | "fetchImpl" | "beforeRequest">
-): Promise<string[]> {
-  if (!config.rpcUrl) {
-    return [];
-  }
-  const result = await rpcCall(config.fetchImpl ?? fetch, config.rpcUrl, "getSignaturesForAddress", [
-    reference,
-    { limit: 10, commitment: "finalized" }
-  ], config.beforeRequest);
-  return asArray(result).flatMap((value) => {
-    const record = asRecord(value);
-    return typeof record.signature === "string" && record.err === null ? [record.signature] : [];
-  });
-}
 
 export async function findSolanaTokenAccountsByOwner(
   owner: string,
@@ -142,94 +111,6 @@ export async function readSolanaMinimumBalanceForRentExemption(
     throw new Error("Solana RPC getMinimumBalanceForRentExemption returned an invalid lamport balance");
   }
   return BigInt(result);
-}
-
-export async function verifySolanaTopupTransaction(
-  expectation: SolanaTopupExpectation,
-  config: SolanaRpcVerifierConfig
-): Promise<SolanaTopupVerification> {
-  if (!config.rpcUrl || !config.tokenMint || !Number.isSafeInteger(config.tokenBaseUnitsPerBillingMinor) || config.tokenBaseUnitsPerBillingMinor <= 0) {
-    throw new Error("Solana RPC verification is not configured");
-  }
-  const fetchImpl = config.fetchImpl ?? fetch;
-  const statuses = await rpcCall(fetchImpl, config.rpcUrl, "getSignatureStatuses", [
-    [expectation.transactionSignature],
-    { searchTransactionHistory: config.searchTransactionHistory ?? false }
-  ], config.beforeRequest);
-  const signatureStatus = asRecord(asArray(asRecord(statuses).value)[0]);
-  if (Object.keys(signatureStatus).length === 0) {
-    return { status: "pending", reason: "transaction_not_found" };
-  }
-  if (signatureStatus.err !== null && signatureStatus.err !== undefined) {
-    return { status: "invalid", reason: "transaction_failed" };
-  }
-  if (signatureStatus.confirmationStatus !== "finalized") {
-    return { status: "pending", reason: "transaction_not_finalized" };
-  }
-
-  const transaction = asRecord(await rpcCall(fetchImpl, config.rpcUrl, "getTransaction", [
-    expectation.transactionSignature,
-    { encoding: "jsonParsed", commitment: "finalized", maxSupportedTransactionVersion: 0 }
-  ], config.beforeRequest));
-  if (Object.keys(transaction).length === 0) {
-    return { status: "pending", reason: "finalized_transaction_unavailable" };
-  }
-  const meta = asRecord(transaction.meta);
-  if (meta.err !== null && meta.err !== undefined) {
-    return { status: "invalid", reason: "transaction_failed" };
-  }
-  const message = asRecord(asRecord(transaction.transaction).message);
-  const accountKeys = asArray(message.accountKeys).map(asRecord);
-  if (expectation.expectedSender) {
-    const senderSigned = accountKeys.some((entry) => readPublicKey(entry) === expectation.expectedSender && entry.signer === true);
-    if (!senderSigned) {
-      return { status: "invalid", reason: "expected_sender_did_not_sign" };
-    }
-  }
-
-  const instructions = [
-    ...asArray(message.instructions),
-    ...asArray(meta.innerInstructions).flatMap((entry) => asArray(asRecord(entry).instructions))
-  ].map(asRecord);
-  if (!instructions.some((instruction) => instructionMemo(instruction) === expectation.reference)) {
-    return { status: "invalid", reason: "topup_reference_memo_missing" };
-  }
-
-  const expectedBaseUnits = BigInt(expectation.amountMinor) * BigInt(config.tokenBaseUnitsPerBillingMinor);
-  const treasuryDelta = tokenBalanceDelta(
-    asArray(meta.preTokenBalances),
-    asArray(meta.postTokenBalances),
-    expectation.treasuryAddress,
-    config.tokenMint
-  );
-  if (treasuryDelta !== expectedBaseUnits) {
-    return { status: "invalid", reason: "token_amount_or_recipient_mismatch" };
-  }
-
-  if (expectation.expectedSender) {
-    const senderAuthorizedTransfer = instructions.some((instruction) => {
-      const parsed = asRecord(instruction.parsed);
-      const info = asRecord(parsed.info);
-      return (parsed.type === "transfer" || parsed.type === "transferChecked") && info.authority === expectation.expectedSender;
-    });
-    if (!senderAuthorizedTransfer) {
-      return { status: "invalid", reason: "expected_sender_not_transfer_authority" };
-    }
-  }
-
-  return {
-    status: "verified",
-    evidence: {
-      slot: transaction.slot,
-      blockTime: transaction.blockTime,
-      confirmationStatus: signatureStatus.confirmationStatus,
-      tokenMint: config.tokenMint,
-      treasuryAddress: expectation.treasuryAddress,
-      amountBaseUnits: expectedBaseUnits.toString(),
-      reference: expectation.reference,
-      expectedSender: expectation.expectedSender ?? null
-    }
-  };
 }
 
 export async function verifySolanaDirectDepositTransaction(

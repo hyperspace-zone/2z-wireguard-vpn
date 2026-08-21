@@ -12,11 +12,3 @@ CREATE TABLE custodial_wallets (
   UNIQUE (account_id, chain),
   UNIQUE (chain, public_key)
 );
-
-CREATE UNIQUE INDEX topup_intents_transaction_signature_unique_idx
-  ON topup_intents (transaction_signature)
-  WHERE transaction_signature IS NOT NULL;
-
-CREATE INDEX topup_intents_submitted_idx
-  ON topup_intents (updated_at)
-  WHERE status = 'submitted';

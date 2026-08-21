@@ -1,7 +1,7 @@
 CREATE TABLE solana_payment_receipts (
   transaction_signature text PRIMARY KEY,
   account_id uuid NOT NULL REFERENCES billing_accounts(account_id) ON DELETE CASCADE,
-  source_type text NOT NULL CHECK (source_type IN ('topup_intent', 'direct_deposit')),
+  source_type text NOT NULL CHECK (source_type = 'direct_deposit'),
   source_id text NOT NULL,
   token_mint text,
   amount_base_units bigint CHECK (amount_base_units IS NULL OR amount_base_units > 0),
@@ -10,30 +10,6 @@ CREATE TABLE solana_payment_receipts (
   observed_at timestamptz NOT NULL DEFAULT now(),
   UNIQUE (source_type, source_id)
 );
-
-INSERT INTO solana_payment_receipts (
-  transaction_signature,
-  account_id,
-  source_type,
-  source_id,
-  token_mint,
-  credited_amount_minor,
-  metadata,
-  observed_at
-)
-SELECT
-  transaction_signature,
-  account_id,
-  'topup_intent',
-  id::text,
-  token_mint,
-  amount_minor,
-  jsonb_build_object('backfilled', true),
-  COALESCE(confirmed_at, updated_at)
-FROM topup_intents
-WHERE status = 'confirmed'
-  AND transaction_signature IS NOT NULL
-ON CONFLICT (transaction_signature) DO NOTHING;
 
 CREATE TABLE solana_deposit_scan_cursors (
   wallet_id uuid NOT NULL REFERENCES custodial_wallets(id) ON DELETE CASCADE,
