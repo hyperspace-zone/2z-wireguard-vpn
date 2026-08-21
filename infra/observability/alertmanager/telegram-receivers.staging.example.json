@@ -5,20 +5,14 @@
   "repeatInterval": "4h",
   "receivers": [
     {
-      "name": "hyperspace-staging-critical-channel",
-      "chatId": -1004413273484,
+      "name": "hyperspace-staging-critical",
+      "chatId": -5471826460,
       "severities": ["critical"]
     },
     {
-      "name": "hyperspace-staging-all-group",
-      "chatId": -5571470072,
-      "severities": ["critical", "warning", "info"],
-      "default": true
-    },
-    {
-      "name": "hyperspace-staging-personal-yadrena",
-      "chatId": 366795,
-      "severities": ["critical", "warning", "info"]
+      "name": "hyperspace-staging-warning",
+      "chatId": -5305875094,
+      "severities": ["warning"]
     }
   ]
 }

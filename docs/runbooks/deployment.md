@@ -1847,6 +1847,15 @@ Run `scripts/observability/install-postgres-monitoring`, then set
 storage credentials must be restricted to one private bucket; where supported,
 also restrict them to the DB host's egress IP.
 
+For provider-managed NFS storage, mount the export exactly at
+`/var/backups/hyperspace` and set
+`HS_DB_OFFSITE_BACKUP_MODE=filesystem` plus
+`HS_DB_OFFSITE_FILESYSTEM_TYPE=nfs4` in `/etc/hyperspace/db-backup.env`. The
+backup unit requires the mount, and the script verifies its exact target and
+filesystem type before writing. Enable offsite monitoring as above. Never use
+`nofail` without the script mount check: otherwise an unavailable NFS export
+can silently redirect large dumps to the local root filesystem.
+
 For a small observability host, provision swap once:
 
 ```bash

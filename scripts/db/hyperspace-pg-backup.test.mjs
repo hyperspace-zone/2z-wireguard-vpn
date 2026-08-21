@@ -38,3 +38,19 @@ test("offsite backups include cluster globals and require encrypted Restic crede
   assert.match(source, /--keep-daily/);
   assert.match(source, /--keep-weekly/);
 });
+
+test("filesystem offsite backups fail closed unless the backup directory is the expected mount", async () => {
+  const source = await readFile(scriptUrl, "utf8");
+  const mountCheck = source.indexOf('findmnt --noheadings --target "$backup_dir"');
+  const createBackupDirectory = source.indexOf('install -d -m 0700 "$backup_dir"');
+  const dump = source.indexOf("pg_dump --format=custom");
+  const sync = source.indexOf('sync -f "$final"');
+  const success = source.indexOf('printf \'%s\\n\' "$(date +%s)"');
+
+  assert.ok(mountCheck >= 0, "filesystem mount validation is missing");
+  assert.ok(mountCheck < createBackupDirectory, "mount validation must precede local directory creation");
+  assert.ok(createBackupDirectory < dump, "mount validation must precede the PostgreSQL dump");
+  assert.match(source, /\[\[ -w "\$backup_dir" \]\]/);
+  assert.ok(sync > dump, "filesystem backup must be flushed after dump verification");
+  assert.ok(success > sync, "offsite success must follow the filesystem flush");
+});

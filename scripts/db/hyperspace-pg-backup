@@ -5,6 +5,8 @@ backup_dir="${HS_DB_BACKUP_DIR:-/var/backups/hyperspace}"
 database="${HS_DB_NAME:-hyperspace}"
 retention_days="${HS_DB_BACKUP_RETENTION_DAYS:-14}"
 offsite_success_file="${HS_DB_OFFSITE_SUCCESS_FILE:-/var/lib/hyperspace/db-backup/offsite-last-success}"
+offsite_mode="${HS_DB_OFFSITE_BACKUP_MODE:-}"
+offsite_filesystem_type="${HS_DB_OFFSITE_FILESYSTEM_TYPE:-nfs4}"
 restic_keep_daily="${HS_DB_RESTIC_KEEP_DAILY:-7}"
 restic_keep_weekly="${HS_DB_RESTIC_KEEP_WEEKLY:-4}"
 stamp="$(date -u +%Y%m%dT%H%M%SZ)"
@@ -25,7 +27,18 @@ for value_name in restic_keep_daily restic_keep_weekly; do
   }
 done
 
-if [[ -n "${RESTIC_REPOSITORY:-}" ]]; then
+if [[ -z "$offsite_mode" && -n "${RESTIC_REPOSITORY:-}" ]]; then
+  offsite_mode="restic"
+fi
+case "$offsite_mode" in
+  ""|filesystem|restic) ;;
+  *)
+    echo "HS_DB_OFFSITE_BACKUP_MODE must be filesystem or restic" >&2
+    exit 2
+    ;;
+esac
+
+if [[ "$offsite_mode" == "restic" ]]; then
   command -v restic >/dev/null || {
     echo "restic is required when RESTIC_REPOSITORY is configured" >&2
     exit 2
@@ -37,7 +50,25 @@ if [[ -n "${RESTIC_REPOSITORY:-}" ]]; then
 fi
 
 umask 077
-install -d -m 0700 "$backup_dir"
+if [[ "$offsite_mode" == "filesystem" ]]; then
+  command -v findmnt >/dev/null || {
+    echo "findmnt is required for filesystem offsite backups" >&2
+    exit 2
+  }
+  read -r mounted_target mounted_fstype < <(findmnt --noheadings --target "$backup_dir" --output TARGET,FSTYPE)
+  if [[ "$mounted_target" != "$backup_dir" || "$mounted_fstype" != "$offsite_filesystem_type" ]]; then
+    echo "$backup_dir must be an exact $offsite_filesystem_type mount for filesystem offsite backups" >&2
+    exit 1
+  fi
+fi
+if [[ -d "$backup_dir" ]]; then
+  [[ -w "$backup_dir" ]] || {
+    echo "$backup_dir is not writable by $(id -un)" >&2
+    exit 1
+  }
+else
+  install -d -m 0700 "$backup_dir"
+fi
 trap 'test ! -e "$tmp" || unlink "$tmp"; test ! -e "$globals_tmp" || unlink "$globals_tmp"' EXIT
 
 pg_dumpall --globals-only --file="$globals_tmp"
@@ -49,7 +80,7 @@ mv "$globals_tmp" "$globals_final"
 find "$backup_dir" -maxdepth 1 -type f -name "${database}-*.dump" -mtime "+${retention_days}" -delete
 find "$backup_dir" -maxdepth 1 -type f -name "${database}-globals-*.sql" -mtime "+${retention_days}" -delete
 
-if [[ -n "${RESTIC_REPOSITORY:-}" ]]; then
+if [[ "$offsite_mode" == "restic" ]]; then
   backup_host="${HS_DB_BACKUP_HOST:-$(hostname)}"
   restic backup \
     --host "$backup_host" \
@@ -64,6 +95,12 @@ if [[ -n "${RESTIC_REPOSITORY:-}" ]]; then
     --keep-weekly "$restic_keep_weekly" \
     --prune
 
+elif [[ "$offsite_mode" == "filesystem" ]]; then
+  sync -f "$final"
+  sync -f "$globals_final"
+fi
+
+if [[ -n "$offsite_mode" ]]; then
   install -d -m 0700 "$(dirname "$offsite_success_file")"
   success_tmp="${offsite_success_file}.tmp"
   printf '%s\n' "$(date +%s)" >"$success_tmp"
