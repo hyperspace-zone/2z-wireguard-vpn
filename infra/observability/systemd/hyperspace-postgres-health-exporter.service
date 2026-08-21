@@ -14,4 +14,5 @@ NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
 ReadOnlyPaths=-/var/backups/hyperspace
+ReadOnlyPaths=-/var/lib/hyperspace/db-backup
 ReadWritePaths=/var/lib/node_exporter/textfile_collector

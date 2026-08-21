@@ -1822,6 +1822,31 @@ Do not start a local production dump when free disk cannot hold the dump plus
 PostgreSQL working space. Add backup storage first. Until a verified dump is
 visible, `HyperspacePostgreSQLBackupMissing` intentionally remains critical.
 
+For offsite object storage, place a root-only
+`/etc/hyperspace/db-backup-offsite.env` on the DB host before running the
+installer. The file must provide the Restic repository, its independently
+generated encryption password, and the provider credentials. For an EU R2
+bucket, the shape is:
+
+```dotenv
+AWS_ACCESS_KEY_ID=<bucket-scoped-access-key>
+AWS_SECRET_ACCESS_KEY=<bucket-scoped-secret>
+AWS_DEFAULT_REGION=auto
+RESTIC_REPOSITORY=s3:https://<account-id>.eu.r2.cloudflarestorage.com/<bucket>
+RESTIC_PASSWORD=<independent-random-restic-password>
+RESTIC_CACHE_DIR=/var/cache/hyperspace-restic
+HS_DB_RESTIC_KEEP_DAILY=7
+HS_DB_RESTIC_KEEP_WEEKLY=4
+```
+
+Run `scripts/observability/install-postgres-monitoring`, then set
+`HS_DB_OFFSITE_BACKUP_ENABLED=1` in
+`/etc/hyperspace/postgres-monitoring.env`, restart the health exporter, and verify both
+`hyperspace_postgres_backup_last_success_timestamp_seconds` and
+`hyperspace_postgres_offsite_backup_last_success_timestamp_seconds`. Object
+storage credentials must be restricted to one private bucket; where supported,
+also restrict them to the DB host's egress IP.
+
 For a small observability host, provision swap once:
 
 ```bash
