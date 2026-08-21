@@ -74,8 +74,8 @@ Never commit runtime values. Prepare separate production values for:
 - API and worker `SOLANA_RPC_URL`, using the private mainnet endpoint for known
   transaction hashes, balance reads and transaction execution;
 - worker-only `SOLANA_HISTORY_RPC_URL`, using a history-capable endpoint for
-  `getSignaturesForAddress`; discovered hashes are verified again through the
-  private endpoint;
+  periodic `getSignaturesForAddress`, historical status lookup and transaction
+  decoding; hashes supplied directly to the live payment flow never use it;
 - `HELIUS_PROJECT_ID` when Helius supplies the history endpoint, so Prometheus
   can alert on the exact remaining project credits;
 - `SOLANA_REVENUE_TREASURY_ADDRESS`, backed by a production-only keypair and

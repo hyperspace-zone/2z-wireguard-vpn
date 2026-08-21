@@ -4,6 +4,7 @@ export interface SolanaRpcVerifierConfig {
   tokenBaseUnitsPerBillingMinor: number;
   fetchImpl?: typeof fetch;
   beforeRequest?: () => Promise<void>;
+  searchTransactionHistory?: boolean;
 }
 
 export function createSolanaRpcRequestLimiter(
@@ -153,8 +154,8 @@ export async function verifySolanaTopupTransaction(
   const fetchImpl = config.fetchImpl ?? fetch;
   const statuses = await rpcCall(fetchImpl, config.rpcUrl, "getSignatureStatuses", [
     [expectation.transactionSignature],
-    { searchTransactionHistory: false }
-  ]);
+    { searchTransactionHistory: config.searchTransactionHistory ?? false }
+  ], config.beforeRequest);
   const signatureStatus = asRecord(asArray(asRecord(statuses).value)[0]);
   if (Object.keys(signatureStatus).length === 0) {
     return { status: "pending", reason: "transaction_not_found" };
@@ -169,7 +170,7 @@ export async function verifySolanaTopupTransaction(
   const transaction = asRecord(await rpcCall(fetchImpl, config.rpcUrl, "getTransaction", [
     expectation.transactionSignature,
     { encoding: "jsonParsed", commitment: "finalized", maxSupportedTransactionVersion: 0 }
-  ]));
+  ], config.beforeRequest));
   if (Object.keys(transaction).length === 0) {
     return { status: "pending", reason: "finalized_transaction_unavailable" };
   }
@@ -233,7 +234,7 @@ export async function verifySolanaTopupTransaction(
 
 export async function verifySolanaDirectDepositTransaction(
   input: { transactionSignature: string; recipientOwner: string },
-  config: Pick<SolanaRpcVerifierConfig, "rpcUrl" | "tokenMint" | "fetchImpl">
+  config: Pick<SolanaRpcVerifierConfig, "rpcUrl" | "tokenMint" | "fetchImpl" | "beforeRequest" | "searchTransactionHistory">
 ): Promise<SolanaDirectDepositVerification> {
   if (!config.rpcUrl || !config.tokenMint) {
     throw new Error("Solana RPC direct deposit verification is not configured");
@@ -241,8 +242,8 @@ export async function verifySolanaDirectDepositTransaction(
   const fetchImpl = config.fetchImpl ?? fetch;
   const statuses = await rpcCall(fetchImpl, config.rpcUrl, "getSignatureStatuses", [
     [input.transactionSignature],
-    { searchTransactionHistory: false }
-  ]);
+    { searchTransactionHistory: config.searchTransactionHistory ?? false }
+  ], config.beforeRequest);
   const signatureStatus = asRecord(asArray(asRecord(statuses).value)[0]);
   if (Object.keys(signatureStatus).length === 0) {
     return { status: "pending", reason: "transaction_not_found" };
@@ -257,7 +258,7 @@ export async function verifySolanaDirectDepositTransaction(
   const transaction = asRecord(await rpcCall(fetchImpl, config.rpcUrl, "getTransaction", [
     input.transactionSignature,
     { encoding: "jsonParsed", commitment: "finalized", maxSupportedTransactionVersion: 0 }
-  ]));
+  ], config.beforeRequest));
   if (Object.keys(transaction).length === 0) {
     return { status: "pending", reason: "finalized_transaction_unavailable" };
   }
@@ -298,7 +299,7 @@ export async function verifySolanaDirectDepositTransaction(
 
 export async function verifyNativeSolDirectDepositTransaction(
   input: { transactionSignature: string; recipientOwner: string },
-  config: Pick<SolanaRpcVerifierConfig, "rpcUrl" | "fetchImpl">
+  config: Pick<SolanaRpcVerifierConfig, "rpcUrl" | "fetchImpl" | "beforeRequest" | "searchTransactionHistory">
 ): Promise<SolanaDirectDepositVerification> {
   if (!config.rpcUrl) {
     throw new Error("Solana RPC native deposit verification is not configured");
@@ -306,8 +307,8 @@ export async function verifyNativeSolDirectDepositTransaction(
   const fetchImpl = config.fetchImpl ?? fetch;
   const statuses = await rpcCall(fetchImpl, config.rpcUrl, "getSignatureStatuses", [
     [input.transactionSignature],
-    { searchTransactionHistory: false }
-  ]);
+    { searchTransactionHistory: config.searchTransactionHistory ?? false }
+  ], config.beforeRequest);
   const signatureStatus = asRecord(asArray(asRecord(statuses).value)[0]);
   if (Object.keys(signatureStatus).length === 0) return { status: "pending", reason: "transaction_not_found" };
   if (signatureStatus.err !== null && signatureStatus.err !== undefined) return { status: "invalid", reason: "transaction_failed" };
@@ -316,7 +317,7 @@ export async function verifyNativeSolDirectDepositTransaction(
   const transaction = asRecord(await rpcCall(fetchImpl, config.rpcUrl, "getTransaction", [
     input.transactionSignature,
     { encoding: "jsonParsed", commitment: "finalized", maxSupportedTransactionVersion: 0 }
-  ]));
+  ], config.beforeRequest));
   if (Object.keys(transaction).length === 0) return { status: "pending", reason: "finalized_transaction_unavailable" };
   const meta = asRecord(transaction.meta);
   if (meta.err !== null && meta.err !== undefined) return { status: "invalid", reason: "transaction_failed" };

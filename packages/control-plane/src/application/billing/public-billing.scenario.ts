@@ -254,6 +254,7 @@ export async function reconcileSubmittedSolanaTopups(
       }
       let matched = false;
       for (const transactionSignature of discoveredSignatures) {
+        const discoveredThroughHistory = !topup.transactionSignature;
         const verification = await verifySolanaTopupTransaction({
           transactionSignature,
           treasuryAddress: topup.treasuryAddress,
@@ -261,9 +262,11 @@ export async function reconcileSubmittedSolanaTopups(
           amountMinor: topup.amountMinor,
           expectedSender: topup.expectedSender
         }, {
-          rpcUrl: config.solanaRpcUrl,
+          rpcUrl: discoveredThroughHistory ? historyRpcUrl : config.solanaRpcUrl,
           tokenMint: topup.tokenMint ?? config.solanaTokenMint,
           tokenBaseUnitsPerBillingMinor: config.solanaTokenBaseUnitsPerBillingMinor,
+          searchTransactionHistory: discoveredThroughHistory,
+          ...(discoveredThroughHistory ? { beforeRequest: historyRequestLimiter } : {}),
           ...(config.fetchImpl ? { fetchImpl: config.fetchImpl } : {})
         });
         if (verification.status === "verified") {

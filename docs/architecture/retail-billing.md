@@ -128,8 +128,10 @@ API and worker share the private `SOLANA_RPC_URL`, asset identifier, token
 decimals, and base-units-per-billing-unit settings. A submitted transaction
 hash is always finalized and decoded through this private endpoint. The worker
 additionally receives `SOLANA_HISTORY_RPC_URL`; only address-based signature
-discovery uses that history-capable endpoint. A discovered signature is then
-verified through `SOLANA_RPC_URL` before any idempotent credit is posted.
+discovery and historical transaction decoding use that history-capable
+endpoint. Only hashes supplied to the live payment flow use `SOLANA_RPC_URL`.
+Both paths apply the same verification and idempotent receipt claim before any
+credit is posted.
 
 For Solana-mainnet contours, inject the control-plane-only `SOLANA_RPC_URL`
 through the runtime environment or secret management. Documentation uses
