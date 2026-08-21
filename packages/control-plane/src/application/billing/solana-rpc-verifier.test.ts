@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  createSolanaRpcRequestLimiter,
   findFinalizedSolanaSignaturesForAddress,
   findFinalizedSolanaSignaturesForReference,
   findSolanaTokenAccountsByOwner,
@@ -129,6 +130,22 @@ test("Solana RPC retries a rate-limited call using Retry-After", async () => {
     fetchImpl
   }), [signature]);
   assert.equal(calls, 2);
+});
+
+test("Solana RPC request limiter spaces history calls at the configured rate", async () => {
+  let now = 1_000;
+  const waits: number[] = [];
+  const limiter = createSolanaRpcRequestLimiter(8, {
+    now: () => now,
+    sleep: async (milliseconds) => {
+      waits.push(milliseconds);
+      now += milliseconds;
+    }
+  });
+  await limiter();
+  await limiter();
+  await limiter();
+  assert.deepEqual(waits, [125, 125]);
 });
 
 test("direct Solana deposits accept the finalized positive USDC delta without a memo", async () => {

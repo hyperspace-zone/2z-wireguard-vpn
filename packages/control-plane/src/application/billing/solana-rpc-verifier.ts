@@ -3,6 +3,24 @@ export interface SolanaRpcVerifierConfig {
   tokenMint: string;
   tokenBaseUnitsPerBillingMinor: number;
   fetchImpl?: typeof fetch;
+  beforeRequest?: () => Promise<void>;
+}
+
+export function createSolanaRpcRequestLimiter(
+  requestsPerSecond: number,
+  input: { now?: () => number; sleep?: (milliseconds: number) => Promise<void> } = {}
+): () => Promise<void> {
+  const normalizedRate = Number.isFinite(requestsPerSecond) && requestsPerSecond > 0 ? requestsPerSecond : 8;
+  const intervalMs = Math.ceil(1000 / normalizedRate);
+  const now = input.now ?? Date.now;
+  const sleep = input.sleep ?? ((milliseconds: number) => new Promise((resolve) => setTimeout(resolve, milliseconds)));
+  let nextRequestAt = 0;
+  return async (): Promise<void> => {
+    const current = now();
+    const delayMs = Math.max(0, nextRequestAt - current);
+    nextRequestAt = Math.max(current, nextRequestAt) + intervalMs;
+    if (delayMs > 0) await sleep(delayMs);
+  };
 }
 
 export interface SolanaTopupExpectation {
@@ -30,7 +48,7 @@ export type SolanaDirectDepositVerification =
 
 export async function findFinalizedSolanaSignaturesForReference(
   reference: string,
-  config: Pick<SolanaRpcVerifierConfig, "rpcUrl" | "fetchImpl">
+  config: Pick<SolanaRpcVerifierConfig, "rpcUrl" | "fetchImpl" | "beforeRequest">
 ): Promise<string[]> {
   if (!config.rpcUrl) {
     return [];
@@ -38,7 +56,7 @@ export async function findFinalizedSolanaSignaturesForReference(
   const result = await rpcCall(config.fetchImpl ?? fetch, config.rpcUrl, "getSignaturesForAddress", [
     reference,
     { limit: 10, commitment: "finalized" }
-  ]);
+  ], config.beforeRequest);
   return asArray(result).flatMap((value) => {
     const record = asRecord(value);
     return typeof record.signature === "string" && record.err === null ? [record.signature] : [];
@@ -66,7 +84,7 @@ export async function findSolanaTokenAccountsByOwner(
 export async function findFinalizedSolanaSignaturesForAddress(
   address: string,
   input: { until?: string; before?: string; limit?: number },
-  config: Pick<SolanaRpcVerifierConfig, "rpcUrl" | "fetchImpl">
+  config: Pick<SolanaRpcVerifierConfig, "rpcUrl" | "fetchImpl" | "beforeRequest">
 ): Promise<SolanaAddressSignature[]> {
   if (!config.rpcUrl) {
     return [];
@@ -77,7 +95,13 @@ export async function findFinalizedSolanaSignaturesForAddress(
   };
   if (input.until) options.until = input.until;
   if (input.before) options.before = input.before;
-  const result = await rpcCall(config.fetchImpl ?? fetch, config.rpcUrl, "getSignaturesForAddress", [address, options]);
+  const result = await rpcCall(
+    config.fetchImpl ?? fetch,
+    config.rpcUrl,
+    "getSignaturesForAddress",
+    [address, options],
+    config.beforeRequest
+  );
   return asArray(result).flatMap((value) => {
     const record = asRecord(value);
     return typeof record.signature === "string" && record.err === null
@@ -325,31 +349,69 @@ export async function verifyNativeSolDirectDepositTransaction(
   };
 }
 
-async function rpcCall(fetchImpl: typeof fetch, rpcUrl: string, method: string, params: unknown[]): Promise<unknown> {
-  for (let attempt = 0; attempt < 6; attempt += 1) {
-    const response = await fetchImpl(rpcUrl, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params })
-    });
+async function rpcCall(
+  fetchImpl: typeof fetch,
+  rpcUrl: string,
+  method: string,
+  params: unknown[],
+  beforeRequest?: () => Promise<void>
+): Promise<unknown> {
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    await beforeRequest?.();
+    let response: Response;
+    try {
+      response = await fetchImpl(rpcUrl, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params })
+      });
+    } catch {
+      if (attempt === 4) {
+        throw new Error(`Solana RPC ${method} failed after transient network errors`);
+      }
+      await new Promise((resolve) => setTimeout(resolve, solanaRpcRetryDelayMs(attempt)));
+      continue;
+    }
     const text = await response.text();
-    const payload = text ? asRecord(JSON.parse(text)) : {};
+    let payload: Record<string, unknown> = {};
+    try {
+      payload = text ? asRecord(JSON.parse(text)) : {};
+    } catch {
+      if (attempt === 4 || !isRetryableStatus(response.status)) {
+        throw new Error(`Solana RPC ${method} failed: invalid JSON response (${response.status})`);
+      }
+      await new Promise((resolve) => setTimeout(resolve, solanaRpcRetryDelayMs(attempt)));
+      continue;
+    }
     if (response.ok && !payload.error) {
       return payload.result;
     }
     const message = asRecord(payload.error).message;
-    const retryable = response.status === 429
+    const quotaExhausted = typeof message === "string" && /max usage reached|quota exhausted|credits exhausted/i.test(message);
+    if (quotaExhausted) {
+      throw new Error(`Solana RPC ${method} failed: quota_exhausted`);
+    }
+    const retryable = isRetryableStatus(response.status)
       || (typeof message === "string" && /too many requests|rate limit/i.test(message));
-    if (!retryable || attempt === 5) {
+    if (!retryable || attempt === 4) {
       throw new Error(`Solana RPC ${method} failed: ${typeof message === "string" ? message : response.status}`);
     }
     const retryAfterSeconds = Number(response.headers.get("retry-after"));
     const delayMs = Number.isFinite(retryAfterSeconds) && retryAfterSeconds >= 0
       ? retryAfterSeconds * 1_000
-      : Math.min(8_000, 500 * (2 ** attempt));
+      : solanaRpcRetryDelayMs(attempt);
     await new Promise((resolve) => setTimeout(resolve, delayMs));
   }
   throw new Error(`Solana RPC ${method} retry loop ended unexpectedly`);
+}
+
+function isRetryableStatus(status: number): boolean {
+  return status === 408 || status === 429 || status === 500 || status === 502 || status === 503 || status === 504;
+}
+
+export function solanaRpcRetryDelayMs(attempt: number, random = Math.random): number {
+  const base = Math.min(30_000, 1_000 * (2 ** Math.max(0, attempt)));
+  return Math.max(1, Math.round(base * (0.75 + random() * 0.5)));
 }
 
 function tokenBalanceDelta(preValue: unknown[], postValue: unknown[], owner: string, mint: string): bigint {

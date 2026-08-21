@@ -17,6 +17,7 @@ export interface SolanaDepositScanCursorRow {
   tokenMint: string;
   tokenAccounts: string[];
   latestSignatures: Record<string, string>;
+  consecutiveFailures: number;
 }
 
 export async function claimSolanaPaymentReceipt(
@@ -127,7 +128,8 @@ export async function readSolanaDepositScanCursor(
         wallet_id AS "walletId",
         token_mint AS "tokenMint",
         token_accounts AS "tokenAccounts",
-        latest_signatures AS "latestSignatures"
+        latest_signatures AS "latestSignatures",
+        consecutive_failures AS "consecutiveFailures"
       FROM solana_deposit_scan_cursors
       WHERE wallet_id = $1 AND token_mint = $2
     `,
@@ -155,14 +157,18 @@ export async function recordSolanaDepositScanSuccess(
         latest_signatures,
         next_scan_at,
         last_scanned_at,
+        last_success_at,
+        consecutive_failures,
         last_error
       )
-      VALUES ($1, $2, $3::jsonb, $4::jsonb, $5::timestamptz, now(), NULL)
+      VALUES ($1, $2, $3::jsonb, $4::jsonb, $5::timestamptz, now(), now(), 0, NULL)
       ON CONFLICT (wallet_id, token_mint) DO UPDATE
       SET token_accounts = EXCLUDED.token_accounts,
           latest_signatures = EXCLUDED.latest_signatures,
           next_scan_at = EXCLUDED.next_scan_at,
           last_scanned_at = now(),
+          last_success_at = now(),
+          consecutive_failures = 0,
           last_error = NULL,
           updated_at = now()
     `,
@@ -192,12 +198,14 @@ export async function recordSolanaDepositScanFailure(
         token_mint,
         next_scan_at,
         last_scanned_at,
+        consecutive_failures,
         last_error
       )
-      VALUES ($1, $2, $3::timestamptz, now(), $4)
+      VALUES ($1, $2, $3::timestamptz, now(), 1, $4)
       ON CONFLICT (wallet_id, token_mint) DO UPDATE
       SET next_scan_at = EXCLUDED.next_scan_at,
           last_scanned_at = now(),
+          consecutive_failures = solana_deposit_scan_cursors.consecutive_failures + 1,
           last_error = EXCLUDED.last_error,
           updated_at = now()
     `,

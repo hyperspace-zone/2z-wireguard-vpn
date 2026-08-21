@@ -653,6 +653,80 @@ groups:
           summary: Hyperspace paid usage settlement is delayed
           description: Spent paid balance has remained outside the Solana revenue treasury for more than 15 minutes.
 
+      - alert: HyperspaceHeliusCreditsLow
+        expr: |
+          (
+            hyperspace_helius_credits_remaining{job="hyperspace-control-plane-worker"}
+            + hyperspace_helius_prepaid_credits_remaining{job="hyperspace-control-plane-worker"}
+          )
+          / hyperspace_helius_credits_limit{job="hyperspace-control-plane-worker"} <= 0.20
+          and
+          (
+            hyperspace_helius_credits_remaining{job="hyperspace-control-plane-worker"}
+            + hyperspace_helius_prepaid_credits_remaining{job="hyperspace-control-plane-worker"}
+          ) > 50000
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Helius monthly credit allowance is running low
+          description: Fewer than 20% of the Helius credits remain. Historical Solana deposit reconciliation may stop when the allowance is exhausted.
+
+      - alert: HyperspaceHeliusCreditsCritical
+        expr: |
+          (
+            hyperspace_helius_credits_remaining{job="hyperspace-control-plane-worker"}
+            + hyperspace_helius_prepaid_credits_remaining{job="hyperspace-control-plane-worker"}
+          ) <= 50000
+          and hyperspace_helius_credits_limit{job="hyperspace-control-plane-worker"} > 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: Helius credits are nearly exhausted
+          description: At most 50,000 Helius credits remain. Rotate or fund the project before historical Solana deposit reconciliation stops.
+
+      - alert: HyperspaceHeliusQuotaExhausted
+        expr: |
+          hyperspace_helius_credits_remaining{job="hyperspace-control-plane-worker"}
+          + hyperspace_helius_prepaid_credits_remaining{job="hyperspace-control-plane-worker"} <= 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: Helius credit allowance is exhausted
+          description: No Helius credits remain. Known transaction hashes still use the private RPC, but historical deposit discovery is unavailable.
+
+      - alert: HyperspaceHeliusUsagePollFailed
+        expr: hyperspace_helius_usage_poll_ready{job="hyperspace-control-plane-worker"} == 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Helius usage monitoring is unavailable
+          description: The control-plane worker cannot read Helius project usage, so credit exhaustion cannot be predicted.
+
+      - alert: HyperspaceHeliusUsageDataStale
+        expr: time() - hyperspace_helius_usage_last_success_timestamp_seconds{job="hyperspace-control-plane-worker"} > 1200
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: Helius usage data is stale
+          description: No successful Helius credit usage poll has completed for more than 20 minutes.
+
+      - alert: HyperspaceSolanaHistoryScanStale
+        expr: |
+          hyperspace_control_plane_solana_deposit_scan_cursors{job="hyperspace-control-plane-worker"} > 0
+          and on(instance)
+          hyperspace_control_plane_solana_deposit_scan_last_success_age_seconds{job="hyperspace-control-plane-worker"} > 1800
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: Solana historical deposit reconciliation is stale
+          description: No custodial wallet history scan has succeeded for more than 30 minutes; deposits without a submitted transaction hash may be delayed.
+
       - alert: HyperspaceGatePacketRatePressure
         expr: |
           sum by (cluster, gate, public_ipv4, probe_host) (

@@ -113,17 +113,20 @@ signature verification and the tenant billing token account/sentinel contract
 must be agreed with DoubleZero before production 2Z sweeping or spending is
 enabled.
 
-Mainnet-backed staging and production inject `SOLANA_RPC_URL` independently
-into the API and worker runtime environments. They may use different endpoints:
+Mainnet-backed staging and production inject the same private `SOLANA_RPC_URL`
+into the API and worker runtime environments. The worker additionally receives
+`SOLANA_HISTORY_RPC_URL`:
 
 - the API execution endpoint must support balance, rent, blockhash, fee,
   transaction submission and signature-status methods;
-- the worker history endpoint must support `getSignaturesForAddress`,
-  `getSignatureStatuses` and `getTransaction` with finalized transaction
-  history.
+- the history endpoint is used only for finalized `getSignaturesForAddress`;
+- every known or discovered transaction hash is checked with
+  `getSignatureStatuses` and `getTransaction` through the private endpoint.
 
-An endpoint without transaction history can still show the live wallet balance,
-but the worker cannot discover deposits or populate receipt history through it.
+The private endpoint does not need address history, but it must return recent
+transactions by known hash. The history endpoint is polled every 10 minutes and
+rate-limited to 8 requests per second. Failed wallet scans back off through
+1, 5, 15 and 60 minutes with jitter and reset after a success.
 Validate the required calls from the corresponding control-plane service host
 before rollout. The current API and worker use HTTP JSON-RPC polling and do not
 consume WebSocket subscriptions.

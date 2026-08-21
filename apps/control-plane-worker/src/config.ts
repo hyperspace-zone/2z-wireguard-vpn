@@ -15,6 +15,11 @@ export interface ControlPlaneWorkerConfig extends ReconcileLoopRuntimeConfig, Be
   solanaDepositReconcileIntervalSeconds: number;
   solanaDirectDepositScanIntervalSeconds: number;
   solanaDirectDepositScanBatchSize: number;
+  heliusUsage: {
+    projectId: string;
+    intervalSeconds: number;
+    adminApiBaseUrl: string;
+  };
   billing: BillingConfig;
   retailBilling: {
     enabled: boolean;
@@ -73,13 +78,15 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ControlPlaneWo
     solanaDepositReconcileIntervalSeconds: Number(
       env.SOLANA_DEPOSIT_RECONCILE_INTERVAL_SECONDS ?? env.SOLANA_TOPUP_RECONCILE_INTERVAL_SECONDS ?? 15
     ),
-    solanaDirectDepositScanIntervalSeconds: Number(env.SOLANA_DIRECT_DEPOSIT_SCAN_INTERVAL_SECONDS ?? 30),
+    solanaDirectDepositScanIntervalSeconds: Number(env.SOLANA_DIRECT_DEPOSIT_SCAN_INTERVAL_SECONDS ?? 600),
     solanaDirectDepositScanBatchSize: Number(env.SOLANA_DIRECT_DEPOSIT_SCAN_BATCH_SIZE ?? 25),
     billing: {
       currency: env.BILLING_CURRENCY ?? "USD",
       solanaTokenSymbol: env.SOLANA_TOKEN_SYMBOL ?? (nativeSolBilling ? "SOL" : "USDC"),
       solanaTokenMint: env.SOLANA_TOKEN_MINT ?? (nativeSolBilling ? "native" : ""),
       solanaRpcUrl: env.SOLANA_RPC_URL ?? "",
+      solanaHistoryRpcUrl: env.SOLANA_HISTORY_RPC_URL ?? env.SOLANA_RPC_URL ?? "",
+      solanaHistoryRpcRequestsPerSecond: Number(env.SOLANA_HISTORY_RPC_REQUESTS_PER_SECOND ?? 8),
       solanaTokenBaseUnitsPerBillingMinor: Number(
         env.SOLANA_TOKEN_BASE_UNITS_PER_BILLING_MINOR ?? (nativeSolBilling ? 1 : 10_000)
       ),
@@ -90,6 +97,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ControlPlaneWo
       configPriceLamports: Number(env.SOLANA_CONFIG_PRICE_LAMPORTS ?? 100_000),
       configPaymentTreasuryAddress: env.SOLANA_REVENUE_TREASURY_ADDRESS ?? "",
       configPaymentEnabled: env.SOLANA_CONFIG_PAYMENT_ENABLED === "true"
+    },
+    heliusUsage: {
+      projectId: env.HELIUS_PROJECT_ID ?? "",
+      intervalSeconds: Number(env.HELIUS_USAGE_POLL_INTERVAL_SECONDS ?? 300),
+      adminApiBaseUrl: env.HELIUS_ADMIN_API_BASE_URL ?? "https://admin-api.helius.xyz"
     },
     retailBilling: {
       enabled: env.RETAIL_BILLING_ENABLED === "true",

@@ -24,6 +24,7 @@ import {
 import { applyBucketCredit } from "./prepaid-billing.scenario.js";
 import type { BillingConfig } from "./public-billing.scenario.js";
 import {
+  createSolanaRpcRequestLimiter,
   findFinalizedSolanaSignaturesForAddress,
   findSolanaTokenAccountsByOwner,
   verifyNativeSolDirectDepositTransaction,
@@ -36,6 +37,7 @@ export interface DirectSolanaDepositReconcileOptions {
   batchSize: number;
   scanIntervalSeconds: number;
   retryIntervalSeconds?: number;
+  retryScheduleSeconds?: number[];
   signaturePageSize?: number;
   maxSignaturePages?: number;
   walletId?: string;
@@ -67,7 +69,11 @@ export async function reconcileDirectSolanaDeposits(
     ignored: 0,
     errors: 0
   };
-  if (!config.solanaRpcUrl || !config.solanaTokenMint) return result;
+  const historyRpcUrl = config.solanaHistoryRpcUrl || config.solanaRpcUrl;
+  if (!config.solanaRpcUrl || !historyRpcUrl || !config.solanaTokenMint) return result;
+  const historyRequestLimiter = createSolanaRpcRequestLimiter(
+    config.solanaHistoryRpcRequestsPerSecond ?? 8
+  );
 
   const wallets = await listCustodialWalletsDueForDepositScan(
     db,
@@ -78,14 +84,20 @@ export async function reconcileDirectSolanaDeposits(
   for (const wallet of wallets) {
     result.walletsChecked += 1;
     try {
-      await scanWallet(db, wallet, config, options, result);
+      await scanWallet(db, wallet, config, historyRpcUrl, historyRequestLimiter, options, result);
     } catch (error) {
       result.errors += 1;
       await recordSolanaDepositScanFailure(db, {
         walletId: wallet.id,
         tokenMint: config.solanaTokenMint,
         error: error instanceof Error ? error.message : String(error),
-        nextScanAt: afterSeconds(options.retryIntervalSeconds ?? 30)
+        nextScanAt: afterSeconds(directDepositRetryDelaySeconds(
+          (await readSolanaDepositScanCursor(db, wallet.id, config.solanaTokenMint))?.consecutiveFailures ?? 0,
+          error instanceof Error && /quota_exhausted/.test(error.message)
+            ? [3600]
+            : options.retryScheduleSeconds
+              ?? (options.retryIntervalSeconds ? [options.retryIntervalSeconds] : [60, 300, 900, 3600])
+        ))
       });
     }
   }
@@ -96,6 +108,8 @@ async function scanWallet(
   db: TransactionalQueryable,
   wallet: CustodialWalletRow,
   config: BillingConfig,
+  historyRpcUrl: string,
+  historyRequestLimiter: () => Promise<void>,
   options: DirectSolanaDepositReconcileOptions,
   result: DirectSolanaDepositReconcileResult
 ): Promise<void> {
@@ -116,6 +130,8 @@ async function scanWallet(
       tokenAccount,
       latestSignatures[tokenAccount],
       config,
+      historyRpcUrl,
+      historyRequestLimiter,
       options
     );
     const walletCreatedAt = Date.parse(wallet.createdAt);
@@ -181,6 +197,8 @@ async function loadNewSignatures(
   tokenAccount: string,
   until: string | undefined,
   config: BillingConfig,
+  historyRpcUrl: string,
+  historyRequestLimiter: () => Promise<void>,
   options: DirectSolanaDepositReconcileOptions
 ): Promise<SolanaAddressSignature[]> {
   const pageSize = Math.max(1, Math.min(1000, options.signaturePageSize ?? 100));
@@ -193,7 +211,8 @@ async function loadNewSignatures(
       ...(before ? { before } : {}),
       limit: pageSize
     }, {
-      rpcUrl: config.solanaRpcUrl,
+      rpcUrl: historyRpcUrl,
+      beforeRequest: historyRequestLimiter,
       ...(config.fetchImpl ? { fetchImpl: config.fetchImpl } : {})
     });
     records.push(...batch);
@@ -336,4 +355,14 @@ export function convertDepositToBillingMinor(
 
 function afterSeconds(seconds: number): string {
   return new Date(Date.now() + Math.max(1, seconds) * 1000).toISOString();
+}
+
+export function directDepositRetryDelaySeconds(
+  consecutiveFailures: number,
+  scheduleSeconds: number[],
+  random = Math.random
+): number {
+  const schedule = scheduleSeconds.filter((value) => Number.isFinite(value) && value > 0);
+  const base = schedule[Math.min(Math.max(0, consecutiveFailures), Math.max(0, schedule.length - 1))] ?? 3600;
+  return Math.max(1, Math.round(base * (0.75 + random() * 0.5)));
 }

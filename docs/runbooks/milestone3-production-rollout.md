@@ -71,11 +71,13 @@ Never commit runtime values. Prepare separate production values for:
 
 - `CUSTODIAL_WALLET_ENCRYPTION_KEY`, shared only by the production API and
   worker;
-- API `SOLANA_RPC_URL`, using a mainnet endpoint that supports transaction
-  execution;
-- worker `SOLANA_RPC_URL`, using a mainnet endpoint that supports finalized
-  history through `getSignaturesForAddress`, `getSignatureStatuses` and
-  `getTransaction` (it may differ from the API endpoint);
+- API and worker `SOLANA_RPC_URL`, using the private mainnet endpoint for known
+  transaction hashes, balance reads and transaction execution;
+- worker-only `SOLANA_HISTORY_RPC_URL`, using a history-capable endpoint for
+  `getSignaturesForAddress`; discovered hashes are verified again through the
+  private endpoint;
+- `HELIUS_PROJECT_ID` when Helius supplies the history endpoint, so Prometheus
+  can alert on the exact remaining project credits;
 - `SOLANA_REVENUE_TREASURY_ADDRESS`, backed by a production-only keypair and
   initialized with at least the current zero-data rent exemption;
 - production Resend sending key, Google client secret, OTP hash secret and
@@ -113,7 +115,9 @@ CUTOVER_SOLANA_HISTORY_RPC_URL=https://api.mainnet-beta.solana.com \
 ```
 
 Each env file has the standard names `DATABASE_URL`,
-`CUSTODIAL_WALLET_ENCRYPTION_KEY` and `SOLANA_RPC_URL`. Use SSH tunnels when
+`CUSTODIAL_WALLET_ENCRYPTION_KEY` and `SOLANA_RPC_URL`. The deployed worker
+stores its credential-bearing history URL only in
+`/etc/hyperspace/control-plane-worker.env`. Use SSH tunnels when
 running from the operator host; do not open PostgreSQL publicly. The public
 history endpoint above is supplied only to this one cutover command and is not
 stored in a production runtime env file. The tool is

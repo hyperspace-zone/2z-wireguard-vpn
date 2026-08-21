@@ -35,6 +35,7 @@ import {
   listSolanaPaymentReceipts
 } from "../../resources/billing/solana-deposit-repository.js";
 import {
+  createSolanaRpcRequestLimiter,
   findFinalizedSolanaSignaturesForReference,
   readSolanaMinimumBalanceForRentExemption,
   readSolanaNativeBalance,
@@ -46,6 +47,8 @@ export interface BillingConfig {
   solanaTokenSymbol: string;
   solanaTokenMint: string;
   solanaRpcUrl: string;
+  solanaHistoryRpcUrl?: string;
+  solanaHistoryRpcRequestsPerSecond?: number;
   solanaTokenBaseUnitsPerBillingMinor: number;
   solanaTokenDecimals: number;
   solanaExplorerTransactionBaseUrl: string;
@@ -217,6 +220,10 @@ export async function reconcileSubmittedSolanaTopups(
   if (!config.solanaRpcUrl) {
     return result;
   }
+  const historyRpcUrl = config.solanaHistoryRpcUrl || config.solanaRpcUrl;
+  const historyRequestLimiter = createSolanaRpcRequestLimiter(
+    config.solanaHistoryRpcRequestsPerSecond ?? 8
+  );
   for (const topup of await listOpenTopupIntents(db)) {
     result.checked += 1;
     if (!topup.treasuryAddress) {
@@ -237,7 +244,8 @@ export async function reconcileSubmittedSolanaTopups(
       const discoveredSignatures = topup.transactionSignature
         ? [topup.transactionSignature]
         : await findFinalizedSolanaSignaturesForReference(topup.reference, {
-          rpcUrl: config.solanaRpcUrl,
+          rpcUrl: historyRpcUrl,
+          beforeRequest: historyRequestLimiter,
           ...(config.fetchImpl ? { fetchImpl: config.fetchImpl } : {})
         });
       if (discoveredSignatures.length === 0) {
