@@ -1241,8 +1241,8 @@ New deposits use the permanent account address. In native SOL mode, the worker
 scans that address and requires finalized RPC confirmation plus a positive
 recipient lamport delta before claiming the
 globally unique transaction signature and crediting the immutable balance ledger.
-Historical payment intents remain readable only for migration reconciliation. See
-`docs/runbooks/milestone3-billing-and-wallets.md`.
+Fixed-amount payment intents are not part of the product or database schema. See
+`docs/runbooks/milestone3-billing-and-wallets.md` for the direct-deposit model.
 
 Google OAuth setup prompt for a browser automation agent after you log in to
 Google Cloud Console:

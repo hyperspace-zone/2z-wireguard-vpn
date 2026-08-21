@@ -4,7 +4,7 @@ import { mustRow } from "../../support/db.js";
 export interface SolanaPaymentReceiptRow {
   transactionSignature: string;
   accountId: string;
-  sourceType: "topup_intent" | "direct_deposit";
+  sourceType: "direct_deposit";
   sourceId: string;
   tokenMint: string | null;
   amountBaseUnits: string | null;
@@ -25,7 +25,7 @@ export async function claimSolanaPaymentReceipt(
   input: {
     transactionSignature: string;
     accountId: string;
-    sourceType: "topup_intent" | "direct_deposit";
+    sourceType: "direct_deposit";
     sourceId: string;
     tokenMint?: string | null;
     amountBaseUnits?: bigint | null;

@@ -243,7 +243,7 @@ try {
     throw new Error("external wallet linking must not be exposed");
   }
   if (await page.locator("#topup-form").count()) {
-    throw new Error("fixed-amount top-up intents must not be exposed");
+    throw new Error("fixed-amount top-up form must not be exposed");
   }
   await capture(page, "billing-desktop");
   await page.setViewportSize({ width: 390, height: 844 });

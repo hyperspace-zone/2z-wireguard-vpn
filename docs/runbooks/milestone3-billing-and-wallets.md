@@ -48,9 +48,9 @@ the primary network workflow.
 The history displays the exact finalized SOL amount, UTC observation time, and
 a transaction link. A sender may transfer any positive amount. Exchange
 withdrawal fees are naturally handled because only the amount that actually
-reached the account wallet is recorded. Historical
-`topup_intents` remain in the database for audit and legacy reconciliation, but
-the public API cannot create new intents.
+reached the account wallet is recorded. Fixed-amount payment intents are not
+part of the product or schema: direct deposits are the only supported top-up
+model.
 
 ### Open-source indexing choice
 
