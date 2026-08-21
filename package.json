@@ -29,6 +29,7 @@
     "test:live:policy": "node --env-file-if-exists=.env scripts/testnet/live-policy-smoke.mjs",
     "test:live:gate-cycle": "node --env-file-if-exists=.env scripts/testnet/live-gate-cycle.mjs",
     "test:live:staging-gate-selector": "node scripts/live/gate-selector-ui-smoke.mjs",
+    "test:live:staging-admin": "node scripts/live/admin-configs-ui-smoke.mjs",
     "test:live": "npm run test:live:ui && npm run test:live:policy",
     "gates:rollout-wave": "node scripts/gates/rollout-wave.mjs",
     "gates:control-plane-rollout": "node scripts/gates/control-plane-rollout.mjs",
