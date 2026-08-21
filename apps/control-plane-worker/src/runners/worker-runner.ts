@@ -11,6 +11,7 @@ import { createRetailBillingLoop } from "../loops/retail-billing-loop.js";
 import { createBillingNotificationLoop } from "../loops/billing-notification-loop.js";
 import { createSolanaWithdrawalLoop } from "../loops/solana-withdrawal-loop.js";
 import { createSolanaRevenueSweepLoop } from "../loops/solana-revenue-sweep-loop.js";
+import { createHeliusUsageLoop } from "../loops/helius-usage-loop.js";
 import { createReconcileRunner } from "./reconcile-runner.js";
 import { reconcileGateAgentDeployments } from "@hyperspace-zone/control-plane";
 import { log, sleep } from "../support/runtime.js";
@@ -49,6 +50,7 @@ export function createWorkerRunner(input: {
   const billingNotificationLoop = createBillingNotificationLoop(input.db, input.config);
   const solanaWithdrawalLoop = createSolanaWithdrawalLoop(input.db, input.config);
   const solanaRevenueSweepLoop = createSolanaRevenueSweepLoop(input.db, input.config);
+  const heliusUsageLoop = createHeliusUsageLoop(input.config, input.metrics);
   const benchmarkSchedulerLoop = createBenchmarkSchedulerLoop({
     db: input.db,
     config: input.config
@@ -80,6 +82,9 @@ export function createWorkerRunner(input: {
       await runMeasuredLoop("cleanup", input, tasks.cleanup);
       await runMeasuredLoop("gate-agent-deployments", input, tasks.gateAgentDeployments);
       await runMeasuredLoop("solana-deposits", input, () => solanaDepositLoop.runOnce());
+      if (heliusUsageLoop.due()) {
+        await runMeasuredLoop("helius-usage", input, () => heliusUsageLoop.runOnce());
+      }
       if (retailBillingLoop.due()) {
         const settlement = await runMeasuredLoop("retail-billing", input, () => retailBillingLoop.runOnce());
         if (settlement) {

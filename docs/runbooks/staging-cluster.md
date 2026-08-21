@@ -146,12 +146,11 @@ Before authentication acceptance:
    deployment-local receiver file when a different staging audience is needed;
    never send staging incidents into production channels.
 
-The staging API and worker receive Solana mainnet `SOLANA_RPC_URL` values through
-runtime environment configuration or secret management. The values may differ:
-the API endpoint must support transaction execution, while the worker endpoint
-must provide finalized history through `getSignaturesForAddress`,
-`getSignatureStatuses` and `getTransaction`. Never commit private or
-credential-bearing endpoints. The
+The staging API and worker receive the private Solana mainnet `SOLANA_RPC_URL`.
+The worker also receives a credential-bearing `SOLANA_HISTORY_RPC_URL` for
+address history discovery and `HELIUS_PROJECT_ID` for exact quota monitoring.
+Known transaction hashes always use the private endpoint. Keep these values in
+`/etc/hyperspace/control-plane-worker.env`, never in Git. The
 placeholders
 `https://solana-rpc.example.invalid` and `wss://solana-rpc.example.invalid` are
 intentionally non-resolving; the WebSocket value is not used by the current HTTP

@@ -156,6 +156,29 @@ async function collectBillingMetrics(db: Database, metrics: RuntimeMetrics): Pro
   metrics.gauge("control_plane_billing_oldest_cash_sweep_age_seconds", row.oldestSweepAgeSeconds, {
     help: "Age in seconds of the oldest unconfirmed Solana revenue cash sweep."
   });
+  const depositScans = await db.query<{
+    cursors: number;
+    failing: number;
+    lastSuccessAgeSeconds: number;
+  }>(`
+    SELECT
+      COUNT(*)::int AS cursors,
+      COUNT(*) FILTER (WHERE consecutive_failures > 0)::int AS failing,
+      COALESCE(EXTRACT(EPOCH FROM now() - MAX(last_success_at))::float, 1000000000) AS "lastSuccessAgeSeconds"
+    FROM solana_deposit_scan_cursors
+  `);
+  const scans = depositScans.rows[0];
+  if (scans) {
+    metrics.gauge("control_plane_solana_deposit_scan_cursors", scans.cursors, {
+      help: "Custodial wallet cursors monitored by the Solana history scanner."
+    });
+    metrics.gauge("control_plane_solana_deposit_scan_failing_cursors", scans.failing, {
+      help: "Solana deposit cursors whose latest history scan failed."
+    });
+    metrics.gauge("control_plane_solana_deposit_scan_last_success_age_seconds", scans.lastSuccessAgeSeconds, {
+      help: "Age in seconds of the most recent successful Solana deposit history scan."
+    });
+  }
 }
 
 async function collectAssignmentUsageMetrics(db: Database, metrics: RuntimeMetrics): Promise<void> {

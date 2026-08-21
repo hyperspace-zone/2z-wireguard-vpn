@@ -124,17 +124,21 @@ Use `--revoke` to remove the role.
 
 ## Required runtime settings
 
-API and worker share the same `SOLANA_RPC_URL`, asset identifier, token
-decimals, and base-units-per-billing-unit settings. The worker additionally
-needs:
+API and worker share the private `SOLANA_RPC_URL`, asset identifier, token
+decimals, and base-units-per-billing-unit settings. A submitted transaction
+hash is always finalized and decoded through this private endpoint. The worker
+additionally receives `SOLANA_HISTORY_RPC_URL`; only address-based signature
+discovery uses that history-capable endpoint. A discovered signature is then
+verified through `SOLANA_RPC_URL` before any idempotent credit is posted.
 
 For Solana-mainnet contours, inject the control-plane-only `SOLANA_RPC_URL`
 through the runtime environment or secret management. Documentation uses
 `https://solana-rpc.example.invalid` and `wss://solana-rpc.example.invalid` as
 non-resolving placeholders; never commit the real HTTP or WebSocket endpoint.
 The WebSocket endpoint is reserved for future subscription consumers and is not
-required by the current HTTP polling implementation. Solana testnet must use a
-separate testnet RPC.
+required by the current HTTP polling implementation. Set the direct scan period
+to 600 seconds and cap Helius history lookups at 8 requests per second. Solana
+testnet must use a separate testnet RPC.
 
 ```dotenv
 RETAIL_BILLING_ENABLED=false

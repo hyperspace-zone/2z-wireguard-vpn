@@ -437,3 +437,47 @@ tests:
             exp_annotations:
               summary: Enabled Hyperspace gate is missing from Prometheus discovery
               description: Gate gate-test is enabled in the control-plane catalog but has no node-exporter target.
+
+  - name: exhausted Helius credits are critical and carry control-plane access
+    interval: 15s
+    input_series:
+      - series: 'hyperspace_helius_credits_remaining{job="hyperspace-control-plane-worker",cluster="staging",provider="helius",service_host="control-plane.staging.hyperspace.zone",service_ipv4="84.32.83.198"}'
+        values: '0x8'
+      - series: 'hyperspace_helius_prepaid_credits_remaining{job="hyperspace-control-plane-worker",cluster="staging",provider="helius",service_host="control-plane.staging.hyperspace.zone",service_ipv4="84.32.83.198"}'
+        values: '0x8'
+    alert_rule_test:
+      - eval_time: 1m15s
+        alertname: HyperspaceHeliusQuotaExhausted
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: hyperspace-control-plane-worker
+              cluster: staging
+              provider: helius
+              service_host: control-plane.staging.hyperspace.zone
+              service_ipv4: 84.32.83.198
+            exp_annotations:
+              summary: Helius credit allowance is exhausted
+              description: No Helius credits remain. Known transaction hashes still use the private RPC, but historical deposit discovery is unavailable.
+
+  - name: stale Solana history scanning is critical
+    interval: 15s
+    input_series:
+      - series: 'hyperspace_control_plane_solana_deposit_scan_cursors{job="hyperspace-control-plane-worker",cluster="staging",service_host="control-plane.staging.hyperspace.zone",service_ipv4="84.32.83.198",instance="84.32.83.198:9091"}'
+        values: '2x150'
+      - series: 'hyperspace_control_plane_solana_deposit_scan_last_success_age_seconds{job="hyperspace-control-plane-worker",cluster="staging",service_host="control-plane.staging.hyperspace.zone",service_ipv4="84.32.83.198",instance="84.32.83.198:9091"}'
+        values: '1900x150'
+    alert_rule_test:
+      - eval_time: 5m15s
+        alertname: HyperspaceSolanaHistoryScanStale
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: hyperspace-control-plane-worker
+              cluster: staging
+              service_host: control-plane.staging.hyperspace.zone
+              service_ipv4: 84.32.83.198
+              instance: 84.32.83.198:9091
+            exp_annotations:
+              summary: Solana historical deposit reconciliation is stale
+              description: No custodial wallet history scan has succeeded for more than 30 minutes; deposits without a submitted transaction hash may be delayed.
