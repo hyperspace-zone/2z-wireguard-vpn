@@ -1,7 +1,9 @@
 [Unit]
 Description=Hyperspace PostgreSQL backup
-After=postgresql.service
+After=network-online.target postgresql.service
+Wants=network-online.target
 Requires=postgresql.service
+RequiresMountsFor=/var/backups/hyperspace
 
 [Service]
 Type=oneshot

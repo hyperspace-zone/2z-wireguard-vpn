@@ -306,6 +306,33 @@ groups:
           summary: Hyperspace PostgreSQL backup is critically stale
           description: The newest PostgreSQL dump on {{ $labels.service_host }} is older than 72 hours.
 
+      - alert: HyperspaceStagingPostgreSQLBackupStorageUnavailable
+        expr: |
+          up{job="hyperspace-host-node",cluster="staging",role="postgresql"} == 1
+          unless on(instance)
+          node_filesystem_size_bytes{job="hyperspace-host-node",cluster="staging",role="postgresql",mountpoint="/var/backups/hyperspace",fstype=~"nfs|nfs4"} > 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: Hyperspace staging PostgreSQL backup storage is unavailable
+          description: The NFS backup storage is not mounted on {{ $labels.service_host }}; backup jobs fail closed instead of writing to the local root filesystem.
+
+      - alert: HyperspaceStagingPostgreSQLBackupStoragePressure
+        expr: |
+          (
+            node_filesystem_avail_bytes{job="hyperspace-host-node",cluster="staging",role="postgresql",mountpoint="/var/backups/hyperspace",fstype=~"nfs|nfs4"}
+              / node_filesystem_size_bytes{job="hyperspace-host-node",cluster="staging",role="postgresql",mountpoint="/var/backups/hyperspace",fstype=~"nfs|nfs4"} < 0.15
+          )
+          or
+          node_filesystem_avail_bytes{job="hyperspace-host-node",cluster="staging",role="postgresql",mountpoint="/var/backups/hyperspace",fstype=~"nfs|nfs4"} < 4294967296
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Hyperspace staging PostgreSQL backup storage is under pressure
+          description: The staging NFS backup storage has less than 15% or 4GiB available.
+
       - alert: HyperspacePostgreSQLOffsiteBackupMissing
         expr: |
           hyperspace_postgres_offsite_backup_configured{job="hyperspace-host-node"} == 1

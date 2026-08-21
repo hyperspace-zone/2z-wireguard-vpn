@@ -58,3 +58,17 @@ HS_DB_OFFSITE_SUCCESS_FILE=/var/lib/hyperspace/db-backup/offsite-last-success
 
 The local dump and offsite timestamp have independent critical alerts. Never
 commit the Restic password or object-storage credentials.
+
+For a provider-managed NFS backup volume, mount the export exactly at
+`/var/backups/hyperspace` and configure:
+
+```dotenv
+HS_DB_OFFSITE_BACKUP_MODE=filesystem
+HS_DB_OFFSITE_FILESYSTEM_TYPE=nfs4
+HS_DB_OFFSITE_SUCCESS_FILE=/var/lib/hyperspace/db-backup/offsite-last-success
+```
+
+The backup job checks the exact mount and filesystem type before creating a
+dump, flushes verified files to the remote filesystem, and only then records
+offsite success. If the mount is absent it fails closed rather than filling the
+local root filesystem.
