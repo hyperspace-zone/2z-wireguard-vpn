@@ -18,7 +18,6 @@ import {
   listAdminSolanaConfigPayments,
   listAdminSolanaDeposits,
   listBillingCustomers,
-  listBillingPlans,
   readAdminTrafficSeries,
   type BillingConfig
 } from "@hyperspace-zone/control-plane";
@@ -32,24 +31,28 @@ export function registerAdminBillingRoutes(
     db: Database;
     requireAdmin: (request: FastifyRequest, reply: FastifyReply) => Promise<AdminAuthContext | null>;
     billing: BillingConfig;
+    treasury?: {
+      address: string;
+      readBalance: () => Promise<bigint>;
+    } | null;
   }
 ): void {
   app.get("/v1/admin/billing/customers", async (request, reply) => {
     const admin = await deps.requireAdmin(request, reply);
     if (!admin) return;
-    const [customers, plans, configs, payments, deposits] = await Promise.all([
+    const [customers, configs, payments, deposits, treasury] = await Promise.all([
       listBillingCustomers(deps.db),
-      listBillingPlans(deps.db),
       listAdminBillingConfigs(deps.db),
       listAdminSolanaConfigPayments(deps.db),
-      listAdminSolanaDeposits(deps.db)
+      listAdminSolanaDeposits(deps.db),
+      readTreasurySummary(deps.treasury)
     ]);
     return reply.send({
       customers,
-      plans,
       configs,
       payments,
       deposits,
+      treasury,
       asset: {
         symbol: deps.billing.solanaTokenSymbol,
         decimals: deps.billing.solanaTokenDecimals,
@@ -225,6 +228,35 @@ export function registerAdminBillingRoutes(
     }, deps.billing);
     return reply.code(202).send(result);
   });
+}
+
+async function readTreasurySummary(
+  treasury: { address: string; readBalance: () => Promise<bigint> } | null | undefined
+): Promise<{
+  address: string | null;
+  balanceBaseUnits: string | null;
+  status: "available" | "unavailable" | "not_configured";
+  checkedAt: string;
+}> {
+  const checkedAt = new Date().toISOString();
+  if (!treasury) {
+    return { address: null, balanceBaseUnits: null, status: "not_configured", checkedAt };
+  }
+  try {
+    return {
+      address: treasury.address,
+      balanceBaseUnits: (await treasury.readBalance()).toString(),
+      status: "available",
+      checkedAt
+    };
+  } catch {
+    return {
+      address: treasury.address,
+      balanceBaseUnits: null,
+      status: "unavailable",
+      checkedAt
+    };
+  }
 }
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;

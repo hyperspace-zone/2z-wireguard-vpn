@@ -1,5 +1,10 @@
 import Fastify, { type FastifyInstance, type FastifyRequest } from "fastify";
-import type { BillingConfig, GoogleOAuthConfig, SessionAbuseControlConfig } from "@hyperspace-zone/control-plane";
+import {
+  readSolanaNativeBalance,
+  type BillingConfig,
+  type GoogleOAuthConfig,
+  type SessionAbuseControlConfig
+} from "@hyperspace-zone/control-plane";
 import type { Database } from "@hyperspace-zone/db";
 import {
   createHealthRegistry,
@@ -79,6 +84,8 @@ export function createApp(input: CreateControlPlaneApiAppInput): FastifyInstance
   });
   const health = input.health ?? createHealthRegistry("control-plane-api");
   const metrics = input.metrics ?? createRuntimeMetrics({ service: "control-plane-api" });
+  const treasuryAddress = config.billing.configPaymentTreasuryAddress ?? "";
+  const solanaRpcUrl = config.billing.solanaRpcUrl;
   const configPaymentService = input.configPaymentService !== undefined
     ? input.configPaymentService
     : config.billing.configPaymentEnabled &&
@@ -153,7 +160,20 @@ export function createApp(input: CreateControlPlaneApiAppInput): FastifyInstance
   registerAdminSessionRoutes(app, { db, requireAdmin: auth.requireAdmin });
   registerAdminJobRoutes(app, { db, requireAdmin: auth.requireAdmin });
   registerAdminAuditRoutes(app, { db, requireAdmin: auth.requireAdmin });
-  registerAdminBillingRoutes(app, { db, requireAdmin: auth.requireBillingAdmin, billing: config.billing });
+  registerAdminBillingRoutes(app, {
+    db,
+    requireAdmin: auth.requireBillingAdmin,
+    billing: config.billing,
+    treasury: solanaRpcUrl && treasuryAddress
+      ? {
+        address: treasuryAddress,
+        readBalance: () => readSolanaNativeBalance(
+          treasuryAddress,
+          { rpcUrl: solanaRpcUrl }
+        )
+      }
+      : null
+  });
   registerAgentSessionRoutes(app);
   registerAgentEntitlementRoutes(app);
   registerGateActualStateRoutes(app, { db, requireGate: auth.requireGate });

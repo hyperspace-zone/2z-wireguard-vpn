@@ -1096,37 +1096,11 @@ small {
   margin: 14px 0 0;
 }
 
-.admin-actions {
-  min-width: 260px;
-}
-
-.admin-actions form {
-  display: grid;
-  gap: 6px;
-  grid-template-columns: minmax(70px, 1fr) minmax(90px, 1.3fr) auto;
-  margin-bottom: 8px;
-}
-
-.admin-actions form:last-child {
-  grid-template-columns: minmax(140px, 1fr) auto;
-  margin-bottom: 0;
-}
-
-.admin-plan-create {
-  align-items: end;
-  border-bottom: 1px solid #d8dee8;
-  display: grid;
-  gap: 8px;
-  grid-template-columns: repeat(5, minmax(120px, 1fr)) auto;
-  margin-bottom: 14px;
-  padding-bottom: 14px;
-}
-
 .admin-metric-strip {
   border-bottom: 1px solid #d8dee8;
   border-top: 1px solid #d8dee8;
   display: grid;
-  grid-template-columns: repeat(5, minmax(120px, 1fr));
+  grid-template-columns: repeat(6, minmax(120px, 1fr));
 }
 
 .admin-metric-strip > div {
@@ -1143,7 +1117,6 @@ small {
 
 .admin-metric-strip small,
 .admin-toolbar small,
-.admin-legacy-controls small,
 [data-admin-config-row] small {
   color: #57606a;
   display: block;
@@ -1324,17 +1297,6 @@ small {
 
 [data-admin-config-row]:hover {
   background: #f1f6fc;
-}
-
-.admin-legacy-controls summary {
-  cursor: pointer;
-  font-size: 15px;
-  font-weight: 700;
-  padding: 2px 0;
-}
-
-.admin-legacy-controls[open] summary {
-  margin-bottom: 16px;
 }
 
 .qr-overlay {
@@ -1730,7 +1692,6 @@ small {
   .grid,
   .account-grid,
   .admin-metric-strip,
-  .admin-plan-create,
   .gate-select-row,
   .optional-config-grid,
   .created-config-result,

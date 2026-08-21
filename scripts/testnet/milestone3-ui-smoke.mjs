@@ -158,7 +158,6 @@ try {
           debtMinor: 0, activeConfigCount: 1, planCode: "pilot", planVersion: 1,
           suspensionDueAt: null, lastSettledAt: null
         }],
-        plans: [],
         configs: [{
           sessionId: adminConfigId, accountId: "account-1", customerEmail: testEmail,
           label: "Staging route", mode: "FullTunnel", phase: "active", desiredState: "Active",
@@ -183,6 +182,12 @@ try {
           walletAddress: depositWalletPublicKey, tokenMint: "native", amountBaseUnits: "1819440",
           creditedAmountMinor: "1819440", observedAt: new Date().toISOString()
         }],
+        treasury: {
+          address: "DWAg34bbga73yiCh1ic9KLAv3B7FDk62GmUcamXF2Ds8",
+          balanceBaseUnits: "12345678",
+          status: "available",
+          checkedAt: new Date().toISOString()
+        },
         asset: {
           symbol: "SOL", decimals: 9, explorerTransactionBaseUrl: "https://orbmarkets.io/tx/",
           configPriceBaseUnits: "100000"
@@ -316,6 +321,10 @@ try {
   await page.getByRole("heading", { name: "Network admin" }).waitFor();
   await page.getByRole("heading", { name: "Traffic consumption" }).waitFor();
   await page.locator(".admin-traffic-chart").waitFor();
+  await page.getByText("0.012345678 SOL", { exact: true }).waitFor();
+  if (await page.getByText("Legacy usage plans and promotional credits", { exact: true }).count()) {
+    throw new Error("legacy usage controls must not be exposed in the network admin");
+  }
   await page.getByText(testEmail, { exact: true }).first().waitFor();
   await page.getByText("Staging route", { exact: true }).first().waitFor();
   await page.locator("#admin-traffic-config").selectOption(adminConfigId);

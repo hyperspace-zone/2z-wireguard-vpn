@@ -19,12 +19,15 @@ const billing: BillingConfig = {
   configPaymentEnabled: true
 };
 
+const treasuryAddress = "DWAg34bbga73yiCh1ic9KLAv3B7FDk62GmUcamXF2Ds8";
+
 test("billing admin overview contains config payments, deposits and asset metadata", async () => {
   const db = emptyDatabase();
   const app = Fastify();
   registerAdminBillingRoutes(app, {
     db,
     billing,
+    treasury: { address: treasuryAddress, readBalance: async () => 12_345_678n },
     requireAdmin: async () => ({ kind: "admin", id: "admin-1" })
   });
 
@@ -35,12 +38,47 @@ test("billing admin overview contains config payments, deposits and asset metada
   assert.deepEqual(body.configs, []);
   assert.deepEqual(body.payments, []);
   assert.deepEqual(body.deposits, []);
+  assert.deepEqual(
+    { ...body.treasury, checkedAt: "checked" },
+    {
+      address: treasuryAddress,
+      balanceBaseUnits: "12345678",
+      status: "available",
+      checkedAt: "checked"
+    }
+  );
   assert.deepEqual(body.asset, {
     symbol: "SOL",
     decimals: 9,
     explorerTransactionBaseUrl: "https://orbmarkets.io/tx/",
     configPriceBaseUnits: "100000"
   });
+  await app.close();
+});
+
+test("billing admin overview remains available when the treasury RPC fails", async () => {
+  const app = Fastify();
+  registerAdminBillingRoutes(app, {
+    db: emptyDatabase(),
+    billing,
+    treasury: {
+      address: treasuryAddress,
+      readBalance: async () => { throw new Error("RPC unavailable"); }
+    },
+    requireAdmin: async () => ({ kind: "admin", id: "admin-1" })
+  });
+
+  const response = await app.inject({ method: "GET", url: "/v1/admin/billing/customers" });
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(
+    { ...response.json().treasury, checkedAt: "checked" },
+    {
+      address: treasuryAddress,
+      balanceBaseUnits: null,
+      status: "unavailable",
+      checkedAt: "checked"
+    }
+  );
   await app.close();
 });
 

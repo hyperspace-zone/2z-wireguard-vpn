@@ -249,21 +249,20 @@ interface AdminBillingCustomer {
   lastSettledAt?: string | null;
 }
 
-interface AdminBillingPlan {
-  code: string;
-  version: number;
-  displayName: string;
-  activeConfigMonthlyMinor: number;
-  trafficPerGbMinor: number;
-}
-
 interface AdminBillingSummary {
   customers: AdminBillingCustomer[];
-  plans: AdminBillingPlan[];
   configs: AdminBillingConfig[];
   payments: AdminConfigPayment[];
   deposits: AdminDeposit[];
+  treasury: AdminTreasurySummary;
   asset: AdminBillingAsset;
+}
+
+interface AdminTreasurySummary {
+  address: string | null;
+  balanceBaseUnits: string | null;
+  status: "available" | "unavailable" | "not_configured";
+  checkedAt: string;
 }
 
 interface AdminBillingConfig {
@@ -924,7 +923,10 @@ function adminBillingView(summary: AdminBillingSummary | null): string {
   const confirmedRevenue = confirmedPayments.reduce((total, payment) => total + safeBigInt(payment.amountLamports), 0n);
   const totalPayload = summary.configs.reduce((total, config) => total + safeBigInt(config.payloadBytes), 0n);
   const totalDeposits = summary.deposits.reduce((total, deposit) => total + safeBigInt(deposit.amountBaseUnits), 0n);
-  const planOptions = summary.plans.map((plan) => `<option value="${escapeHtml(`${plan.code}:${plan.version}`)}">${escapeHtml(plan.displayName)} v${plan.version}</option>`).join("");
+  const treasuryBalance = summary.treasury.status === "available" && summary.treasury.balanceBaseUnits !== null
+    ? `${formatTokenBaseUnits(summary.treasury.balanceBaseUnits, summary.asset.decimals)} ${summary.asset.symbol}`
+    : summary.treasury.status === "not_configured" ? "Not configured" : "Unavailable";
+  const treasuryAddress = summary.treasury.address || "";
   const configOptions = summary.configs.map((config) => {
     const label = config.label?.trim() || config.sessionId.slice(0, 8);
     const selected = adminTrafficSessionId === config.sessionId ? "selected" : "";
@@ -936,6 +938,7 @@ function adminBillingView(summary: AdminBillingSummary | null): string {
       <div class="admin-metric-strip">
         <div><small>Customers</small><strong>${summary.customers.length}</strong></div>
         <div><small>Active configs</small><strong>${activeConfigs.length}</strong></div>
+        <div title="${escapeHtml(treasuryAddress)}"><small>Treasury balance</small><strong>${escapeHtml(treasuryBalance)}</strong>${treasuryAddress ? `<small class="mono">${escapeHtml(shortWallet(treasuryAddress))}</small>` : ""}</div>
         <div><small>Confirmed config revenue</small><strong>${escapeHtml(formatTokenBaseUnits(confirmedRevenue.toString(), summary.asset.decimals))} ${escapeHtml(summary.asset.symbol)}</strong></div>
         <div><small>Observed payload</small><strong>${escapeHtml(formatByteCount(totalPayload))}</strong></div>
         <div><small>Finalized deposits</small><strong>${escapeHtml(formatTokenBaseUnits(totalDeposits.toString(), summary.asset.decimals))} ${escapeHtml(summary.asset.symbol)}</strong></div>
@@ -996,33 +999,6 @@ function adminBillingView(summary: AdminBillingSummary | null): string {
       </table></div>
     </section>
 
-    <details class="panel secondary-panel admin-legacy-controls">
-      <summary>Legacy usage plans and promotional credits</summary>
-      <form id="admin-plan-create" class="admin-plan-create">
-        <label>Code <input name="code" required /></label><label>Name <input name="displayName" required /></label><label>Version <input name="version" type="number" min="1" value="1" required /></label>
-        <label>Per config / month, USD <input name="activeConfigMonthlyUsd" inputmode="decimal" required /></label><label>Per GB, USD <input name="trafficPerGbUsd" inputmode="decimal" required /></label>
-        <button type="submit">Create plan version</button>
-      </form>
-      <div class="table-scroll"><table>
-        <thead><tr><th>Customer</th><th>Plan</th><th>Configs</th><th>Balance</th><th>Paid</th><th>Credits</th><th>Debt</th><th>State</th><th>Actions</th></tr></thead>
-        <tbody>${summary.customers.map((customer) => `
-          <tr>
-            <td><strong>${escapeHtml(customer.displayName)}</strong><small>${escapeHtml(customer.email)}</small><small class="mono">${escapeHtml(customer.accountId)}</small></td>
-            <td>${escapeHtml(customer.planCode)} v${customer.planVersion}</td>
-            <td>${customer.activeConfigCount}</td>
-            <td>${escapeHtml(formatMoneyMinor(customer.balanceMinor, "USD"))}</td>
-            <td>${escapeHtml(formatMoneyMinor(customer.cashMinor, "USD"))}</td>
-            <td>${escapeHtml(formatMoneyMinor(customer.promotionalMinor, "USD"))}</td>
-            <td>${escapeHtml(formatMoneyMinor(customer.debtMinor, "USD"))}</td>
-            <td>${escapeHtml(customer.state)}</td>
-            <td class="admin-actions">
-              <form data-admin-credit="${escapeHtml(customer.accountId)}"><input name="amountUsd" inputmode="decimal" placeholder="Credits" required /><input name="reason" placeholder="Reason" required /><button type="submit">Add</button></form>
-              <form data-admin-plan="${escapeHtml(customer.accountId)}"><select name="plan">${planOptions}</select><button type="submit">Assign</button></form>
-            </td>
-          </tr>
-        `).join("")}</tbody>
-      </table></div>
-    </details>
   `;
 }
 
@@ -2867,24 +2843,6 @@ function bindHandlers(): void {
       }
     });
   }
-  for (const form of document.querySelectorAll("[data-admin-credit]")) {
-    form.addEventListener("submit", (event) => {
-      event.preventDefault();
-      const accountId = (form as HTMLElement).dataset.adminCredit;
-      if (accountId) void addAdminCredit(accountId, new FormData(form as HTMLFormElement));
-    });
-  }
-  for (const form of document.querySelectorAll("[data-admin-plan]")) {
-    form.addEventListener("submit", (event) => {
-      event.preventDefault();
-      const accountId = (form as HTMLElement).dataset.adminPlan;
-      if (accountId) void assignAdminPlan(accountId, new FormData(form as HTMLFormElement));
-    });
-  }
-  document.getElementById("admin-plan-create")?.addEventListener("submit", (event) => {
-    event.preventDefault();
-    void createAdminPlan(new FormData(event.target as HTMLFormElement));
-  });
   for (const button of document.querySelectorAll("[data-copy-wallet]")) {
     button.addEventListener("click", () => {
       const value = (button as HTMLElement).dataset.copyWallet ?? "";
@@ -3243,60 +3201,6 @@ async function cancelWithdrawal(withdrawalId: string): Promise<void> {
     await refresh({ skipAutoMeasure: true });
   } catch (error) {
     log(error instanceof Error ? error.message : "Could not cancel withdrawal.");
-  }
-}
-
-async function addAdminCredit(accountId: string, form: FormData): Promise<void> {
-  const amountMinor = Math.round(Number(String(form.get("amountUsd") ?? "0").replace(",", ".")) * 100);
-  try {
-    await api(`/v1/admin/billing/customers/${encodeURIComponent(accountId)}/credits`, {
-      method: "POST",
-      body: { amountMinor, reason: String(form.get("reason") ?? "") }
-    });
-    log("Promotional credits added.");
-    latestAdminBilling = await getAdminBilling();
-    render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
-  } catch (error) {
-    log(error instanceof Error ? error.message : "Could not add credits.");
-  }
-}
-
-async function assignAdminPlan(accountId: string, form: FormData): Promise<void> {
-  const [code, rawVersion] = String(form.get("plan") ?? "").split(":");
-  try {
-    await api(`/v1/admin/billing/customers/${encodeURIComponent(accountId)}/plan`, {
-      method: "POST",
-      body: { code, version: Number(rawVersion), reason: "Assigned in billing admin" }
-    });
-    log("Billing plan assigned.");
-    latestAdminBilling = await getAdminBilling();
-    render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
-  } catch (error) {
-    log(error instanceof Error ? error.message : "Could not assign plan.");
-  }
-}
-
-async function createAdminPlan(form: FormData): Promise<void> {
-  const toMinor = (name: string) => Math.round(Number(String(form.get(name) ?? "0").replace(",", ".")) * 100);
-  try {
-    await api("/v1/admin/billing/plans", {
-      method: "POST",
-      body: {
-        code: String(form.get("code") ?? "").trim(),
-        displayName: String(form.get("displayName") ?? "").trim(),
-        version: Number(form.get("version")),
-        activeConfigMonthlyMinor: toMinor("activeConfigMonthlyUsd"),
-        trafficPerGbMinor: toMinor("trafficPerGbUsd"),
-        gracePeriodSeconds: 86400,
-        withdrawalCooldownSeconds: 86400,
-        minimumWithdrawalMinor: 100
-      }
-    });
-    log("Billing plan version created.");
-    latestAdminBilling = await getAdminBilling();
-    render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
-  } catch (error) {
-    log(error instanceof Error ? error.message : "Could not create plan.");
   }
 }
 

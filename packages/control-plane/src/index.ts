@@ -54,6 +54,7 @@ export {
   type DoubleZeroUsageImportResult,
   type DoubleZeroUsageRecordInput
 } from "./application/billing/doublezero-usage-import.scenario.js";
+export { readSolanaNativeBalance } from "./application/billing/solana-rpc-verifier.js";
 export {
   applyBillingCredit,
   applyBucketCredit,

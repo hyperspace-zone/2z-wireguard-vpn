@@ -112,13 +112,19 @@ alternative for per-account role management. The static `ADMIN_TOKEN` remains
 an operator fallback and is never sent to the browser.
 
 The admin page exposes every customer's active and historical VPN config,
-native SOL config payment and finalized deposit. Traffic totals and time-series
-charts use raw egress assignment counters, so they remain independent from the
-legacy USD usage-rating model. `billing_admin` is restricted to billing
-endpoints; only `platform_admin` can use gate, job, session, and audit
-administration. Billing administrators can also inspect balances and legacy
-plans, grant non-withdrawable promotional credits, and assign a plan. Every
-manual credit and plan assignment writes an audit event.
+native SOL config payment and finalized deposit. It also reads the platform
+treasury's current finalized native SOL balance through the control-plane RPC.
+An RPC failure is shown as unavailable and does not prevent the remaining admin
+data from loading. Traffic totals and time-series charts use raw egress
+assignment counters, so they remain independent from the disabled legacy USD
+usage-rating model.
+
+Legacy USD plans and promotional-credit controls are intentionally absent from
+the web admin. Their database records and admin-authenticated API endpoints are
+kept temporarily for compatibility and migration, but do not affect native SOL
+config payments while `RETAIL_BILLING_ENABLED=false`. `billing_admin` is
+restricted to billing endpoints; only `platform_admin` can use gate, job,
+session, and audit administration.
 
 Assign one or more deployment-managed administrators in
 `/etc/hyperspace/control-plane-api.env`, then restart the API:

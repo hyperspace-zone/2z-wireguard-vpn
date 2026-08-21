@@ -41,6 +41,13 @@ try {
   assert(Array.isArray(overview.body.configs), "admin overview did not return configs");
   assert(Array.isArray(overview.body.payments), "admin overview did not return payments");
   assert(Array.isArray(overview.body.deposits), "admin overview did not return deposits");
+  assert(overview.body.treasury?.status === "available", "treasury balance is unavailable");
+  assert(/^\d+$/.test(overview.body.treasury.balanceBaseUnits), "treasury balance is not an integer string");
+  assert.equal(
+    await page.getByText("Legacy usage plans and promotional credits", { exact: true }).count(),
+    0,
+    "legacy usage controls are still visible"
+  );
 
   await page.locator('[data-admin-traffic-range="7d"]').click();
   await page.waitForFunction(() => !document.querySelector("#refresh-admin-traffic")?.hasAttribute("disabled"));
@@ -65,6 +72,7 @@ try {
     configs: overview.body.configs.length,
     payments: overview.body.payments.length,
     deposits: overview.body.deposits.length,
+    treasuryBalanceBaseUnits: overview.body.treasury.balanceBaseUnits,
     screenshotPath
   }, null, 2)}\n`);
 } finally {

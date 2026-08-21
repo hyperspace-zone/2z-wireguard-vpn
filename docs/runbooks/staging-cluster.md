@@ -127,8 +127,9 @@ systemctl restart hyperspace-control-plane-api
 
 The `Admin` page must show all customer configs, their native SOL payment
 states, finalized deposits, aggregate raw egress traffic, and per-config traffic
-charts. Validate both the global and per-config 24-hour, 7-day, and 30-day
-ranges after deployment.
+charts. It must show the current finalized treasury balance and must not expose
+the disabled legacy USD plan or promotional-credit controls. Validate both the
+global and per-config 24-hour, 7-day, and 30-day ranges after deployment.
 
 ```bash
 curl -fsS https://app.staging.hyperspace.zone/api/health
