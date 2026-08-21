@@ -18,3 +18,12 @@ test("native SOL billing defaults use lamports and the 0.0001 SOL config price",
   assert.equal(config.billing.configPriceLamports, 100_000);
   assert.equal(config.billing.configPaymentEnabled, true);
 });
+
+test("billing administrator emails are normalized and deduplicated", () => {
+  const config = loadConfig({
+    DATABASE_URL: "postgres://hyperspace:secret@db.test/hyperspace",
+    BILLING_ADMIN_EMAILS: " Admin@Hyperspace.Zone,operator@hyperspace.zone admin@hyperspace.zone invalid"
+  });
+
+  assert.deepEqual(config.billingAdminEmails, ["admin@hyperspace.zone", "operator@hyperspace.zone"]);
+});
