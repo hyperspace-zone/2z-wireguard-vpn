@@ -25,9 +25,10 @@ test("Helius usage polling exports exact project credits without exposing the ke
         creditsRemaining: 800_000,
         creditsUsed: 200_000,
         prepaidCreditsRemaining: 0,
+        creditCycle: { start: "2026-08-01", end: "2026-09-01" },
         subscriptionDetails: {
           creditsLimit: 1_000_000,
-          billingCycle: { start: "2026-08-01", end: "2026-09-01" }
+          billingCycle: null
         }
       }));
     }

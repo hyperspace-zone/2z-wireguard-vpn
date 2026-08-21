@@ -91,13 +91,15 @@ export function readHeliusApiKey(rpcUrl: string): string | null {
 function asHeliusUsagePayload(value: unknown): HeliusUsagePayload {
   const payload = asRecord(value);
   const subscription = asRecord(payload.subscriptionDetails);
-  const billingCycle = asRecord(subscription.billingCycle);
+  const subscriptionBillingCycle = asRecord(subscription.billingCycle);
+  const creditCycle = asRecord(payload.creditCycle);
+  const billingCycleEnd = subscriptionBillingCycle.end ?? creditCycle.end;
   const result: HeliusUsagePayload = {
     creditsRemaining: readNonNegativeNumber(payload.creditsRemaining, "creditsRemaining"),
     creditsUsed: readNonNegativeNumber(payload.creditsUsed, "creditsUsed"),
     subscriptionDetails: {
       creditsLimit: readPositiveNumber(subscription.creditsLimit, "subscriptionDetails.creditsLimit"),
-      billingCycle: { end: String(billingCycle.end ?? "") }
+      billingCycle: { end: String(billingCycleEnd ?? "") }
     }
   };
   if (typeof payload.prepaidCreditsRemaining === "number") {
