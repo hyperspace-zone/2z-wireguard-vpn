@@ -314,6 +314,98 @@ tests:
               summary: Hyperspace PostgreSQL backup is missing
               description: No PostgreSQL custom-format dump is visible on db.testnet.hyperspace.zone.
 
+  - name: configured offsite PostgreSQL backup without a success is critical
+    interval: 1m
+    input_series:
+      - series: 'hyperspace_postgres_offsite_backup_configured{job="hyperspace-host-node",cluster="testnet",role="postgresql",service_host="db.testnet.hyperspace.zone",service_ipv4="81.27.100.29",instance="81.27.100.29:9100"}'
+        values: '1x32'
+      - series: 'hyperspace_postgres_offsite_backup_last_success_timestamp_seconds{job="hyperspace-host-node",cluster="testnet",role="postgresql",service_host="db.testnet.hyperspace.zone",service_ipv4="81.27.100.29",instance="81.27.100.29:9100"}'
+        values: '0x32'
+    alert_rule_test:
+      - eval_time: 31m
+        alertname: HyperspacePostgreSQLOffsiteBackupMissing
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: hyperspace-host-node
+              cluster: testnet
+              role: postgresql
+              service_host: db.testnet.hyperspace.zone
+              service_ipv4: 81.27.100.29
+              instance: 81.27.100.29:9100
+            exp_annotations:
+              summary: Hyperspace offsite PostgreSQL backup is missing
+              description: No successful offsite PostgreSQL backup is recorded on db.testnet.hyperspace.zone.
+
+  - name: missing staging PostgreSQL NFS backup storage is critical
+    interval: 1m
+    input_series:
+      - series: 'up{job="hyperspace-host-node",cluster="staging",role="postgresql",service_host="db.staging.hyperspace.zone",service_ipv4="84.32.97.140",instance="10.179.228.4:9100"}'
+        values: '1x8'
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: HyperspaceStagingPostgreSQLBackupStorageUnavailable
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: hyperspace-host-node
+              cluster: staging
+              role: postgresql
+              service_host: db.staging.hyperspace.zone
+              service_ipv4: 84.32.97.140
+              instance: 10.179.228.4:9100
+            exp_annotations:
+              summary: Hyperspace staging PostgreSQL backup storage is unavailable
+              description: The NFS backup storage is not mounted on db.staging.hyperspace.zone; backup jobs fail closed instead of writing to the local root filesystem.
+
+  - name: low staging PostgreSQL NFS backup storage is a warning
+    interval: 1m
+    input_series:
+      - series: 'node_filesystem_size_bytes{job="hyperspace-host-node",cluster="staging",role="postgresql",service_host="db.staging.hyperspace.zone",service_ipv4="84.32.97.140",instance="10.179.228.4:9100",mountpoint="/var/backups/hyperspace",fstype="nfs4"}'
+        values: '53687091200x13'
+      - series: 'node_filesystem_avail_bytes{job="hyperspace-host-node",cluster="staging",role="postgresql",service_host="db.staging.hyperspace.zone",service_ipv4="84.32.97.140",instance="10.179.228.4:9100",mountpoint="/var/backups/hyperspace",fstype="nfs4"}'
+        values: '3221225472x13'
+    alert_rule_test:
+      - eval_time: 11m
+        alertname: HyperspaceStagingPostgreSQLBackupStoragePressure
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: hyperspace-host-node
+              cluster: staging
+              role: postgresql
+              service_host: db.staging.hyperspace.zone
+              service_ipv4: 84.32.97.140
+              instance: 10.179.228.4:9100
+              mountpoint: /var/backups/hyperspace
+              fstype: nfs4
+            exp_annotations:
+              summary: Hyperspace staging PostgreSQL backup storage is under pressure
+              description: The staging NFS backup storage has less than 15% or 4GiB available.
+
+  - name: stale offsite PostgreSQL backup is critical
+    interval: 5m
+    input_series:
+      - series: 'hyperspace_postgres_offsite_backup_configured{job="hyperspace-host-node",cluster="testnet",role="postgresql",service_host="db.testnet.hyperspace.zone",service_ipv4="81.27.100.29",instance="81.27.100.29:9100"}'
+        values: '1x440'
+      - series: 'hyperspace_postgres_offsite_backup_last_success_timestamp_seconds{job="hyperspace-host-node",cluster="testnet",role="postgresql",service_host="db.testnet.hyperspace.zone",service_ipv4="81.27.100.29",instance="81.27.100.29:9100"}'
+        values: '1x440'
+    alert_rule_test:
+      - eval_time: 36h20m
+        alertname: HyperspacePostgreSQLOffsiteBackupStale
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: hyperspace-host-node
+              cluster: testnet
+              role: postgresql
+              service_host: db.testnet.hyperspace.zone
+              service_ipv4: 81.27.100.29
+              instance: 81.27.100.29:9100
+            exp_annotations:
+              summary: Hyperspace offsite PostgreSQL backup is stale
+              description: The latest successful offsite PostgreSQL backup from db.testnet.hyperspace.zone is older than 36 hours.
+
   - name: public HTTP probe outage is critical
     interval: 15s
     input_series:

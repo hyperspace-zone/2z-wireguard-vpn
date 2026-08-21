@@ -1175,6 +1175,8 @@ DATABASE_URL=${DATABASE_URL}
 AUTH_SESSION_TTL_SECONDS=2592000
 ARTIFACT_DOWNLOAD_TTL_SECONDS=300
 ADMIN_TOKEN=${ADMIN_TOKEN}
+# Comma-separated verified account emails allowed to open the network admin.
+BILLING_ADMIN_EMAILS=
 ARTIFACT_ENCRYPTION_KEY=${ARTIFACT_ENCRYPTION_KEY}
 GATE_AGENT_RELEASE_DIR=/var/lib/hyperspace/gate-agent-releases
 PUBLIC_RATE_LIMIT_ENABLED=true
@@ -1819,6 +1821,40 @@ grep '^hyperspace_postgres_backup_' \
 Do not start a local production dump when free disk cannot hold the dump plus
 PostgreSQL working space. Add backup storage first. Until a verified dump is
 visible, `HyperspacePostgreSQLBackupMissing` intentionally remains critical.
+
+For offsite object storage, place a root-only
+`/etc/hyperspace/db-backup-offsite.env` on the DB host before running the
+installer. The file must provide the Restic repository, its independently
+generated encryption password, and the provider credentials. For an EU R2
+bucket, the shape is:
+
+```dotenv
+AWS_ACCESS_KEY_ID=<bucket-scoped-access-key>
+AWS_SECRET_ACCESS_KEY=<bucket-scoped-secret>
+AWS_DEFAULT_REGION=auto
+RESTIC_REPOSITORY=s3:https://<account-id>.eu.r2.cloudflarestorage.com/<bucket>
+RESTIC_PASSWORD=<independent-random-restic-password>
+RESTIC_CACHE_DIR=/var/cache/hyperspace-restic
+HS_DB_RESTIC_KEEP_DAILY=7
+HS_DB_RESTIC_KEEP_WEEKLY=4
+```
+
+Run `scripts/observability/install-postgres-monitoring`, then set
+`HS_DB_OFFSITE_BACKUP_ENABLED=1` in
+`/etc/hyperspace/postgres-monitoring.env`, restart the health exporter, and verify both
+`hyperspace_postgres_backup_last_success_timestamp_seconds` and
+`hyperspace_postgres_offsite_backup_last_success_timestamp_seconds`. Object
+storage credentials must be restricted to one private bucket; where supported,
+also restrict them to the DB host's egress IP.
+
+For provider-managed NFS storage, mount the export exactly at
+`/var/backups/hyperspace` and set
+`HS_DB_OFFSITE_BACKUP_MODE=filesystem` plus
+`HS_DB_OFFSITE_FILESYSTEM_TYPE=nfs4` in `/etc/hyperspace/db-backup.env`. The
+backup unit requires the mount, and the script verifies its exact target and
+filesystem type before writing. Enable offsite monitoring as above. Never use
+`nofail` without the script mount check: otherwise an unavailable NFS export
+can silently redirect large dumps to the local root filesystem.
 
 For a small observability host, provision swap once:
 

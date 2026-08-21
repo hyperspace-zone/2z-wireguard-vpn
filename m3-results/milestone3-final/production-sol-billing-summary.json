@@ -1,0 +1,39 @@
+{
+  "verifiedAt": "2026-08-20T14:15:07Z",
+  "environment": "production",
+  "status": "passed",
+  "currency": "SOL",
+  "depositAddress": "CrQjEFQ9oTincLL72pp8zGFzfMch8DM3kcg62waYpvRH",
+  "finalizedDeposits": 2,
+  "receivedLamports": 10500000,
+  "creditedLamports": 10500000,
+  "ledgerEntries": 2,
+  "ledgerCreditedLamports": 10500000,
+  "scanCursorError": null,
+  "repeatedScanChangedReceiptCount": false,
+  "transactions": [
+    {
+      "creditedLamports": 5500000,
+      "explorerUrl": "https://orbmarkets.io/tx/5Ad1n2EzhABTcX9cYhYyTp6qrw649uqFH5EhB6TaymjFtzZ2tZjFz4jjcnoBKRAc31HrYQrG163j7gHtrZDZm1Ep"
+    },
+    {
+      "creditedLamports": 5000000,
+      "explorerUrl": "https://orbmarkets.io/tx/CxkV2dENBDuRz5c423gshCVWTiNZ4PhasHf3sqDrq3uAVxv46Hve1QnB6PC2aXWPLwcLUd6Tc6ARcdMmd21Q3CC"
+    }
+  ],
+  "model": "native SOL direct deposit and per-config payment",
+  "depositFlow": "direct_deposit",
+  "configPriceLamports": 100000,
+  "configPriceSol": "0.0001",
+  "latestAcceptanceConfigPayment": {
+    "status": "confirmed",
+    "amountLamports": 100000,
+    "countryExclusion": "Germany",
+    "cleanup": "revoked_and_hidden"
+  },
+  "upstreamAlignment": {
+    "adapter": "normalized replay-safe DoubleZero cost-event import",
+    "markupBps": 1500,
+    "productionFeedStatus": "no upstream charge events supplied for current IBRL connections"
+  }
+}

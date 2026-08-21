@@ -1,0 +1,99 @@
+{
+  "generatedAt": "2026-08-20T13-04-18-407Z",
+  "environment": "production",
+  "status": "passed",
+  "ingressGateName": "gate-eu-lon-01",
+  "egressGateName": "gate-na-sjc-01",
+  "scenarioCount": 8,
+  "checkCount": 32,
+  "passedChecks": 32,
+  "coverage": {
+    "sourceRestriction": [
+      true,
+      false
+    ],
+    "destinationRestriction": [
+      true,
+      false
+    ],
+    "clientKey": [
+      "generated",
+      "provided"
+    ],
+    "wrongPrivateKeyRejected": true
+  },
+  "scenarios": [
+    {
+      "id": "source-restricted__destination-restricted__generated-key",
+      "sourceRestricted": true,
+      "destinationRestricted": true,
+      "providedPublicKey": false,
+      "checkCount": 3,
+      "allChecksPassed": true,
+      "cleanedUp": true
+    },
+    {
+      "id": "source-restricted__destination-restricted__provided-public-key",
+      "sourceRestricted": true,
+      "destinationRestricted": true,
+      "providedPublicKey": true,
+      "checkCount": 4,
+      "allChecksPassed": true,
+      "cleanedUp": true
+    },
+    {
+      "id": "source-restricted__destination-unrestricted__generated-key",
+      "sourceRestricted": true,
+      "destinationRestricted": false,
+      "providedPublicKey": false,
+      "checkCount": 3,
+      "allChecksPassed": true,
+      "cleanedUp": true
+    },
+    {
+      "id": "source-restricted__destination-unrestricted__provided-public-key",
+      "sourceRestricted": true,
+      "destinationRestricted": false,
+      "providedPublicKey": true,
+      "checkCount": 4,
+      "allChecksPassed": true,
+      "cleanedUp": true
+    },
+    {
+      "id": "source-unrestricted__destination-restricted__generated-key",
+      "sourceRestricted": false,
+      "destinationRestricted": true,
+      "providedPublicKey": false,
+      "checkCount": 3,
+      "allChecksPassed": true,
+      "cleanedUp": true
+    },
+    {
+      "id": "source-unrestricted__destination-restricted__provided-public-key",
+      "sourceRestricted": false,
+      "destinationRestricted": true,
+      "providedPublicKey": true,
+      "checkCount": 4,
+      "allChecksPassed": true,
+      "cleanedUp": true
+    },
+    {
+      "id": "source-unrestricted__destination-unrestricted__generated-key",
+      "sourceRestricted": false,
+      "destinationRestricted": false,
+      "providedPublicKey": false,
+      "checkCount": 3,
+      "allChecksPassed": true,
+      "cleanedUp": true
+    },
+    {
+      "id": "source-unrestricted__destination-unrestricted__provided-public-key",
+      "sourceRestricted": false,
+      "destinationRestricted": false,
+      "providedPublicKey": true,
+      "checkCount": 4,
+      "allChecksPassed": true,
+      "cleanedUp": true
+    }
+  ]
+}

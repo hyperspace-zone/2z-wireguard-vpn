@@ -24,6 +24,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ControlPlaneAp
     authSessionTtlSeconds: Number(env.AUTH_SESSION_TTL_SECONDS ?? 60 * 60 * 24 * 30),
     downloadTokenTtlSeconds: Number(env.ARTIFACT_DOWNLOAD_TTL_SECONDS ?? 300),
     ...(env.ADMIN_TOKEN ? { adminToken: env.ADMIN_TOKEN } : {}),
+    billingAdminEmails: readEmailList(env.BILLING_ADMIN_EMAILS),
     artifactEncryptionKey: artifactEncryptionKeyRaw ? parseAes256GcmKey(artifactEncryptionKeyRaw) : null,
     gateAgentReleaseDir: env.GATE_AGENT_RELEASE_DIR ?? "/var/lib/hyperspace/gate-agent-releases",
     emailAuth: {
@@ -154,4 +155,16 @@ function readBoolean(env: NodeJS.ProcessEnv, name: string, fallback: boolean): b
     return fallback;
   }
   return !["0", "false", "no", "off"].includes(raw.trim().toLowerCase());
+}
+
+function readEmailList(raw: string | undefined): string[] {
+  if (!raw) {
+    return [];
+  }
+  return [...new Set(
+    raw
+      .split(/[\s,]+/u)
+      .map((value) => value.trim().toLowerCase())
+      .filter((value) => /^[^@\s]+@[^@\s]+$/u.test(value))
+  )];
 }

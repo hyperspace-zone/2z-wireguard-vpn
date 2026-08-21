@@ -1,16 +1,19 @@
 [Unit]
 Description=Hyperspace PostgreSQL backup
-After=postgresql.service
+After=network-online.target postgresql.service
+Wants=network-online.target
 Requires=postgresql.service
+RequiresMountsFor=/var/backups/hyperspace
 
 [Service]
 Type=oneshot
 User=postgres
 Group=postgres
 EnvironmentFile=-/etc/hyperspace/db-backup.env
+EnvironmentFile=-/etc/hyperspace/db-backup-offsite.env
 ExecStart=/usr/local/sbin/hyperspace-pg-backup
 PrivateTmp=true
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/var/backups/hyperspace
+ReadWritePaths=/var/backups/hyperspace /var/lib/hyperspace/db-backup /var/cache/hyperspace-restic

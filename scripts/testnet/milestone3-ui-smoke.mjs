@@ -53,6 +53,8 @@ let authenticated = false;
 let googleRedirectAfter = null;
 let createdSessionPollCount = 0;
 const sessions = [];
+const adminTrafficRequests = [];
+const adminConfigId = "90386aa8-73e5-4fe0-82c2-8b442e3ad47d";
 const depositWalletPublicKey = "6TQxgf6T4DRqk2r6WwCSw8uFsAdWbym3G8Yt19cZX7wt";
 const depositSignature = "3nRbdPZB7sbmMRacYiepTbAXvDi15JdSoV3eXsUi1UJVTeeFceEyNcnEqFMRGSMq3mKiu5G2ansgpvfDsBCiRo4y";
 const gates = [
@@ -91,7 +93,7 @@ const gates = [
 const browser = await chromium.launch({ headless, executablePath: chromiumExecutable });
 try {
   const page = await browser.newPage();
-  await page.route("**/api/v1/public/**", async (route) => {
+  await page.route("**/api/v1/**", async (route) => {
     const request = route.request();
     const url = new URL(request.url());
     const path = url.pathname.replace("/api", "");
@@ -142,8 +144,71 @@ try {
     }
     if (path === "/v1/public/auth/me") {
       return okAuth
-        ? json(route, { user: { id: "user-1", accountId: "account-1", email: testEmail, displayName: "Pilot", avatarUrl: null } })
+        ? json(route, {
+          user: { id: "user-1", accountId: "account-1", email: testEmail, displayName: "Pilot", avatarUrl: null },
+          capabilities: ["billing:admin"]
+        })
         : json(route, { error: "auth_required" }, 401);
+    }
+    if (path === "/v1/admin/billing/customers") {
+      return json(route, {
+        customers: [{
+          accountId: "account-1", email: testEmail, displayName: "Pilot", state: "active",
+          balanceMinor: 0, cashMinor: 0, promotionalMinor: 0, reservedWithdrawalMinor: 0,
+          debtMinor: 0, activeConfigCount: 1, planCode: "pilot", planVersion: 1,
+          suspensionDueAt: null, lastSettledAt: null
+        }],
+        configs: [{
+          sessionId: adminConfigId, accountId: "account-1", customerEmail: testEmail,
+          label: "Staging route", mode: "FullTunnel", phase: "active", desiredState: "Active",
+          ingressGateName: "gate-eu-ams-21", egressGateName: "gate-na-sjc-01",
+          activeSeconds: 7200, bytesToDestination: "800000000", bytesFromDestination: "400000000",
+          droppedBytes: "0", payloadBytes: "1200000000", chargeMinor: 0,
+          firstTrafficAt: new Date(Date.now() - 7_200_000).toISOString(), lastTrafficAt: new Date().toISOString(),
+          paymentStatus: "confirmed", paymentAmountLamports: "100000", paymentFeeLamports: "5000",
+          paymentTransactionSignature: depositSignature, paymentConfirmedAt: new Date().toISOString(),
+          createdAt: new Date(Date.now() - 7_200_000).toISOString(), updatedAt: new Date().toISOString(), hiddenAt: null,
+          lastRatedAt: null
+        }],
+        payments: [{
+          paymentId: "00000000-0000-4000-8000-000000000901", sessionId: adminConfigId,
+          accountId: "account-1", customerEmail: testEmail, sessionLabel: "Staging route",
+          status: "confirmed", amountLamports: "100000", feeLamports: "5000",
+          transactionSignature: depositSignature, failureCode: null, failureReason: null,
+          createdAt: new Date().toISOString(), submittedAt: new Date().toISOString(), confirmedAt: new Date().toISOString()
+        }],
+        deposits: [{
+          transactionSignature: depositSignature, accountId: "account-1", customerEmail: testEmail,
+          walletAddress: depositWalletPublicKey, tokenMint: "native", amountBaseUnits: "1819440",
+          creditedAmountMinor: "1819440", observedAt: new Date().toISOString()
+        }],
+        treasury: {
+          address: "DWAg34bbga73yiCh1ic9KLAv3B7FDk62GmUcamXF2Ds8",
+          balanceBaseUnits: "12345678",
+          status: "available",
+          checkedAt: new Date().toISOString()
+        },
+        asset: {
+          symbol: "SOL", decimals: 9, explorerTransactionBaseUrl: "https://orbmarkets.io/tx/",
+          configPriceBaseUnits: "100000"
+        }
+      });
+    }
+    if (path === "/v1/admin/billing/traffic") {
+      adminTrafficRequests.push({ range: url.searchParams.get("range"), sessionId: url.searchParams.get("sessionId") });
+      const now = Date.now();
+      return json(route, {
+        range: url.searchParams.get("range") || "24h",
+        sessionId: url.searchParams.get("sessionId"),
+        from: new Date(now - 3_600_000).toISOString(),
+        to: new Date(now).toISOString(),
+        bucketSeconds: 900,
+        points: [
+          { bucketStart: new Date(now - 3_600_000).toISOString(), bytesToDestination: "100000000", bytesFromDestination: "50000000", droppedBytes: "0", configCount: 1 },
+          { bucketStart: new Date(now - 1_800_000).toISOString(), bytesToDestination: "300000000", bytesFromDestination: "150000000", droppedBytes: "1024", configCount: 1 },
+          { bucketStart: new Date(now).toISOString(), bytesToDestination: "400000000", bytesFromDestination: "200000000", droppedBytes: "0", configCount: 1 }
+        ]
+      });
     }
     if (path === "/v1/public/billing") {
       return json(route, {
@@ -251,6 +316,31 @@ try {
     throw new Error("billing page overflows the mobile viewport");
   }
   await capture(page, "billing-mobile");
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.getByLabel("Primary").getByRole("link", { name: "Admin", exact: true }).click();
+  await page.getByRole("heading", { name: "Network admin" }).waitFor();
+  await page.getByRole("heading", { name: "Traffic consumption" }).waitFor();
+  await page.locator(".admin-traffic-chart").waitFor();
+  await page.getByText("0.012345678 SOL", { exact: true }).waitFor();
+  if (await page.getByText("Legacy usage plans and promotional credits", { exact: true }).count()) {
+    throw new Error("legacy usage controls must not be exposed in the network admin");
+  }
+  await page.getByText(testEmail, { exact: true }).first().waitFor();
+  await page.getByText("Staging route", { exact: true }).first().waitFor();
+  await page.locator("#admin-traffic-config").selectOption(adminConfigId);
+  await page.getByRole("button", { name: "7d", exact: true }).click();
+  await page.waitForFunction(() => document.querySelector("#refresh-admin-traffic")?.textContent === "Refresh");
+  await page.locator('#admin-config-filters select[name="status"]').selectOption("paid");
+  await page.locator("#admin-config-filters").getByRole("button", { name: "Apply" }).click();
+  await capture(page, "network-admin-desktop");
+  if (!adminTrafficRequests.some((request) => request.range === "7d" && request.sessionId === adminConfigId)) {
+    throw new Error(`admin traffic selection was not requested: ${JSON.stringify(adminTrafficRequests)}`);
+  }
+  await page.setViewportSize({ width: 390, height: 844 });
+  if (await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)) {
+    throw new Error("network admin page overflows the mobile viewport");
+  }
+  await capture(page, "network-admin-mobile");
   await page.setViewportSize({ width: 1280, height: 720 });
   await page.getByLabel("Primary").getByRole("link", { name: "Dashboard", exact: true }).click();
   if (await page.getByRole("heading", { name: "Deposit SOL" }).count()) {

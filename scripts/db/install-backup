@@ -9,6 +9,8 @@ fi
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
 install -d -o postgres -g postgres -m 0700 /var/backups/hyperspace
+install -d -o postgres -g postgres -m 0700 /var/lib/hyperspace/db-backup
+install -d -o postgres -g postgres -m 0700 /var/cache/hyperspace-restic
 install -d -o root -g root -m 0750 /etc/hyperspace
 install -o root -g root -m 0755 \
   "$repo_root/scripts/db/hyperspace-pg-backup" \
@@ -26,6 +28,11 @@ HS_DB_NAME=hyperspace
 HS_DB_BACKUP_DIR=/var/backups/hyperspace
 HS_DB_BACKUP_RETENTION_DAYS=14
 EOF
+fi
+
+if [[ -s /etc/hyperspace/db-backup-offsite.env ]] && ! command -v restic >/dev/null; then
+  apt-get update
+  DEBIAN_FRONTEND=noninteractive apt-get install -y restic
 fi
 
 systemctl daemon-reload

@@ -64,9 +64,9 @@ try {
   result.steps.push("fixtures_created");
 
   await login(adminEmail);
-  await page.getByRole("link", { name: "Billing admin" }).click();
+  await page.getByRole("link", { name: "Admin", exact: true }).click();
   await page.waitForURL(`${webBase}/admin/billing`, { timeout: 30_000 });
-  await page.getByRole("heading", { name: "Billing admin" }).waitFor();
+  await page.getByRole("heading", { name: "Network admin" }).waitFor();
   let customerRow = page.locator("tr", { hasText: customerEmail }).first();
   await customerRow.waitFor();
 

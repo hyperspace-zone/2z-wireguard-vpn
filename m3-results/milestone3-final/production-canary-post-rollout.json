@@ -1,0 +1,18 @@
+{
+  "name": "gate-eu-sxb-41",
+  "city": "Strasbourg",
+  "country": "France",
+  "publicIpv4": "54.37.15.97",
+  "ready": true,
+  "schedulable": true,
+  "doubleZeroDevice": "dz-fra-01",
+  "doubleZeroDeviceStatus": "activated",
+  "doubleZeroMetro": "Frankfurt",
+  "doubleZeroNetwork": "mainnet-beta",
+  "tunnelStatus": "BGP Session Up",
+  "routeState": "ready",
+  "agentVersion": "0.4.0",
+  "agentRevision": "15fc8732ee5c8d2f14d1faa79692900ced4e5518",
+  "agentArtifactSha256": "ed6c2d50fd5c2af8e4798bf308c75f8f36a1cce08c1721cc1cb6c2bf2bc815c4",
+  "lastSeenAt": "2026-08-21T09:05:55.741Z"
+}

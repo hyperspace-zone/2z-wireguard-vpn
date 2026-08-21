@@ -103,15 +103,38 @@ signer before materially large balances are held.
 
 ## Administration
 
-The web billing admin uses the normal bearer session plus the `billing_admin`
-role. The static `ADMIN_TOKEN` remains an operator fallback and is never sent to
-the browser. `billing_admin` is restricted to billing endpoints; only
-`platform_admin` can use gate, job, session, and audit administration.
-Billing administrators can inspect customers, config counts, buckets,
-state and plans; grant non-withdrawable promotional credits; and assign a plan.
-Every manual credit and plan assignment writes an audit event.
+The web network admin uses a normal authenticated bearer session. Access can be
+assigned in deployment configuration with a comma-separated, case-insensitive
+`BILLING_ADMIN_EMAILS` allowlist. The account must contain a verified identity
+for the configured email; merely registering an unverified address does not
+grant access. A database `billing_admin` or `platform_admin` role is the
+alternative for per-account role management. The static `ADMIN_TOKEN` remains
+an operator fallback and is never sent to the browser.
 
-Grant access on the control-plane host:
+The admin page exposes every customer's active and historical VPN config,
+native SOL config payment and finalized deposit. It also reads the platform
+treasury's current finalized native SOL balance through the control-plane RPC.
+An RPC failure is shown as unavailable and does not prevent the remaining admin
+data from loading. Traffic totals and time-series charts use raw egress
+assignment counters, so they remain independent from the disabled legacy USD
+usage-rating model.
+
+Legacy USD plans and promotional-credit controls are intentionally absent from
+the web admin. Their database records and admin-authenticated API endpoints are
+kept temporarily for compatibility and migration, but do not affect native SOL
+config payments while `RETAIL_BILLING_ENABLED=false`. `billing_admin` is
+restricted to billing endpoints; only `platform_admin` can use gate, job,
+session, and audit administration.
+
+Assign one or more deployment-managed administrators in
+`/etc/hyperspace/control-plane-api.env`, then restart the API:
+
+```bash
+BILLING_ADMIN_EMAILS=operator@hyperspace.zone,finance@hyperspace.zone
+systemctl restart hyperspace-control-plane-api
+```
+
+Alternatively, grant a database-backed role on the control-plane host:
 
 ```bash
 cd /opt/2z-wireguard-vpn

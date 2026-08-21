@@ -62,6 +62,8 @@ EOF
 cat >/etc/hyperspace/postgres-monitoring.env <<EOF
 HS_POSTGRES_DATABASE=${database}
 HS_DB_BACKUP_DIR=/var/backups/hyperspace
+HS_DB_OFFSITE_BACKUP_ENABLED=0
+HS_DB_OFFSITE_SUCCESS_FILE=/var/lib/hyperspace/db-backup/offsite-last-success
 HS_POSTGRES_METRICS_DIR=/var/lib/node_exporter/textfile_collector
 EOF
 chmod 0644 /etc/hyperspace/postgres-monitoring.env

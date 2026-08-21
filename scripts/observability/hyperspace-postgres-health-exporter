@@ -4,6 +4,8 @@ set -euo pipefail
 database="${HS_POSTGRES_DATABASE:-hyperspace}"
 backup_dir="${HS_DB_BACKUP_DIR:-/var/backups/hyperspace}"
 metrics_dir="${HS_POSTGRES_METRICS_DIR:-/var/lib/node_exporter/textfile_collector}"
+offsite_enabled="${HS_DB_OFFSITE_BACKUP_ENABLED:-0}"
+offsite_success_file="${HS_DB_OFFSITE_SUCCESS_FILE:-/var/lib/hyperspace/db-backup/offsite-last-success}"
 output="${metrics_dir}/hyperspace_postgres_health.prom"
 tmp="$(mktemp "${metrics_dir}/.hyperspace_postgres_health.XXXXXX")"
 trap 'test ! -e "$tmp" || unlink "$tmp"' EXIT
@@ -33,6 +35,11 @@ if [[ -n "$latest_backup" ]]; then
   backup_timestamp="${backup_timestamp%%.*}"
 fi
 now="$(date +%s)"
+offsite_timestamp=0
+if [[ "$offsite_enabled" == "1" && -r "$offsite_success_file" ]]; then
+  read -r offsite_timestamp <"$offsite_success_file"
+  [[ "$offsite_timestamp" =~ ^[0-9]+$ ]] || offsite_timestamp=0
+fi
 
 cat >"$tmp" <<EOF
 # HELP hyperspace_postgres_health_exporter_last_run_timestamp_seconds Unix timestamp of the latest successful PostgreSQL health collection.
@@ -68,6 +75,12 @@ hyperspace_postgres_backup_last_success_timestamp_seconds ${backup_timestamp}
 # HELP hyperspace_postgres_backup_last_size_bytes Size of the newest custom-format dump.
 # TYPE hyperspace_postgres_backup_last_size_bytes gauge
 hyperspace_postgres_backup_last_size_bytes ${backup_size}
+# HELP hyperspace_postgres_offsite_backup_configured Whether an offsite PostgreSQL backup target is configured.
+# TYPE hyperspace_postgres_offsite_backup_configured gauge
+hyperspace_postgres_offsite_backup_configured ${offsite_enabled}
+# HELP hyperspace_postgres_offsite_backup_last_success_timestamp_seconds Unix timestamp of the latest successful offsite PostgreSQL backup.
+# TYPE hyperspace_postgres_offsite_backup_last_success_timestamp_seconds gauge
+hyperspace_postgres_offsite_backup_last_success_timestamp_seconds ${offsite_timestamp}
 EOF
 chmod 0644 "$tmp"
 mv "$tmp" "$output"

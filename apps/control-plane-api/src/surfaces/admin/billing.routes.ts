@@ -15,13 +15,15 @@ import {
   insertDoubleZeroTenantBillingSnapshot,
   insertDoubleZeroTenantCostEvent,
   listAdminBillingConfigs,
+  listAdminSolanaConfigPayments,
+  listAdminSolanaDeposits,
   listBillingCustomers,
-  listBillingPlans,
+  readAdminTrafficSeries,
   type BillingConfig
 } from "@hyperspace-zone/control-plane";
 import type { Database } from "@hyperspace-zone/db";
 import type { AdminAuthContext } from "../../http/auth.js";
-import { asRecord, readString } from "../../http/request.js";
+import { asRecord, readQuery, readString } from "../../http/request.js";
 
 export function registerAdminBillingRoutes(
   app: FastifyInstance,
@@ -29,15 +31,60 @@ export function registerAdminBillingRoutes(
     db: Database;
     requireAdmin: (request: FastifyRequest, reply: FastifyReply) => Promise<AdminAuthContext | null>;
     billing: BillingConfig;
+    treasury?: {
+      address: string;
+      readBalance: () => Promise<bigint>;
+    } | null;
   }
 ): void {
   app.get("/v1/admin/billing/customers", async (request, reply) => {
     const admin = await deps.requireAdmin(request, reply);
     if (!admin) return;
-    const [customers, plans, configs] = await Promise.all([
-      listBillingCustomers(deps.db), listBillingPlans(deps.db), listAdminBillingConfigs(deps.db)
+    const [customers, configs, payments, deposits, treasury] = await Promise.all([
+      listBillingCustomers(deps.db),
+      listAdminBillingConfigs(deps.db),
+      listAdminSolanaConfigPayments(deps.db),
+      listAdminSolanaDeposits(deps.db),
+      readTreasurySummary(deps.treasury)
     ]);
-    return reply.send({ customers, plans, configs });
+    return reply.send({
+      customers,
+      configs,
+      payments,
+      deposits,
+      treasury,
+      asset: {
+        symbol: deps.billing.solanaTokenSymbol,
+        decimals: deps.billing.solanaTokenDecimals,
+        explorerTransactionBaseUrl: deps.billing.solanaExplorerTransactionBaseUrl,
+        configPriceBaseUnits: String(deps.billing.configPriceLamports ?? 0)
+      }
+    });
+  });
+
+  app.get("/v1/admin/billing/traffic", async (request, reply) => {
+    const admin = await deps.requireAdmin(request, reply);
+    if (!admin) return;
+    const range = adminTrafficRange(readQuery(request, "range"));
+    const sessionId = readQuery(request, "sessionId");
+    if (sessionId && !uuidPattern.test(sessionId)) {
+      return reply.code(400).send({ error: "invalid_session_id", message: "sessionId must be a UUID." });
+    }
+    const now = new Date();
+    const from = new Date(now.getTime() - range.durationMs).toISOString();
+    const points = await readAdminTrafficSeries(deps.db, {
+      from,
+      bucketSeconds: range.bucketSeconds,
+      ...(sessionId ? { sessionId } : {})
+    });
+    return reply.send({
+      range: range.name,
+      sessionId: sessionId || null,
+      from,
+      to: now.toISOString(),
+      bucketSeconds: range.bucketSeconds,
+      points
+    });
   });
 
   app.post("/v1/admin/billing/customers/:accountId/credits", async (request, reply) => {
@@ -181,6 +228,47 @@ export function registerAdminBillingRoutes(
     }, deps.billing);
     return reply.code(202).send(result);
   });
+}
+
+async function readTreasurySummary(
+  treasury: { address: string; readBalance: () => Promise<bigint> } | null | undefined
+): Promise<{
+  address: string | null;
+  balanceBaseUnits: string | null;
+  status: "available" | "unavailable" | "not_configured";
+  checkedAt: string;
+}> {
+  const checkedAt = new Date().toISOString();
+  if (!treasury) {
+    return { address: null, balanceBaseUnits: null, status: "not_configured", checkedAt };
+  }
+  try {
+    return {
+      address: treasury.address,
+      balanceBaseUnits: (await treasury.readBalance()).toString(),
+      status: "available",
+      checkedAt
+    };
+  } catch {
+    return {
+      address: treasury.address,
+      balanceBaseUnits: null,
+      status: "unavailable",
+      checkedAt
+    };
+  }
+}
+
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
+
+function adminTrafficRange(value: string): { name: "24h" | "7d" | "30d"; durationMs: number; bucketSeconds: number } {
+  if (value === "7d") {
+    return { name: "7d", durationMs: 7 * 24 * 60 * 60 * 1000, bucketSeconds: 60 * 60 };
+  }
+  if (value === "30d") {
+    return { name: "30d", durationMs: 30 * 24 * 60 * 60 * 1000, bucketSeconds: 6 * 60 * 60 };
+  }
+  return { name: "24h", durationMs: 24 * 60 * 60 * 1000, bucketSeconds: 15 * 60 };
 }
 
 function readPathParam(request: FastifyRequest, key: string): string {

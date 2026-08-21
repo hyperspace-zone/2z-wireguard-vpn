@@ -74,6 +74,26 @@ The service validates each archive with `pg_restore --list`, publishes it
 atomically, and retains 14 days by default. Override the database, directory, or
 retention in `/etc/hyperspace/db-backup.env`.
 
+The Cherry Servers backup volume is mounted over the staging private network:
+
+```fstab
+10.179.228.31:/export/backup /var/backups/hyperspace nfs4 rw,noatime,hard,timeo=60,retrans=2,vers=4.1,_netdev,nofail,x-systemd.mount-timeout=30s 0 0
+```
+
+The database host's `10.179.228.4` address must retain NFS access in the
+provider ACL. Configure the backup as an offsite filesystem target:
+
+```dotenv
+HS_DB_OFFSITE_BACKUP_MODE=filesystem
+HS_DB_OFFSITE_FILESYSTEM_TYPE=nfs4
+HS_DB_OFFSITE_SUCCESS_FILE=/var/lib/hyperspace/db-backup/offsite-last-success
+```
+
+Set `HS_DB_OFFSITE_BACKUP_ENABLED=1` in
+`/etc/hyperspace/postgres-monitoring.env`. The job refuses to create a dump
+unless `/var/backups/hyperspace` is the exact NFSv4 mount. Prometheus reports a
+missing mount as critical and low backup capacity as warning.
+
 ## Service Host Monitoring
 
 Install the repository-managed node exporter on the web, control-plane, and
@@ -114,6 +134,23 @@ and TLS certificate lifetime without contacting another Hyperspace cluster.
 
 ## Validation
 
+Assign staging network administrators in the deployment-local API environment.
+Only verified identities matching this allowlist receive the browser admin
+capability; do not commit real operator addresses into the repository:
+
+```bash
+sed -i '/^BILLING_ADMIN_EMAILS=/d' /etc/hyperspace/control-plane-api.env
+printf '%s\n' 'BILLING_ADMIN_EMAILS=<verified-operator-email>' \
+  >>/etc/hyperspace/control-plane-api.env
+systemctl restart hyperspace-control-plane-api
+```
+
+The `Admin` page must show all customer configs, their native SOL payment
+states, finalized deposits, aggregate raw egress traffic, and per-config traffic
+charts. It must show the current finalized treasury balance and must not expose
+the disabled legacy USD plan or promotional-credit controls. Validate both the
+global and per-config 24-hour, 7-day, and 30-day ranges after deployment.
+
 ```bash
 curl -fsS https://app.staging.hyperspace.zone/api/health
 curl -fsS https://app.staging.hyperspace.zone/api/v1/public/gates | jq .
@@ -141,10 +178,10 @@ Before authentication acceptance:
    `/etc/prometheus/telegram_bot_token`, render receivers from
    `infra/observability/alertmanager/telegram-receivers.staging.example.json`,
    and validate the result with `amtool check-config`. The checked-in receiver
-   file routes all severities to the staging group and operator account, and
-   critical alerts to the staging critical channel. Change recipient IDs in a
+   file routes `critical` and `warning` to separate staging chats. The null
+   default drops unlabeled and informational alerts. Change recipient IDs in a
    deployment-local receiver file when a different staging audience is needed;
-   never send staging incidents into production channels.
+   never send staging incidents into testnet or production channels.
 
 The staging API and worker receive the private Solana mainnet `SOLANA_RPC_URL`.
 The worker also receives a credential-bearing `SOLANA_HISTORY_RPC_URL` for
