@@ -153,7 +153,7 @@ export async function verifySolanaTopupTransaction(
   const fetchImpl = config.fetchImpl ?? fetch;
   const statuses = await rpcCall(fetchImpl, config.rpcUrl, "getSignatureStatuses", [
     [expectation.transactionSignature],
-    { searchTransactionHistory: true }
+    { searchTransactionHistory: false }
   ]);
   const signatureStatus = asRecord(asArray(asRecord(statuses).value)[0]);
   if (Object.keys(signatureStatus).length === 0) {
@@ -241,7 +241,7 @@ export async function verifySolanaDirectDepositTransaction(
   const fetchImpl = config.fetchImpl ?? fetch;
   const statuses = await rpcCall(fetchImpl, config.rpcUrl, "getSignatureStatuses", [
     [input.transactionSignature],
-    { searchTransactionHistory: true }
+    { searchTransactionHistory: false }
   ]);
   const signatureStatus = asRecord(asArray(asRecord(statuses).value)[0]);
   if (Object.keys(signatureStatus).length === 0) {
@@ -306,7 +306,7 @@ export async function verifyNativeSolDirectDepositTransaction(
   const fetchImpl = config.fetchImpl ?? fetch;
   const statuses = await rpcCall(fetchImpl, config.rpcUrl, "getSignatureStatuses", [
     [input.transactionSignature],
-    { searchTransactionHistory: true }
+    { searchTransactionHistory: false }
   ]);
   const signatureStatus = asRecord(asArray(asRecord(statuses).value)[0]);
   if (Object.keys(signatureStatus).length === 0) return { status: "pending", reason: "transaction_not_found" };
