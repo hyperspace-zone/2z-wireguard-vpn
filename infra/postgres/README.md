@@ -42,3 +42,19 @@ The health collector discovers the newest
 with `scripts/db/install-backup`, or point `HS_DB_BACKUP_DIR` in
 `/etc/hyperspace/postgres-monitoring.env` at the real backup directory. A
 missing dump is a real critical alert, not an exporter setup condition.
+
+For an encrypted offsite copy, create `/etc/hyperspace/db-backup-offsite.env`
+with `RESTIC_REPOSITORY`, `RESTIC_PASSWORD`, provider credentials, and an
+optional `RESTIC_CACHE_DIR`. Restrict the file to root (`0600`) before running
+`scripts/db/install-backup`. The backup job verifies the PostgreSQL custom
+dump, uploads the dump and cluster globals through Restic, checks the remote
+repository, retains seven daily and four weekly snapshots, and records a
+separate offsite-success timestamp. Set the following on the monitored DB host:
+
+```dotenv
+HS_DB_OFFSITE_BACKUP_ENABLED=1
+HS_DB_OFFSITE_SUCCESS_FILE=/var/lib/hyperspace/db-backup/offsite-last-success
+```
+
+The local dump and offsite timestamp have independent critical alerts. Never
+commit the Restic password or object-storage credentials.

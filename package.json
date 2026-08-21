@@ -37,6 +37,7 @@
     "test:gate-provisioning": "node --test scripts/gates/*.test.mjs",
     "test:control-plane-deployment": "node --test scripts/control-plane/*.test.mjs",
     "test:billing-operations": "node --test scripts/billing/*.test.mjs",
+    "test:db-backup": "node --test scripts/db/*.test.mjs",
     "measure:matrix": "python3 scripts/testnodes/run_measurement_matrix.py",
     "measure:compare": "python3 scripts/testnodes/compare_measurements.py",
     "typecheck": "npm run typecheck --workspaces --if-present"

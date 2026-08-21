@@ -4,22 +4,70 @@ set -euo pipefail
 backup_dir="${HS_DB_BACKUP_DIR:-/var/backups/hyperspace}"
 database="${HS_DB_NAME:-hyperspace}"
 retention_days="${HS_DB_BACKUP_RETENTION_DAYS:-14}"
+offsite_success_file="${HS_DB_OFFSITE_SUCCESS_FILE:-/var/lib/hyperspace/db-backup/offsite-last-success}"
+restic_keep_daily="${HS_DB_RESTIC_KEEP_DAILY:-7}"
+restic_keep_weekly="${HS_DB_RESTIC_KEEP_WEEKLY:-4}"
 stamp="$(date -u +%Y%m%dT%H%M%SZ)"
 tmp="${backup_dir}/.${database}-${stamp}.dump.tmp"
 final="${backup_dir}/${database}-${stamp}.dump"
+globals_tmp="${backup_dir}/.${database}-globals-${stamp}.sql.tmp"
+globals_final="${backup_dir}/${database}-globals-${stamp}.sql"
 
 [[ "$retention_days" =~ ^[1-9][0-9]*$ ]] || {
   echo "HS_DB_BACKUP_RETENTION_DAYS must be a positive integer" >&2
   exit 2
 }
+for value_name in restic_keep_daily restic_keep_weekly; do
+  value="${!value_name}"
+  [[ "$value" =~ ^[1-9][0-9]*$ ]] || {
+    echo "${value_name} must be a positive integer" >&2
+    exit 2
+  }
+done
+
+if [[ -n "${RESTIC_REPOSITORY:-}" ]]; then
+  command -v restic >/dev/null || {
+    echo "restic is required when RESTIC_REPOSITORY is configured" >&2
+    exit 2
+  }
+  [[ -n "${RESTIC_PASSWORD:-}" ]] || {
+    echo "RESTIC_PASSWORD is required when RESTIC_REPOSITORY is configured" >&2
+    exit 2
+  }
+fi
 
 umask 077
 install -d -m 0700 "$backup_dir"
-trap 'test ! -e "$tmp" || rm "$tmp"' EXIT
+trap 'test ! -e "$tmp" || unlink "$tmp"; test ! -e "$globals_tmp" || unlink "$globals_tmp"' EXIT
 
+pg_dumpall --globals-only --file="$globals_tmp"
 pg_dump --format=custom --dbname="$database" --file="$tmp"
 pg_restore --list "$tmp" >/dev/null
 mv "$tmp" "$final"
+mv "$globals_tmp" "$globals_final"
+
 find "$backup_dir" -maxdepth 1 -type f -name "${database}-*.dump" -mtime "+${retention_days}" -delete
+find "$backup_dir" -maxdepth 1 -type f -name "${database}-globals-*.sql" -mtime "+${retention_days}" -delete
+
+if [[ -n "${RESTIC_REPOSITORY:-}" ]]; then
+  backup_host="${HS_DB_BACKUP_HOST:-$(hostname)}"
+  restic backup \
+    --host "$backup_host" \
+    --tag hyperspace-postgresql \
+    --tag "$database" \
+    "$final" "$globals_final"
+  restic check
+  restic forget \
+    --host "$backup_host" \
+    --tag hyperspace-postgresql \
+    --keep-daily "$restic_keep_daily" \
+    --keep-weekly "$restic_keep_weekly" \
+    --prune
+
+  install -d -m 0700 "$(dirname "$offsite_success_file")"
+  success_tmp="${offsite_success_file}.tmp"
+  printf '%s\n' "$(date +%s)" >"$success_tmp"
+  mv "$success_tmp" "$offsite_success_file"
+fi
 
 printf '%s\n' "$final"
