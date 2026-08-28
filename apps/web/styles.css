@@ -49,15 +49,11 @@ body {
   gap: 8px;
 }
 
-.trading-brand-mark {
-  align-items: center;
-  background: linear-gradient(135deg, #7857ff, #2bc8ff);
-  border-radius: 7px;
-  display: inline-flex;
-  font-size: 12px;
-  font-weight: 900;
+.trading-brand-logo {
+  border: 1px solid #26334d;
+  border-radius: 6px;
   height: 25px;
-  justify-content: center;
+  object-fit: cover;
   width: 25px;
 }
 
@@ -150,7 +146,7 @@ body {
   left: 18px;
   position: absolute;
   top: 16px;
-  z-index: 3;
+  z-index: 800;
 }
 
 .trading-map-controls label {
@@ -184,7 +180,7 @@ body {
   position: absolute;
   right: 18px;
   top: 16px;
-  z-index: 3;
+  z-index: 800;
 }
 
 .trading-map-summary > div {
@@ -210,47 +206,49 @@ body {
 }
 
 .trading-map-wrap,
-.trading-world-map {
+#trading-map {
   height: 100%;
   width: 100%;
 }
 
-.trading-world-map {
-  display: block;
+.trading-map-wrap {
+  background: #080b12;
 }
 
-.trading-graticule line {
-  stroke: #273044;
-  stroke-opacity: .32;
-  stroke-width: 1;
+#trading-map {
+  background: radial-gradient(circle at center, #14213a, #080b12 72%);
 }
 
-.trading-continents path {
-  fill: #1b2432;
-  stroke: #344055;
-  stroke-width: 1.3;
+#trading-map .leaflet-tile-pane {
+  filter: grayscale(.55) invert(.92) hue-rotate(178deg) brightness(.82) contrast(.92) saturate(.65);
 }
 
-.trading-map-node {
-  cursor: pointer;
-  outline: none;
+#trading-map .leaflet-control-attribution,
+#trading-map .leaflet-control-zoom a {
+  background: rgba(9, 13, 21, .88);
+  color: #aeb8ca;
 }
 
-.trading-map-pulse {
-  opacity: .2;
-  transform-box: fill-box;
-  transform-origin: center;
-  animation: trading-pulse 2.4s ease-out infinite;
+#trading-map .leaflet-control-attribution a,
+#trading-map .leaflet-control-zoom a:hover {
+  color: #64ddd8;
 }
 
-.trading-map-node:hover .trading-map-pulse,
-.trading-map-node:focus .trading-map-pulse {
-  opacity: .55;
+#trading-map .leaflet-control-zoom {
+  border-color: #30394b;
+  margin-top: 86px;
 }
 
-@keyframes trading-pulse {
-  0% { transform: scale(.45); opacity: .45; }
-  75%, 100% { transform: scale(1.35); opacity: 0; }
+.trading-map-tooltip {
+  background: rgba(8, 12, 20, .96);
+  border: 1px solid #33415a;
+  color: #dce4f2;
+  line-height: 1.45;
+  padding: 7px 9px;
+}
+
+.trading-map-tooltip::before {
+  border-top-color: #33415a !important;
 }
 
 .trading-map-legend {
@@ -264,6 +262,7 @@ body {
   left: 18px;
   padding: 8px 10px;
   position: absolute;
+  z-index: 800;
 }
 
 .trading-map-legend span {

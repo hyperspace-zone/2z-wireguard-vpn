@@ -47,6 +47,31 @@ interface TradingPayload {
   measurements: TradingMeasurement[];
 }
 
+interface LeafletMapInstance {
+  getCenter(): { lat: number; lng: number };
+  getZoom(): number;
+  invalidateSize(): void;
+  remove(): void;
+  setView(center: [number, number], zoom: number): LeafletMapInstance;
+}
+
+interface LeafletLayer {
+  addTo(map: LeafletMapInstance): LeafletLayer;
+  bindTooltip(content: string, options?: Record<string, unknown>): LeafletLayer;
+}
+
+interface LeafletApi {
+  map(element: HTMLElement, options: Record<string, unknown>): LeafletMapInstance;
+  tileLayer(url: string, options: Record<string, unknown>): LeafletLayer;
+  circleMarker(position: [number, number], options: Record<string, unknown>): LeafletLayer;
+}
+
+declare global {
+  interface Window {
+    L?: LeafletApi;
+  }
+}
+
 const sections = [
   ["cex", "CEX"],
   ["hyperliquid", "Hyperliquid"],
@@ -75,6 +100,8 @@ const sectionAliases: Record<string, string> = {
 };
 
 let refreshTimer: number | null = null;
+let activeTradingMap: LeafletMapInstance | null = null;
+let savedMapView: { latitude: number; longitude: number; zoom: number } | null = null;
 
 export function isTradingPath(pathname: string = window.location.pathname): boolean {
   return pathname === "/trading" || pathname.startsWith("/trading/");
@@ -102,9 +129,11 @@ async function renderTrading(root: HTMLElement): Promise<void> {
     });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const payload = await response.json() as TradingPayload;
+    destroyTradingMap();
     root.innerHTML = tradingView(payload);
     bindTradingHandlers(root, payload);
   } catch (error) {
+    destroyTradingMap();
     root.innerHTML = tradingUnavailable(error instanceof Error ? error.message : "unavailable");
   }
   if (!document.hidden) {
@@ -136,7 +165,7 @@ function tradingView(payload: TradingPayload): string {
   return `
     <main class="trading-shell">
       <nav class="trading-product-nav" aria-label="Trading latency sections">
-        <a class="trading-brand" href="/trading/cex"><span class="trading-brand-mark">H</span><strong>Hyperspace Latency</strong></a>
+        <a class="trading-brand" href="/trading/cex"><img class="trading-brand-logo" src="/hyperspace-logo.svg" alt="" /><strong>Hyperspace Latency</strong></a>
         <div class="trading-section-links">
           ${sections.map(([key, text]) => `<a href="/trading/${key}" class="${key === route.section ? "active" : ""}">${escapeHtml(text)}</a>`).join("")}
         </div>
@@ -190,7 +219,7 @@ function mapView(payload: TradingPayload, targets: TradingTarget[], target: Trad
           <div><small>Lowest p50</small><strong>${best?.measurement?.totalP50Ms !== undefined ? formatMs(best.measurement.totalP50Ms) : "—"}</strong></div>
           <div><small>Reporting</small><strong>${successful.length}/${payload.nodes.length}</strong></div>
         </div>
-        ${worldMap(ranked)}
+        ${worldMap()}
         <div class="trading-map-legend" aria-label="Latency color scale">
           <span><i style="--dot:#33d17a"></i>&lt; 50 ms</span>
           <span><i style="--dot:#b6e53c"></i>50–100 ms</span>
@@ -212,37 +241,8 @@ function mapView(payload: TradingPayload, targets: TradingTarget[], target: Trad
   `;
 }
 
-function worldMap(rows: Array<{ node: TradingNode; measurement: TradingMeasurement | undefined }>): string {
-  const dots = rows.map(({ node, measurement }) => {
-    const x = ((node.longitude + 180) / 360) * 1000;
-    const y = ((90 - node.latitude) / 180) * 500;
-    const color = latencyColor(measurement);
-    const value = measurement?.status === "succeeded" && measurement.totalP50Ms !== undefined ? formatMs(measurement.totalP50Ms) : measurement?.errorCode ?? "No data";
-    return `<g class="trading-map-node" tabindex="0" aria-label="${escapeHtml(node.city)} ${escapeHtml(value)}">
-      <circle class="trading-map-pulse" cx="${x.toFixed(2)}" cy="${y.toFixed(2)}" r="12" fill="${color}" />
-      <circle cx="${x.toFixed(2)}" cy="${y.toFixed(2)}" r="5.5" fill="${color}" stroke="#fff" stroke-width="1.4" />
-      <title>${escapeHtml(node.city)}, ${escapeHtml(node.country)} — ${escapeHtml(value)}</title>
-    </g>`;
-  }).join("");
-  return `<div class="trading-map-wrap">
-    <svg class="trading-world-map" viewBox="0 0 1000 500" role="img" aria-label="World map of trading latency probe locations">
-      <defs>
-        <radialGradient id="oceanGlow"><stop offset="0" stop-color="#14213a"/><stop offset="1" stop-color="#080b12"/></radialGradient>
-      </defs>
-      <rect width="1000" height="500" fill="url(#oceanGlow)" />
-      <g class="trading-graticule">${[100,200,300,400].map((y) => `<line x1="0" y1="${y}" x2="1000" y2="${y}"/>`).join("")}${[100,200,300,400,500,600,700,800,900].map((x) => `<line x1="${x}" y1="0" x2="${x}" y2="500"/>`).join("")}</g>
-      <g class="trading-continents">
-        <path d="M74 88 L166 50 250 78 300 130 267 166 218 156 191 208 145 194 113 149Z" />
-        <path d="M258 197 L314 219 335 284 307 371 270 427 247 350 253 277 228 225Z" />
-        <path d="M447 86 L511 64 551 91 532 123 486 126 467 157 426 144 406 111Z" />
-        <path d="M461 152 L529 148 572 195 554 286 509 366 466 324 437 248 411 195Z" />
-        <path d="M533 77 L650 54 768 78 876 125 902 183 844 211 784 178 726 213 667 171 609 187 559 142 516 117Z" />
-        <path d="M787 323 L866 303 919 337 901 390 831 405 774 367Z" />
-        <path d="M910 205 L939 220 927 247 899 235Z" />
-      </g>
-      ${dots}
-    </svg>
-  </div>`;
+function worldMap(): string {
+  return `<div class="trading-map-wrap"><div id="trading-map" role="img" aria-label="Interactive world map of trading latency probe locations"></div></div>`;
 }
 
 function rankRow(node: TradingNode, measurement: TradingMeasurement | undefined, rank: number): string {
@@ -269,12 +269,16 @@ function statusView(payload: TradingPayload, targets: TradingTarget[]): string {
 }
 
 function aboutView(label: string, targets: TradingTarget[]): string {
+  const oracleNote = label === "Oracle"
+    ? `<article><h2>Oracle limitation</h2><p>Pyth routers are measured through a public TLS handshake. Switchboard and Chainlink use public health endpoints. These are network-path estimates, not authenticated feed delivery, update freshness, or publish-to-receive latency.</p></article>`
+    : "";
   return `<section class="trading-document-view">
     <header><small>Methodology</small><h1>${escapeHtml(label)} latency</h1><p>Measurements originate from independently managed Hyperspace probe agents and use the direct public network path in this release.</p></header>
     <div class="trading-copy-columns">
       <article><h2>What the number means</h2><p>The headline value is median application round-trip time. REST and JSON-RPC include request handling and response time; they must not be compared as if they were a pure network ping.</p></article>
       <article><h2>What it does not mean</h2><p>These values are not fill latency, execution guarantees, matching-engine latency, or proof of a DoubleZero/WireGuard path. CDN-fronted connection timings may terminate at an edge.</p></article>
       <article><h2>Safety</h2><p>The canary uses public read-only endpoints. It does not submit orders or valid funded transactions and does not require exchange API keys or treasury wallets.</p></article>
+      ${oracleNote}
     </div>
     <div class="trading-target-grid">${targets.map((target) => `<article><strong>${escapeHtml(target.displayName)}</strong><span>${escapeHtml(target.product)}</span><small>${escapeHtml(target.measurement)}</small></article>`).join("") || "<p>This category will be added after the initial canary.</p>"}</div>
   </section>`;
@@ -282,18 +286,84 @@ function aboutView(label: string, targets: TradingTarget[]): string {
 
 function plannedSection(payload: TradingPayload, section: string): string {
   const title = sections.find(([key]) => key === section)?.[1] ?? section;
-  return `<section class="trading-empty-state"><span>Planned coverage</span><h1>${escapeHtml(title)}</h1><p>The route and visual surface are ready. Its protocol adapter and reviewed public targets will be enabled after the Binance, Kraken, Hyperliquid, prediction-market and Arbitrum canary completes.</p><strong>${payload.nodes.length} probe locations registered</strong></section>`;
+  return `<section class="trading-empty-state"><span>Derived view planned</span><h1>${escapeHtml(title)}</h1><p>Arbitrage routes will combine compatible venue measurements from the same probe node and time window. The underlying CEX and market samples are already collected; the derived score will be added without generating extra probe traffic.</p><strong>${payload.nodes.length} probe locations registered</strong></section>`;
 }
 
 function bindTradingHandlers(root: HTMLElement, payload: TradingPayload): void {
+  initializeTradingMap(root, payload);
   const select = root.querySelector<HTMLSelectElement>("#trading-target-select");
   select?.addEventListener("change", () => {
     const url = new URL(window.location.href);
     url.searchParams.set("target", select.value);
     window.history.replaceState({}, "", url);
+    destroyTradingMap();
     root.innerHTML = tradingView(payload);
     bindTradingHandlers(root, payload);
   });
+}
+
+function initializeTradingMap(root: HTMLElement, payload: TradingPayload): void {
+  const route = currentRoute();
+  if (route.view !== "map") return;
+  const mapElement = root.querySelector<HTMLElement>("#trading-map");
+  const leaflet = window.L;
+  if (!mapElement || !leaflet) {
+    if (mapElement) mapElement.textContent = "Interactive map library is unavailable.";
+    return;
+  }
+  const targets = payload.targets.filter((target) => target.category === route.section || sectionAliases[route.section] === target.category);
+  const selectedKey = new URLSearchParams(window.location.search).get("target");
+  const target = targets.find((candidate) => candidate.key === selectedKey) ?? targets[0];
+  if (!target) return;
+  const measurements = new Map(
+    payload.measurements
+      .filter((entry) => entry.targetId === target.id && entry.networkProfile === "direct")
+      .map((entry) => [entry.nodeId, entry])
+  );
+  const initial = savedMapView ?? { latitude: 0, longitude: 8, zoom: 2 };
+  activeTradingMap = leaflet.map(mapElement, {
+    attributionControl: true,
+    maxBounds: [[-85, -180], [85, 180]],
+    maxBoundsViscosity: 1,
+    minZoom: 2,
+    maxZoom: 12,
+    worldCopyJump: false
+  }).setView([initial.latitude, initial.longitude], initial.zoom);
+  leaflet.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a>',
+    bounds: [[-85, -180], [85, 180]],
+    keepBuffer: 0,
+    maxZoom: 19,
+    noWrap: true,
+    subdomains: "abc"
+  }).addTo(activeTradingMap);
+  for (const node of payload.nodes) {
+    const measurement = measurements.get(node.id);
+    const success = measurement?.status === "succeeded" && measurement.totalP50Ms !== undefined;
+    const value = success ? formatMs(measurement.totalP50Ms!) : measurement?.errorCode ?? (node.fresh ? "Waiting for data" : "Probe offline");
+    const marker = leaflet.circleMarker([node.latitude, node.longitude], {
+      bubblingMouseEvents: false,
+      color: "#ffffff",
+      fillColor: latencyColor(measurement),
+      fillOpacity: 1,
+      opacity: 0.95,
+      radius: 7,
+      weight: 1.5
+    });
+    marker.addTo(activeTradingMap).bindTooltip(
+      `<strong>${escapeHtml(node.city)}, ${escapeHtml(node.country)}</strong><br>${escapeHtml(node.name)}<br><b>${escapeHtml(value)}</b>`,
+      { className: "trading-map-tooltip", direction: "top", offset: [0, -8] }
+    );
+  }
+  window.setTimeout(() => activeTradingMap?.invalidateSize(), 0);
+}
+
+function destroyTradingMap(): void {
+  if (!activeTradingMap) return;
+  const center = activeTradingMap.getCenter();
+  savedMapView = { latitude: center.lat, longitude: center.lng, zoom: activeTradingMap.getZoom() };
+  activeTradingMap.remove();
+  activeTradingMap = null;
 }
 
 function tradingLoading(): string {
@@ -336,7 +406,7 @@ function formatMs(value: number): string {
 }
 
 function protocolLabel(protocol: string): string {
-  return protocol === "json_rpc" ? "JSON-RPC" : protocol === "http_json" ? "REST" : protocol.toUpperCase();
+  return protocol === "json_rpc" ? "JSON-RPC" : protocol === "http_json" ? "REST" : protocol === "tcp_tls" ? "TCP + TLS" : protocol.toUpperCase();
 }
 
 function relativeTime(value: string): string {
