@@ -1,30 +1,39 @@
 # Trading latency probes
 
-This runbook covers the feature-branch staging canary for the public
-`/trading` latency dashboard. Trading probes are a separate subsystem from the
-VPN gate agent. A probe failure must not affect WireGuard assignments,
-DoubleZero recovery, gate heartbeats, or config issuance.
+This runbook covers the public `/trading` latency dashboard in staging,
+testnet, and production. Trading probes are a separate subsystem from the VPN
+gate agent. A probe failure must not affect WireGuard assignments, DoubleZero
+recovery, gate heartbeats, or config issuance.
 
-## Live staging evidence (2026-08-28)
+## Live rollout evidence (2026-08-28)
 
-The expanded backend and CEX probe artifact from commit `30834d1` and the light
-web dashboard from `1142ad2` are deployed only to staging. Three independent
-probe agents in Hong Kong, Madrid, and Chicago run version `0.3.0`, revision
-`30834d17523e5b32aa6fb6939b72cd40964f1649`, artifact SHA-256
-`1c9cc1d69bcbcffec15706254ee5d4f16bcfeaa22c589fc00195982913d08596`.
+The rollout used staging first, testnet second, and production last. The
+testnet canary exposed queue starvation after 22 of 26 targets: recurring
+low-sort-order work could be claimed ahead of older queued oracle work. Commit
+`36821dd` changed claims to oldest-job-first and added a regression test. The
+same live node immediately reached 26 of 26 targets before rollout continued.
 
-The live catalog contains 26 targets and publishes 78 latest measurements.
-All ten CEX venues are present. The CEX matrix has 28 successful measurements;
-Chicago receives the documented Binance HTTP 451 (`geo_blocked`) and a Bybit
-HTTP 403 (`unexpected_http_status`). API, worker, all three VPN gate agents,
-and all three trading probe agents remained active after rollout.
+| Environment | Source revision | Probe locations | Latest matrix |
+| --- | --- | --- | --- |
+| Staging | `staging@36821dd` | Hong Kong, Madrid, Chicago | 3 nodes, 26 targets, 78 measurements |
+| Testnet | `staging@36821dd` | Singapore, Frankfurt, New York | 3 nodes, 26 targets, 78 measurements |
+| Production | `main@f82b24d` | Hong Kong, Frankfurt, San Jose | 3 nodes, 26 targets, 78 measurements |
 
-The pre-migration PostgreSQL dump is
-`/var/backups/hyperspace/hyperspace-20260828T143122Z.dump`. Probe-agent
-rollbacks are stored in
-`/opt/hyperspace-rollbacks/trading-probe-1008248-before-30834d1` on each probe
-host; the previous web artifact is
-`/opt/hyperspace-rollbacks/trading-pre-1008248-web` on the staging web host.
+All ten CEX venues are present. Staging and testnet retain explicit regional
+HTTP policy results such as Binance `geo_blocked`; the first complete
+production cycle returned 78 successful measurements. API, worker, every
+selected VPN gate agent, and all nine independent trading probe agents remained
+active after rollout. A live test stopped the Singapore trading probe while
+its gate stayed ready and schedulable, then restarted only the probe service.
+
+The production probe artifact is version `0.3.0`, revision
+`f82b24d29eea8e862c654c12f86db265df2c1972`, SHA-256
+`8607f70af2bc5a6a19e63aa81e22489d335abc18a0b6de9e0705c1641407a54e`.
+The fresh production pre-migration dump is
+`/mnt/hyperspace-backup/postgresql/hyperspace-20260828T150937Z.dump`.
+Component and web rollbacks are stored below `/opt/hyperspace-rollbacks` on
+their respective hosts. Additive database tables may remain in place when the
+feature is rolled back.
 
 ## Target set
 
@@ -77,9 +86,10 @@ with an explicit quota and SLA.
 
 ## Control-plane rollout
 
-Apply additive migrations `0037_trading_latency_probes.sql` and
-`0038_trading_latency_target_expansion.sql`, deploy API and
-worker from the exact feature commit, and enable the scheduler only in staging:
+Apply additive migrations `0037_trading_latency_probes.sql`,
+`0038_trading_latency_target_expansion.sql`, and
+`0039_trading_latency_cex_expansion.sql`; deploy API and worker from the exact
+environment branch revision, then enable the scheduler:
 
 ```dotenv
 TRADING_PROBES_ENABLED=true
@@ -168,8 +178,8 @@ still be issued.
 
 ## Rollback
 
-For the staging MVP, stop and disable only the probe service, restore the
-previous API/worker/web artifacts, and leave the additive tables in place:
+Stop and disable only the probe service, restore the previous API/worker/web
+artifacts, and leave the additive tables in place:
 
 ```bash
 sudo systemctl disable --now hyperspace-trading-probe-agent.service
