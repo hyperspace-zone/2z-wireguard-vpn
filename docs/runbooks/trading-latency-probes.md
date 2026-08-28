@@ -19,6 +19,11 @@ API keys or funded wallets:
 | Prediction markets | Kalshi exchange status | REST TTFB and total RTT |
 | Arbitrum | public RPC `eth_chainId` | read-only JSON-RPC response RTT |
 
+Binance may intentionally return HTTP 451 from restricted jurisdictions. The
+agent records this as `geo_blocked`, preserves the HTTP status, resolved IP and
+response timing, and the UI shows the location as unavailable instead of
+misrepresenting it as a successful latency sample.
+
 REST, JSON-RPC, WebSocket, and FIX values have different semantics. Do not
 label these measurements as fill latency or matching-engine latency. CDN-fronted
 TCP/TLS values describe the edge connection and are diagnostic only.
@@ -44,29 +49,29 @@ GET /v1/public/trading/latency
 
 Create or rotate a probe-node token using the admin API. The returned token is
 shown once and must be stored only in the node's root-readable environment
-file. Example for the Amsterdam staging gate host:
+file. Example for the Hong Kong staging gate host:
 
 ```bash
 curl -fsS https://control-plane.staging.hyperspace.zone/v1/admin/trading/probe-nodes \
   -H "x-admin-token: ${ADMIN_TOKEN}" \
   -H 'content-type: application/json' \
   --data '{
-    "name":"probe-eu-ams-staging",
+    "name":"probe-gate-ap-hkg-31-staging",
     "desiredState":"Enabled",
     "placementKind":"gate_host",
-    "gateName":"gate-eu-ams-21",
-    "city":"Amsterdam",
-    "country":"Netherlands",
-    "latitude":52.3676,
-    "longitude":4.9041,
-    "provider":"Cherry Servers",
-    "regionCode":"ams"
+    "gateName":"gate-ap-hkg-31",
+    "city":"Hong Kong",
+    "country":"Hong Kong",
+    "latitude":22.3193,
+    "longitude":114.1694,
+    "provider":"",
+    "regionCode":"HKG"
   }'
 ```
 
-Register Tokyo and Chicago with their operator-curated coordinates in the same
-way. Repeating the request rotates the token and immediately revokes the old
-one.
+Register Madrid and Chicago with their operator-curated coordinates in the
+same way. Repeating the request rotates the token and immediately revokes the
+old one.
 
 ## Build and install the independent agent
 
