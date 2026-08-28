@@ -48,6 +48,9 @@ interface TradingPayload {
 }
 
 interface LeafletMapInstance {
+  attributionControl: {
+    setPrefix(prefix: string | false): void;
+  };
   getCenter(): { lat: number; lng: number };
   getZoom(): number;
   invalidateSize(): void;
@@ -329,6 +332,7 @@ function initializeTradingMap(root: HTMLElement, payload: TradingPayload): void 
     maxZoom: 12,
     worldCopyJump: false
   }).setView([initial.latitude, initial.longitude], initial.zoom);
+  activeTradingMap.attributionControl.setPrefix(false);
   leaflet.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a>',
     bounds: [[-85, -180], [85, 180]],
