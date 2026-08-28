@@ -1,7 +1,32 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { Queryable } from "../../db/queryable.js";
-import { insertApplyAssignmentJob, insertRevokeAssignmentJob } from "./repository.js";
+import { findClaimableGateJobForUpdate, insertApplyAssignmentJob, insertRevokeAssignmentJob } from "./repository.js";
+
+test("gate job claims isolate control work from benchmark probes", async () => {
+  const calls: Array<{ sql: string; params: readonly unknown[] }> = [];
+  const db: Queryable = {
+    async query<Row extends object>(sql: string, params: readonly unknown[] = []) {
+      calls.push({ sql, params });
+      return { rows: [] as Row[], rowCount: 0 };
+    }
+  };
+
+  await findClaimableGateJobForUpdate(db, "gate-1", "control");
+  await findClaimableGateJobForUpdate(db, "gate-1", "probe");
+  await findClaimableGateJobForUpdate(db, "gate-1");
+
+  assert.equal(calls.length, 3);
+  for (const call of calls) {
+    assert.match(call.sql, /'probe' AND type = 'probe'/);
+    assert.match(call.sql, /'control' AND type <> 'probe'/);
+  }
+  assert.deepEqual(calls.map((call) => call.params), [
+    ["gate-1", "control"],
+    ["gate-1", "probe"],
+    ["gate-1", null]
+  ]);
+});
 
 test("apply assignment job insert is idempotent across active and succeeded jobs", async () => {
   const calls: Array<{ sql: string; params: readonly unknown[] }> = [];

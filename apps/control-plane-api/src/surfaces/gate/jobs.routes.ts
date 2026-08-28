@@ -1,9 +1,10 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import {
+  gateJobClaimRequestSchema,
   gateJobClaimResponseSchema,
   gateJobReportRequestSchema
 } from "@hyperspace-zone/contracts";
-import { claimGateJob, isJobReportStatus, recordGateJobReport } from "@hyperspace-zone/control-plane";
+import { claimGateJob, isJobReportStatus, recordGateJobReport, type GateJobLane } from "@hyperspace-zone/control-plane";
 import type { Database } from "@hyperspace-zone/db";
 import type { GateAuthContext } from "../../http/auth.js";
 import { sendApplicationError } from "../../http/errors.js";
@@ -18,6 +19,7 @@ export function registerGateJobRoutes(
 ): void {
   app.post("/v1/gate/jobs/claim", {
     schema: {
+      body: gateJobClaimRequestSchema,
       response: {
         200: gateJobClaimResponseSchema
       }
@@ -28,7 +30,8 @@ export function registerGateJobRoutes(
       return;
     }
 
-    return reply.send({ job: await claimGateJob(deps.db, gate) });
+    const lane = readString(asRecord(request.body), "lane") as GateJobLane | "";
+    return reply.send({ job: await claimGateJob(deps.db, gate, lane || undefined) });
   });
 
   app.post("/v1/gate/jobs/:jobId/report", {

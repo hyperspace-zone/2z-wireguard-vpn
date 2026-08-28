@@ -27,3 +27,12 @@ test("billing administrator emails are normalized and deduplicated", () => {
 
   assert.deepEqual(config.billingAdminEmails, ["admin@hyperspace.zone", "operator@hyperspace.zone"]);
 });
+
+test("benchmark reads use a small bounded database pool by default", () => {
+  const config = loadConfig({
+    DATABASE_URL: "postgres://hyperspace:secret@db.test/hyperspace"
+  });
+
+  assert.equal(config.benchmarkDatabaseMaxConnections, 2);
+  assert.equal(config.benchmarkDatabaseStatementTimeoutMs, 8_000);
+});

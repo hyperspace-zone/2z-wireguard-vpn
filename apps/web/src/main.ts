@@ -1,3 +1,5 @@
+import { benchmarkRequestTimeoutMs, shouldLoadBenchmarkMatrix } from "./benchmark-isolation.js";
+
 type SessionMode = "IpToIp" | "FullTunnel";
 type AppView = "dashboard" | "create-config" | "benchmarks" | "billing" | "admin-billing" | "login" | "register";
 type CreateConfigStep = "configure" | "confirm" | "result";
@@ -432,6 +434,9 @@ window.addEventListener("popstate", () => {
     createConfigStep = "configure";
   }
   render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
+  if (shouldLoadBenchmarkMatrix(currentView)) {
+    void refreshBenchmarkView();
+  }
 });
 void refresh();
 
@@ -452,13 +457,14 @@ function renderLoading(): void {
 }
 
 async function refresh(options: { skipAutoMeasure?: boolean } = {}): Promise<void> {
+  const loadBenchmarks = shouldLoadBenchmarkMatrix(currentView);
   const [gateResult, sessions, me, benchmarkMatrix, billing] = await Promise.all([
     getGates()
       .then((gates) => ({ gates, error: null }))
       .catch((error: unknown) => ({ gates: null, error })),
     token ? getSessions().catch(() => [] as Session[]) : Promise.resolve([]),
     token ? getMe().catch(() => null) : Promise.resolve(null),
-    getBenchmarkMatrix().catch(() => null),
+    loadBenchmarks ? getBenchmarkMatrix().catch(() => null) : Promise.resolve(latestBenchmarkMatrix),
     token ? getBilling().catch(() => null) : Promise.resolve(null)
   ]);
   const [adminBilling, adminTraffic] = token && me?.billingAdmin
@@ -544,6 +550,26 @@ function navigateToView(view: AppView): void {
   }
   window.history.pushState({}, "", viewPath(view));
   render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
+  if (shouldLoadBenchmarkMatrix(view)) {
+    void refreshBenchmarkView();
+  }
+}
+
+async function refreshBenchmarkView(): Promise<void> {
+  try {
+    const benchmarkMatrix = await getBenchmarkMatrix();
+    latestBenchmarkMatrix = benchmarkMatrix;
+    if (latestGates.length === 0 && benchmarkMatrix.gates) {
+      latestGates = benchmarkMatrix.gates;
+    }
+    if (currentView === "benchmarks") {
+      render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe, benchmarkMatrix });
+    }
+  } catch {
+    if (currentView === "benchmarks") {
+      log("Benchmark data is temporarily unavailable; VPN configuration remains available.");
+    }
+  }
 }
 
 function viewFromLocation(): AppView {
@@ -3454,7 +3480,13 @@ async function getGates(): Promise<Gate[]> {
 }
 
 async function getBenchmarkMatrix(): Promise<BenchmarkMatrix> {
-  return api("/v1/public/benchmarks/gate-matrix", { method: "GET" });
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), benchmarkRequestTimeoutMs);
+  try {
+    return await api("/v1/public/benchmarks/gate-matrix", { method: "GET", signal: controller.signal });
+  } finally {
+    window.clearTimeout(timeout);
+  }
 }
 
 async function getSessions(): Promise<Session[]> {
@@ -3557,7 +3589,7 @@ async function getNetworkMe(): Promise<{ ip: string }> {
   return api("/v1/public/network/me", { method: "GET" });
 }
 
-async function api(path: string, options: { method: string; body?: unknown }): Promise<any> {
+async function api(path: string, options: { method: string; body?: unknown; signal?: AbortSignal }): Promise<any> {
   const headers = new Headers();
   if (token) {
     headers.set("authorization", `Bearer ${token}`);
@@ -3566,6 +3598,9 @@ async function api(path: string, options: { method: string; body?: unknown }): P
     method: options.method,
     headers
   };
+  if (options.signal) {
+    init.signal = options.signal;
+  }
   if (options.body !== undefined) {
     headers.set("content-type", "application/json");
     init.body = JSON.stringify(compact(options.body));

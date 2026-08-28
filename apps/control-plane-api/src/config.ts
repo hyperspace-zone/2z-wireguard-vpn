@@ -5,6 +5,8 @@ import { defaultPublicRateLimitConfig } from "./http/rate-limit.js";
 
 export interface ControlPlaneApiProcessConfig extends ControlPlaneApiRuntimeConfig {
   databaseUrl: string;
+  benchmarkDatabaseMaxConnections: number;
+  benchmarkDatabaseStatementTimeoutMs: number;
   host: string;
   port: number;
 }
@@ -19,6 +21,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ControlPlaneAp
   const nativeSolBilling = env.SOLANA_ASSET_KIND === "native";
   return {
     databaseUrl,
+    benchmarkDatabaseMaxConnections: readPositiveInteger(env, "BENCHMARK_DATABASE_MAX_CONNECTIONS", 2),
+    benchmarkDatabaseStatementTimeoutMs: readPositiveInteger(env, "BENCHMARK_DATABASE_STATEMENT_TIMEOUT_MS", 8_000),
     host: env.HOST ?? "127.0.0.1",
     port: Number(env.PORT ?? "8080"),
     authSessionTtlSeconds: Number(env.AUTH_SESSION_TTL_SECONDS ?? 60 * 60 * 24 * 30),

@@ -6,6 +6,8 @@ export interface GateJobLeaseIdentity {
   name: string;
 }
 
+export type GateJobLane = "control" | "probe";
+
 export interface ClaimedGateJob {
   id: string;
   type: string;
@@ -57,7 +59,8 @@ export interface EnqueueReconcileJobInput {
 
 export async function findClaimableGateJobForUpdate(
   db: Queryable,
-  gateId: string
+  gateId: string,
+  lane?: GateJobLane
 ): Promise<Omit<ClaimedGateJob, "attemptNumber"> | null> {
   const job = await db.query<Omit<ClaimedGateJob, "attemptNumber">>(
     `
@@ -72,11 +75,16 @@ export async function findClaimableGateJobForUpdate(
         AND phase IN ('queued', 'retryable_failed')
         AND run_after <= now()
         AND (lease_expires_at IS NULL OR lease_expires_at < now())
+        AND (
+          $2::text IS NULL
+          OR ($2::text = 'probe' AND type = 'probe')
+          OR ($2::text = 'control' AND type <> 'probe')
+        )
       ORDER BY created_at ASC
       FOR UPDATE SKIP LOCKED
       LIMIT 1
     `,
-    [gateId]
+    [gateId, lane ?? null]
   );
   return job.rows[0] ?? null;
 }
