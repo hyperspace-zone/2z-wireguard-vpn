@@ -27,9 +27,16 @@ import (
 )
 
 var (
-	version       = "0.4.0"
+	version       = "0.5.0"
 	buildRevision = "unknown"
 	buildTime     = "unknown"
+)
+
+type jobLane string
+
+const (
+	controlJobLane jobLane = "control"
+	probeJobLane   jobLane = "probe"
 )
 
 type agentBuildInfo struct {
@@ -143,7 +150,7 @@ func main() {
 			if err := json.NewEncoder(os.Stdout).Encode(map[string]any{
 				"ok":     true,
 				"build":  runningBuildInfo,
-				"checks": []string{"artifact_sha256", "nftables_assignment_rule_parser", "doublezero_recovery_safety_policy"},
+				"checks": []string{"artifact_sha256", "nftables_assignment_rule_parser", "doublezero_recovery_safety_policy", "job_lane_isolation"},
 			}); err != nil {
 				fatal(err)
 			}
@@ -164,7 +171,6 @@ func main() {
 		probeManager.Start()
 	}
 
-	client := &http.Client{Timeout: 20 * time.Second}
 	rehydrate := rehydrateAssignments(cfg)
 	logJSON("agent_started", map[string]any{
 		"gate":            cfg.GateName,
@@ -180,43 +186,77 @@ func main() {
 		"rehydrateFailed": rehydrate.Failed,
 	})
 
-	lastHeartbeat := time.Time{}
-	lastActualState := time.Time{}
+	telemetryClient := newControlPlaneClient()
+	controlClient := newControlPlaneClient()
+	probeClient := newControlPlaneClient()
+	startPeriodicTask("heartbeat", cfg.HeartbeatInterval, func() error {
+		return sendHeartbeat(telemetryClient, cfg, probeManager, doubleZeroRecovery)
+	})
+	startPeriodicTask("actual_state", cfg.ActualStateInterval, func() error {
+		return sendActualState(telemetryClient, cfg)
+	})
+	go runJobWorker(probeClient, cfg, probeJobLane, executeJob)
+	runJobWorker(controlClient, cfg, controlJobLane, executeJob)
+}
+
+type jobExecutor func(*http.Client, config, job) jobResult
+
+func newControlPlaneClient() *http.Client {
+	client := &http.Client{Timeout: 20 * time.Second}
+	if transport, ok := http.DefaultTransport.(*http.Transport); ok {
+		client.Transport = transport.Clone()
+	}
+	return client
+}
+
+func startPeriodicTask(name string, interval time.Duration, task func() error) {
+	go func() {
+		for {
+			if err := task(); err != nil {
+				logJSON(name+"_failed", map[string]any{"error": err.Error()})
+			}
+			sleep(interval)
+		}
+	}()
+}
+
+func runJobWorker(client *http.Client, cfg config, lane jobLane, execute jobExecutor) {
 	for {
-		if time.Since(lastHeartbeat) >= cfg.HeartbeatInterval {
-			if err := sendHeartbeat(client, cfg, probeManager, doubleZeroRecovery); err != nil {
-				logJSON("heartbeat_failed", map[string]any{"error": err.Error()})
-			} else {
-				lastHeartbeat = time.Now()
-			}
-		}
-		if time.Since(lastActualState) >= cfg.ActualStateInterval {
-			if err := sendActualState(client, cfg); err != nil {
-				logJSON("actual_state_failed", map[string]any{"error": err.Error()})
-			} else {
-				lastActualState = time.Now()
-			}
-		}
-
-		claimed, err := claimJob(client, cfg)
+		processed, err := processNextJob(client, cfg, lane, execute)
 		if err != nil {
-			logJSON("claim_failed", map[string]any{"error": err.Error()})
-			sleep(cfg.PollInterval)
-			continue
-		}
-		if claimed == nil {
-			sleep(cfg.PollInterval)
-			continue
-		}
-
-		result := executeJob(client, cfg, *claimed)
-		if err := reportJob(client, cfg, claimed.ID, result); err != nil {
-			logJSON("report_failed", map[string]any{
-				"jobId": claimed.ID,
+			logJSON("job_worker_failed", map[string]any{
+				"lane":  lane,
 				"error": err.Error(),
 			})
 		}
+		if err != nil || !processed {
+			sleep(cfg.PollInterval)
+		}
 	}
+}
+
+func processNextJob(client *http.Client, cfg config, lane jobLane, execute jobExecutor) (bool, error) {
+	claimed, err := claimJob(client, cfg, lane)
+	if err != nil {
+		return false, fmt.Errorf("claim %s job: %w", lane, err)
+	}
+	if claimed == nil {
+		return false, nil
+	}
+	result := executeJobSafely(client, cfg, *claimed, execute)
+	if err := reportJob(client, cfg, claimed.ID, result); err != nil {
+		return true, fmt.Errorf("report %s job %s: %w", lane, claimed.ID, err)
+	}
+	return true, nil
+}
+
+func executeJobSafely(client *http.Client, cfg config, item job, execute jobExecutor) (result jobResult) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			result = retryable("job_worker_panic", fmt.Errorf("%v", recovered))
+		}
+	}()
+	return execute(client, cfg, item)
 }
 
 type jobResult struct {
@@ -2282,6 +2322,7 @@ func sendHeartbeat(
 	capabilities := []string{
 		"heartbeat",
 		"job-claim",
+		"job-lanes:control-probe-isolated",
 		"actual-state-report",
 		"host-mutation:" + cfg.ExecutionMode,
 		"wireguard-tools:" + commandState("wg"),
@@ -2378,9 +2419,9 @@ func addAgentBuildFields(body map[string]any) {
 	}
 }
 
-func claimJob(client *http.Client, cfg config) (*job, error) {
+func claimJob(client *http.Client, cfg config, lane jobLane) (*job, error) {
 	var response claimResponse
-	if err := postJSON(client, cfg, "/v1/gate/jobs/claim", map[string]any{}, &response); err != nil {
+	if err := postJSON(client, cfg, "/v1/gate/jobs/claim", map[string]any{"lane": lane}, &response); err != nil {
 		return nil, err
 	}
 	return response.Job, nil

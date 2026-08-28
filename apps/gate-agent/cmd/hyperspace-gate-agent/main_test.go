@@ -214,6 +214,89 @@ func TestDecodeProbePayloadDefaults(t *testing.T) {
 	}
 }
 
+func TestBlockedProbeLaneDoesNotBlockControlJobs(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		response.Header().Set("content-type", "application/json")
+		if request.URL.Path == "/v1/gate/jobs/claim" {
+			var body struct {
+				Lane jobLane `json:"lane"`
+			}
+			if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+				t.Errorf("decode claim body: %v", err)
+				response.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			jobType := "apply_assignment"
+			if body.Lane == probeJobLane {
+				jobType = "probe"
+			}
+			_ = json.NewEncoder(response).Encode(map[string]any{
+				"job": map[string]any{
+					"id":            string(body.Lane) + "-job",
+					"type":          jobType,
+					"payload":       map[string]any{},
+					"attemptNumber": 1,
+				},
+			})
+			return
+		}
+		if strings.HasSuffix(request.URL.Path, "/report") {
+			_, _ = response.Write([]byte(`{"ok":true}`))
+			return
+		}
+		response.WriteHeader(http.StatusNotFound)
+	}))
+	defer server.Close()
+
+	cfg := config{
+		ControlPlaneURL: server.URL,
+		GateName:        "gate-test",
+		GateToken:       "test-token",
+	}
+	probeStarted := make(chan struct{})
+	releaseProbe := make(chan struct{})
+	probeFinished := make(chan error, 1)
+	go func() {
+		_, err := processNextJob(server.Client(), cfg, probeJobLane, func(_ *http.Client, _ config, _ job) jobResult {
+			close(probeStarted)
+			<-releaseProbe
+			return jobResult{Status: "succeeded", ResultSummary: map[string]any{}}
+		})
+		probeFinished <- err
+	}()
+
+	select {
+	case <-probeStarted:
+	case <-time.After(time.Second):
+		t.Fatal("probe lane did not start")
+	}
+
+	controlFinished := make(chan error, 1)
+	go func() {
+		_, err := processNextJob(server.Client(), cfg, controlJobLane, func(_ *http.Client, _ config, item job) jobResult {
+			if item.Type != "apply_assignment" {
+				t.Errorf("control lane received %q", item.Type)
+			}
+			return jobResult{Status: "succeeded", ResultSummary: map[string]any{}}
+		})
+		controlFinished <- err
+	}()
+
+	select {
+	case err := <-controlFinished:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("control job was blocked by the probe lane")
+	}
+
+	close(releaseProbe)
+	if err := <-probeFinished; err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestProbePacketHMAC(t *testing.T) {
 	packet := probePacket{
 		Magic:                probeMagic,

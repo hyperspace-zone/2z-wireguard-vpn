@@ -5,20 +5,22 @@ import {
   nextJobAttemptNumber,
   updateJobLease,
   type ClaimedGateJob,
+  type GateJobLane,
   type GateJobLeaseIdentity
 } from "./repository.js";
 import { findAssignmentPhaseForUpdate, updateAssignmentPhase } from "../gate-assignments/repository.js";
 import { leasedAssignmentTransition, type GateAssignmentPhase } from "../gate-assignments/transitions.js";
 import { claimJobTransition } from "./transitions.js";
 
-export type { ClaimedGateJob, GateJobLeaseIdentity } from "./repository.js";
+export type { ClaimedGateJob, GateJobLane, GateJobLeaseIdentity } from "./repository.js";
 
 export async function claimGateJob(
   db: TransactionalQueryable,
-  gate: GateJobLeaseIdentity
+  gate: GateJobLeaseIdentity,
+  lane?: GateJobLane
 ): Promise<ClaimedGateJob | null> {
   return db.transaction(async (client) => {
-    const job = await findClaimableGateJobForUpdate(client, gate.id);
+    const job = await findClaimableGateJobForUpdate(client, gate.id, lane);
     if (!job) {
       return null;
     }

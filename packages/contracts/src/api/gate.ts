@@ -21,6 +21,16 @@ export const gateHeartbeatRequestSchema = {
 
 export type GateAgentHeartbeat = FromSchema<typeof gateHeartbeatRequestSchema>;
 
+export const gateJobClaimRequestSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    lane: { enum: ["control", "probe"] }
+  }
+} as const;
+
+export type GateJobClaimRequest = FromSchema<typeof gateJobClaimRequestSchema>;
+
 export const gateAgentRuntimeResponseSchema = {
   type: "object",
   additionalProperties: false,

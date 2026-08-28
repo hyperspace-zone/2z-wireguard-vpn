@@ -205,6 +205,7 @@ export {
 export {
   claimGateJob,
   type ClaimedGateJob,
+  type GateJobLane,
   type GateJobLeaseIdentity
 } from "./resources/jobs/leasing.js";
 export { isJobReportStatus, type JobReportStatus } from "./resources/jobs/transitions.js";

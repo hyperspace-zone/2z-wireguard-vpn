@@ -9,6 +9,8 @@ export const migrationsTableName = "schema_migrations";
 export interface DatabaseRuntimeConfig {
   connectionString: string;
   applicationName: string;
+  maxConnections?: number;
+  statementTimeoutMs?: number;
 }
 
 export type QueryParams = unknown[];
@@ -26,7 +28,9 @@ export interface Database {
 export function createDatabase(config: DatabaseRuntimeConfig): Database {
   const pool = new Pool({
     connectionString: config.connectionString,
-    application_name: config.applicationName
+    application_name: config.applicationName,
+    ...(config.maxConnections ? { max: config.maxConnections } : {}),
+    ...(config.statementTimeoutMs ? { statement_timeout: config.statementTimeoutMs } : {})
   });
 
   return {

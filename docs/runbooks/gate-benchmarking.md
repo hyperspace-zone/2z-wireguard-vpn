@@ -16,6 +16,20 @@ for stale directed gate pairs. The source gate-agent claims a job, sends UDP
 timestamp probes to the target gate, and reports results back through the normal
 gate job report API.
 
+Gate work is split into two bounded claim and execution lanes. The `control`
+lane can claim assignment, revocation and managed-release jobs but can never
+claim `probe`; the `probe` lane can claim only `probe`. Heartbeat and actual
+state reporting also run independently from both lanes. A blocked benchmark or
+NTP discovery therefore cannot delay WireGuard assignment work, make the gate
+lease stale, or prevent managed rollback. Each lane has a separate HTTP client
+pool, and a recovered probe panic is reported as a retryable probe failure
+instead of terminating the agent.
+
+The claim API remains compatible with an older agent that omits `lane`, but a
+rollout must update the API before deploying the isolated-lane agent. After the
+agent rollout, heartbeat capabilities must include
+`job-lanes:control-probe-isolated`.
+
 Benchmark scheduling has its own worker loop and defaults to a 15-second poll,
 separate from the two-second lifecycle reconcile loop and the Prometheus
 snapshot collector. A transaction-scoped advisory lock permits only one worker
@@ -82,6 +96,13 @@ also stored as `gate_doublezero_tunnel_status_changed` audit events, so a short
 down/up flap remains available for diagnosis without producing a route-alert
 storm.
 
+Benchmark reads use a dedicated PostgreSQL connection pool (two connections by
+default) with an eight-second statement timeout. The web client requests the
+matrix only while `/benchmarks` is open and aborts it after ten seconds. The
+dashboard, authentication, billing and config creation paths neither wait for
+nor consume this request, so an unavailable benchmark page remains a degraded
+observability feature rather than a VPN control-plane outage.
+
 One-way values depend on synchronized clocks. Install and run chrony on all gate
 hosts and treat RTT as the primary metric if clock quality is unknown.
 
@@ -137,6 +158,7 @@ journalctl -u hyperspace-gate-agent -n 50 --no-pager
 
 Expected heartbeat capabilities include:
 
+- `job-lanes:control-probe-isolated`
 - `udp-probe:enabled`
 - `udp-probe-public-bind:enabled`
 - `udp-probe-doublezero-bind:enabled`
@@ -260,6 +282,7 @@ once samples are present.
 If route table rows stay missing or `pending`:
 
 - Confirm `hyperspace-control-plane-worker` is active.
+- Confirm the gate heartbeat includes `job-lanes:control-probe-isolated`.
 - Confirm at least two gates are `ready=true` and `schedulable=true`.
 - Confirm every gate-agent heartbeat includes `udp-probe:enabled`.
 - Confirm UDP `GATE_PROBE_PORT` is open between gate public IPs.

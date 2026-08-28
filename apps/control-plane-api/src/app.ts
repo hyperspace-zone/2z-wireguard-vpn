@@ -69,6 +69,7 @@ export interface ControlPlaneApiRuntimeConfig {
 
 export interface CreateControlPlaneApiAppInput {
   db: Database;
+  benchmarkDb?: Database;
   config: ControlPlaneApiRuntimeConfig;
   health?: HealthRegistry;
   metrics?: RuntimeMetrics;
@@ -77,6 +78,7 @@ export interface CreateControlPlaneApiAppInput {
 
 export function createApp(input: CreateControlPlaneApiAppInput): FastifyInstance {
   const { db, config } = input;
+  const benchmarkDb = input.benchmarkDb ?? db;
   const auth = createHttpAuth({
     db,
     adminToken: config.adminToken,
@@ -128,7 +130,7 @@ export function createApp(input: CreateControlPlaneApiAppInput): FastifyInstance
     requireUser: auth.requireUser,
     hasBillingAdminAccess: auth.hasBillingAdminAccess
   });
-  registerPublicBenchmarkRoutes(app, { db });
+  registerPublicBenchmarkRoutes(app, { db: benchmarkDb });
   registerPublicGatesRoutes(app, { db });
   registerPublicNetworkRoutes(app, { requireUser: auth.requireUser });
   registerPublicBillingRoutes(app, {

@@ -1172,6 +1172,9 @@ cat >/etc/hyperspace/control-plane-api.env <<EOF
 HOST=127.0.0.1
 PORT=8080
 DATABASE_URL=${DATABASE_URL}
+# Keep benchmark matrix reads out of the config-issuance database pool.
+BENCHMARK_DATABASE_MAX_CONNECTIONS=2
+BENCHMARK_DATABASE_STATEMENT_TIMEOUT_MS=8000
 AUTH_SESSION_TTL_SECONDS=2592000
 ARTIFACT_DOWNLOAD_TTL_SECONDS=300
 ADMIN_TOKEN=${ADMIN_TOKEN}
@@ -2529,6 +2532,15 @@ Use one identical `GATE_PROBE_SHARED_SECRET` across all gates in the same
 benchmarking cluster. This signs UDP benchmark probes. See
 [Gate Benchmarking](gate-benchmarking.md) for probe firewall and verification
 steps.
+
+Deploy the control-plane API that understands `lane=control|probe` before the
+gate-agent artifact. The new agent uses independent control and probe claim
+loops, while heartbeat and actual-state reporting have their own periodic
+loops. During the API-first transition an old agent can continue to omit the
+lane and claim the legacy combined queue. After rollout, verify that the gate
+heartbeat reports `job-lanes:control-probe-isolated`; do not accept the rollout
+as complete if a deliberately delayed probe prevents an assignment job from
+being claimed.
 
 Start the agent:
 
