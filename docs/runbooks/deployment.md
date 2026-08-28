@@ -1414,6 +1414,10 @@ sudo npm run gates:control-plane-rollout -- ... --execute
 The runner stages the non-secret immutable binary with mode `0755` inside the
 API-owned `GATE_AGENT_RELEASE_DIR`; the API remains unprivileged and verifies
 the registered metadata and SHA-256 again before serving it to a gate.
+The artifact endpoint honors `Accept-Encoding: gzip`. Standard Go clients
+decompress it transparently before the gate validates the immutable SHA-256,
+which keeps managed rollouts reliable across lower-throughput intercontinental
+links without weakening artifact verification.
 Release `builtAt` values are RFC3339 instants. PostgreSQL may serialize the
 same instant with fractional seconds, so agents compare parsed timestamps
 rather than requiring byte-for-byte timestamp formatting.

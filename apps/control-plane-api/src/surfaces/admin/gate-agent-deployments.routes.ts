@@ -25,6 +25,7 @@ import type { Database } from "@hyperspace-zone/db";
 import type { AdminAuthContext, GateAuthContext } from "../../http/auth.js";
 import { sendApplicationError } from "../../http/errors.js";
 import { asRecord, readParam, readQuery, readString } from "../../http/request.js";
+import { encodeGateAgentArtifact } from "../../resources/gate-agent-artifact-delivery.js";
 
 const execFileAsync = promisify(execFile);
 const maxAgentArtifactBytes = 64 * 1024 * 1024;
@@ -132,11 +133,14 @@ export function registerGateAgentDeploymentRoutes(
     const path = join(deps.releaseDir, release.artifactSha256);
     const data = await readValidatedArtifact(path, release.artifactSha256);
     if (!data) return sendApplicationError(reply, "agent_release_artifact_missing");
+    const artifact = await encodeGateAgentArtifact(data, request.headers["accept-encoding"]);
+    if (artifact.contentEncoding) reply.header("content-encoding", artifact.contentEncoding);
     return reply
       .header("content-type", "application/octet-stream")
-      .header("content-length", String(data.length))
+      .header("content-length", String(artifact.data.length))
       .header("cache-control", "private, no-store")
-      .send(data);
+      .header("vary", "Accept-Encoding")
+      .send(artifact.data);
   });
 }
 
