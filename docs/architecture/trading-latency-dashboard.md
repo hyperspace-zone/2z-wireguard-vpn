@@ -1,6 +1,6 @@
 # Trading Latency Dashboard — architecture analysis
 
-Status: staging canary live; target expansion in feature branch
+Status: expanded staging canary live
 Branch: `feature/trading-latency-probes`
 Prepared: 2026-08-28
 

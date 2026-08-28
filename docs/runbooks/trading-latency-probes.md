@@ -5,6 +5,26 @@ This runbook covers the feature-branch staging canary for the public
 VPN gate agent. A probe failure must not affect WireGuard assignments,
 DoubleZero recovery, gate heartbeats, or config issuance.
 
+## Live staging evidence (2026-08-28)
+
+Feature commit `1008248` is deployed only to staging. Three independent probe
+agents in Hong Kong, Madrid, and Chicago run version `0.2.0`, revision
+`10082484f52fb8f82233676d15ec6dbf14755642`, artifact SHA-256
+`e8230768a06c5913c9cffeaee698651bf05ff346ca34552f2976d0830327f5fe`.
+
+The live catalog contains 18 targets and publishes 54 latest measurements.
+All five oracle targets and every network target succeeded from all three
+locations. The only non-success is the documented Binance HTTP 451 from
+Chicago, classified as `geo_blocked`. API, worker, all three VPN gate agents,
+and all three trading probe agents remained active after rollout.
+
+The pre-migration PostgreSQL dump is
+`/var/backups/hyperspace/hyperspace-20260828T134505Z.dump`. Probe-agent
+rollbacks are stored in
+`/opt/hyperspace-rollbacks/trading-probe-pre-1008248` on each probe host; the
+previous web artifact is
+`/opt/hyperspace-rollbacks/trading-pre-1008248-web` on the staging web host.
+
 ## Target set
 
 The initial catalog uses public, read-only requests and requires no exchange
