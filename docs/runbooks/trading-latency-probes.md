@@ -34,7 +34,15 @@ API keys or funded wallets:
 | Category | Target | Measurement |
 | --- | --- | --- |
 | CEX | Binance Spot server time | REST TTFB and total RTT |
+| CEX | Bitget Spot server time | REST TTFB and total RTT |
+| CEX | Bitstamp BTC/USD ticker | REST TTFB and total RTT |
+| CEX | Bullish BTC/USDC market | REST TTFB and total RTT |
+| CEX | Bybit server time | REST TTFB and total RTT |
+| CEX | Coinbase server time | REST TTFB and total RTT |
+| CEX | Deribit server time | REST TTFB and total RTT |
 | CEX | Kraken Spot server time | REST TTFB and total RTT |
+| CEX | OKX server time | REST TTFB and total RTT |
+| CEX | Upbit SGD/BTC ticker | REST TTFB and total RTT |
 | Hyperliquid | `allMids` info request | read-only application RTT |
 | Prediction markets | Polymarket CLOB time | REST TTFB and total RTT |
 | Prediction markets | Kalshi exchange status | REST TTFB and total RTT |
@@ -153,8 +161,8 @@ curl -fsS https://app.staging.hyperspace.zone/api/v1/public/trading/latency | jq
 curl -fsSI https://app.staging.hyperspace.zone/trading/cex
 ```
 
-Verify that Binance and Kraken both have fresh measurements from all enabled
-probe nodes. Stop the probe service deliberately and confirm that the primary
+Verify that all ten CEX targets have fresh measurements or an explicit regional
+policy error from all enabled probe nodes. Stop the probe service deliberately and confirm that the primary
 gate agent remains fresh and a new VPN config can still be issued.
 
 ## Rollback

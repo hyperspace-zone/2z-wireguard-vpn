@@ -3,6 +3,7 @@ package main
 import (
 	"net"
 	"net/http"
+	"slices"
 	"testing"
 )
 
@@ -43,6 +44,25 @@ func TestTargetAllowlist(t *testing.T) {
 	good.Hostname = "example.com"
 	if err := validateTarget(cfg, good); err == nil {
 		t.Fatal("expected non-catalog host to be rejected")
+	}
+}
+
+func TestDefaultAllowlistContainsCompleteCEXCatalog(t *testing.T) {
+	for _, host := range []string{
+		"api.binance.com",
+		"api.bitget.com",
+		"www.bitstamp.net",
+		"api.exchange.bullish.com",
+		"api.bybit.com",
+		"api.coinbase.com",
+		"www.deribit.com",
+		"api.kraken.com",
+		"www.okx.com",
+		"sg-api.upbit.com",
+	} {
+		if !slices.Contains(defaultAllowedHosts, host) {
+			t.Fatalf("missing CEX host %s from the default allowlist", host)
+		}
 	}
 }
 

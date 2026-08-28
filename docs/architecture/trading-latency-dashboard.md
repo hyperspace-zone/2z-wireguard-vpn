@@ -276,7 +276,7 @@ terms before enabling a target.
 
 | Section | Candidate target or source | Staging MVP measurement | Later measurement |
 | --- | --- | --- | --- |
-| CEX | Binance plus Coinbase, Kraken, OKX, Bybit, BitMEX, Deribit public endpoints | Binance public WebSocket ping and cache-busted read-only REST; add venues one at a time | product-specific WS/FIX after policy and credential review |
+| CEX | Binance, Bitget, Bitstamp, Bullish, Bybit, Coinbase, Deribit, Kraken, OKX, and Upbit public endpoints | cache-busted read-only REST endpoints for the complete venue set | product-specific WS/FIX after policy and credential review |
 | Hyperliquid | `wss://api.hyperliquid.xyz/ws` | WebSocket application RTT and connection breakdown | permitted validator TCP and controlled order-to-fill on dedicated nodes only |
 | Prediction markets | `clob.polymarket.com`, `api.elections.kalshi.com` | cache-busted read-only REST TTFB/total | authenticated market-data paths if useful |
 | SUI | official mainnet GraphQL endpoint | checkpoint GraphQL response RTT | TCP+TLS per validator, time-to-2/3 stake and time-to-90% stake |

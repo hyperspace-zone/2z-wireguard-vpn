@@ -23,14 +23,22 @@ import (
 )
 
 var (
-	version       = "0.1.0"
+	version       = "0.3.0"
 	buildRevision = "unknown"
 	buildTime     = "unknown"
 )
 
 var defaultAllowedHosts = []string{
 	"api.binance.com",
+	"api.bitget.com",
+	"www.bitstamp.net",
+	"api.exchange.bullish.com",
+	"api.bybit.com",
+	"api.coinbase.com",
+	"www.deribit.com",
 	"api.kraken.com",
+	"www.okx.com",
+	"sg-api.upbit.com",
 	"api.hyperliquid.xyz",
 	"clob.polymarket.com",
 	"api.elections.kalshi.com",
