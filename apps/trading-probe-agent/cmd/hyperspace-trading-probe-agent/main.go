@@ -35,6 +35,18 @@ var defaultAllowedHosts = []string{
 	"clob.polymarket.com",
 	"api.elections.kalshi.com",
 	"arb1.arbitrum.io",
+	"graphql.mainnet.sui.io",
+	"rpc.mainnet.chain.robinhood.com",
+	"mainnet.base.org",
+	"rpc.xlayer.tech",
+	"rpc-gel.inkonchain.com",
+	"mainnet.optimism.io",
+	"mainnet.era.zksync.io",
+	"pyth-lazer-0.dourolabs.app",
+	"pyth-lazer-1.dourolabs.app",
+	"pyth-lazer-2.dourolabs.app",
+	"crossbar.switchboard.xyz",
+	"ws.dataengine.chain.link",
 }
 
 type config struct {
@@ -188,7 +200,7 @@ func readConfig() (config, error) {
 func sendHeartbeat(client *http.Client, cfg config, bootID string) error {
 	payload := map[string]any{
 		"bootId": bootID, "agentVersion": version, "agentRevision": buildRevision,
-		"capabilities":    []string{"http-json:v1", "json-rpc:v1", "ssrf-guard:v1"},
+		"capabilities":    []string{"http-json:v1", "json-rpc:v1", "tcp-tls:v1", "ssrf-guard:v1"},
 		"networkProfiles": []string{"direct"}, "spoolDepth": 0,
 		"selfTest": map[string]any{"ok": true, "checkedAt": time.Now().UTC().Format(time.RFC3339Nano)},
 	}
@@ -248,7 +260,7 @@ func execute(cfg config, t target) metricResult {
 	var lastFailure sample
 	errorCode := "probe_failed"
 	for index := 0; index < t.SampleCount; index++ {
-		entry, code, err := measureHTTP(t)
+		entry, code, err := measureTarget(t)
 		if err != nil {
 			lastErr = err
 			lastFailure = entry
@@ -267,11 +279,17 @@ func execute(cfg config, t target) metricResult {
 }
 
 func validateTarget(cfg config, t target) error {
-	if t.Protocol != "http_json" && t.Protocol != "json_rpc" {
+	if t.Protocol != "http_json" && t.Protocol != "json_rpc" && t.Protocol != "tcp_tls" {
 		return fmt.Errorf("unsupported protocol %q", t.Protocol)
 	}
-	if t.Scheme != "https" || t.Port != 443 {
-		return errors.New("only HTTPS port 443 is enabled in the MVP")
+	if t.Port != 443 {
+		return errors.New("only port 443 is enabled")
+	}
+	if t.Protocol == "tcp_tls" && t.Scheme != "tls" {
+		return errors.New("tcp_tls targets must use the tls scheme")
+	}
+	if t.Protocol != "tcp_tls" && t.Scheme != "https" {
+		return errors.New("HTTP targets must use the https scheme")
 	}
 	host := strings.ToLower(strings.TrimSuffix(t.Hostname, "."))
 	if _, ok := cfg.AllowedHosts[host]; !ok {
@@ -287,6 +305,53 @@ func validateTarget(cfg config, t target) error {
 		return errors.New("target budget is outside safe bounds")
 	}
 	return nil
+}
+
+func measureTarget(t target) (sample, string, error) {
+	if t.Protocol == "tcp_tls" {
+		return measureTLS(t)
+	}
+	return measureHTTP(t)
+}
+
+func measureTLS(t target) (sample, string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(t.TimeoutMS)*time.Millisecond)
+	defer cancel()
+	dnsStarted := time.Now()
+	addresses, err := net.DefaultResolver.LookupIPAddr(ctx, t.Hostname)
+	if err != nil {
+		return sample{}, "dns_failed", err
+	}
+	dnsMS := milliseconds(time.Since(dnsStarted))
+	resolved, err := choosePublicIP(addresses)
+	if err != nil {
+		return sample{dnsMS: dnsMS}, "address_rejected", err
+	}
+	started := time.Now()
+	tcpStarted := time.Now()
+	dialer := &net.Dialer{Timeout: time.Duration(t.TimeoutMS) * time.Millisecond}
+	connection, err := dialer.DialContext(ctx, "tcp", net.JoinHostPort(resolved.String(), strconv.Itoa(t.Port)))
+	tcpMS := milliseconds(time.Since(tcpStarted))
+	observed := sample{
+		dnsMS: dnsMS, tcpMS: tcpMS, totalMS: milliseconds(time.Since(started)),
+		resolvedIP: resolved.String(), responseClass: "tls_handshake",
+	}
+	if err != nil {
+		return observed, classifyNetworkError(err), err
+	}
+	defer connection.Close()
+	tlsConnection := tls.Client(connection, &tls.Config{
+		MinVersion: tls.VersionTLS12,
+		ServerName: t.Hostname,
+	})
+	tlsStarted := time.Now()
+	err = tlsConnection.HandshakeContext(ctx)
+	observed.tlsMS = milliseconds(time.Since(tlsStarted))
+	observed.totalMS = milliseconds(time.Since(started))
+	if err != nil {
+		return observed, classifyNetworkError(err), err
+	}
+	return observed, "", nil
 }
 
 func measureHTTP(t target) (sample, string, error) {

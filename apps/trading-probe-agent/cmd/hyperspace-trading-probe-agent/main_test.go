@@ -46,6 +46,21 @@ func TestTargetAllowlist(t *testing.T) {
 	}
 }
 
+func TestTLSTargetValidation(t *testing.T) {
+	cfg := config{AllowedHosts: map[string]struct{}{"pyth-lazer-0.dourolabs.app": {}}}
+	target := target{
+		Protocol: "tcp_tls", Scheme: "tls", Hostname: "pyth-lazer-0.dourolabs.app", Port: 443,
+		Path: "/", Method: "GET", TimeoutMS: 5000, SampleCount: 3,
+	}
+	if err := validateTarget(cfg, target); err != nil {
+		t.Fatal(err)
+	}
+	target.Scheme = "https"
+	if err := validateTarget(cfg, target); err == nil {
+		t.Fatal("expected a tcp_tls target with an HTTPS scheme to be rejected")
+	}
+}
+
 func TestHTTPFailureClassification(t *testing.T) {
 	tests := map[int]string{
 		http.StatusTooManyRequests:            "rate_limited",
