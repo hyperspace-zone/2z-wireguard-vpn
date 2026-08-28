@@ -12,6 +12,7 @@ import { createBillingNotificationLoop } from "../loops/billing-notification-loo
 import { createSolanaWithdrawalLoop } from "../loops/solana-withdrawal-loop.js";
 import { createSolanaRevenueSweepLoop } from "../loops/solana-revenue-sweep-loop.js";
 import { createHeliusUsageLoop } from "../loops/helius-usage-loop.js";
+import { createTradingProbeSchedulerLoop } from "../loops/trading-probe-scheduler-loop.js";
 import { createReconcileRunner } from "./reconcile-runner.js";
 import { reconcileGateAgentDeployments } from "@hyperspace-zone/control-plane";
 import { log, sleep } from "../support/runtime.js";
@@ -27,6 +28,7 @@ interface WorkerRunnerTasks {
   cleanup(): Promise<void>;
   gateAgentDeployments(): Promise<void>;
   benchmarkScheduler(): Promise<void>;
+  tradingProbeScheduler?: () => Promise<void>;
   snapshot(): Promise<boolean>;
 }
 
@@ -55,12 +57,20 @@ export function createWorkerRunner(input: {
     db: input.db,
     config: input.config
   });
-  const tasks: WorkerRunnerTasks = input.tasks ?? {
+  const tradingProbeSchedulerLoop = createTradingProbeSchedulerLoop({
+    db: input.db,
+    config: input.config
+  });
+  const tasks: WorkerRunnerTasks = input.tasks ? {
+    ...input.tasks,
+    tradingProbeScheduler: input.tasks.tradingProbeScheduler ?? (async () => undefined)
+  } : {
     reconcile: () => reconcileRunner.runOnce(),
     retry: () => retryLoop.runOnce(),
     cleanup: () => cleanupLoop.runOnce(),
     gateAgentDeployments: async () => { await reconcileGateAgentDeployments(input.db); },
     benchmarkScheduler: () => benchmarkSchedulerLoop.runOnce(),
+    tradingProbeScheduler: () => tradingProbeSchedulerLoop.runOnce(),
     snapshot: () => collectControlPlaneSnapshotMetrics(input)
   };
   let stopping = false;
@@ -149,6 +159,15 @@ export function createWorkerRunner(input: {
     }
   }
 
+  async function runTradingProbeScheduler(): Promise<void> {
+    while (!stopping) {
+      await runMeasuredLoop("trading-probe-scheduler", input, tasks.tradingProbeScheduler ?? (async () => undefined));
+      if (!stopping) {
+        await waitForNextRun(input.config.tradingProbeSchedulerPollMs);
+      }
+    }
+  }
+
   return {
     async start(): Promise<void> {
       log({ event: "worker_started", workerId: input.config.workerId, pollMs: input.config.pollMs });
@@ -166,6 +185,7 @@ export function createWorkerRunner(input: {
       running = Promise.all([
         runOperations(),
         runBenchmarkScheduler(),
+        runTradingProbeScheduler(),
         runSnapshotCollector()
       ]).then(() => undefined);
       await running;

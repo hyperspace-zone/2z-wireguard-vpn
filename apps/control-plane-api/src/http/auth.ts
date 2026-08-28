@@ -1,9 +1,11 @@
 import type { FastifyReply, FastifyRequest } from "fastify";
 import {
   authenticateGateToken,
+  authenticateTradingProbeToken,
   authenticatePublicAuthSession,
   userHasRole,
   type AuthenticatedGate,
+  type AuthenticatedTradingProbeNode,
   type Principal,
   type PublicUser
 } from "@hyperspace-zone/control-plane";
@@ -14,6 +16,7 @@ import { bearerToken, headerValue } from "./request.js";
 export type PublicAuthUser = PublicUser;
 
 export type GateAuthContext = AuthenticatedGate;
+export type TradingProbeAuthContext = AuthenticatedTradingProbeNode;
 
 export interface AdminAuthContext extends Principal {
   kind: "admin";
@@ -22,6 +25,7 @@ export interface AdminAuthContext extends Principal {
 export interface HttpAuth {
   requireUser(request: FastifyRequest, reply: FastifyReply): Promise<PublicAuthUser | null>;
   requireGate(request: FastifyRequest, reply: FastifyReply): Promise<GateAuthContext | null>;
+  requireTradingProbe(request: FastifyRequest, reply: FastifyReply): Promise<TradingProbeAuthContext | null>;
   requireAdmin(request: FastifyRequest, reply: FastifyReply): Promise<AdminAuthContext | null>;
   requireBillingAdmin(request: FastifyRequest, reply: FastifyReply): Promise<AdminAuthContext | null>;
   hasBillingAdminAccess(user: PublicAuthUser): Promise<boolean>;
@@ -68,6 +72,24 @@ export function createHttpAuth(input: {
       return null;
     }
     return gate;
+  }
+
+  async function requireTradingProbe(
+    request: FastifyRequest,
+    reply: FastifyReply
+  ): Promise<TradingProbeAuthContext | null> {
+    const nodeName = headerValue(request, "x-probe-node-name");
+    const nodeToken = headerValue(request, "x-probe-node-token");
+    if (!nodeName || !nodeToken) {
+      sendApplicationError(reply, "trading_probe_auth_required");
+      return null;
+    }
+    const node = await authenticateTradingProbeToken(input.db, { nodeName, nodeToken });
+    if (!node) {
+      sendApplicationError(reply, "invalid_trading_probe_credentials");
+      return null;
+    }
+    return node;
   }
 
   async function requireRole(
@@ -130,5 +152,12 @@ export function createHttpAuth(input: {
     return null;
   }
 
-  return { requireUser, requireGate, requireAdmin, requireBillingAdmin, hasBillingAdminAccess };
+  return {
+    requireUser,
+    requireGate,
+    requireTradingProbe,
+    requireAdmin,
+    requireBillingAdmin,
+    hasBillingAdminAccess
+  };
 }

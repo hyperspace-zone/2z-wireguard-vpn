@@ -5,4 +5,7 @@ const buildId = process.env.HYPERSPACE_WEB_BUILD_ID ?? new Date().toISOString().
 const index = await readFile("index.html", "utf8");
 await writeFile("dist/index.html", index.replaceAll("__HYPERSPACE_WEB_BUILD_ID__", buildId));
 await copyFile("favicon-48x48.png", "dist/favicon-48x48.png");
+await copyFile("hyperspace-logo.svg", "dist/hyperspace-logo.svg");
+await copyFile("../../node_modules/leaflet/dist/leaflet.css", "dist/leaflet.css");
+await copyFile("../../node_modules/leaflet/dist/leaflet.js", "dist/leaflet.js");
 await copyFile("styles.css", "dist/styles.css");

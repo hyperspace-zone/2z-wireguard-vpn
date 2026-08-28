@@ -11,6 +11,520 @@ body {
   margin: 0;
 }
 
+.trading-shell {
+  --trading-bg: #f7f8fb;
+  --trading-panel: #ffffff;
+  --trading-subtle: #f6f8fa;
+  --trading-border: #d8dee8;
+  --trading-muted: #57606a;
+  --trading-accent: #0969da;
+  background: var(--trading-bg);
+  color: #161b22;
+  min-height: 100vh;
+  overflow: hidden;
+}
+
+.trading-product-nav {
+  align-items: center;
+  background: #ffffff;
+  border-bottom: 1px solid var(--trading-border);
+  display: flex;
+  gap: 12px;
+  height: 42px;
+  padding: 0 14px;
+}
+
+.trading-brand,
+.trading-vpn-link,
+.trading-product-nav a,
+.trading-context-nav a {
+  color: var(--trading-muted);
+  text-decoration: none;
+}
+
+.trading-brand {
+  align-items: center;
+  color: #161b22;
+  display: flex;
+  flex: 0 0 auto;
+  font-size: 12px;
+  gap: 8px;
+}
+
+.trading-brand-logo {
+  border: 1px solid #d8dee8;
+  border-radius: 6px;
+  height: 25px;
+  object-fit: cover;
+  width: 25px;
+}
+
+.trading-section-links {
+  display: flex;
+  flex: 1;
+  gap: 3px;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.trading-section-links a {
+  border-radius: 5px;
+  flex: 0 0 auto;
+  font-size: 11px;
+  padding: 6px 9px;
+  white-space: nowrap;
+}
+
+.trading-section-links a:hover,
+.trading-section-links a.active,
+.trading-context-nav a.active {
+  background: #eaf3ff;
+  color: #0a58ca;
+}
+
+.trading-vpn-link {
+  flex: 0 0 auto;
+  font-size: 11px;
+}
+
+.trading-context-nav {
+  align-items: center;
+  background: #fbfcfe;
+  border-bottom: 1px solid var(--trading-border);
+  display: flex;
+  gap: 28px;
+  min-height: 54px;
+  padding: 0 20px;
+}
+
+.trading-context-nav > div {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+}
+
+.trading-live-dot {
+  background: #1a7f37;
+  border-radius: 50%;
+  box-shadow: 0 0 0 4px #dafbe1;
+  height: 7px;
+  width: 7px;
+}
+
+.trading-context-nav nav {
+  display: flex;
+  gap: 4px;
+}
+
+.trading-context-nav a {
+  border-radius: 16px;
+  font-size: 12px;
+  padding: 7px 13px;
+}
+
+.trading-context-nav small {
+  color: var(--trading-muted);
+  font-size: 11px;
+  margin-left: auto;
+}
+
+.trading-dashboard {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 430px;
+  height: calc(100vh - 98px);
+}
+
+.trading-map-panel {
+  min-width: 0;
+  overflow: hidden;
+  position: relative;
+}
+
+.trading-map-controls {
+  align-items: end;
+  display: flex;
+  gap: 10px;
+  left: 18px;
+  position: absolute;
+  top: 16px;
+  z-index: 800;
+}
+
+.trading-map-controls label {
+  color: var(--trading-muted);
+  font-size: 10px;
+  gap: 4px;
+  text-transform: uppercase;
+}
+
+.trading-map-controls select {
+  background: rgba(255, 255, 255, .96);
+  border-color: #c9d1d9;
+  color: #161b22;
+  font-size: 12px;
+  min-width: 230px;
+}
+
+.trading-map-controls select,
+.trading-measurement-pill {
+  box-shadow: 0 3px 12px rgba(27, 31, 36, .08);
+}
+
+.trading-measurement-pill,
+.trading-protocol {
+  background: rgba(255, 255, 255, .96);
+  border: 1px solid #c9d1d9;
+  border-radius: 6px;
+  color: #57606a;
+  font-size: 10px;
+  padding: 10px;
+}
+
+.trading-map-summary {
+  display: flex;
+  gap: 8px;
+  position: absolute;
+  right: 18px;
+  top: 16px;
+  z-index: 800;
+}
+
+.trading-map-summary > div {
+  background: rgba(255, 255, 255, .94);
+  border: 1px solid #d8dee8;
+  border-radius: 7px;
+  box-shadow: 0 3px 12px rgba(27, 31, 36, .08);
+  display: grid;
+  gap: 3px;
+  min-width: 86px;
+  padding: 9px 11px;
+}
+
+.trading-map-summary small,
+.trading-ranking-heading small,
+.trading-rank-row small,
+.trading-document-view small {
+  color: var(--trading-muted);
+  font-size: 10px;
+}
+
+.trading-map-summary strong {
+  font-size: 13px;
+}
+
+.trading-map-wrap,
+#trading-map {
+  height: 100%;
+  width: 100%;
+}
+
+.trading-map-wrap {
+  background: #eaf0f6;
+}
+
+#trading-map {
+  background: #eaf0f6;
+}
+
+#trading-map .leaflet-tile-pane {
+  filter: grayscale(.18) saturate(.78) brightness(.97) contrast(1.07);
+}
+
+#trading-map .leaflet-control-attribution,
+#trading-map .leaflet-control-zoom a {
+  background: rgba(255, 255, 255, .94);
+  color: #57606a;
+}
+
+#trading-map .leaflet-control-attribution a,
+#trading-map .leaflet-control-zoom a:hover {
+  color: #0969da;
+}
+
+#trading-map .leaflet-control-zoom {
+  border-color: #c9d1d9;
+  margin-top: 86px;
+}
+
+.trading-map-tooltip {
+  background: rgba(255, 255, 255, .98);
+  border: 1px solid #c9d1d9;
+  box-shadow: 0 4px 16px rgba(27, 31, 36, .14);
+  color: #161b22;
+  line-height: 1.45;
+  padding: 7px 9px;
+}
+
+.trading-map-tooltip::before {
+  border-top-color: #c9d1d9 !important;
+}
+
+.trading-map-legend {
+  align-items: center;
+  background: rgba(255, 255, 255, .94);
+  border: 1px solid #d8dee8;
+  border-radius: 7px;
+  box-shadow: 0 3px 12px rgba(27, 31, 36, .08);
+  bottom: 15px;
+  display: flex;
+  gap: 15px;
+  left: 18px;
+  padding: 8px 10px;
+  position: absolute;
+  z-index: 800;
+}
+
+.trading-map-legend span {
+  align-items: center;
+  color: #57606a;
+  display: flex;
+  font-size: 10px;
+  gap: 5px;
+}
+
+.trading-map-legend i,
+.trading-rank-dot {
+  background: var(--dot);
+  border-radius: 50%;
+  box-shadow: 0 0 8px color-mix(in srgb, var(--dot), transparent 35%);
+  display: inline-block;
+  height: 7px;
+  width: 7px;
+}
+
+.trading-ranking-panel {
+  background: var(--trading-panel);
+  border-left: 1px solid var(--trading-border);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.trading-ranking-heading {
+  align-items: center;
+  border-bottom: 1px solid var(--trading-border);
+  display: flex;
+  justify-content: space-between;
+  padding: 16px;
+}
+
+.trading-ranking-heading h1 {
+  font-size: 16px;
+  margin: 3px 0 0;
+}
+
+.trading-rank-list {
+  overflow-y: auto;
+}
+
+.trading-rank-row {
+  align-items: center;
+  border-bottom: 1px solid #d8dee8;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 22px 8px minmax(105px, 1fr) 74px 96px;
+  padding: 11px 14px;
+}
+
+.trading-rank-row:hover {
+  background: #f6f8fa;
+}
+
+.trading-rank-number {
+  color: #8c959f;
+  font-size: 11px;
+  text-align: right;
+}
+
+.trading-rank-location,
+.trading-rank-metric,
+.trading-rank-secondary {
+  display: grid;
+  gap: 2px;
+}
+
+.trading-rank-location strong,
+.trading-rank-metric strong {
+  font-size: 12px;
+}
+
+.trading-rank-metric {
+  text-align: right;
+}
+
+.trading-rank-secondary {
+  color: #57606a;
+  font-size: 9px;
+  text-align: right;
+}
+
+.trading-document-view {
+  margin: 0 auto;
+  max-width: 1120px;
+  padding: 52px 24px 80px;
+}
+
+.trading-document-view header {
+  max-width: 720px;
+}
+
+.trading-document-view h1 {
+  font-size: 34px;
+  margin: 7px 0 12px;
+}
+
+.trading-document-view h2 {
+  font-size: 15px;
+}
+
+.trading-document-view p {
+  color: #57606a;
+  line-height: 1.65;
+}
+
+.trading-copy-columns,
+.trading-target-grid {
+  display: grid;
+  gap: 13px;
+  grid-template-columns: repeat(3, 1fr);
+  margin-top: 28px;
+}
+
+.trading-copy-columns article,
+.trading-target-grid article,
+.trading-status-grid article {
+  background: #ffffff;
+  border: 1px solid var(--trading-border);
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.trading-target-grid article {
+  display: grid;
+  gap: 6px;
+}
+
+.trading-target-grid span {
+  color: #57606a;
+  font-size: 12px;
+}
+
+.trading-status-grid {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(2, 1fr);
+  margin: 28px 0;
+}
+
+.trading-status-grid article {
+  align-items: center;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 8px 1fr auto;
+}
+
+.trading-status-grid i {
+  background: #8c959f;
+  border-radius: 50%;
+  height: 7px;
+  width: 7px;
+}
+
+.trading-status-grid i.fresh { background: #1a7f37; }
+.trading-status-grid i.stale { background: #cf222e; }
+.trading-status-grid div { display: grid; gap: 2px; }
+.trading-status-grid span { color: #57606a; font-size: 11px; }
+
+.trading-empty-state,
+.trading-centered {
+  align-items: center;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-height: calc(100vh - 98px);
+  text-align: center;
+}
+
+.trading-empty-state span {
+  color: #0969da;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.trading-empty-state h1 {
+  font-size: 42px;
+  margin: 12px 0;
+}
+
+.trading-empty-state p {
+  color: #57606a;
+  line-height: 1.6;
+  max-width: 620px;
+}
+
+.trading-centered {
+  gap: 12px;
+}
+
+.trading-centered p,
+.trading-centered a { color: #57606a; }
+
+.trading-loader {
+  animation: trading-spin .8s linear infinite;
+  border: 2px solid #d8dee8;
+  border-radius: 50%;
+  border-top-color: #1f6feb;
+  height: 24px;
+  width: 24px;
+}
+
+.trading-error-mark {
+  align-items: center;
+  background: #ffebe9;
+  border-radius: 50%;
+  color: #cf222e;
+  display: flex;
+  font-weight: 800;
+  height: 40px;
+  justify-content: center;
+  width: 40px;
+}
+
+@keyframes trading-spin { to { transform: rotate(360deg); } }
+
+@media (max-width: 980px) {
+  .trading-brand strong,
+  .trading-vpn-link,
+  .trading-context-nav small { display: none; }
+  .trading-dashboard { grid-template-columns: 1fr; height: auto; }
+  .trading-map-panel { height: 58vh; }
+  .trading-ranking-panel { border-left: 0; border-top: 1px solid var(--trading-border); }
+  .trading-map-summary { display: none; }
+}
+
+@media (max-width: 620px) {
+  .trading-product-nav { padding: 0 8px; }
+  .trading-context-nav { gap: 10px; padding: 0 10px; }
+  .trading-context-nav > div strong { display: none; }
+  .trading-map-controls { left: 10px; right: 10px; }
+  .trading-map-controls label { flex: 1; }
+  .trading-map-controls select { min-width: 0; }
+  .trading-measurement-pill { display: none; }
+  .trading-map-legend { flex-wrap: wrap; gap: 7px 12px; right: 10px; }
+  .trading-rank-row { grid-template-columns: 18px 7px minmax(90px, 1fr) 66px; }
+  .trading-rank-secondary { display: none; }
+  .trading-copy-columns,
+  .trading-target-grid,
+  .trading-status-grid { grid-template-columns: 1fr; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .trading-map-pulse,
+  .trading-loader { animation: none; }
+}
+
 button,
 input,
 select,

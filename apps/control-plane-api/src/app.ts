@@ -21,6 +21,7 @@ import { registerAdminGatesRoutes } from "./surfaces/admin/gates.routes.js";
 import { registerGateAgentDeploymentRoutes } from "./surfaces/admin/gate-agent-deployments.routes.js";
 import { registerAdminJobRoutes } from "./surfaces/admin/jobs.routes.js";
 import { registerAdminSessionRoutes } from "./surfaces/admin/sessions.routes.js";
+import { registerAdminTradingProbeRoutes } from "./surfaces/admin/trading-probes.routes.js";
 import { registerAgentEntitlementRoutes } from "./surfaces/agent/entitlements.routes.js";
 import { registerAgentSessionRoutes } from "./surfaces/agent/sessions.routes.js";
 import { registerGateActualStateRoutes } from "./surfaces/gate/actual-state.routes.js";
@@ -34,6 +35,8 @@ import { registerPublicBillingRoutes } from "./surfaces/public/billing.routes.js
 import { registerPublicGatesRoutes } from "./surfaces/public/gates.routes.js";
 import { registerPublicNetworkRoutes } from "./surfaces/public/network.routes.js";
 import { registerPublicSessionsRoutes } from "./surfaces/public/sessions.routes.js";
+import { registerPublicTradingRoutes } from "./surfaces/public/trading.routes.js";
+import { registerTradingProbeAgentRoutes } from "./surfaces/trading-probe/agent.routes.js";
 import {
   createSolanaConfigPaymentService,
   type SolanaConfigPaymentService
@@ -131,6 +134,7 @@ export function createApp(input: CreateControlPlaneApiAppInput): FastifyInstance
     hasBillingAdminAccess: auth.hasBillingAdminAccess
   });
   registerPublicBenchmarkRoutes(app, { db: benchmarkDb });
+  registerPublicTradingRoutes(app, { db: benchmarkDb });
   registerPublicGatesRoutes(app, { db });
   registerPublicNetworkRoutes(app, { requireUser: auth.requireUser });
   registerPublicBillingRoutes(app, {
@@ -176,11 +180,16 @@ export function createApp(input: CreateControlPlaneApiAppInput): FastifyInstance
       }
       : null
   });
+  registerAdminTradingProbeRoutes(app, { db, requireAdmin: auth.requireAdmin });
   registerAgentSessionRoutes(app);
   registerAgentEntitlementRoutes(app);
   registerGateActualStateRoutes(app, { db, requireGate: auth.requireGate });
   registerGateHeartbeatRoutes(app, { db, requireGate: auth.requireGate });
   registerGateJobRoutes(app, { db, requireGate: auth.requireGate });
+  registerTradingProbeAgentRoutes(app, {
+    db,
+    requireTradingProbe: auth.requireTradingProbe
+  });
   registerMetricsRoute(app, metrics);
   health.setComponent("process", { state: "ready", message: "Fastify app is ready." });
 

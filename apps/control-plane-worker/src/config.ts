@@ -3,11 +3,13 @@ import { Keypair, PublicKey } from "@solana/web3.js";
 import type { BillingConfig } from "@hyperspace-zone/control-plane";
 import type { BenchmarkSchedulerRuntimeConfig } from "./loops/benchmark-scheduler-loop.js";
 import type { ReconcileLoopRuntimeConfig } from "./loops/reconcile-loop.js";
+import type { TradingProbeSchedulerRuntimeConfig } from "./loops/trading-probe-scheduler-loop.js";
 
-export interface ControlPlaneWorkerConfig extends ReconcileLoopRuntimeConfig, BenchmarkSchedulerRuntimeConfig {
+export interface ControlPlaneWorkerConfig extends ReconcileLoopRuntimeConfig, BenchmarkSchedulerRuntimeConfig, TradingProbeSchedulerRuntimeConfig {
   databaseUrl: string;
   pollMs: number;
   benchmarkSchedulerPollMs: number;
+  tradingProbeSchedulerPollMs: number;
   snapshotIntervalMs: number;
   workerId: string;
   observabilityHost: string;
@@ -71,6 +73,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ControlPlaneWo
     artifactEncryptionKey: parseAes256GcmKey(artifactEncryptionKeyRaw),
     pollMs: Number(env.WORKER_POLL_MS ?? 2000),
     benchmarkSchedulerPollMs: Number(env.BENCHMARK_SCHEDULER_POLL_MS ?? 15000),
+    tradingProbeSchedulerPollMs: Number(env.TRADING_PROBE_SCHEDULER_POLL_MS ?? 5000),
     snapshotIntervalMs: Number(env.WORKER_SNAPSHOT_INTERVAL_MS ?? 15000),
     workerId: env.WORKER_ID ?? `worker-${process.pid}`,
     observabilityHost: env.WORKER_OBSERVABILITY_HOST ?? "0.0.0.0",
@@ -148,7 +151,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ControlPlaneWo
     ntpDiscoveryEnabled: env.NTP_DISCOVERY_ENABLED === "true",
     ntpDiscoveryIntervalSeconds: Number(env.NTP_DISCOVERY_INTERVAL_SECONDS ?? 86400),
     ntpDiscoverySampleSeconds: Number(env.NTP_DISCOVERY_SAMPLE_SECONDS ?? 30),
-    ntpDiscoveryMaxCandidates: Number(env.NTP_DISCOVERY_MAX_CANDIDATES ?? 96)
+    ntpDiscoveryMaxCandidates: Number(env.NTP_DISCOVERY_MAX_CANDIDATES ?? 96),
+    tradingProbesEnabled: env.TRADING_PROBES_ENABLED === "true"
   };
   validateSolanaPayoutConfig(config);
   return config;

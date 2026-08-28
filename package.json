@@ -34,6 +34,7 @@
     "gates:rollout-wave": "node scripts/gates/rollout-wave.mjs",
     "gates:control-plane-rollout": "node scripts/gates/control-plane-rollout.mjs",
     "gates:build-agent": "scripts/gates/build-agent",
+    "trading:build-agent": "scripts/trading/build-agent",
     "test:gate-discovery": "node --test scripts/observability/render-gate-file-sd.test.mjs",
     "test:meta-watch": "node --test scripts/observability/hyperspace-meta-watch.test.mjs",
     "test:gate-provisioning": "node --test scripts/gates/*.test.mjs",

@@ -29,8 +29,8 @@ must not be committed.
 
 | Gate | Public IPv4 | Production state | Staging state |
 | --- | --- | --- | --- |
-| `gate-ap-tyo-21` | `88.216.188.7` | `Maintenance` | `Enabled` |
-| `gate-eu-ams-21` | `84.32.231.46` | `Maintenance` | `Enabled` |
+| `gate-ap-hkg-31` | `185.132.125.145` | `Maintenance` | `Enabled` |
+| `gate-eu-mad-01` | `194.62.98.129` | `Maintenance` | `Enabled` |
 | `gate-na-chi-02` | `152.44.43.130` | `Maintenance` | `Enabled` |
 
 Each gate has an independent staging agent token and reports only to
