@@ -224,11 +224,11 @@ function mapView(payload: TradingPayload, targets: TradingTarget[], target: Trad
         </div>
         ${worldMap()}
         <div class="trading-map-legend" aria-label="Latency color scale">
-          <span><i style="--dot:#33d17a"></i>&lt; 50 ms</span>
-          <span><i style="--dot:#b6e53c"></i>50–100 ms</span>
-          <span><i style="--dot:#ffc857"></i>100–200 ms</span>
-          <span><i style="--dot:#ff6b57"></i>&gt; 200 ms</span>
-          <span><i style="--dot:#7b8190"></i>No data</span>
+          <span><i style="--dot:#1a7f37"></i>&lt; 50 ms</span>
+          <span><i style="--dot:#65a30d"></i>50–100 ms</span>
+          <span><i style="--dot:#bf8700"></i>100–200 ms</span>
+          <span><i style="--dot:#cf222e"></i>&gt; 200 ms</span>
+          <span><i style="--dot:#8c959f"></i>No data</span>
         </div>
       </div>
       <aside class="trading-ranking-panel">
@@ -382,11 +382,11 @@ function latencyColor(measurement: TradingMeasurement | undefined): string {
     measurement?.status === "succeeded" ? measurement.totalP50Ms : undefined
   );
   return {
-    fast: "#33d17a",
-    good: "#b6e53c",
-    slow: "#ffc857",
-    critical: "#ff6b57",
-    unavailable: "#7b8190"
+    fast: "#1a7f37",
+    good: "#65a30d",
+    slow: "#bf8700",
+    critical: "#cf222e",
+    unavailable: "#8c959f"
   }[band];
 }
 

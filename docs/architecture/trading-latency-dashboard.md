@@ -109,7 +109,7 @@ measurement page should have:
 
 - a compact horizontally scrollable section bar;
 - a second row for `Map`, `Status`, and `About`, plus section-specific views;
-- a full-height dark world map on the left and a ranked table on the right;
+- a full-height light world map on the left and a ranked table on the right;
 - target/product selectors where a section has more than one endpoint;
 - best-location and lowest-latency summary cards;
 - p50 as the main ranking value, plus p95, jitter, success rate, sample count,
@@ -457,8 +457,9 @@ apps/web/src/trading/sections/*.ts
 `main.ts` should dispatch paths beginning with `/trading` to this module before
 the authenticated VPN view resolution. This keeps `/trading` public like
 `/benchmarks` and avoids the current unauthenticated redirect to `/login`.
-Scope dark-theme CSS under `.trading-shell` so the existing light VPN UI and
-grant acceptance screenshots do not change.
+Scope trading CSS under `.trading-shell` and reuse the existing light VPN UI
+tokens for backgrounds, panels, borders, text, and active states, so grant
+acceptance screenshots do not change.
 
 Use `AbortController` to cancel stale requests, poll latest data at a bounded
 interval, pause polling for hidden tabs, preserve section/filter state in the
@@ -577,8 +578,8 @@ historical trading tables may remain unused.
 
 ## 13. Recommended first implementation slice
 
-Implement the route shell, dark scoped layout, SVG map, fixture-backed
-leaderboard, and API contracts first. Then add the independent node identity,
+Implement the route shell, light scoped layout, interactive Leaflet map,
+fixture-backed leaderboard, and API contracts first. Then add the independent node identity,
 queue, agent artifact/release controller, and only four canary target types to
 staging: Hyperliquid WebSocket, Polymarket REST, Kalshi REST, and one read-only
 L2 JSON-RPC endpoint. This validates the hard reusable parts—routing,
