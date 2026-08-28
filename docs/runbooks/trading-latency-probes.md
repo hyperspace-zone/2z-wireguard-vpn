@@ -7,23 +7,23 @@ DoubleZero recovery, gate heartbeats, or config issuance.
 
 ## Live staging evidence (2026-08-28)
 
-The expanded backend and probe artifact from commit `1008248` and the canonical
-OpenStreetMap web patch from `2c71c14` are deployed only to staging. Three
-independent probe agents in Hong Kong, Madrid, and Chicago run version `0.2.0`, revision
-`10082484f52fb8f82233676d15ec6dbf14755642`, artifact SHA-256
-`e8230768a06c5913c9cffeaee698651bf05ff346ca34552f2976d0830327f5fe`.
+The expanded backend and CEX probe artifact from commit `30834d1` and the light
+web dashboard from `1142ad2` are deployed only to staging. Three independent
+probe agents in Hong Kong, Madrid, and Chicago run version `0.3.0`, revision
+`30834d17523e5b32aa6fb6939b72cd40964f1649`, artifact SHA-256
+`1c9cc1d69bcbcffec15706254ee5d4f16bcfeaa22c589fc00195982913d08596`.
 
-The live catalog contains 18 targets and publishes 54 latest measurements.
-All five oracle targets and every network target succeeded from all three
-locations. The only non-success is the documented Binance HTTP 451 from
-Chicago, classified as `geo_blocked`. API, worker, all three VPN gate agents,
+The live catalog contains 26 targets and publishes 78 latest measurements.
+All ten CEX venues are present. The CEX matrix has 28 successful measurements;
+Chicago receives the documented Binance HTTP 451 (`geo_blocked`) and a Bybit
+HTTP 403 (`unexpected_http_status`). API, worker, all three VPN gate agents,
 and all three trading probe agents remained active after rollout.
 
 The pre-migration PostgreSQL dump is
-`/var/backups/hyperspace/hyperspace-20260828T134505Z.dump`. Probe-agent
+`/var/backups/hyperspace/hyperspace-20260828T143122Z.dump`. Probe-agent
 rollbacks are stored in
-`/opt/hyperspace-rollbacks/trading-probe-pre-1008248` on each probe host; the
-previous web artifact is
+`/opt/hyperspace-rollbacks/trading-probe-1008248-before-30834d1` on each probe
+host; the previous web artifact is
 `/opt/hyperspace-rollbacks/trading-pre-1008248-web` on the staging web host.
 
 ## Target set
@@ -162,8 +162,9 @@ curl -fsSI https://app.staging.hyperspace.zone/trading/cex
 ```
 
 Verify that all ten CEX targets have fresh measurements or an explicit regional
-policy error from all enabled probe nodes. Stop the probe service deliberately and confirm that the primary
-gate agent remains fresh and a new VPN config can still be issued.
+policy error from all enabled probe nodes. Stop the probe service deliberately
+and confirm that the primary gate agent remains fresh and a new VPN config can
+still be issued.
 
 ## Rollback
 
