@@ -241,15 +241,17 @@ func postJSON(client *http.Client, cfg config, path string, payload any, output 
 func execute(cfg config, t target) metricResult {
 	measuredAt := time.Now().UTC().Format(time.RFC3339Nano)
 	if err := validateTarget(cfg, t); err != nil {
-		return failedResult(measuredAt, t.SampleCount, "target_rejected", err)
+		return failedResult(measuredAt, t.SampleCount, "target_rejected", err, sample{})
 	}
 	var successes []sample
 	var lastErr error
+	var lastFailure sample
 	errorCode := "probe_failed"
 	for index := 0; index < t.SampleCount; index++ {
 		entry, code, err := measureHTTP(t)
 		if err != nil {
 			lastErr = err
+			lastFailure = entry
 			errorCode = code
 		} else {
 			successes = append(successes, entry)
@@ -259,7 +261,7 @@ func execute(cfg config, t target) metricResult {
 		}
 	}
 	if len(successes) == 0 {
-		return failedResult(measuredAt, t.SampleCount, errorCode, lastErr)
+		return failedResult(measuredAt, t.SampleCount, errorCode, lastErr, lastFailure)
 	}
 	return aggregate(measuredAt, t.SampleCount, successes)
 }
@@ -352,24 +354,34 @@ func measureHTTP(t target) (sample, string, error) {
 	if err != nil {
 		return sample{}, "response_read_failed", err
 	}
+	observed := sample{
+		dnsMS: dnsMS, tcpMS: tcpMS, tlsMS: tlsMS, ttfbMS: ttfbMS,
+		totalMS: milliseconds(time.Since(started)), httpStatus: response.StatusCode,
+		resolvedIP: resolved.String(),
+	}
 	if len(body) > 65536 {
-		return sample{}, "response_too_large", errors.New("response exceeded 64 KiB")
+		return observed, "response_too_large", errors.New("response exceeded 64 KiB")
 	}
 	if response.StatusCode != t.ExpectedStatus {
-		if response.StatusCode == http.StatusTooManyRequests {
-			return sample{}, "rate_limited", fmt.Errorf("endpoint returned HTTP 429")
-		}
-		return sample{}, "unexpected_http_status", fmt.Errorf("expected status %d, got %d", t.ExpectedStatus, response.StatusCode)
+		return observed, classifyHTTPStatus(response.StatusCode), fmt.Errorf("expected status %d, got %d", t.ExpectedStatus, response.StatusCode)
 	}
 	responseClass, err := validateResponse(body, t)
 	if err != nil {
-		return sample{}, "response_validation_failed", err
+		return observed, "response_validation_failed", err
 	}
-	return sample{
-		dnsMS: dnsMS, tcpMS: tcpMS, tlsMS: tlsMS, ttfbMS: ttfbMS,
-		totalMS: milliseconds(time.Since(started)), httpStatus: response.StatusCode,
-		responseClass: responseClass, resolvedIP: resolved.String(),
-	}, "", nil
+	observed.responseClass = responseClass
+	return observed, "", nil
+}
+
+func classifyHTTPStatus(status int) string {
+	switch status {
+	case http.StatusTooManyRequests:
+		return "rate_limited"
+	case http.StatusUnavailableForLegalReasons:
+		return "geo_blocked"
+	default:
+		return "unexpected_http_status"
+	}
 }
 
 func validateResponse(body []byte, t target) (string, error) {
@@ -433,7 +445,7 @@ func aggregate(measuredAt string, requested int, samples []sample) metricResult 
 	}
 }
 
-func failedResult(measuredAt string, samples int, code string, err error) metricResult {
+func failedResult(measuredAt string, samples int, code string, err error, observed sample) metricResult {
 	message := "probe failed"
 	if err != nil {
 		message = err.Error()
@@ -441,7 +453,22 @@ func failedResult(measuredAt string, samples int, code string, err error) metric
 	if len(message) > 300 {
 		message = message[:300]
 	}
-	return metricResult{Status: "failed", MeasuredAt: measuredAt, SampleCount: samples, FailureCount: samples, ErrorCode: code, ErrorMessage: message}
+	result := metricResult{
+		Status: "failed", MeasuredAt: measuredAt, SampleCount: samples,
+		FailureCount: samples, ErrorCode: code, ErrorMessage: message,
+		HTTPStatus: observed.httpStatus, ResolvedIP: observed.resolvedIP,
+	}
+	if observed.totalMS > 0 {
+		result.DNSMS = pointer(observed.dnsMS)
+		result.TCPMS = pointer(observed.tcpMS)
+		result.TLSMS = pointer(observed.tlsMS)
+		result.TTFBMS = pointer(observed.ttfbMS)
+		result.TotalP50MS = pointer(observed.totalMS)
+		result.TotalP95MS = pointer(observed.totalMS)
+		result.TotalMinMS = pointer(observed.totalMS)
+		result.TotalMaxMS = pointer(observed.totalMS)
+	}
+	return result
 }
 
 func values(samples []sample, selectValue func(sample) float64) []float64 {

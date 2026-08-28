@@ -2,6 +2,7 @@ package main
 
 import (
 	"net"
+	"net/http"
 	"testing"
 )
 
@@ -42,5 +43,31 @@ func TestTargetAllowlist(t *testing.T) {
 	good.Hostname = "example.com"
 	if err := validateTarget(cfg, good); err == nil {
 		t.Fatal("expected non-catalog host to be rejected")
+	}
+}
+
+func TestHTTPFailureClassification(t *testing.T) {
+	tests := map[int]string{
+		http.StatusTooManyRequests:            "rate_limited",
+		http.StatusUnavailableForLegalReasons: "geo_blocked",
+		http.StatusForbidden:                  "unexpected_http_status",
+	}
+	for status, expected := range tests {
+		if actual := classifyHTTPStatus(status); actual != expected {
+			t.Fatalf("status %d: expected %s, got %s", status, expected, actual)
+		}
+	}
+}
+
+func TestFailedResultPreservesObservedHTTPDiagnostics(t *testing.T) {
+	result := failedResult("2026-08-28T00:00:00Z", 3, "geo_blocked", nil, sample{
+		dnsMS: 1, tcpMS: 2, tlsMS: 3, ttfbMS: 4, totalMS: 5,
+		httpStatus: http.StatusUnavailableForLegalReasons, resolvedIP: "192.0.2.1",
+	})
+	if result.HTTPStatus != http.StatusUnavailableForLegalReasons || result.ResolvedIP != "192.0.2.1" {
+		t.Fatalf("HTTP diagnostics were not preserved: %+v", result)
+	}
+	if result.TotalP50MS == nil || *result.TotalP50MS != 5 {
+		t.Fatalf("failure timing was not preserved: %+v", result.TotalP50MS)
 	}
 }
