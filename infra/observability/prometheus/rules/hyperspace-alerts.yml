@@ -1132,3 +1132,39 @@ groups:
         annotations:
           summary: Billing metering records were rejected
           description: One or more DoubleZero metering records could not be reconciled to a valid account or session.
+
+      - alert: HyperspaceTradingProbeNodeStale
+        expr: hyperspace_control_plane_trading_probe_node_fresh{enabled="true"} == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Trading latency probe node is stale
+          description: Probe {{ $labels.node }} in {{ $labels.city }} has not sent a fresh heartbeat; VPN gate operation is independent and remains unaffected.
+
+      - alert: HyperspaceTradingProbeFleetUnavailable
+        expr: (max(hyperspace_control_plane_trading_probe_nodes{state="enabled"}) > 0) and on() (max(hyperspace_control_plane_trading_probe_nodes{state="fresh"}) == 0)
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: Trading latency probe fleet is unavailable
+          description: No enabled trading latency probe node has a fresh heartbeat. The /trading product is unavailable, but VPN config issuance is isolated from this subsystem.
+
+      - alert: HyperspaceTradingTargetRateLimited
+        expr: hyperspace_control_plane_trading_target_rate_limited_nodes > 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Trading latency endpoint is rate limiting probes
+          description: Target {{ $labels.target }} has sustained HTTP 429 responses from one or more probe nodes; reduce its target-specific cadence before retrying.
+
+      - alert: HyperspaceTradingTargetDataStale
+        expr: hyperspace_control_plane_trading_target_latest_age_seconds > 300
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Trading latency target data is stale
+          description: Target {{ $labels.target }} in {{ $labels.category }} has no result newer than five minutes.

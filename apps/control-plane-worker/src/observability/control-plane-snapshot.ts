@@ -88,8 +88,85 @@ function defaultSnapshotSections(db: Database, metrics: RuntimeMetrics): Control
     { name: "jobs", collect: () => collectJobMetrics(db, metrics) },
     { name: "gate-agent-deployments", collect: () => collectGateAgentDeploymentMetrics(db, metrics) },
     { name: "benchmarks", collect: () => collectBenchmarkMetrics(db, metrics) },
+    { name: "trading-probes", collect: () => collectTradingProbeMetrics(db, metrics) },
     { name: "billing", collect: () => collectBillingMetrics(db, metrics) }
   ];
+}
+
+async function collectTradingProbeMetrics(db: Database, metrics: RuntimeMetrics): Promise<void> {
+  const nodes = await db.query<{
+    node: string;
+    city: string;
+    enabled: boolean;
+    fresh: boolean;
+    lastSeenAgeSeconds: number;
+  }>(`
+    SELECT
+      nodes.name AS node,
+      nodes.city,
+      nodes.desired_state = 'Enabled' AS enabled,
+      COALESCE(status.last_seen_at > now() - interval '90 seconds', false) AS fresh,
+      COALESCE(EXTRACT(EPOCH FROM now() - status.last_seen_at)::float, 1000000000) AS "lastSeenAgeSeconds"
+    FROM trading_probe_nodes nodes
+    LEFT JOIN trading_probe_node_status status ON status.probe_node_id = nodes.id
+    WHERE nodes.desired_state <> 'Disabled'
+  `);
+  let enabled = 0;
+  let fresh = 0;
+  for (const row of nodes.rows) {
+    if (row.enabled) enabled += 1;
+    if (row.enabled && row.fresh) fresh += 1;
+    metrics.gauge("control_plane_trading_probe_node_fresh", row.fresh ? 1 : 0, {
+      help: "Whether a trading latency probe node heartbeat is fresh.",
+      labels: { node: row.node, city: row.city, enabled: String(row.enabled) }
+    });
+    metrics.gauge("control_plane_trading_probe_node_last_seen_age_seconds", row.lastSeenAgeSeconds, {
+      help: "Age in seconds of the latest trading latency probe heartbeat.",
+      labels: { node: row.node, city: row.city, enabled: String(row.enabled) }
+    });
+  }
+  metrics.gauge("control_plane_trading_probe_nodes", enabled, {
+    help: "Trading latency probe nodes by desired and heartbeat state.", labels: { state: "enabled" }
+  });
+  metrics.gauge("control_plane_trading_probe_nodes", fresh, {
+    help: "Trading latency probe nodes by desired and heartbeat state.", labels: { state: "fresh" }
+  });
+
+  const targets = await db.query<{
+    target: string;
+    category: string;
+    reportingNodes: number;
+    failedNodes: number;
+    rateLimitedNodes: number;
+    latestAgeSeconds: number;
+  }>(`
+    SELECT
+      targets.target_key AS target,
+      targets.category,
+      COUNT(latest.probe_node_id) FILTER (WHERE latest.status = 'succeeded')::int AS "reportingNodes",
+      COUNT(latest.probe_node_id) FILTER (WHERE latest.status = 'failed')::int AS "failedNodes",
+      COUNT(latest.probe_node_id) FILTER (WHERE latest.error_code = 'rate_limited')::int AS "rateLimitedNodes",
+      COALESCE(EXTRACT(EPOCH FROM now() - MAX(latest.measured_at))::float, 1000000000) AS "latestAgeSeconds"
+    FROM trading_probe_targets targets
+    LEFT JOIN trading_latency_latest latest ON latest.target_id = targets.id
+    WHERE targets.enabled = true
+    GROUP BY targets.id, targets.target_key, targets.category
+  `);
+  for (const row of targets.rows) {
+    const labels = { target: row.target, category: row.category };
+    metrics.gauge("control_plane_trading_target_reporting_nodes", row.reportingNodes, {
+      help: "Probe nodes whose latest trading target result succeeded.", labels
+    });
+    metrics.gauge("control_plane_trading_target_failed_nodes", row.failedNodes, {
+      help: "Probe nodes whose latest trading target result failed.", labels
+    });
+    metrics.gauge("control_plane_trading_target_rate_limited_nodes", row.rateLimitedNodes, {
+      help: "Probe nodes whose latest trading target result was HTTP rate limited.", labels
+    });
+    metrics.gauge("control_plane_trading_target_latest_age_seconds", row.latestAgeSeconds, {
+      help: "Age in seconds of the latest result for a trading target.", labels
+    });
+  }
 }
 
 async function collectBillingMetrics(db: Database, metrics: RuntimeMetrics): Promise<void> {
