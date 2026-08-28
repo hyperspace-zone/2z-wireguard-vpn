@@ -329,13 +329,12 @@ function initializeTradingMap(root: HTMLElement, payload: TradingPayload): void 
     maxZoom: 12,
     worldCopyJump: false
   }).setView([initial.latitude, initial.longitude], initial.zoom);
-  leaflet.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+  leaflet.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a>',
     bounds: [[-85, -180], [85, 180]],
     keepBuffer: 0,
     maxZoom: 19,
-    noWrap: true,
-    subdomains: "abc"
+    noWrap: true
   }).addTo(activeTradingMap);
   for (const node of payload.nodes) {
     const measurement = measurements.get(node.id);
