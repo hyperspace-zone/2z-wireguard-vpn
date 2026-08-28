@@ -1,6 +1,6 @@
 # Trading Latency Dashboard — architecture analysis
 
-Status: proposed; no live rollout
+Status: staging canary live; target expansion in feature branch
 Branch: `feature/trading-latency-probes`
 Prepared: 2026-08-28
 
@@ -60,7 +60,7 @@ Repository deployment topology on 2026-08-28:
 
 | Contour | Existing gate footprint | Initial trading-probe policy |
 | --- | --- | --- |
-| staging | 3 enabled gates: Tokyo, Amsterdam, Chicago | install a separate probe service here first |
+| staging | 3 probe placements: Hong Kong, Madrid, Chicago | run a separate probe service on each host |
 | production | broader production gate catalog | no rollout from this branch |
 | DoubleZero testnet | independent testnet gates | out of scope for the staging MVP |
 
@@ -118,10 +118,14 @@ measurement page should have:
 - a mobile layout that places summaries and leaderboard before the map;
 - a methodology/disclaimer page describing exactly what each value includes.
 
-For a self-contained and predictable MVP, render a simplified world map from a
-checked-in, license-compatible geographic dataset as SVG. This avoids runtime
-dependence on a third-party tile service. MapLibre and external tiles can be
-added later if pan/zoom detail materially improves the product.
+Render an interactive Leaflet map and bind every probe node to its operator-
+curated latitude/longitude from the control-plane. The staging canary uses
+standard OpenStreetMap raster tiles with visible attribution and no API key.
+Leaflet is shipped locally with the web artifact
+rather than loaded from a CDN. For production traffic, replace the anonymous tile endpoint with an operator-
+owned MapTiler, Mapbox, Stadia, or equivalent account that provides a usage
+quota and SLA; this changes only the tile layer, not marker coordinates or
+latency data.
 
 The UI should be structurally close to the reference but use Hyperspace colors,
 typography, naming, icons, and copy. Accessibility requirements include keyboard
@@ -193,7 +197,7 @@ capabilities: http, websocket, jsonrpc, tcp_tls, ...
 ```
 
 The initial staging rollout creates three probe-node identities associated with
-the Tokyo, Amsterdam, and Chicago gate hosts, but the scheduler and public API
+the Hong Kong, Madrid, and Chicago gate hosts, but the scheduler and public API
 key results by `probe_node_id`, not `gate_id`. This is what permits moving the
 binary to external testnodes without a schema or protocol redesign.
 
@@ -275,7 +279,7 @@ terms before enabling a target.
 | CEX | Binance plus Coinbase, Kraken, OKX, Bybit, BitMEX, Deribit public endpoints | Binance public WebSocket ping and cache-busted read-only REST; add venues one at a time | product-specific WS/FIX after policy and credential review |
 | Hyperliquid | `wss://api.hyperliquid.xyz/ws` | WebSocket application RTT and connection breakdown | permitted validator TCP and controlled order-to-fill on dedicated nodes only |
 | Prediction markets | `clob.polymarket.com`, `api.elections.kalshi.com` | cache-busted read-only REST TTFB/total | authenticated market-data paths if useful |
-| SUI | active validator set and voting power from SUI system state | not in the first canary | TCP+TLS per validator, time-to-2/3 stake and time-to-90% stake |
+| SUI | official mainnet GraphQL endpoint | checkpoint GraphQL response RTT | TCP+TLS per validator, time-to-2/3 stake and time-to-90% stake |
 | Arbitrum | `arb1-sequencer.arbitrum.io` | TCP/TLS plus read-only RPC response RTT | reviewed synthetic transaction-submission path |
 | Robinhood Chain | `sequencer.mainnet.chain.robinhood.com` | TCP/TLS plus read-only RPC response RTT | reviewed synthetic transaction-submission path |
 | Base | `mainnet-sequencer.base.org` | TCP/TLS plus read-only RPC response RTT | reviewed synthetic transaction-submission path |
@@ -283,7 +287,7 @@ terms before enabling a target.
 | Ink | `rpc-gel.inkonchain.com` | TCP/TLS plus read-only RPC response RTT | reviewed synthetic transaction-submission path |
 | OP Mainnet | `mainnet-sequencer.optimism.io` | TCP/TLS plus read-only RPC response RTT | reviewed synthetic transaction-submission path |
 | ZKsync Era | `mainnet.era.zksync.io` | TCP/TLS plus read-only RPC response RTT | reviewed synthetic transaction-submission path |
-| Oracle | Pyth Pro/Lazer, Switchboard Crossbar, Chainlink Data Streams | only a public, documented health/read endpoint if available | credentialed streaming/data freshness as separate metrics |
+| Oracle | Pyth Pro/Lazer, Switchboard Crossbar, Chainlink Data Streams | Pyth TCP+TLS routers plus public Switchboard/Chainlink health RTT | credentialed streaming/data freshness as separate metrics |
 | Arb Routes | configured pairs of compatible measurements | derived score from same node/window | measured strategy-specific path on dedicated testnodes |
 
 Real orders are explicitly excluded from the staging MVP. The reference

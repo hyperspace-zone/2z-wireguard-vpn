@@ -5,7 +5,7 @@ This runbook covers the feature-branch staging canary for the public
 VPN gate agent. A probe failure must not affect WireGuard assignments,
 DoubleZero recovery, gate heartbeats, or config issuance.
 
-## Initial target set
+## Target set
 
 The initial catalog uses public, read-only requests and requires no exchange
 API keys or funded wallets:
@@ -18,6 +18,11 @@ API keys or funded wallets:
 | Prediction markets | Polymarket CLOB time | REST TTFB and total RTT |
 | Prediction markets | Kalshi exchange status | REST TTFB and total RTT |
 | Arbitrum | public RPC `eth_chainId` | read-only JSON-RPC response RTT |
+| Sui | mainnet GraphQL checkpoint | read-only GraphQL response RTT |
+| Robinhood Chain, Base, X Layer, Ink, OP Mainnet, ZKsync Era | official public RPC `eth_chainId` | read-only JSON-RPC response RTT |
+| Pyth Pro (Lazer) | three public routers | TCP connect plus TLS handshake |
+| Switchboard | Crossbar public health | REST TTFB and total RTT |
+| Chainlink Data Streams | public health endpoint | REST TTFB and total RTT |
 
 Binance may intentionally return HTTP 451 from restricted jurisdictions. The
 agent records this as `geo_blocked`, preserves the HTTP status, resolved IP and
@@ -28,9 +33,23 @@ REST, JSON-RPC, WebSocket, and FIX values have different semantics. Do not
 label these measurements as fill latency or matching-engine latency. CDN-fronted
 TCP/TLS values describe the edge connection and are diagnostic only.
 
+The public Pyth, Switchboard, and Chainlink probes approximate access to the
+provider infrastructure. They do not measure an authenticated oracle stream,
+feed freshness, or publish-to-receive latency. Production stream measurements
+require provider subscriptions and credentials and must be added as separate
+targets rather than silently changing these public metrics.
+
+The dashboard map uses the locally shipped Leaflet client and standard
+OpenStreetMap raster tiles. Probe markers come from the latitude/longitude
+stored on each `trading_probe_node`; the OpenStreetMap attribution must remain
+visible. No browser API key is required for the low-traffic staging canary.
+Before a high-traffic production rollout, configure a tile provider account
+with an explicit quota and SLA.
+
 ## Control-plane rollout
 
-Apply additive migration `0037_trading_latency_probes.sql`, deploy API and
+Apply additive migrations `0037_trading_latency_probes.sql` and
+`0038_trading_latency_target_expansion.sql`, deploy API and
 worker from the exact feature commit, and enable the scheduler only in staging:
 
 ```dotenv
