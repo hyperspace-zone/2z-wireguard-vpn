@@ -210,5 +210,19 @@ export {
 } from "./resources/jobs/leasing.js";
 export { isJobReportStatus, type JobReportStatus } from "./resources/jobs/transitions.js";
 export { authenticateGateToken, type AuthenticatedGate } from "./security/gate-auth.js";
+export {
+  authenticateTradingProbeToken,
+  type AuthenticatedTradingProbeNode
+} from "./security/trading-probe-auth.js";
+export {
+  claimTradingProbeJob,
+  cleanupTradingProbeHistory,
+  createTradingProbeNode,
+  readPublicTradingLatency,
+  recordTradingProbeHeartbeat,
+  recordTradingProbeJobReport,
+  scheduleTradingProbeJobs,
+  type TradingProbeHeartbeat
+} from "./resources/trading-probes/service.js";
 export { authenticatePublicAuthSession } from "./resources/users/service.js";
 export { scheduleGateBenchmarkProbes, scheduleGateNtpDiscoveryJobs } from "./resources/benchmarks/service.js";

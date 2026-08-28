@@ -67,6 +67,9 @@ export type ApplicationErrorCode =
   | "session_not_revoked"
   | "session_quota_exceeded"
   | "too_many_attempts"
+  | "trading_probe_auth_required"
+  | "trading_probe_job_not_found"
+  | "invalid_trading_probe_credentials"
   | "weak_password";
 
 export function sendApplicationError(
@@ -113,9 +116,11 @@ function applicationErrorStatus(code: ApplicationErrorCode): number {
     case "auth_required":
     case "admin_auth_required":
     case "gate_auth_required":
+    case "trading_probe_auth_required":
     case "invalid_auth_session":
     case "invalid_credentials":
     case "invalid_gate_credentials":
+    case "invalid_trading_probe_credentials":
       return 401;
     case "forbidden":
     case "destination_not_allowed":
@@ -127,6 +132,7 @@ function applicationErrorStatus(code: ApplicationErrorCode): number {
     case "gate_agent_deployment_not_found":
     case "gate_not_found":
     case "job_not_found":
+    case "trading_probe_job_not_found":
     case "session_not_found":
       return 404;
     case "credentials_required":
