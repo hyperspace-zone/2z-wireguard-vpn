@@ -180,7 +180,10 @@ export async function claimTradingProbeJob(
           AND jobs.phase = 'queued'
           AND jobs.run_after <= now()
           AND targets.enabled = true
-        ORDER BY targets.sort_order, jobs.created_at
+        -- Claim the oldest queued work before applying catalog presentation
+        -- order. Otherwise short-interval, low sort_order targets can enqueue a
+        -- second run before the tail of a larger catalog has ever been sampled.
+        ORDER BY jobs.created_at, targets.sort_order, jobs.id
         FOR UPDATE OF jobs SKIP LOCKED
         LIMIT 1
       `,
