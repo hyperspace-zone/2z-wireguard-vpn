@@ -56,7 +56,7 @@ plumbing:
 - staging and production already have separate web, API/worker, PostgreSQL,
   observability, credentials, and gate-agent identities.
 
-Repository deployment topology on 2026-08-28:
+Initial canary topology on 2026-08-28:
 
 | Contour | Existing gate footprint | Initial trading-probe policy |
 | --- | --- | --- |
@@ -68,6 +68,12 @@ Even three staging locations are sufficient to prove the scheduler, protocol
 adapters, storage, UI, and isolation. The broader fleet also means that a naive
 `probe node × target × sample` table can grow very quickly and must not be added
 without aggregation and retention.
+
+After canary validation, the deployment invariant is one independent trading
+probe identity and service for every `Enabled` or `Maintenance` gate in each
+environment catalog. The resulting live footprint is 3 staging, 5 testnet, and
+30 production nodes. A gate remains a valid VPN gate if this optional service
+fails, but an incomplete probe fleet is not a valid `/trading` deployment.
 
 The existing benchmark table cannot be reused directly: it requires both ends
 to be gate foreign keys and models only `public`/`doublezero` gate-to-gate UDP
@@ -196,10 +202,11 @@ networkProfiles: [direct] initially; [direct, wireguard:<profile>] later
 capabilities: http, websocket, jsonrpc, tcp_tls, ...
 ```
 
-The initial staging rollout creates three probe-node identities associated with
-the Hong Kong, Madrid, and Chicago gate hosts, but the scheduler and public API
-key results by `probe_node_id`, not `gate_id`. This is what permits moving the
-binary to external testnodes without a schema or protocol redesign.
+The initial staging rollout created three probe-node identities associated with
+the Hong Kong, Madrid, and Chicago gate hosts. The validated fleet rollout then
+created one identity for every gate in all three catalogs. The scheduler and
+public API key results by `probe_node_id`, not `gate_id`. This is what permits
+moving the binary to external testnodes without a schema or protocol redesign.
 
 For a future WireGuard testnode, the control-plane should manage a separate
 synthetic session and publish only an opaque network-profile name to the probe

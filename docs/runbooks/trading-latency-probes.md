@@ -13,17 +13,23 @@ low-sort-order work could be claimed ahead of older queued oracle work. Commit
 `36821dd` changed claims to oldest-job-first and added a regression test. The
 same live node immediately reached 26 of 26 targets before rollout continued.
 
-| Environment | Source revision | Probe locations | Latest matrix |
+| Environment | Source revision | Probe coverage | Latest matrix |
 | --- | --- | --- | --- |
-| Staging | `staging@36821dd` | Hong Kong, Madrid, Chicago | 3 nodes, 26 targets, 78 measurements |
-| Testnet | `staging@36821dd` | Singapore, Frankfurt, New York | 3 nodes, 26 targets, 78 measurements |
-| Production | `main@f82b24d` | Hong Kong, Frankfurt, San Jose | 3 nodes, 26 targets, 78 measurements |
+| Staging | `staging@36821dd` | every catalog gate: 3 of 3 | 3 nodes, 26 targets, 78 measurements |
+| Testnet | `staging@36821dd` | every catalog gate: 5 of 5 | 5 nodes, 26 targets, 130 measurements |
+| Production | `main@f82b24d` | every enabled or maintenance catalog gate: 30 of 30 | 30 nodes, 26 targets, 780 measurements |
 
-All ten CEX venues are present. Staging and testnet retain explicit regional
-HTTP policy results such as Binance `geo_blocked`; the first complete
-production cycle returned 78 successful measurements. API, worker, every
-selected VPN gate agent, and all nine independent trading probe agents remained
-active after rollout. A live test stopped the Singapore trading probe while
+The first deployment used three representative canaries in each environment.
+The fleet was expanded on the same day after the canary checks so that every
+gate returned by `/v1/public/gates` has a separately authenticated trading
+probe node. This includes the Warsaw production gate while its VPN desired
+state is `Maintenance`; trading-probe lifecycle is intentionally independent.
+
+All ten CEX venues are present. Regional HTTP policy results such as Binance
+`geo_blocked` and venue-specific `unexpected_http_status` remain explicit
+failed measurements instead of being reported as latency. API, worker, every
+VPN gate agent, and all 38 independent trading probe agents remained active
+after fleet expansion. A live test stopped the Singapore trading probe while
 its gate stayed ready and schedulable, then restarted only the probe service.
 
 The production probe artifact is version `0.3.0`, revision
@@ -130,6 +136,26 @@ curl -fsS https://control-plane.staging.hyperspace.zone/v1/admin/trading/probe-n
 Register Madrid and Chicago with their operator-curated coordinates in the
 same way. Repeating the request rotates the token and immediately revokes the
 old one.
+
+Registration and installation are required for every `Enabled` or
+`Maintenance` gate in the environment catalog. A newly provisioned gate is not
+considered complete for the trading product until both lists match. Compare
+them after every catalog change:
+
+```bash
+environment=production
+control_plane=https://control-plane.hyperspace.zone
+
+comm -23 \
+  <(curl -fsS "$control_plane/v1/public/gates" | jq -r '.gates[].name' | sort) \
+  <(curl -fsS "$control_plane/v1/public/trading/latency" | \
+      jq -r --arg suffix "-$environment" \
+        '.nodes[].name | sub("^probe-"; "") | sub($suffix + "$"; "")' | sort)
+```
+
+The command must produce no output. Also require every public node to be fresh
+and to have one latest row per enabled target before declaring the rollout
+complete. Do not reuse gate-agent credentials for the probe service.
 
 ## Build and install the independent agent
 
