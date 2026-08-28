@@ -1,4 +1,5 @@
 import { benchmarkRequestTimeoutMs, shouldLoadBenchmarkMatrix } from "./benchmark-isolation.js";
+import { isTradingPath, startTradingApp } from "./trading.js";
 
 type SessionMode = "IpToIp" | "FullTunnel";
 type AppView = "dashboard" | "create-config" | "benchmarks" | "billing" | "admin-billing" | "login" | "register";
@@ -427,18 +428,22 @@ if (!root) {
 }
 const appRoot = root;
 
-renderLoading();
-window.addEventListener("popstate", () => {
-  currentView = viewFromLocation();
-  if (currentView !== "create-config") {
-    createConfigStep = "configure";
-  }
-  render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
-  if (shouldLoadBenchmarkMatrix(currentView)) {
-    void refreshBenchmarkView();
-  }
-});
-void refresh();
+if (isTradingPath()) {
+  void startTradingApp(appRoot);
+} else {
+  renderLoading();
+  window.addEventListener("popstate", () => {
+    currentView = viewFromLocation();
+    if (currentView !== "create-config") {
+      createConfigStep = "configure";
+    }
+    render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
+    if (shouldLoadBenchmarkMatrix(currentView)) {
+      void refreshBenchmarkView();
+    }
+  });
+  void refresh();
+}
 
 function renderLoading(): void {
   appRoot.innerHTML = `
@@ -713,6 +718,7 @@ function appNav(view: AppView): string {
       <a href="/" data-view="dashboard" class="${view === "dashboard" ? "active" : ""}">Dashboard</a>
       <a href="/create-config" data-view="create-config" class="${view === "create-config" ? "active" : ""}">Create config</a>
       <a href="/benchmarks" data-view="benchmarks" class="${view === "benchmarks" ? "active" : ""}">Benchmarks</a>
+      <a href="/trading/cex">Trading latency</a>
       <a href="/billing" data-view="billing" class="${view === "billing" ? "active" : ""}">Billing</a>
       ${latestAdminBilling ? `<a href="/admin/billing" data-view="admin-billing" class="${view === "admin-billing" ? "active" : ""}">Admin</a>` : ""}
     </nav>
@@ -723,6 +729,7 @@ function authNav(view: AppView): string {
   return `
     <nav class="app-nav" aria-label="Authentication">
       <a href="/benchmarks" data-view="benchmarks" class="${view === "benchmarks" ? "active" : ""}">Benchmarks</a>
+      <a href="/trading/cex">Trading latency</a>
       <a href="/login" data-view="login" class="${view === "login" ? "active" : ""}">Log in</a>
       <a href="/register" data-view="register" class="${view === "register" ? "active" : ""}">Register</a>
     </nav>
