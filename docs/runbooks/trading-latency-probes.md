@@ -7,8 +7,9 @@ DoubleZero recovery, gate heartbeats, or config issuance.
 
 ## Live staging evidence (2026-08-28)
 
-Feature commit `1008248` is deployed only to staging. Three independent probe
-agents in Hong Kong, Madrid, and Chicago run version `0.2.0`, revision
+The expanded backend and probe artifact from commit `1008248` and the canonical
+OpenStreetMap web patch from `2c71c14` are deployed only to staging. Three
+independent probe agents in Hong Kong, Madrid, and Chicago run version `0.2.0`, revision
 `10082484f52fb8f82233676d15ec6dbf14755642`, artifact SHA-256
 `e8230768a06c5913c9cffeaee698651bf05ff346ca34552f2976d0830327f5fe`.
 
