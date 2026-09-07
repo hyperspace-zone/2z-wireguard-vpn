@@ -5,10 +5,23 @@ import { createHealthRegistry, createRuntimeMetrics } from "@hyperspace-zone/sha
 import {
   collectControlPlaneSnapshotMetrics,
   collectBenchmarkMetrics,
+  collectAssignmentUsageMetrics,
   collectGateAgentDeploymentMetrics,
   gateAgentDeploymentFailureClass,
   gateAlertProbeHost
 } from "./control-plane-snapshot.js";
+
+test("assignment metrics read one indexed latest sample per assignment, not the full history", async () => {
+  const statements: string[] = [];
+  const db = { query: async (sql: string) => { statements.push(sql); return { rows: [] }; } } as unknown as Database;
+  const metrics = createRuntimeMetrics({ service: "assignment-test", flushIntervalMs: 60_000 });
+  try { await collectAssignmentUsageMetrics(db, metrics); } finally { metrics.stop(); }
+  assert.equal(statements.length, 1);
+  assert.match(statements[0]!, /FROM gate_assignments\s+JOIN LATERAL/);
+  assert.match(statements[0]!, /WHERE assignment_id = gate_assignments.id\s+ORDER BY sampled_at DESC\s+LIMIT 1/);
+  assert.doesNotMatch(statements[0]!, /DISTINCT ON/);
+  assert.match(statements[0]!, /desired_state = 'Applied'/, "Keep active and historical assignment gauges");
+});
 
 test("snapshot sections continue after one collector fails", async () => {
   const metrics = createRuntimeMetrics({ service: "snapshot-test", flushIntervalMs: 60_000 });

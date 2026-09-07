@@ -258,7 +258,7 @@ async function collectBillingMetrics(db: Database, metrics: RuntimeMetrics): Pro
   }
 }
 
-async function collectAssignmentUsageMetrics(db: Database, metrics: RuntimeMetrics): Promise<void> {
+export async function collectAssignmentUsageMetrics(db: Database, metrics: RuntimeMetrics): Promise<void> {
   const result = await db.query<{
     assignmentId: string;
     gate: string;
@@ -275,7 +275,7 @@ async function collectAssignmentUsageMetrics(db: Database, metrics: RuntimeMetri
     wireGuardTransitReceiveBytes: string;
     wireGuardTransitTransmitBytes: string;
   }>(`
-    SELECT DISTINCT ON (samples.assignment_id)
+    SELECT
       samples.assignment_id AS "assignmentId",
       gates.name AS gate,
       samples.role,
@@ -290,9 +290,14 @@ async function collectAssignmentUsageMetrics(db: Database, metrics: RuntimeMetri
       samples.wireguard_client_transmit_bytes::text AS "wireGuardClientTransmitBytes",
       samples.wireguard_transit_receive_bytes::text AS "wireGuardTransitReceiveBytes",
       samples.wireguard_transit_transmit_bytes::text AS "wireGuardTransitTransmitBytes"
-    FROM gate_assignment_counter_samples samples
+    FROM gate_assignments
+    JOIN LATERAL (
+      SELECT * FROM gate_assignment_counter_samples
+      WHERE assignment_id = gate_assignments.id
+      ORDER BY sampled_at DESC
+      LIMIT 1
+    ) samples ON true
     JOIN gates ON gates.id = samples.gate_id
-    JOIN gate_assignments ON gate_assignments.id = samples.assignment_id
     ORDER BY samples.assignment_id, samples.sampled_at DESC
   `);
   resetGauges(metrics, [
