@@ -14,12 +14,6 @@
       "chatId": -5402171626,
       "severities": ["critical", "warning", "info"],
       "default": true
-    },
-    {
-      "name": "hyperspace-telegram-personal-example",
-      "chatId": 366795,
-      "severities": ["critical"],
-      "enabled": false
     }
   ]
 }
