@@ -332,7 +332,7 @@ export async function readPublicTradingLatency(db: Queryable): Promise<PublicTra
   const [nodes, targets, measurements] = await Promise.all([
     db.query<PublicTradingLatencyResponse["nodes"][number]>(
       `
-        SELECT nodes.id, nodes.name, nodes.city, nodes.country,
+        SELECT nodes.id, nodes.name, nodes.gate_id AS "gateId", nodes.city, nodes.country,
                nodes.latitude::float AS latitude, nodes.longitude::float AS longitude,
                nodes.provider, nodes.region_code AS "regionCode",
                COALESCE(status.last_seen_at > now() - interval '90 seconds', false) AS fresh,
@@ -345,7 +345,15 @@ export async function readPublicTradingLatency(db: Queryable): Promise<PublicTra
     ),
     db.query<PublicTradingLatencyResponse["targets"][number]>(
       `
-        SELECT id, target_key AS key, category, display_name AS "displayName", product,
+        SELECT id, target_key AS key, category, revision, interval_seconds AS "intervalSeconds",
+               hostname, path,
+               COALESCE(metadata->>'venueKey', CASE WHEN category = 'cex' THEN split_part(target_key, '-', 1)
+                 WHEN category = 'prediction-markets' THEN split_part(target_key, '-', 1) ELSE category END) AS "venueKey",
+               CASE WHEN category = 'cex' THEN 'cex'
+                 WHEN category IN ('hyperliquid', 'variational', 'extended', 'rise', 'lighter') THEN 'perpdex'
+                 WHEN category = 'prediction-markets' THEN 'prediction' ELSE 'infrastructure' END AS "venueType",
+               COALESCE(metadata->>'endpointRole', 'public_api') AS "endpointRole",
+               display_name AS "displayName", product,
                protocol, COALESCE(metadata->>'measurement', protocol) AS measurement,
                sort_order AS "sortOrder"
         FROM trading_probe_targets
@@ -355,7 +363,7 @@ export async function readPublicTradingLatency(db: Queryable): Promise<PublicTra
     ),
     db.query<PublicTradingLatencyResponse["measurements"][number]>(
       `
-        SELECT probe_node_id AS "nodeId", target_id AS "targetId",
+        SELECT probe_node_id AS "nodeId", target_id AS "targetId", target_revision AS "targetRevision",
                network_profile AS "networkProfile", status, measured_at AS "measuredAt",
                dns_ms AS "dnsMs", tcp_ms AS "tcpMs", tls_ms AS "tlsMs",
                ttfb_ms AS "ttfbMs", total_p50_ms AS "totalP50Ms",

@@ -27,6 +27,7 @@ export * from "./resources/probe.js";
 export * from "./resources/rendered-plan.js";
 export * from "./resources/session.js";
 export * from "./resources/trading.js";
+export * from "./resources/trading-pairs.js";
 export * from "./schemas/admin.schema.js";
 export * from "./schemas/agent.schema.js";
 export * from "./schemas/gate.schema.js";

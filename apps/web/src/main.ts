@@ -1,5 +1,8 @@
 import { benchmarkRequestTimeoutMs, shouldLoadBenchmarkMatrix } from "./benchmark-isolation.js";
 import { isTradingPath, startTradingApp } from "./trading.js";
+import { isTradingPairsPath, startTradingPairsApp } from "./trading-pairs.js";
+import { tradingRouteIntent } from "./trading-route-intent.js";
+import type { PublicTradingRouteResponse } from "@hyperspace-zone/contracts";
 
 type SessionMode = "IpToIp" | "FullTunnel";
 type AppView = "dashboard" | "create-config" | "benchmarks" | "billing" | "admin-billing" | "login" | "register";
@@ -427,8 +430,14 @@ if (!root) {
   throw new Error("missing #app");
 }
 const appRoot = root;
+let tradingRouteId = tradingRouteIntent(new URLSearchParams(window.location.search).get("tradingRoute"), sessionStorage.getItem("hyperspaceTradingRoute"));
+let tradingRouteSelection: PublicTradingRouteResponse | null = null;
+let tradingRouteError = "";
+if (tradingRouteId) sessionStorage.setItem("hyperspaceTradingRoute", JSON.stringify({ id: tradingRouteId, createdAt: Date.now() }));
 
-if (isTradingPath()) {
+if (isTradingPairsPath(window.location.pathname)) {
+  startTradingPairsApp(appRoot);
+} else if (isTradingPath()) {
   void startTradingApp(appRoot);
 } else {
   renderLoading();
@@ -490,6 +499,11 @@ async function refresh(options: { skipAutoMeasure?: boolean } = {}): Promise<voi
   latestBilling = billing;
   latestAdminBilling = adminBilling;
   latestAdminTraffic = adminTraffic;
+  if (me && tradingRouteId && (currentView === "login" || currentView === "register")) {
+    currentView = "create-config";
+    window.history.replaceState({}, "", `/create-config?tradingRoute=${tradingRouteId}`);
+  }
+  if (currentView === "create-config" && tradingRouteId && !tradingRouteSelection) await loadTradingRouteSelection();
   render({ gates: decorateGates(gates), sessions, me, benchmarkMatrix, billing });
   if (!options.skipAutoMeasure && me) {
     maybeMeasureGatesAutomatically();
@@ -800,11 +814,35 @@ function createConfigView(gates: Gate[]): string {
         <h2>${title}</h2>
         ${createConfigStep === "result" ? "" : '<a class="button-link secondary-button" href="/" data-view="dashboard">Dashboard</a>'}
       </div>
+      ${tradingRouteId && createConfigStep !== "result" ? tradingRoutePanel() : ""}
       ${createConfigStep === "result"
         ? createConfigResultPanel()
         : createConfigStep === "confirm" ? createConfigConfirmationPanel(gates) : createSessionPanel(gates)}
     </section>
   `;
+}
+
+async function loadTradingRouteSelection(): Promise<void> {
+  try {
+    const response = await fetch(`/api/v1/public/trading/routes/${encodeURIComponent(tradingRouteId)}`, { cache: "no-store", signal: AbortSignal.timeout(15000) });
+    if (!response.ok) throw new Error("This route is no longer eligible. Return to Pair Routes to select a current route.");
+    tradingRouteSelection = await response.json() as PublicTradingRouteResponse;
+    tradingRouteError = "";
+    sessionDraft.ingressGateName = tradingRouteSelection.route.ingressGateName!;
+    sessionDraft.egressGateName = tradingRouteSelection.route.egressGateName!;
+    sessionDraft.mode = "FullTunnel";
+    sessionDraft.restrictTarget = false;
+    sessionDraft.label = `${tradingRouteSelection.venues.map(venue => venue.displayName).join(" ↔ ")} · ${tradingRouteSelection.source.city}`;
+    ingressGateManuallySelected = true;
+    createConfigOptionsOpen = true;
+  } catch (error) { tradingRouteError = error instanceof Error ? error.message : "Could not validate this trading route."; }
+}
+
+function tradingRoutePanel(): string {
+  return `<section class="pairs-checkout-notice"><strong>Pair Routes ${tradingRouteSelection ? `· ${escapeHtml(tradingRouteSelection.venues.map(venue => venue.displayName).join(" ↔ "))}` : ""}</strong>
+    <p>${escapeHtml(tradingRouteError || tradingRouteSelection?.warning || "Validating route…")}</p>
+    ${tradingRouteSelection ? `<p>${escapeHtml(tradingRouteSelection.route.ingressGateName ?? "")} → ${escapeHtml(tradingRouteSelection.route.egressGateName ?? "")} · Estimated saving ${tradingRouteSelection.route.savedMs?.toFixed(2)} ms from our probe, not your server.</p>` : ""}
+    <a href="/trading/pairs">Return to Pair Routes</a> · <button id="detach-trading-route" type="button" class="pairs-text-button">Detach preset and configure manually</button></section>`;
 }
 
 function loginView(): string {
@@ -1983,6 +2021,7 @@ function relativeTime(value: string): string {
 }
 
 function createSessionPanel(gates: Gate[]): string {
+  if (tradingRouteId && (!tradingRouteSelection || tradingRouteError)) return "";
   const schedulableGates = gates.filter((gate) => gate.ready && gate.schedulable);
   const policyGates = schedulableGates.filter((gate) => !gateExcludedByDraftPolicy(gate));
   const ingressGates = sortIngressGates(policyGates);
@@ -2665,6 +2704,13 @@ function configCell(session: Session): string {
 }
 
 function bindHandlers(): void {
+  document.getElementById("detach-trading-route")?.addEventListener("click", () => {
+    tradingRouteId = ""; tradingRouteSelection = null; tradingRouteError = "";
+    sessionStorage.removeItem("hyperspaceTradingRoute");
+    window.history.replaceState({}, "", "/create-config");
+    createConfigStep = "configure";
+    render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
+  });
   document.getElementById("logout")?.addEventListener("click", () => {
     token = "";
     currentView = "login";
@@ -3104,12 +3150,13 @@ async function startGoogleLogin(): Promise<void> {
 
 function completeAuth(response: { accessToken: string }): void {
   token = response.accessToken;
-  currentView = "dashboard";
+  currentView = tradingRouteId ? "create-config" : "dashboard";
   createConfigStep = "configure";
   resetCreatedConfigResult();
   resetSessionDraft();
+  tradingRouteSelection = null;
   localStorage.setItem("hyperspaceAccessToken", token);
-  window.history.replaceState({}, "", viewPath("dashboard"));
+  window.history.replaceState({}, "", tradingRouteId ? `/create-config?tradingRoute=${tradingRouteId}` : viewPath("dashboard"));
 }
 
 async function createSession(): Promise<void> {
@@ -3130,7 +3177,7 @@ async function createSession(): Promise<void> {
   sessionValidationErrors = {};
   render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
   try {
-    const payload = { ...sessionPayloadFromDraft(), paymentRequestId: createConfigPaymentRequestId };
+    const payload = { ...sessionPayloadFromDraft(), paymentRequestId: createConfigPaymentRequestId, ...(tradingRouteId ? { tradingRouteId } : {}) };
     let response: any = null;
     for (let attempt = 0; attempt < 3; attempt += 1) {
       try {
@@ -3150,6 +3197,7 @@ async function createSession(): Promise<void> {
     }
     createConfigSubmitting = false;
     createdConfigSessionId = sessionId;
+    sessionStorage.removeItem("hyperspaceTradingRoute");
     createdConfigSessionPhase = typeof response.session?.phase === "string" ? response.session.phase : "requested";
     createdConfigError = "";
     createdConfigQrSvg = "";
@@ -3253,6 +3301,11 @@ async function refreshAdminTraffic(): Promise<void> {
 
 function validateSessionDraft(): SessionValidationErrors {
   const errors: SessionValidationErrors = {};
+  if (tradingRouteId && (!tradingRouteSelection || tradingRouteError || sessionDraft.mode !== "FullTunnel"
+    || sessionDraft.ingressGateName !== tradingRouteSelection.route.ingressGateName
+    || sessionDraft.egressGateName !== tradingRouteSelection.route.egressGateName)) {
+    errors.ingressGateName = "This config must match the selected Pair Routes preset. Detach the preset to change its route.";
+  }
   const sourceIp = sessionDraft.sourceIp.trim();
   const targetIp = sessionDraft.targetIp.trim();
   if (sessionDraft.restrictSource && !isIpv4(sourceIp)) {
