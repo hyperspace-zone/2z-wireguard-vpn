@@ -2160,15 +2160,15 @@ Example receiver policy:
       "chatId": -5402171626,
       "severities": ["critical", "warning", "info"],
       "default": true
-    },
-    {
-      "name": "hyperspace-telegram-personal-yadrena",
-      "chatId": 366795,
-      "severities": ["critical"]
     }
   ]
 }
 ```
+
+Do not keep a private Telegram chat in the receiver list after the user has
+blocked the bot. Telegram returns HTTP 403 for that chat, and the independent
+meta-monitor correctly treats it as a delivery failure. Remove the receiver
+entry (or set `enabled: false`) while preserving the shared severity channels.
 
 `default: true` is the fallback receiver for alerts whose severity is not
 matched by any explicit route. If no receiver has `default: true`, unmatched
