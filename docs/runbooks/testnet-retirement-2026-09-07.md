@@ -41,6 +41,11 @@ contains three snapshots and approximately 3.62 GiB of raw data. The two other
 retained restore points are `7790caca` (2026-09-05) and `64bdd689`
 (2026-09-06).
 
+The bucket-scoped S3 credentials and independent Restic encryption password
+were copied before shutdown to the root-only, non-repository file
+`/root/hyperspace/.provider_creds/cloudflare_r2/hyperspace-testnet-postgres-backups.env`
+with mode `0600`. This file is required to restore after deleting the DB disk.
+
 ## Provider shutdown inventory
 
 | Role | Host/IP |
