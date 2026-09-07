@@ -168,6 +168,7 @@ export const tradingLatencyPublicMeasurementSchema = {
   additionalProperties: false,
   required: ["nodeId", "targetId", "networkProfile", "status", "measuredAt", "sampleCount", "failureCount"],
   properties: {
+    addressFamily: { enum: ["ipv4", "ipv6", "unknown"] },
     nodeId: { type: "string" },
     targetId: { type: "string" },
     targetRevision: { type: "integer" },

@@ -364,6 +364,9 @@ export async function readPublicTradingLatency(db: Queryable): Promise<PublicTra
     db.query<PublicTradingLatencyResponse["measurements"][number]>(
       `
         SELECT probe_node_id AS "nodeId", target_id AS "targetId", target_revision AS "targetRevision",
+               CASE WHEN resolved_ip LIKE '%:%' THEN 'ipv6'
+                 WHEN resolved_ip ~ '^[0-9]+[.][0-9]+[.][0-9]+[.][0-9]+$' THEN 'ipv4'
+                 ELSE 'unknown' END AS "addressFamily",
                network_profile AS "networkProfile", status, measured_at AS "measuredAt",
                dns_ms AS "dnsMs", tcp_ms AS "tcpMs", tls_ms AS "tlsMs",
                ttfb_ms AS "ttfbMs", total_p50_ms AS "totalP50Ms",

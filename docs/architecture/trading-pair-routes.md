@@ -19,6 +19,9 @@
   Пары не создают дополнительных jobs или запросов к площадкам.
 - Только TCP-оценка по одному общему egress, revision/freshness/skew checks,
   запрет stale/offline/maintenance/same-metro N/A и потерь на gate-сегменте.
+  В рекомендации допускаются только IPv4 measurements: текущий FullTunnel
+  не покрывает IPv6. Семейство адреса передаётся без публикации самого IP;
+  IPv6 direct samples остаются в карте и матрице, но не служат VPN baseline.
   VPN A/B verified всегда 0: measured filter честно показывает пустое состояние.
 - Проверяемый сервером opaque route ID передаёт точные ingress/egress в
   обычный FullTunnel checkout, сохраняется через вход; устаревший preset

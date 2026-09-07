@@ -14,7 +14,7 @@ export function tradingMeasurementState(node: { fresh: boolean }, target: Target
   if (!measurement) return "unavailable";
   if (!isRecent(measurement.measuredAt, Math.max(90, 3 * (target.intervalSeconds ?? 30)) * 1000, now)) return "stale";
   if (measurement.targetRevision !== target.revision) return "stale";
-  if (measurement.status !== "succeeded" || measurement.failureCount > 0 || measurement.sampleCount < 2 || !finiteNonnegative(measurement.tcpMs)) return "unavailable";
+  if (measurement.status !== "succeeded" || measurement.addressFamily !== "ipv4" || measurement.failureCount > 0 || measurement.sampleCount < 2 || !finiteNonnegative(measurement.tcpMs)) return "unavailable";
   return "fresh";
 }
 
@@ -46,7 +46,7 @@ export function buildTradingPairsSnapshot(latency: PublicTradingLatencyResponse,
       const base: TradingPairRow = {
         id: routeId(source.id, "none", venueA, venueB), pairKey, sourceNodeId: source.id,
         venueAId: venueA.id, venueBId: venueB.id, status: states.includes("stale") ? "stale" : "unavailable",
-        evidence: "estimated", reason: "Both venue probes must be fresh, complete and successful.",
+        evidence: "estimated", reason: "Both venue probes must be fresh, complete, successful and IPv4-compatible with the VPN config.",
         legA: directLeg(directA), legB: directLeg(directB), configEligible: false
       };
       if (!states.every(state => state === "fresh") || !directA || !directB) { rows.push(base); continue; }

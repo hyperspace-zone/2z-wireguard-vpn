@@ -152,7 +152,7 @@ function matrixView(data: PublicTradingPairsResponse, params: URLSearchParams): 
     const measurement = data.matrix.find(m => m.nodeId === node.id && m.targetId === venue.id);
     const fresh = pairMeasurementFresh(node, venue, measurement); const value = fresh ? api ? measurement?.totalP50Ms : measurement?.tcpMs : undefined;
     const status = fresh ? measurement?.failureCount ? `${measurement.failureCount}/${measurement.sampleCount} failed` : ago(measurement?.measuredAt) : measurement?.status === "failed" ? measurement.errorCode ?? "Failed" : measurement ? "Stale / offline" : "Waiting";
-    return `<td class="${value !== undefined && value < 50 ? "pairs-matrix-fast" : ""}"><a href="/trading/${escape(venue.category)}?target=${encodeURIComponent(venue.key)}"><strong>${ms(value)}</strong><small>${escape(status)}</small></a></td>`;
+    return `<td class="${value !== undefined && value < 50 ? "pairs-matrix-fast" : ""}"><a href="/trading/${escape(venue.category)}?target=${encodeURIComponent(venue.key)}"><strong>${ms(value)}</strong><small>${escape(status)}${measurement?.addressFamily === "ipv6" ? " · IPv6" : ""}</small></a></td>`;
   }).join("")}</tr>`).join("")}</tbody></table></div></section>`;
 }
 

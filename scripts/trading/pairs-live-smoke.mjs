@@ -10,6 +10,11 @@ const pairs = await get("/api/v1/public/trading/pairs?limit=5");
 assert.equal(latency.targets.length, 30);
 assert.equal(pairs.venues.length, 17);
 assert.equal(pairs.summary.verifiedRoutes, 0);
+for (const row of pairs.rows) {
+  for (const nodeId of [row.sourceNodeId, row.egressNodeId]) for (const targetId of [row.venueAId, row.venueBId]) {
+    assert.equal(pairs.matrix.find(sample => sample.nodeId === nodeId && sample.targetId === targetId)?.addressFamily, "ipv4", "VPN presets must not be ranked with IPv6 or unknown-family measurements");
+  }
+}
 for (const key of ["variational", "extended", "rise", "lighter"]) {
   const target = latency.targets.find(target => target.category === key);
   assert.ok(target, key);
@@ -19,6 +24,7 @@ const measured = await get("/api/v1/public/trading/pairs?evidence=measured");
 assert.equal(measured.total, 0);
 const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH || "/snap/bin/chromium", headless: true, args: ["--no-sandbox", "--disable-dev-shm-usage"] });
 try {
+  let configIntentChecked = false;
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
   const errors = []; page.on("pageerror", error => errors.push(error.message));
   page.on("request", request => { if (request.url().startsWith(`${base}/api/`) && !["GET", "HEAD", "OPTIONS"].includes(request.method())) errors.push(`Unexpected mutation: ${request.method()} ${request.url()}`); });
@@ -35,6 +41,7 @@ try {
     if (process.env.TRADING_UI_SCREENSHOT) await page.screenshot({ path: process.env.TRADING_UI_SCREENSHOT, fullPage: true });
     await config.click(); await page.getByRole("heading", { name: "Log in", exact: true }).waitFor();
     assert.ok(await page.evaluate(() => sessionStorage.getItem("hyperspaceTradingRoute")));
+    configIntentChecked = true;
   }
   await page.goto(`${base}/trading/pairs?view=matrix`); await page.locator(".pairs-matrix").waitFor();
   assert.equal(await page.locator(".pairs-matrix thead th").count(), 18);
@@ -51,5 +58,5 @@ try {
   await page.goto(`${base}/`); await page.getByRole("heading", { name: "Log in", exact: true }).waitFor();
   const client = await fetch(`${base}/trading-pair-check.mjs`); assert.equal(client.status, 200); assert.match(await client.text(), /network namespace/);
   assert.deepEqual(errors, []);
-  console.log(JSON.stringify({ ok: true, environment: base, targets: latency.targets.length, venues: pairs.venues.length, nodes: pairs.nodes.length, matchingRoutes: pairs.total, verifiedRoutes: 0, readOnly: true, checks: ["public API", "new venue reports", "pair table", "config intent", "matrix", "mobile", "new and old maps", "benchmarks", "login", "client download"] }));
+  console.log(JSON.stringify({ ok: true, environment: base, targets: latency.targets.length, venues: pairs.venues.length, nodes: pairs.nodes.length, matchingRoutes: pairs.total, verifiedRoutes: 0, readOnly: true, configIntentChecked, ...(!configIntentChecked ? { skipped: "No currently eligible route; config intent is covered by the fixture suite." } : {}), checks: ["public API", "new venue reports", "pair view", "matrix", "mobile", "new and old maps", "benchmarks", "login", "client download"] }));
 } finally { await browser.close(); }

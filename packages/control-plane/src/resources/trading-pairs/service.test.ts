@@ -9,7 +9,7 @@ function fixture() {
     generatedAt: new Date(now).toISOString(),
     nodes: ["source", "egress"].map(id => ({ id, gateId: id, name: id, city: id === "source" ? "Frankfurt" : "Tokyo", country: "Test", provider: "Provider", regionCode: "test", latitude: 0, longitude: 0, fresh: true })),
     targets: ["a", "b"].map((id, i) => ({ id, key: id, venueKey: id, category: i === 0 ? "cex" : "hyperliquid", venueType: i === 0 ? "cex" as const : "perpdex" as const, displayName: id.toUpperCase(), product: "Public API", protocol: "http_json" as const, measurement: "cold API", sortOrder: i, revision: 1, intervalSeconds: 60 })),
-    measurements: ["source", "egress"].flatMap(nodeId => ["a", "b"].map((targetId, i) => ({ nodeId, targetId, targetRevision: 1, networkProfile: "direct", status: "succeeded" as const, measuredAt: new Date(now - 1000).toISOString(), tcpMs: nodeId === "source" ? 100 + i * 20 : 20 + i * 10, totalP50Ms: 500, totalP95Ms: 600, sampleCount: 3, failureCount: 0 })))
+    measurements: ["source", "egress"].flatMap(nodeId => ["a", "b"].map((targetId, i) => ({ nodeId, targetId, targetRevision: 1, addressFamily: "ipv4" as const, networkProfile: "direct", status: "succeeded" as const, measuredAt: new Date(now - 1000).toISOString(), tcpMs: nodeId === "source" ? 100 + i * 20 : 20 + i * 10, totalP50Ms: 500, totalP95Ms: 600, sampleCount: 3, failureCount: 0 })))
   };
   const matrix: PublicGateBenchmarkMatrixResponse = {
     generatedAt: new Date(now).toISOString(),
@@ -37,6 +37,9 @@ test("stale, offline, failed, incomplete, mismatched and non-finite probes never
     d => { d.latency.measurements[0]!.measuredAt = new Date(now + 6000).toISOString(); },
     d => { d.latency.measurements[0]!.status = "failed"; d.latency.measurements[0]!.errorCode = "geo_blocked"; },
     d => { d.latency.measurements[0]!.failureCount = 1; },
+    d => { d.latency.measurements[0]!.addressFamily = "ipv6"; },
+    d => { delete d.latency.measurements[0]!.addressFamily; },
+    d => { d.latency.measurements[2]!.addressFamily = "ipv6"; },
     d => { d.latency.measurements[0]!.sampleCount = 1; },
     d => { d.latency.measurements[0]!.tcpMs = NaN; },
     d => { d.latency.measurements[0]!.tcpMs = -1; },
