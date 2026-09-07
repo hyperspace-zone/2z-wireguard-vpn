@@ -10,5 +10,10 @@ test("job metrics use a compact covering index with a nonblocking rollout path",
   assert.match(migration, /AND NOT indisvalid/);
   assert.match(rollout, /CREATE INDEX CONCURRENTLY IF NOT EXISTS jobs_metrics_type_phase_idx ON jobs \(type, phase\)/);
   assert.match(rollout, /indisvalid === false/);
+  assert.match(rollout, /VACUUM \(ANALYZE, TRUNCATE FALSE\) jobs/);
   assert.doesNotMatch(migration, /DELETE FROM|DROP |UPDATE jobs/);
+  const tuning = await readFile(new URL("packages/db/migrations/0043_job_metrics_autovacuum.sql", root), "utf8");
+  assert.match(tuning, /autovacuum_vacuum_insert_scale_factor/);
+  assert.match(tuning, /options.option_value::numeric <= target_scale/, "Preserve stricter existing thresholds");
+  assert.doesNotMatch(tuning, /DELETE FROM|DROP |UPDATE jobs/);
 });

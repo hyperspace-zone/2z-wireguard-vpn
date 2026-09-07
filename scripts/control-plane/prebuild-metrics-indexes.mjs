@@ -11,4 +11,10 @@ try {
   const checked = await db.query("SELECT indisvalid, pg_size_pretty(pg_relation_size(indexrelid)) AS size FROM pg_index WHERE indexrelid = to_regclass($1)", [name]);
   if (checked.rows[0]?.indisvalid !== true) throw new Error(`Index is not valid: ${name}`);
   console.log(JSON.stringify({ index: name, ...checked.rows[0] }));
+  // Existing append/update-heavy histories may need a current visibility map.
+  // Ordinary VACUUM keeps writes online; never use FULL or truncate the table.
+  if (process.argv.includes("--vacuum")) {
+    await db.query("VACUUM (ANALYZE, TRUNCATE FALSE) jobs");
+    console.log(JSON.stringify({ vacuum: "jobs", full: false, truncate: false }));
+  }
 } finally { await db.close(); }
