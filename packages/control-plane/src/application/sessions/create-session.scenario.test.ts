@@ -91,3 +91,39 @@ function queryResponse<Row extends object>(sql: string): { rows: Row[]; rowCount
   }
   assert.fail(`unexpected SQL: ${sql}`);
 }
+
+test("Pair Routes rejects an invalid preset before issuing or charging a config", async () => {
+  const db: TransactionalQueryable = {
+    async query<Row extends object>() { assert.fail("invalid route IDs must not query or write the database"); return { rows: [] as Row[], rowCount: 0 }; },
+    async transaction<T>(_fn: (client: Queryable) => Promise<T>): Promise<T> { assert.fail("must not issue a config"); }
+  };
+  const result = await createSession(db, { id: "user-1", accountId: "account-1" }, {
+    mode: "FullTunnel", ingressGateName: "gate-a", egressGateName: "gate-b", tradingRouteId: "invalid"
+  });
+  assert.equal(result.status, "invalid");
+  if (result.status === "invalid") {
+    assert.equal(result.error, "route_policy_not_satisfied");
+    assert.match(result.message ?? "", /No payment has been taken/);
+  }
+});
+
+test("Pair Routes resumes an existing account-scoped payment even after preset expiry", async () => {
+  const existingSessionId = "26df9140-2f08-4c64-b270-429e4d74fb97";
+  const requestId = "a286e955-fd9f-4cad-811f-b48a451507f8";
+  let queries = 0;
+  const db: TransactionalQueryable = {
+    async query<Row extends object>(sql: string, params?: readonly unknown[]) {
+      queries += 1;
+      assert.match(sql, /create_request_id/);
+      assert.match(sql, /account_id/);
+      assert.deepEqual(params, ["account-1", requestId]);
+      return { rows: [{ id: existingSessionId } as Row], rowCount: 1 };
+    },
+    async transaction<T>(_fn: (client: Queryable) => Promise<T>): Promise<T> { assert.fail("must not create another config or charge"); }
+  };
+  const result = await createSession(db, { id: "user-1", accountId: "account-1" }, {
+    mode: "FullTunnel", ingressGateName: "gate-a", egressGateName: "gate-b", tradingRouteId: "a".repeat(64), paymentRequestId: requestId
+  });
+  assert.deepEqual(result, { status: "created", sessionId: existingSessionId });
+  assert.equal(queries, 1);
+});

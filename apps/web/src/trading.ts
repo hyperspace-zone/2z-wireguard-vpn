@@ -13,6 +13,8 @@ interface TradingNode {
 
 interface TradingTarget {
   id: string;
+  revision?: number;
+  intervalSeconds?: number;
   key: string;
   category: string;
   displayName: string;
@@ -25,6 +27,7 @@ interface TradingTarget {
 interface TradingMeasurement {
   nodeId: string;
   targetId: string;
+  targetRevision?: number;
   networkProfile: string;
   status: "succeeded" | "failed";
   measuredAt: string;
@@ -78,6 +81,10 @@ declare global {
 const sections = [
   ["cex", "CEX"],
   ["hyperliquid", "Hyperliquid"],
+  ["variational", "Variational"],
+  ["extended", "Extended"],
+  ["rise", "RISEx"],
+  ["lighter", "Lighter"],
   ["prediction-markets", "Prediction Markets"],
   ["sui", "SUI"],
   ["arbitrum", "Arbitrum One"],
@@ -88,7 +95,7 @@ const sections = [
   ["op", "OP Mainnet"],
   ["zksync", "ZKsync Era"],
   ["oracle", "Oracle"],
-  ["routes", "Arb Routes"]
+  ["routes", "Pair Routes"]
 ] as const;
 
 const sectionAliases: Record<string, string> = {
@@ -152,7 +159,11 @@ function stopRefresh(): void {
 }
 
 function currentRoute(): { section: string; view: "map" | "status" | "about" } {
-  const parts = window.location.pathname.split("/").filter(Boolean);
+  return tradingRoute(window.location.pathname);
+}
+
+export function tradingRoute(pathname: string): { section: string; view: "map" | "status" | "about" } {
+  const parts = pathname.split("/").filter(Boolean);
   const requested = parts[1] ?? "cex";
   const section = sections.some(([key]) => key === requested) ? requested : "cex";
   const view = parts[2] === "status" ? "status" : parts[2] === "about" ? "about" : "map";
@@ -201,7 +212,7 @@ function mapView(payload: TradingPayload, targets: TradingTarget[], target: Trad
       .map((entry) => [entry.nodeId, entry])
   );
   const ranked = payload.nodes
-    .map((node) => ({ node, measurement: measurements.get(node.id) }))
+    .map((node) => ({ node, measurement: currentTradingMeasurement(node, target, measurements.get(node.id)) }))
     .sort((left, right) => metricValue(left.measurement) - metricValue(right.measurement));
   const successful = ranked.filter((row) => row.measurement?.status === "succeeded" && Number.isFinite(row.measurement.totalP50Ms));
   const best = successful[0];
@@ -341,7 +352,7 @@ function initializeTradingMap(root: HTMLElement, payload: TradingPayload): void 
     noWrap: true
   }).addTo(activeTradingMap);
   for (const node of payload.nodes) {
-    const measurement = measurements.get(node.id);
+    const measurement = currentTradingMeasurement(node, target, measurements.get(node.id));
     const success = measurement?.status === "succeeded" && measurement.totalP50Ms !== undefined;
     const value = success ? formatMs(measurement.totalP50Ms!) : measurement?.errorCode ?? (node.fresh ? "Waiting for data" : "Probe offline");
     const marker = leaflet.circleMarker([node.latitude, node.longitude], {
@@ -367,6 +378,14 @@ function destroyTradingMap(): void {
   savedMapView = { latitude: center.lat, longitude: center.lng, zoom: activeTradingMap.getZoom() };
   activeTradingMap.remove();
   activeTradingMap = null;
+}
+
+export function currentTradingMeasurement(node: { fresh: boolean }, target: Pick<TradingTarget, "revision" | "intervalSeconds">, measurement: TradingMeasurement | undefined, now = Date.now()): TradingMeasurement | undefined {
+  if (!measurement) return undefined;
+  const age = now - Date.parse(measurement.measuredAt);
+  const stale = !Number.isFinite(age) || age < -5000 || age > Math.max(90, 3 * (target.intervalSeconds ?? 30)) * 1000 || measurement.targetRevision !== target.revision;
+  if (!node.fresh || stale) return { ...measurement, status: "failed", errorCode: node.fresh ? "Measurement stale" : "Probe offline" };
+  return measurement;
 }
 
 function tradingLoading(): string {

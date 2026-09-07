@@ -92,6 +92,78 @@ with an explicit quota and SLA.
 
 ## Control-plane rollout
 
+### PerpDEX catalog extension (prepared 2026-09-07; not rollout evidence)
+
+Migration `0040_trading_latency_perpdex_expansion.sql` adds four mainnet
+public APIs. They do not place orders, require a wallet, or expose instruments
+as dashboard filters. A fixed market parameter is only a probe fixture.
+
+| Dashboard section | Public API request | Interpretation |
+| --- | --- | --- |
+| `/trading/variational` | `omni-client-api.prod.ap-northeast-1.variational.io/metadata/stats` | Omni statistics response, not RFQ execution |
+| `/trading/extended` | `api.starknet.extended.exchange/api/v1/info/markets?market=BTC-USD` | Public market metadata, not order acknowledgement |
+| `/trading/rise` | `api.rise.trade/v1/markets` | RISEx market configuration; server cache is documented as five minutes |
+| `/trading/lighter` | `mainnet.zklighter.elliot.ai/api/v1/orderBookDetails?market_id=1` | One market's order-book metadata, not live stream delivery |
+
+All four returned HTTP 200 JSON without credentials from the development
+host on 2026-09-07. This is a connectivity smoke check, not fleet coverage or
+proof of a Hyperspace path. Official references are recorded on each target.
+In particular, the RISEx generated endpoint reference defaults to testnet;
+its [integration guide](https://developer.rise.trade/reference/integration)
+documents the mainnet hostname used here.
+
+The independent agent itself also passed an opt-in, single-sample live smoke
+against each of the four API fixtures from the development host. To repeat
+without scheduling jobs or touching a deployed database:
+
+```bash
+cd apps/trading-probe-agent
+HYPERSPACE_TRADING_LIVE_SMOKE=1 go test -run TestPublicPerpDEXAPIs -v ./...
+```
+
+Ordinary `go test ./...` skips those external requests.
+
+Order of deployment, independently per environment:
+
+1. Build and canary the independent trading probe agent `0.3.1`. Update
+   `TRADING_PROBE_ALLOWED_HOSTS` in existing node environment files as well as
+   the binary: an explicit environment value overrides the compiled defaults.
+   No VPN gate-agent update is necessary.
+2. Finish the probe-agent rollout before enabling the new targets. Agent
+   `0.3.1` raises the bounded, decompressed HTTP body limit from 64 KiB to
+   1 MiB. Omni's current statistics payload is about 282 KB; the old agent
+   cannot validate it. Lighter uses a single-market endpoint to avoid an
+   unnecessarily large all-markets response.
+3. Apply `0040` through the normal migration runner, then deploy the web
+   artifact. The existing API/worker contract already supports these probes.
+4. Verify all four sections, each target's `measuredAt`, response validation,
+   regional failures and continuing coverage of the original 26 targets.
+   Expect 30 targets, not 30 successful targets in every jurisdiction.
+5. Follow staging canary → staging fleet → explicit promotion to the other
+   environments. No deployment is implied by this document.
+
+Each new target requests three cold HTTPS samples at most once per 60 seconds
+per node (the current scheduler may run less frequently under load). DNS is
+reported separately and excluded from the existing `totalP50Ms`; TLS and the
+whole response body are included. Server/CDN caching is still possible despite
+the request's `cache-control: no-cache`. Do not describe these as warm-session
+trading latency or compare different APIs as interchangeable pings.
+
+At the previously documented 38-node, three-environment footprint, Omni alone
+would consume at most roughly 114 requests/minute and 46 GB/day of uncompressed
+response bodies at the observed payload size. Its documented limits are ten
+requests per ten seconds per IP and 1,000/minute globally. The single agent's
+three-request burst fits the per-IP budget, but multiple probes behind one NAT
+need a shared budget. Before adding tunneled profiles, limit by venue AND
+egress IP, add scheduling jitter/backoff, and review provider terms/quotas.
+Never multiply external probe traffic by the number of venue pairs.
+
+If reverting this extension, disable only the four exact new target keys before
+restoring the old probe binary/allowlist; retain their measurements and the
+additive migration. Do not stop existing venue monitoring or restart VPN gates.
+
+### Base subsystem
+
 Apply additive migrations `0037_trading_latency_probes.sql`,
 `0038_trading_latency_target_expansion.sql`, and
 `0039_trading_latency_cex_expansion.sql`; deploy API and worker from the exact

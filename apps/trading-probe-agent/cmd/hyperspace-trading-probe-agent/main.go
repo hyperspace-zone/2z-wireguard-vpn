@@ -23,10 +23,14 @@ import (
 )
 
 var (
-	version       = "0.3.0"
+	version       = "0.3.1"
 	buildRevision = "unknown"
 	buildTime     = "unknown"
 )
+
+// Public market catalogs (notably Variational) exceed 64 KiB. Keep the
+// decompressed response bounded, even when a remote server advertises no length.
+const maxHTTPResponseBytes = 1 << 20
 
 var defaultAllowedHosts = []string{
 	"api.binance.com",
@@ -40,6 +44,10 @@ var defaultAllowedHosts = []string{
 	"www.okx.com",
 	"sg-api.upbit.com",
 	"api.hyperliquid.xyz",
+	"omni-client-api.prod.ap-northeast-1.variational.io",
+	"api.starknet.extended.exchange",
+	"api.rise.trade",
+	"mainnet.zklighter.elliot.ai",
 	"clob.polymarket.com",
 	"api.elections.kalshi.com",
 	"arb1.arbitrum.io",
@@ -167,7 +175,7 @@ func main() {
 			time.Sleep(cfg.PollInterval)
 			continue
 		}
-		result := execute(cfg, claimed.Target)
+		result := executeJob(cfg, *claimed)
 		if err := report(client, cfg, *claimed, result); err != nil {
 			logJSON("report_failed", map[string]any{"jobId": claimed.ID, "error": err.Error()})
 		} else {
@@ -256,6 +264,13 @@ func postJSON(client *http.Client, cfg config, path string, payload any, output 
 		return json.Unmarshal(limited, output)
 	}
 	return nil
+}
+
+func executeJob(cfg config, claimed job) metricResult {
+	if claimed.NetworkProfile != "direct" {
+		return failedResult(time.Now().UTC().Format(time.RFC3339Nano), claimed.Target.SampleCount, "network_profile_unavailable", errors.New("no provisioned transport for this profile; direct fallback is forbidden"), sample{})
+	}
+	return execute(cfg, claimed.Target)
 }
 
 func execute(cfg config, t target) metricResult {
@@ -423,7 +438,7 @@ func measureHTTP(t target) (sample, string, error) {
 		return sample{}, classifyNetworkError(err), err
 	}
 	defer response.Body.Close()
-	body, err := io.ReadAll(io.LimitReader(response.Body, 65537))
+	body, err := readHTTPResponse(response.Body)
 	if err != nil {
 		return sample{}, "response_read_failed", err
 	}
@@ -432,8 +447,8 @@ func measureHTTP(t target) (sample, string, error) {
 		totalMS: milliseconds(time.Since(started)), httpStatus: response.StatusCode,
 		resolvedIP: resolved.String(),
 	}
-	if len(body) > 65536 {
-		return observed, "response_too_large", errors.New("response exceeded 64 KiB")
+	if len(body) > maxHTTPResponseBytes {
+		return observed, "response_too_large", errors.New("response exceeded 1 MiB")
 	}
 	if response.StatusCode != t.ExpectedStatus {
 		return observed, classifyHTTPStatus(response.StatusCode), fmt.Errorf("expected status %d, got %d", t.ExpectedStatus, response.StatusCode)
@@ -444,6 +459,10 @@ func measureHTTP(t target) (sample, string, error) {
 	}
 	observed.responseClass = responseClass
 	return observed, "", nil
+}
+
+func readHTTPResponse(reader io.Reader) ([]byte, error) {
+	return io.ReadAll(io.LimitReader(reader, maxHTTPResponseBytes+1))
 }
 
 func classifyHTTPStatus(status int) string {

@@ -1,11 +1,93 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"net"
 	"net/http"
+	"os"
 	"slices"
+	"strings"
 	"testing"
 )
+
+// Explicit opt-in only: ordinary unit tests never contact a trading venue.
+func TestPublicPerpDEXAPIs(t *testing.T) {
+	if os.Getenv("HYPERSPACE_TRADING_LIVE_SMOKE") != "1" {
+		t.Skip("set HYPERSPACE_TRADING_LIVE_SMOKE=1 to probe public read-only APIs")
+	}
+	cfg := config{AllowedHosts: map[string]struct{}{}}
+	for _, host := range defaultAllowedHosts {
+		cfg.AllowedHosts[host] = struct{}{}
+	}
+	for _, fixture := range []struct{ name, host, path, marker string }{
+		{"variational", "omni-client-api.prod.ap-northeast-1.variational.io", "/metadata/stats", `"listings"`},
+		{"extended", "api.starknet.extended.exchange", "/api/v1/info/markets?market=BTC-USD", `"BTC-USD"`},
+		{"rise", "api.rise.trade", "/v1/markets", `"markets"`},
+		{"lighter", "mainnet.zklighter.elliot.ai", "/api/v1/orderBookDetails?market_id=1", `"order_book_details"`},
+	} {
+		t.Run(fixture.name, func(t *testing.T) {
+			result := execute(cfg, target{
+				Protocol: "http_json", Scheme: "https", Hostname: fixture.host, Port: 443,
+				Path: fixture.path, Method: "GET", TimeoutMS: 5000, SampleCount: 1,
+				Headers:        map[string]string{"accept": "application/json", "cache-control": "no-cache"},
+				ExpectedStatus: 200, ExpectedBodyContains: fixture.marker, ResponseKind: "json_object",
+			})
+			if result.Status != "succeeded" || result.FailureCount != 0 {
+				t.Fatalf("public API probe failed: status=%s code=%s http=%d message=%s", result.Status, result.ErrorCode, result.HTTPStatus, result.ErrorMessage)
+			}
+		})
+	}
+}
+
+func TestDefaultAllowlistContainsPerpDEXCatalog(t *testing.T) {
+	for _, host := range []string{
+		"omni-client-api.prod.ap-northeast-1.variational.io",
+		"api.starknet.extended.exchange",
+		"api.rise.trade",
+		"mainnet.zklighter.elliot.ai",
+	} {
+		if !slices.Contains(defaultAllowedHosts, host) {
+			t.Fatalf("missing perpDEX host %s from the default allowlist", host)
+		}
+	}
+}
+
+func TestUnknownNetworkProfileNeverFallsBackToDirect(t *testing.T) {
+	result := executeJob(config{}, job{NetworkProfile: "doublezero", Target: target{SampleCount: 3}})
+	if result.Status != "failed" || result.ErrorCode != "network_profile_unavailable" {
+		t.Fatalf("unexpected profile result: %+v", result)
+	}
+}
+
+func TestHTTPResponseBudget(t *testing.T) {
+	for _, size := range []int{65536, 300000, maxHTTPResponseBytes, maxHTTPResponseBytes + 1, maxHTTPResponseBytes * 2} {
+		body, err := readHTTPResponse(strings.NewReader(strings.Repeat("x", size)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(body) != min(size, maxHTTPResponseBytes+1) {
+			t.Fatalf("size %d: read %d bytes", size, len(body))
+		}
+		if (len(body) > maxHTTPResponseBytes) != (size > maxHTTPResponseBytes) {
+			t.Fatalf("size %d: incorrect oversize classification", size)
+		}
+	}
+}
+
+func TestLargePublicMarketCatalogCanBeValidated(t *testing.T) {
+	encoded, err := json.Marshal(map[string]any{"listings": strings.Repeat("x", 300000)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := readHTTPResponse(bytes.NewReader(encoded))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := validateResponse(body, target{ResponseKind: "json_object", ExpectedBodyContains: `"listings"`}); err != nil {
+		t.Fatal(err)
+	}
+}
 
 func TestPrivateAndMetadataAddressesAreRejected(t *testing.T) {
 	for _, raw := range []string{"127.0.0.1", "10.0.0.1", "172.16.0.1", "192.168.1.1", "169.254.169.254", "::1"} {

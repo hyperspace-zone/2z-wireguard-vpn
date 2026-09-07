@@ -261,6 +261,7 @@ export const publicCreateSessionRequestSchema = {
     label: { type: "string" },
     targetIp: { type: "string" },
     sourceIp: { type: "string" },
+    tradingRouteId: { type: "string", pattern: "^[a-f0-9]{64}$" },
     paymentRequestId: { type: "string", format: "uuid" }
   }
 } as const;

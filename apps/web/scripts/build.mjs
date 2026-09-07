@@ -9,3 +9,5 @@ await copyFile("hyperspace-logo.svg", "dist/hyperspace-logo.svg");
 await copyFile("../../node_modules/leaflet/dist/leaflet.css", "dist/leaflet.css");
 await copyFile("../../node_modules/leaflet/dist/leaflet.js", "dist/leaflet.js");
 await copyFile("styles.css", "dist/styles.css");
+await copyFile("pairs.css", "dist/pairs.css");
+await copyFile("../../scripts/trading/trading-pair-check.mjs", "dist/trading-pair-check.mjs");

@@ -110,6 +110,7 @@ export { deleteHiddenSession } from "./application/sessions/delete-session.scena
 export { revokeSession } from "./application/sessions/revoke-session.scenario.js";
 export { type Principal } from "./authz/principals.js";
 export { readPublicGateBenchmarkMatrix } from "./read-models/public-benchmarks.query.js";
+export { readTradingPairsSnapshot, filterTradingPairs, resolveTradingRoute } from "./resources/trading-pairs/service.js";
 export { listPublicGates } from "./read-models/public-gates.query.js";
 export { listPublicSessions, readOwnSession } from "./read-models/public-sessions.query.js";
 export { listAdminJobs } from "./read-models/admin-jobs.query.js";
