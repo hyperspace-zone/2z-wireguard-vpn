@@ -5,6 +5,151 @@ testnet, and production. Trading probes are a separate subsystem from the VPN
 gate agent. A probe failure must not affect WireGuard assignments, DoubleZero
 recovery, gate heartbeats, or config issuance.
 
+## Pair Routes release (2026-09-07)
+
+API, worker and web source: `bb3c4833bb700b478ef065773f24cedb81d23b1b`.
+The same source was promoted through `staging` to `main`. No testnet rollout,
+new servers, VPN gate-agent upgrades or client routing changes were performed.
+Only the independent trading probe services were upgraded on existing gates.
+
+| Environment | Probe rollout | Catalog / latest reports | Existing VPN sessions |
+| --- | --- | --- | --- |
+| Staging | 3/3 on `0.3.1` | 30 targets, 90 reports | 5 active, both assignments applied |
+| Production | 29/30 on `0.3.1` | 30 targets, 896 reports | 12 active, both assignments applied |
+
+Each of the four new public APIs reported successful complete batches from
+all three staging and all 29 reachable production probes during verification.
+The original 26 targets continued reporting. Production Munich
+`gate-eu-muc-51` was already offline (last probe heartbeat September 4); SSH
+also timed out. It was not restarted or represented as a working route. Its
+26 historical reports remain visible as stale, and its four new targets have
+no reports yet. Warsaw's maintenance gate still supplies direct matrix data
+but cannot be selected for a config.
+
+`/trading/pairs` and alias `/trading/routes` now provide the venue-pair board;
+`/trading/` remains the original map. The catalog has 17 trading venues
+(10 CEX, 5 perpDEX, 2 prediction venues); chain/RPC/oracle endpoints stay on
+the map and are not turned into venue pairs. Filters, pagination, source
+selection, per-leg comparisons, matrix mode, shared URLs and exact-route
+checkout all use the existing infrastructure.
+
+This release ranks **estimates**, not verified VPN A/B gains. The public
+verified count is deliberately zero. IPv6 or unknown-family samples cannot
+recommend an IPv4 FullTunnel preset; IPv6 direct observations remain in the
+map/matrix. Freshness, revision, incomplete batches, gate readiness, loss,
+same-metro N/A and per-leg regression checks fail closed. An old successful
+map sample is no longer marked Live when the target or probe is stale.
+The client comparison script is read-only, does not install a tunnel, and
+does not attest the DoubleZero underlay. See the implemented-scope section in
+[the architecture document](../architecture/trading-pair-routes.md).
+
+The production canary exposed intermittent statement timeouts in the existing
+gate-matrix query. A bounded recent-results read now uses the existing
+`gate_benchmark_results_measured_route_idx`, with historical index lookups
+only for missing recent routes. No new index or migration was needed.
+Old/new readers were compared in one read-only repeatable-read transaction:
+all 812 routes matched, including historical and same-metro behavior; the
+observed query duration changed from 2.75 s to 0.21 s. An earlier EXPLAIN
+comparison was 5.44 s versus 0.16 s. These are rollout diagnostics, not an SLA.
+
+Further sustained checks identified I/O contention from the pre-existing
+unbounded trading-history cleanup. Migration `0041` adds retention indexes;
+cleanup now processes at most 1,000 unlocked rows per table/call. The existing
+7-day terminal-job and 90-day rollup retention policies are unchanged. The
+latest measurements, live jobs and VPN sessions are not cleanup targets.
+Both indexes were prebuilt CONCURRENTLY and checked `indisvalid=true` before
+the migration; production index sizes were 358 MB and 85 MB. This uses the
+existing DB, not a new server. For a future existing fleet, run the new
+release's `scripts/trading/prebuild-retention-indexes.mjs` with `DATABASE_URL`
+before migrations; it refuses an invalid existing index rather than dropping
+it. The normal migration records/verifies the already-valid indexes.
+
+Two existing worker metrics collectors also repeatedly scanned historical
+payloads. Latest assignment metrics now use the existing per-assignment/time
+index: all 404 rows matched in a read-only repeatable-read comparison (11.96 s
+versus 15 ms in that diagnostic). No counter values or billing calculations
+changed. Job metrics preserve exact counts and zero-valued enum combinations;
+all 49 groups / 9,401,923 jobs matched in another read-only comparison.
+Migration `0042` adds a compact `(type, phase)` covering index (62 MB production,
+480 kB staging), prebuilt CONCURRENTLY with validity checks.
+
+Production's old jobs table had not been vacuumed since September 3 and only
+29% of its pages were all-visible. Consequently the initial new query still
+chose a 6.5 GB heap scan. Ordinary `VACUUM (ANALYZE, TRUNCATE FALSE) jobs`
+refreshes the visibility map; it is not VACUUM FULL, does not delete live jobs,
+and does not truncate the table. Migration `0043` lowers jobs-only autovacuum
+update/insert scale factors to 0.02 and analyze to 0.01, preserving any stricter
+existing per-table settings. Before deploying to a future existing large fleet,
+run `scripts/control-plane/prebuild-metrics-indexes.mjs --vacuum` from the built
+new release with its existing `DATABASE_URL`, then apply migrations. These
+operations do not require another server or changes to the queue lifecycle.
+The production maintenance completed at 11:35 UTC with 839,188 of 839,975
+pages all-visible. EXPLAIN then selected `Index Only Scan` on the new index;
+the cold aggregate completed in 3.07 s versus the prior 31.5 s heap scan.
+After the final rollout, the complete worker business snapshot (all sections)
+completed in 0.85 s and every worker health component was ready. These are
+observed diagnostics, not a performance SLA.
+
+Verification includes TypeScript suites, both Go agents, the four real public
+API fixtures, offline browser scenarios and read-only live browser checks on
+both environments. The fixture suite covers login return, exact ingress/egress,
+payment failure, stale-preset rejection, successful-request cleanup and a
+subsequent ordinary config. Live checks do not fund wallets or create paid
+sessions. Existing session IDs, phases and applied assignment counts were
+compared before and after deployment. Staging's three locations had no
+positive two-leg estimates during the smoke; its honest empty state/matrix
+were tested, while production also exercised the eligible-route login CTA.
+The final source passed `npm run build && npm test` (183 tests), both Go
+agents, all four opt-in public API smoke targets, 15 offline browser scenarios,
+the local comparison-client test and both deployment-order tests.
+The final sustained canary completed around 11:39 UTC: 72 public read-only
+requests across both environments and both `/benchmarks/gate-matrix` and
+`/trading/pairs` APIs, all HTTP 200, maximum observed response 1,270 ms.
+Production returned all 812 legacy directed routes throughout. The earlier
+canary exposed 10 failures in 72 requests before the job-metrics/visibility
+fix; it was not accepted as a successful rollout. Both final API health
+checks and every worker health component were ready. The sustained script
+is checked into the repository; it does not create sessions or move funds.
+
+Re-run public read-only checks from a built checkout with Chromium available:
+
+```bash
+node scripts/trading/pairs-live-smoke.mjs
+TRADING_SMOKE_URL=https://app.hyperspace.zone node scripts/trading/pairs-live-smoke.mjs
+node scripts/trading/pairs-sustained-smoke.mjs
+npm run test:trading:ui
+npm run test:trading:client
+```
+
+Release artifacts (SHA-256):
+
+- Probe `0.3.1`, source `2e14d12ab3f4bb97abf2ac602aea22c712af3b59`:
+  `323a111a948d207542da89798cde2d4ca9999e83992e8d5132675b188ca3baf0`.
+- API/worker archive:
+  `631be5c7d459d7f8f8d16dc8ef0089b5f5b6a48f0bceef83ae9dd111048c4cd8`.
+- Web archive:
+  `936be07b1c17b7bd565387fc9c1abd287e9947cc194f9612d2bb1879dffac1db`.
+
+API/worker releases are under `/opt/2z-wireguard-vpn-releases/<revision>`;
+web releases are under `/var/www/hyperspace-web-releases/<revision>`.
+Per-host rollback pointers/copies are under
+`/opt/hyperspace-rollbacks/trading-pairs-<revision>`. Restore the pre-feature
+pointer when rolling back the whole feature, not merely the previous small
+fix. Retain the additive migration/data. Disable the four exact new target
+keys before restoring a `0.3.0` probe binary/allowlist.
+
+Staging's fresh pre-migration backup is
+`/var/backups/hyperspace/hyperspace-pre-trading-20260907T1006Z.dump` on its DB
+host. The production scheduled backup was already failing due to insufficient
+backup-volume space. A separate full PostgreSQL custom/zstd dump and globals
+were saved on the existing operator host under
+`/root/hyperspace/trading-release-20260907-1eSrs9/`; the dump is
+`production-pre-trading.dump` (12,856,349,697 bytes). Both dumps were fully
+read with `pg_restore --file=/dev/null`, without restoring into a database.
+The operator directory is private and dump files have mode 0600. No previous
+backup was deleted. Scheduled-backup storage/retention and Munich recovery
+remain separate operational follow-ups; this release does not fix them.
+
 ## Live rollout evidence (2026-08-28)
 
 The rollout used staging first, testnet second, and production last. The
@@ -92,7 +237,7 @@ with an explicit quota and SLA.
 
 ## Control-plane rollout
 
-### PerpDEX catalog extension (prepared 2026-09-07; not rollout evidence)
+### PerpDEX catalog extension (2026-09-07)
 
 Migration `0040_trading_latency_perpdex_expansion.sql` adds four mainnet
 public APIs. They do not place orders, require a wallet, or expose instruments
