@@ -35,6 +35,7 @@ test("offsite backups include cluster globals and require encrypted Restic crede
   const source = await readFile(scriptUrl, "utf8");
   assert.match(source, /pg_dumpall --globals-only/);
   assert.match(source, /RESTIC_PASSWORD is required/);
+  assert.match(source, /--group-by host,tags/);
   assert.match(source, /--keep-daily/);
   assert.match(source, /--keep-weekly/);
 });

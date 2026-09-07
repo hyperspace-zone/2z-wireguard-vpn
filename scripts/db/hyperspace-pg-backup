@@ -91,6 +91,7 @@ if [[ "$offsite_mode" == "restic" ]]; then
   restic forget \
     --host "$backup_host" \
     --tag hyperspace-postgresql \
+    --group-by host,tags \
     --keep-daily "$restic_keep_daily" \
     --keep-weekly "$restic_keep_weekly" \
     --prune
