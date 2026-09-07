@@ -60,6 +60,14 @@ IP. Do not delete DNS while powered-off instances retain their IPs. If an
 instance is terminated and its IP is released, remove its DNS record promptly
 to prevent a stale record from pointing to a future tenant.
 
+UpCloud `Stop` does not necessarily stop billing. Starter and Premium plans
+remain billed while powered off. Cloud Native compute is not billed while
+stopped, but attached storage and allocated public IP addresses remain billed.
+To reduce the retired environment to zero provider cost, verify the R2 restore
+point first, then delete the server resources, storage, backups, and reserved
+IPs rather than only stopping the instances. See the current
+[UpCloud Cloud Server configuration and billing documentation](https://upcloud.com/docs/products/cloud-servers/configurations/).
+
 ## Recovery order
 
 1. Start PostgreSQL and verify the database, or restore snapshot `5081ad96`.
