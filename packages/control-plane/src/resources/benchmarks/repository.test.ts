@@ -95,6 +95,12 @@ test("benchmark matrix marks same DoubleZero metro as not applicable and hides o
   assert.match(calls[0] ?? "", /LEFT JOIN gate_status source_status/);
   assert.match(calls[0] ?? "", /directed_pairs\.source_doublezero_metro IS NOT NULL/);
   assert.match(calls[0] ?? "", /transport = 'doublezero'/);
+  assert.match(calls[0] ?? "", /recent_latest AS MATERIALIZED/);
+  assert.match(calls[0] ?? "", /measured_at >= now\(\) - interval '15 minutes'/);
+  assert.match(calls[0] ?? "", /public_recent\.metric IS NULL/);
+  assert.match(calls[0] ?? "", /doublezero_recent\.metric IS NULL/);
+  assert.match(calls[0] ?? "", /COALESCE\(public_recent\.metric, public_latest\.metric\)/);
+  assert.match(calls[0] ?? "", /COALESCE\(doublezero_recent\.metric, doublezero_latest\.metric\)/);
 });
 
 test("benchmark matrix keeps DoubleZero results when metro is unknown", async () => {

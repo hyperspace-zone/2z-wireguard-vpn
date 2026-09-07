@@ -350,7 +350,37 @@ export async function listLatestGateBenchmarkRoutes(db: Queryable): Promise<Gate
     doublezeroMetric: GateBenchmarkMetric | null;
   }>(
     `
-      WITH directed_pairs AS (
+      WITH recent_latest AS MATERIALIZED (
+        -- Read the small recent time range through the measured-route index.
+        -- Most routes avoid random lookups across the full historical index.
+        SELECT DISTINCT ON (source_gate_id, target_gate_id, transport)
+          source_gate_id, target_gate_id, transport,
+          jsonb_strip_nulls(jsonb_build_object(
+            'transport', transport,
+            'status', status,
+            'sourceInterface', source_interface,
+            'targetEndpoint', target_endpoint,
+            'packetCount', packet_count,
+            'packetsReceived', packets_received,
+            'lossPercent', loss_percent,
+            'rttMs', CASE WHEN rtt_p50_ms IS NULL THEN NULL ELSE jsonb_strip_nulls(jsonb_build_object(
+              'min', rtt_min_ms, 'p50', rtt_p50_ms, 'p95', rtt_p95_ms, 'max', rtt_max_ms
+            )) END,
+            'jitterMs', jitter_ms,
+            'forwardOneWayMs', CASE WHEN forward_one_way_p50_ms IS NULL THEN NULL ELSE jsonb_strip_nulls(jsonb_build_object(
+              'p50', forward_one_way_p50_ms, 'p95', forward_one_way_p95_ms
+            )) END,
+            'oneWayDiagnostics', CASE WHEN one_way_clock_error_ms IS NULL THEN NULL ELSE jsonb_strip_nulls(jsonb_build_object(
+              'clockErrorMs', one_way_clock_error_ms
+            )) END,
+            'errorCode', error_code,
+            'errorMessage', error_message,
+            'measuredAt', measured_at
+          )) AS metric
+        FROM gate_benchmark_results
+        WHERE measured_at >= now() - interval '15 minutes'
+        ORDER BY source_gate_id, target_gate_id, transport, measured_at DESC
+      ), directed_pairs AS (
         SELECT
           source.id AS source_gate_id,
           source.name AS source_gate_name,
@@ -377,9 +407,22 @@ export async function listLatestGateBenchmarkRoutes(db: Queryable): Promise<Gate
           AND LOWER(directed_pairs.source_doublezero_metro) = LOWER(directed_pairs.target_doublezero_metro)
         ) AS "sameDoubleZeroMetro",
         directed_pairs.source_doublezero_metro AS "doublezeroMetro",
-        public_latest.metric AS "publicMetric",
-        doublezero_latest.metric AS "doublezeroMetric"
+        COALESCE(public_recent.metric, public_latest.metric) AS "publicMetric",
+        COALESCE(doublezero_recent.metric, doublezero_latest.metric) AS "doublezeroMetric"
       FROM directed_pairs
+      LEFT JOIN recent_latest public_recent
+        ON public_recent.source_gate_id = directed_pairs.source_gate_id
+        AND public_recent.target_gate_id = directed_pairs.target_gate_id
+        AND public_recent.transport = 'public'
+      LEFT JOIN recent_latest doublezero_recent
+        ON doublezero_recent.source_gate_id = directed_pairs.source_gate_id
+        AND doublezero_recent.target_gate_id = directed_pairs.target_gate_id
+        AND doublezero_recent.transport = 'doublezero'
+        AND NOT (
+          directed_pairs.source_doublezero_metro IS NOT NULL
+          AND directed_pairs.target_doublezero_metro IS NOT NULL
+          AND LOWER(directed_pairs.source_doublezero_metro) = LOWER(directed_pairs.target_doublezero_metro)
+        )
       LEFT JOIN LATERAL (
         SELECT
           jsonb_strip_nulls(jsonb_build_object(
@@ -422,6 +465,7 @@ export async function listLatestGateBenchmarkRoutes(db: Queryable): Promise<Gate
         WHERE source_gate_id = directed_pairs.source_gate_id
           AND target_gate_id = directed_pairs.target_gate_id
           AND transport = 'public'
+          AND public_recent.metric IS NULL
         ORDER BY measured_at DESC
         LIMIT 1
       ) public_latest ON true
@@ -467,6 +511,7 @@ export async function listLatestGateBenchmarkRoutes(db: Queryable): Promise<Gate
         WHERE source_gate_id = directed_pairs.source_gate_id
           AND target_gate_id = directed_pairs.target_gate_id
           AND transport = 'doublezero'
+          AND doublezero_recent.metric IS NULL
           AND NOT (
             directed_pairs.source_doublezero_metro IS NOT NULL
             AND directed_pairs.target_doublezero_metro IS NOT NULL

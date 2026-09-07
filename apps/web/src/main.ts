@@ -3198,6 +3198,10 @@ async function createSession(): Promise<void> {
     createConfigSubmitting = false;
     createdConfigSessionId = sessionId;
     sessionStorage.removeItem("hyperspaceTradingRoute");
+    tradingRouteId = "";
+    tradingRouteSelection = null;
+    tradingRouteError = "";
+    window.history.replaceState({}, "", viewPath("create-config"));
     createdConfigSessionPhase = typeof response.session?.phase === "string" ? response.session.phase : "requested";
     createdConfigError = "";
     createdConfigQrSvg = "";

@@ -7,6 +7,8 @@ if (!["https://app.staging.hyperspace.zone", "https://app.hyperspace.zone"].incl
 const get = async path => { const response = await fetch(`${base}${path}`, { signal: AbortSignal.timeout(20_000) }); assert.equal(response.status, 200, path); return response.json(); };
 const latency = await get("/api/v1/public/trading/latency");
 const pairs = await get("/api/v1/public/trading/pairs?limit=5");
+const gateMatrix = await get("/api/v1/public/benchmarks/gate-matrix");
+assert.ok(gateMatrix.gates.length >= 3 && gateMatrix.routes.length > 0, "Existing benchmarks require real matrix data, not only a rendered heading");
 assert.equal(latency.targets.length, 30);
 assert.equal(pairs.venues.length, 17);
 assert.equal(pairs.summary.verifiedRoutes, 0);
@@ -55,6 +57,7 @@ try {
   await page.goto(`${base}/trading/`); await page.locator("#trading-target-select").waitFor();
   assert.equal(await page.locator("#trading-target-select option").count(), 10);
   await page.goto(`${base}/benchmarks`); await page.getByRole("heading", { name: "Benchmarks", exact: true }).waitFor();
+  await page.locator(".benchmark-rtt-table tbody tr").first().waitFor();
   await page.goto(`${base}/`); await page.getByRole("heading", { name: "Log in", exact: true }).waitFor();
   const client = await fetch(`${base}/trading-pair-check.mjs`); assert.equal(client.status, 200); assert.match(await client.text(), /network namespace/);
   assert.deepEqual(errors, []);

@@ -12,7 +12,7 @@ const targets = venueNames.map(([key, displayName, category]) => ({ id: key, key
 const latency = { generatedAt: date, nodes, targets, measurements: nodes.flatMap(node => targets.map(target => ({ nodeId: node.id, targetId: target.id, targetRevision: 1, addressFamily: "ipv4", networkProfile: "direct", status: "succeeded", measuredAt: date, tcpMs: node.id === "source" ? 100 : 10, totalP50Ms: node.id === "source" ? 200 : 30, totalP95Ms: 250, sampleCount: 3, failureCount: 0 }))) };
 const matrix = { generatedAt: date, gates: nodes.map(node => ({ id: node.id, name: `gate-${node.id}`, city: node.city, country: node.country, desiredState: "Enabled", publicIpv4: "8.8.8.8", ready: true, schedulable: true })), routes: [{ sourceGateId: "source", targetGateId: "egress", sourceGateName: "gate-source", targetGateName: "gate-egress", doublezero: { transport: "doublezero", status: "succeeded", sourceInterface: "doublezero0", lossPercent: 0, measuredAt: date, rttMs: { p50: 5 } }, public: { transport: "public", status: "succeeded", measuredAt: date, rttMs: { p50: 20 } } }] };
 const snapshot = buildTradingPairsSnapshot(latency, matrix);
-const requests = []; let postedSession; let rejectPreset = false;
+const requests = []; let postedSession; let rejectPreset = false; let acceptSession = false;
 const dist = resolve("apps/web/dist");
 const server = createServer(async (request, response) => {
   try {
@@ -32,7 +32,7 @@ const server = createServer(async (request, response) => {
     if (path === "/api/v1/public/auth/email/verify") return json({ accessToken: "ui-fixture-only" });
     if (path === "/api/v1/public/billing") return json({ configPriceBaseUnits: "100000", asset: { symbol: "SOL", decimals: 9 }, balanceMinor: 0, configPayments: [], deposits: [], payments: [], withdrawals: [], plans: [], wallet: null });
     if (path === "/api/v1/public/sessions") {
-      if (request.method === "POST") { let body = ""; for await (const chunk of request) body += chunk; postedSession = JSON.parse(body); return json({ error: "insufficient_solana_funds", message: "Synthetic payment failure; no funds used." }, 402); }
+      if (request.method === "POST") { let body = ""; for await (const chunk of request) body += chunk; postedSession = JSON.parse(body); if (acceptSession) return json({ session: { id: "26df9140-2f08-4c64-b270-429e4d74fb97", phase: "requested" } }, 201); return json({ error: "insufficient_solana_funds", message: "Synthetic payment failure; no funds used." }, 402); }
       return json({ sessions: [] });
     }
     if (path.startsWith("/api/")) return json({ error: "ui_fixture_not_implemented" }, 404);
@@ -77,6 +77,15 @@ try {
   const before = requests.filter(path => path.includes("gate-matrix")).length;
   await page.goto(`${local}/`); await page.locator(".shell").waitFor(); assert.equal(requests.filter(path => path.includes("gate-matrix")).length, before);
   await page.goto(`${local}/benchmarks`); await page.getByRole("heading", { name: "Benchmarks", exact: true }).waitFor(); assert.ok(requests.filter(path => path.includes("gate-matrix")).length > before);
+  rejectPreset = false; acceptSession = true;
+  await page.goto(`${local}${routeUrl}`); await page.locator("#session-form").waitFor();
+  await page.getByRole("button", { name: "Review config", exact: true }).click(); await page.locator("#confirm-create-config").click();
+  await page.waitForFunction(() => document.body.textContent.includes("VPN config requested."));
+  assert.equal(await page.evaluate(() => sessionStorage.getItem("hyperspaceTradingRoute")), null);
+  assert.equal(new URL(page.url()).searchParams.has("tradingRoute"), false);
+  await page.locator('a[data-view="dashboard"]').first().click();
+  await page.locator('a[data-view="create-config"]').first().click(); await page.locator("#session-form").waitFor();
+  assert.equal(await page.locator(".pairs-checkout-notice").count(), 0, "A completed preset must not constrain the next manual config");
   assert.deepEqual(errors, []);
-  console.log(JSON.stringify({ ok: true, checks: ["pair table", "pair type filters", "honest measured empty state", "venue matrix", "mobile overflow", "legacy alias", "four venue maps", "login intent", "exact config preset", "payment-error path", "stale preset blocks issuance", "manual detachment", "old dashboard", "benchmarks isolation"], fixture: true }));
+  console.log(JSON.stringify({ ok: true, checks: ["pair table", "pair type filters", "honest measured empty state", "venue matrix", "mobile overflow", "legacy alias", "four venue maps", "login intent", "exact config preset", "payment-error path", "stale preset blocks issuance", "manual detachment", "old dashboard", "benchmarks isolation", "successful issuance clears preset for the next config"], fixture: true }));
 } finally { await browser.close(); await new Promise(resolve => server.close(resolve)); }
