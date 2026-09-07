@@ -26,7 +26,8 @@ if [[ ! -e /etc/hyperspace/db-backup.env ]]; then
   install -o root -g postgres -m 0640 /dev/stdin /etc/hyperspace/db-backup.env <<'EOF'
 HS_DB_NAME=hyperspace
 HS_DB_BACKUP_DIR=/var/backups/hyperspace
-HS_DB_BACKUP_RETENTION_DAYS=14
+HS_DB_BACKUP_KEEP_LAST=3
+HS_DB_BACKUP_FREE_SPACE_MARGIN_PERCENT=25
 EOF
 fi
 

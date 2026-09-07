@@ -3,7 +3,9 @@ set -euo pipefail
 
 backup_dir="${HS_DB_BACKUP_DIR:-/var/backups/hyperspace}"
 database="${HS_DB_NAME:-hyperspace}"
-retention_days="${HS_DB_BACKUP_RETENTION_DAYS:-14}"
+keep_last="${HS_DB_BACKUP_KEEP_LAST:-3}"
+free_space_margin_percent="${HS_DB_BACKUP_FREE_SPACE_MARGIN_PERCENT:-25}"
+required_free_override="${HS_DB_BACKUP_REQUIRED_FREE_BYTES:-}"
 offsite_success_file="${HS_DB_OFFSITE_SUCCESS_FILE:-/var/lib/hyperspace/db-backup/offsite-last-success}"
 offsite_mode="${HS_DB_OFFSITE_BACKUP_MODE:-}"
 offsite_filesystem_type="${HS_DB_OFFSITE_FILESYSTEM_TYPE:-nfs4}"
@@ -15,10 +17,18 @@ final="${backup_dir}/${database}-${stamp}.dump"
 globals_tmp="${backup_dir}/.${database}-globals-${stamp}.sql.tmp"
 globals_final="${backup_dir}/${database}-globals-${stamp}.sql"
 
-[[ "$retention_days" =~ ^[1-9][0-9]*$ ]] || {
-  echo "HS_DB_BACKUP_RETENTION_DAYS must be a positive integer" >&2
+[[ "$keep_last" =~ ^[1-9][0-9]*$ ]] || {
+  echo "HS_DB_BACKUP_KEEP_LAST must be a positive integer" >&2
   exit 2
 }
+[[ "$free_space_margin_percent" =~ ^[0-9]+$ ]] || {
+  echo "HS_DB_BACKUP_FREE_SPACE_MARGIN_PERCENT must be a non-negative integer" >&2
+  exit 2
+}
+if [[ -n "$required_free_override" && ! "$required_free_override" =~ ^[1-9][0-9]*$ ]]; then
+  echo "HS_DB_BACKUP_REQUIRED_FREE_BYTES must be a positive integer when set" >&2
+  exit 2
+fi
 for value_name in restic_keep_daily restic_keep_weekly; do
   value="${!value_name}"
   [[ "$value" =~ ^[1-9][0-9]*$ ]] || {
@@ -71,14 +81,107 @@ else
 fi
 trap 'test ! -e "$tmp" || unlink "$tmp"; test ! -e "$globals_tmp" || unlink "$globals_tmp"' EXIT
 
+managed_dumps=()
+refresh_managed_dumps() {
+  local candidate
+  managed_dumps=()
+  while IFS= read -r -d '' candidate; do
+    managed_dumps+=("$candidate")
+  done < <(
+    find "$backup_dir" -maxdepth 1 -type f \
+      -name "${database}-????????T??????Z.dump" -print0 | sort -z
+  )
+}
+
+globals_for_dump() {
+  local dump="$1" filename dump_stamp
+  filename="${dump##*/}"
+  dump_stamp="${filename#"${database}-"}"
+  dump_stamp="${dump_stamp%.dump}"
+  printf '%s/%s-globals-%s.sql\n' "$backup_dir" "$database" "$dump_stamp"
+}
+
+remove_managed_dump() {
+  local dump="$1" globals
+  globals="$(globals_for_dump "$dump")"
+  echo "pruning managed PostgreSQL backup: ${dump##*/}" >&2
+  unlink "$dump"
+  if [[ -e "$globals" ]]; then
+    unlink "$globals"
+  fi
+}
+
+prune_managed_backups() {
+  local target_count="$1"
+  refresh_managed_dumps
+  while (( ${#managed_dumps[@]} > target_count )); do
+    remove_managed_dump "${managed_dumps[0]}"
+    refresh_managed_dumps
+  done
+}
+
+available_backup_bytes() {
+  df -PB1 "$backup_dir" | awk 'NR == 2 { print $4 }'
+}
+
+required_backup_bytes() {
+  local estimated_bytes
+  if [[ -n "$required_free_override" ]]; then
+    printf '%s\n' "$required_free_override"
+    return
+  fi
+
+  refresh_managed_dumps
+  if (( ${#managed_dumps[@]} > 0 )); then
+    estimated_bytes="$(stat -c '%s' "${managed_dumps[-1]}")"
+  else
+    estimated_bytes="$(
+      psql --dbname="$database" --tuples-only --no-align \
+        --command='SELECT pg_database_size(current_database())'
+    )"
+  fi
+  [[ "$estimated_bytes" =~ ^[1-9][0-9]*$ ]] || {
+    echo "could not estimate the next PostgreSQL dump size" >&2
+    return 1
+  }
+  printf '%s\n' "$(( (estimated_bytes * (100 + free_space_margin_percent) + 99) / 100 ))"
+}
+
+ensure_backup_capacity() {
+  local required_bytes available_bytes
+  required_bytes="$(required_backup_bytes)"
+  available_bytes="$(available_backup_bytes)"
+  [[ "$available_bytes" =~ ^[0-9]+$ ]] || {
+    echo "could not determine free space in $backup_dir" >&2
+    return 1
+  }
+
+  while (( available_bytes < required_bytes )); do
+    refresh_managed_dumps
+    if (( ${#managed_dumps[@]} <= 1 )); then
+      echo "insufficient backup capacity: need ${required_bytes} bytes, have ${available_bytes}; preserving the latest verified dump" >&2
+      return 1
+    fi
+    remove_managed_dump "${managed_dumps[0]}"
+    available_bytes="$(available_backup_bytes)"
+  done
+}
+
+# Enforce the configured bound before starting a potentially large dump. This
+# avoids the full-filesystem deadlock where post-success retention never runs.
+# At least one previously verified dump is preserved even when capacity is low.
+prune_managed_backups "$keep_last"
+ensure_backup_capacity
+
 pg_dumpall --globals-only --file="$globals_tmp"
 pg_dump --format=custom --dbname="$database" --file="$tmp"
 pg_restore --list "$tmp" >/dev/null
-mv "$tmp" "$final"
 mv "$globals_tmp" "$globals_final"
+mv "$tmp" "$final"
 
-find "$backup_dir" -maxdepth 1 -type f -name "${database}-*.dump" -mtime "+${retention_days}" -delete
-find "$backup_dir" -maxdepth 1 -type f -name "${database}-globals-*.sql" -mtime "+${retention_days}" -delete
+# The new dump is now verified and atomically published. Keep exactly the most
+# recent configured number of managed backups and their matching globals.
+prune_managed_backups "$keep_last"
 
 if [[ "$offsite_mode" == "restic" ]]; then
   backup_host="${HS_DB_BACKUP_HOST:-$(hostname)}"
