@@ -1846,6 +1846,17 @@ HS_DB_RESTIC_KEEP_DAILY=7
 HS_DB_RESTIC_KEEP_WEEKLY=4
 ```
 
+The backup script groups retention by `host,tags`, deliberately excluding the
+snapshot paths. Dump filenames contain a timestamp, so Restic's default
+`host,paths` grouping would otherwise put every dump into a separate group and
+retain every snapshot indefinitely. Verify both the snapshot count and raw
+repository size after enabling retention:
+
+```bash
+restic snapshots --group-by host,tags
+restic stats --mode raw-data
+```
+
 Run `scripts/observability/install-postgres-monitoring`, then set
 `HS_DB_OFFSITE_BACKUP_ENABLED=1` in
 `/etc/hyperspace/postgres-monitoring.env`, restart the health exporter, and verify both
@@ -2227,8 +2238,10 @@ minutes outside Prometheus and Alertmanager and checks:
 - the separate meta bot token and access to the operator's private chat;
 - local Alertmanager readiness and Telegram notification-failure counters;
 - the primary cluster Telegram token and access to every configured receiver;
-- one peer observability readiness endpoint, forming this ring:
-  production → staging → testnet → production.
+- one peer observability readiness endpoint, forming a ring across all active
+  environments. After the testnet retirement on 2026-09-07 the live ring is
+  production → staging → production. Never leave a retired observability host
+  in the peer file: its expected shutdown would otherwise become a meta-alert.
 
 Two identical failed runs create an incident; two healthy runs resolve it. The
 monitor sends transitions directly to the operator through a separate Telegram
@@ -2257,7 +2270,7 @@ nano /etc/hyperspace/meta-watch.env
 cat >/etc/hyperspace/meta-watch-peers.tsv <<'EOF'
 # peer<TAB>public Prometheus readiness URL
 EOF
-# Add exactly the next member of the ring for this cluster.
+# Add exactly the next active member of the ring for this cluster.
 
 "$HS_REPO_DIR/scripts/observability/install-meta-watch"
 systemctl start hyperspace-meta-watch.service
