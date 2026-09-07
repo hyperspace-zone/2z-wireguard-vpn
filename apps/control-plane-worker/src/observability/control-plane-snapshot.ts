@@ -561,9 +561,13 @@ async function collectSessionMetrics(db: Database, metrics: RuntimeMetrics): Pro
   }
 }
 
-async function collectJobMetrics(db: Database, metrics: RuntimeMetrics): Promise<void> {
+export async function collectJobMetrics(db: Database, metrics: RuntimeMetrics): Promise<void> {
   const result = await db.query<{ type: string; phase: string; count: number }>(`
-    WITH types AS (
+    WITH counts AS MATERIALIZED (
+      -- The compact (type, phase) index can answer this without reading job
+      -- payloads/history from the heap. Preserve exact counts, including zero.
+      SELECT type, phase, COUNT(*)::int AS count FROM jobs GROUP BY type, phase
+    ), types AS (
       SELECT unnest(enum_range(NULL::job_type)) AS type
     ),
     phases AS (
@@ -572,11 +576,10 @@ async function collectJobMetrics(db: Database, metrics: RuntimeMetrics): Promise
     SELECT
       types.type::text AS type,
       phases.phase::text AS phase,
-      COUNT(jobs.id)::int AS count
+      COALESCE(counts.count, 0)::int AS count
     FROM types
     CROSS JOIN phases
-    LEFT JOIN jobs ON jobs.type = types.type AND jobs.phase = phases.phase
-    GROUP BY types.type, phases.phase
+    LEFT JOIN counts ON counts.type = types.type AND counts.phase = phases.phase
     ORDER BY types.type::text, phases.phase::text
   `);
   for (const row of result.rows) {
