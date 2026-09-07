@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { Queryable } from "../../db/queryable.js";
-import { claimTradingProbeJob, scheduleTradingProbeJobs } from "./service.js";
+import { claimTradingProbeJob, cleanupTradingProbeHistory, scheduleTradingProbeJobs } from "./service.js";
 
 test("trading scheduler is disabled without touching PostgreSQL", async () => {
   let queried = false;
@@ -13,6 +13,22 @@ test("trading scheduler is disabled without touching PostgreSQL", async () => {
   } as Queryable;
   assert.equal(await scheduleTradingProbeJobs(db, false), 0);
   assert.equal(queried, false);
+});
+
+test("history cleanup is bounded and keeps the existing retention windows", async () => {
+  const statements: string[] = [];
+  const db = { query: async (sql: string) => { statements.push(sql); return { rows: [], rowCount: 0 }; } } as Queryable;
+  assert.deepEqual(await cleanupTradingProbeHistory(db), { jobsDeleted: 0, rollupsDeleted: 0 });
+  assert.equal(statements.length, 2);
+  for (const sql of statements) {
+    assert.match(sql, /LIMIT 1000/);
+    assert.match(sql, /FOR UPDATE SKIP LOCKED/);
+    assert.match(sql, /USING expired/);
+  }
+  assert.match(statements[0]!, /interval '7 days'/);
+  assert.match(statements[0]!, /phase IN \('succeeded', 'failed', 'dead'\)/);
+  assert.match(statements[1]!, /interval '90 days'/);
+  assert.doesNotMatch(statements.join("\n"), /DELETE FROM sessions/);
 });
 
 test("trading scheduler requeues expired leases and uses an independent queue", async () => {

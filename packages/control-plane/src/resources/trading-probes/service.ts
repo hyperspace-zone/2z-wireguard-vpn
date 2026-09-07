@@ -449,17 +449,31 @@ export async function cleanupTradingProbeHistory(db: Queryable): Promise<{
 }> {
   const jobs = await db.query<{ id: string }>(
     `
-      DELETE FROM trading_probe_jobs
-      WHERE phase IN ('succeeded', 'failed', 'dead')
-        AND updated_at < now() - interval '7 days'
-      RETURNING id
+      WITH expired AS MATERIALIZED (
+        SELECT id FROM trading_probe_jobs
+        WHERE phase IN ('succeeded', 'failed', 'dead')
+          AND updated_at < now() - interval '7 days'
+        ORDER BY updated_at, id
+        LIMIT 1000
+        FOR UPDATE SKIP LOCKED
+      )
+      DELETE FROM trading_probe_jobs jobs USING expired
+      WHERE jobs.id = expired.id
+      RETURNING jobs.id
     `
   );
   const rollups = await db.query<{ id: string }>(
     `
-      DELETE FROM trading_latency_rollups
-      WHERE bucket_start < now() - interval '90 days'
-      RETURNING id
+      WITH expired AS MATERIALIZED (
+        SELECT id FROM trading_latency_rollups
+        WHERE bucket_start < now() - interval '90 days'
+        ORDER BY bucket_start, id
+        LIMIT 1000
+        FOR UPDATE SKIP LOCKED
+      )
+      DELETE FROM trading_latency_rollups rollups USING expired
+      WHERE rollups.id = expired.id
+      RETURNING rollups.id
     `
   );
   return {
