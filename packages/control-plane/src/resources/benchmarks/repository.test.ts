@@ -4,8 +4,36 @@ import type { Queryable } from "../../db/queryable.js";
 import {
   insertDueGateBenchmarkProbeJobs,
   insertDueGateNtpDiscoveryJobs,
+  insertGateBenchmarkReport,
   listLatestGateBenchmarkRoutes
 } from "./repository.js";
+
+test("benchmark persistence stores aggregate columns without raw packet samples", async () => {
+  const calls: Array<{ sql: string; params: readonly unknown[] }> = [];
+  const db: Queryable = {
+    async query<Row extends object>(sql: string, params: readonly unknown[] = []) {
+      calls.push({ sql, params });
+      return { rows: [] as Row[], rowCount: 1 };
+    }
+  };
+  await insertGateBenchmarkReport(db, {
+    jobId: "job-1",
+    sourceGateId: "source-1",
+    targetGateId: "target-1",
+    results: [{
+      transport: "public",
+      status: "succeeded",
+      packetCount: 1,
+      packetsReceived: 1,
+      rttMs: { p50: 10 },
+      samples: [{ sequence: 1, rttMs: 10 }]
+    }]
+  });
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0]?.params[20], "[]");
+  assert.equal(calls[0]?.params[11], 10);
+});
 
 test("benchmark scheduler inserts idempotent directed gate probe jobs", async () => {
   const calls: Array<{ sql: string; params: readonly unknown[] }> = [];
