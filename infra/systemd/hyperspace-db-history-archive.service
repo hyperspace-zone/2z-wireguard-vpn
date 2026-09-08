@@ -1,0 +1,25 @@
+[Unit]
+Description=Archive Hyperspace PostgreSQL operational history to NFS
+After=network-online.target postgresql.service
+Wants=network-online.target
+Requires=postgresql.service
+
+[Service]
+Type=oneshot
+User=postgres
+Group=postgres
+EnvironmentFile=/etc/hyperspace/db-history-archive.env
+ExecStart=/usr/local/sbin/hyperspace-pg-history-archive
+Nice=15
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+CPUQuota=25%
+TimeoutStartSec=6h
+PrivateTmp=true
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=-/var/backups/hyperspace -/mnt/hyperspace-backup /var/lib/hyperspace/db-history-archive
+
+[Install]
+WantedBy=multi-user.target

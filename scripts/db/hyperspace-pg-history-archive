@@ -1,0 +1,290 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+# Archive high-volume operational history before removing it from the hot
+# PostgreSQL database. Archives are immutable JSONL compressed with zstd and
+# are published only after row-count and checksum verification.
+
+database="${HS_DB_NAME:-hyperspace}"
+cluster="${HS_CLUSTER:-unknown}"
+mountpoint="${HS_DB_HISTORY_ARCHIVE_MOUNTPOINT:-/var/backups/hyperspace}"
+archive_root="${HS_DB_HISTORY_ARCHIVE_ROOT:-${mountpoint}/history-archive}"
+state_dir="${HS_DB_HISTORY_ARCHIVE_STATE_DIR:-/var/lib/hyperspace/db-history-archive}"
+max_slices="${HS_DB_HISTORY_ARCHIVE_MAX_SLICES_PER_RUN:-1}"
+delete_batch_size="${HS_DB_HISTORY_ARCHIVE_DELETE_BATCH_SIZE:-5000}"
+delete_batch_limit="${HS_DB_HISTORY_ARCHIVE_DELETE_BATCH_LIMIT:-200}"
+delete_sleep_seconds="${HS_DB_HISTORY_ARCHIVE_DELETE_SLEEP_SECONDS:-0.20}"
+max_active_queries="${HS_DB_HISTORY_ARCHIVE_MAX_ACTIVE_QUERIES:-4}"
+minimum_free_bytes="${HS_DB_HISTORY_ARCHIVE_MIN_FREE_BYTES:-10737418240}"
+minimum_free_percent="${HS_DB_HISTORY_ARCHIVE_MIN_FREE_PERCENT:-15}"
+
+for value_name in max_slices delete_batch_size delete_batch_limit max_active_queries minimum_free_bytes minimum_free_percent; do
+  value="${!value_name}"
+  [[ "$value" =~ ^[0-9]+$ ]] || {
+    echo "$value_name must be a non-negative integer" >&2
+    exit 2
+  }
+done
+(( max_slices > 0 && delete_batch_size > 0 && delete_batch_limit > 0 )) || {
+  echo "slice and batch limits must be positive" >&2
+  exit 2
+}
+[[ "$cluster" =~ ^[a-zA-Z0-9._-]+$ ]] || {
+  echo "HS_CLUSTER contains unsupported characters" >&2
+  exit 2
+}
+
+for command in psql zstd sha256sum findmnt flock; do
+  command -v "$command" >/dev/null || {
+    echo "$command is required" >&2
+    exit 1
+  }
+done
+
+umask 077
+install -d -m 0700 "$state_dir"
+exec 9>"${state_dir}/archive.lock"
+flock -n 9 || {
+  echo "history archive is already running" >&2
+  exit 0
+}
+
+run_started="$(date +%s)"
+run_ok=0
+record_run_result() {
+  status=$?
+  attempt_tmp="${state_dir}/last-attempt.tmp"
+  printf '%s %s\n' "$run_started" "$status" >"$attempt_tmp"
+  mv "$attempt_tmp" "${state_dir}/last-attempt"
+  if (( status == 0 && run_ok == 1 )); then
+    success_tmp="${state_dir}/last-success.tmp"
+    printf '%s\n' "$(date +%s)" >"$success_tmp"
+    mv "$success_tmp" "${state_dir}/last-success"
+  fi
+}
+trap record_run_result EXIT
+
+read -r mounted_target mounted_fstype < <(
+  findmnt --noheadings --target "$mountpoint" --output TARGET,FSTYPE
+)
+if [[ "$mounted_target" != "$mountpoint" || ! "$mounted_fstype" =~ ^nfs4?$ ]]; then
+  echo "$mountpoint must be an exact NFS/NFSv4 mount" >&2
+  exit 1
+fi
+install -d -m 0700 "$archive_root"
+
+export PGOPTIONS="-c application_name=hyperspace-history-archive -c lock_timeout=2s -c statement_timeout=30min -c idle_in_transaction_session_timeout=2min"
+psql_base=(psql --dbname="$database" --no-psqlrc --set=ON_ERROR_STOP=1 --tuples-only --no-align)
+
+sql_scalar() {
+  "${psql_base[@]}" --command="$1" | sed -n '1p'
+}
+
+check_archive_capacity() {
+  read -r total available < <(df -PB1 "$mountpoint" | awk 'NR == 2 { print $2, $4 }')
+  [[ "$total" =~ ^[0-9]+$ && "$available" =~ ^[0-9]+$ ]] || {
+    echo "cannot determine archive filesystem capacity" >&2
+    return 1
+  }
+  available_percent=$(( available * 100 / total ))
+  if (( available < minimum_free_bytes || available_percent < minimum_free_percent )); then
+    echo "archive filesystem safety reserve reached: ${available} bytes (${available_percent}%) free" >&2
+    return 1
+  fi
+}
+
+wait_for_database_capacity() {
+  local active wait_count=0
+  while true; do
+    active="$(sql_scalar "SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND pid <> pg_backend_pid() AND state = 'active' AND application_name <> 'hyperspace-history-archive'")"
+    [[ "$active" =~ ^[0-9]+$ ]] || return 1
+    if (( active <= max_active_queries )); then
+      return 0
+    fi
+    (( wait_count += 1 ))
+    if (( wait_count >= 60 )); then
+      echo "database remained busy (${active} active queries); deferring archive work" >&2
+      return 1
+    fi
+    sleep 5
+  done
+}
+
+dataset_condition() {
+  case "$1" in
+    gate_benchmarks) printf '%s' "measured_at < (date_trunc('day', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC') - interval '1 day'" ;;
+    jobs) printf '%s' "phase IN ('succeeded','dead') AND ((type = 'probe' AND updated_at < (date_trunc('day', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC') - interval '1 day') OR (type <> 'probe' AND updated_at < (date_trunc('day', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC') - interval '30 days'))" ;;
+    trading_jobs) printf '%s' "phase IN ('succeeded','failed','dead') AND updated_at < (date_trunc('day', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC') - interval '1 day'" ;;
+    trading_rollups) printf '%s' "bucket_start < (date_trunc('day', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC') - interval '30 days'" ;;
+    assignment_usage) printf '%s' "sampled_at < (date_trunc('day', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC') - interval '90 days'" ;;
+    *) echo "unknown dataset: $1" >&2; return 2 ;;
+  esac
+}
+
+dataset_table_and_time() {
+  case "$1" in
+    gate_benchmarks) printf '%s' 'gate_benchmark_results measured_at' ;;
+    jobs) printf '%s' 'jobs updated_at' ;;
+    trading_jobs) printf '%s' 'trading_probe_jobs updated_at' ;;
+    trading_rollups) printf '%s' 'trading_latency_rollups bucket_start' ;;
+    assignment_usage) printf '%s' 'gate_assignment_counter_samples sampled_at' ;;
+    *) return 2 ;;
+  esac
+}
+
+oldest_eligible_day() {
+  local dataset="$1" table time_column condition
+  read -r table time_column <<<"$(dataset_table_and_time "$dataset")"
+  condition="$(dataset_condition "$dataset")"
+  sql_scalar "SELECT to_char(${time_column} AT TIME ZONE 'UTC', 'YYYY-MM-DD') FROM ${table} WHERE ${condition} ORDER BY ${time_column}, id LIMIT 1"
+}
+
+period_condition() {
+  local column="$1" start="$2" finish="$3"
+  printf '%s' "${column} >= '${start}'::timestamptz AND ${column} < '${finish}'::timestamptz"
+}
+
+archive_table() {
+  local table="$1" where_clause="$2" output_dir="$3"
+  local final="${output_dir}/${table}.jsonl.zst"
+  local tmp="${final}.tmp"
+  local rows expected checksum
+  if [[ -s "$final" && -s "${final}.sha256" && -s "${final}.rows" ]]; then
+    checksum="$(awk '{print $1}' "${final}.sha256")"
+    [[ "$(sha256sum "$final" | awk '{print $1}')" == "$checksum" ]]
+    return
+  fi
+  wait_for_database_capacity
+  check_archive_capacity
+  unlink "$tmp" 2>/dev/null || true
+  "${psql_base[@]}" --quiet --command="SELECT row_to_json(archive_row) FROM (SELECT * FROM ${table} WHERE ${where_clause}) AS archive_row" \
+    | zstd --quiet -6 -T1 --stdout >"$tmp"
+  zstd --quiet --test "$tmp"
+  rows="$(zstd --quiet --decompress --stdout "$tmp" | wc -l)"
+  expected="$(sql_scalar "SELECT count(*) FROM ${table} WHERE ${where_clause}")"
+  if [[ ! "$rows" =~ ^[0-9]+$ || "$rows" != "$expected" ]]; then
+    echo "archive row count mismatch for $table: file=$rows database=$expected" >&2
+    return 1
+  fi
+  mv "$tmp" "$final"
+  checksum="$(sha256sum "$final" | awk '{print $1}')"
+  printf '%s  %s\n' "$checksum" "${table}.jsonl.zst" >"${final}.sha256"
+  printf '%s\n' "$rows" >"${final}.rows"
+  sync -f "$final"
+}
+
+archive_dataset_day() {
+  local dataset="$1" day="$2" output_dir="$3"
+  local start="${day} 00:00:00+00" finish jobs_where trading_where samples_where manifest_tmp table
+  finish="$(date -u -d "${day} + 1 day" +'%Y-%m-%d 00:00:00+00')"
+  case "$dataset" in
+    gate_benchmarks)
+      archive_table gate_benchmark_results "$(period_condition measured_at "$start" "$finish")" "$output_dir"
+      ;;
+    jobs)
+      jobs_where="$(period_condition updated_at "$start" "$finish") AND $(dataset_condition jobs)"
+      archive_table job_attempts "job_id IN (SELECT id FROM jobs WHERE ${jobs_where})" "$output_dir"
+      archive_table jobs "$jobs_where" "$output_dir"
+      ;;
+    trading_jobs)
+      trading_where="$(period_condition updated_at "$start" "$finish") AND $(dataset_condition trading_jobs)"
+      archive_table trading_probe_job_attempts "job_id IN (SELECT id FROM trading_probe_jobs WHERE ${trading_where})" "$output_dir"
+      archive_table trading_probe_jobs "$trading_where" "$output_dir"
+      ;;
+    trading_rollups)
+      archive_table trading_latency_rollups "$(period_condition bucket_start "$start" "$finish")" "$output_dir"
+      ;;
+    assignment_usage)
+      samples_where="$(period_condition sampled_at "$start" "$finish")"
+      archive_table gate_assignment_usage_deltas "sample_id IN (SELECT id FROM gate_assignment_counter_samples WHERE ${samples_where})" "$output_dir"
+      archive_table gate_assignment_counter_samples "$samples_where" "$output_dir"
+      ;;
+  esac
+  manifest_tmp="${output_dir}/MANIFEST.tmp"
+  {
+    printf 'format=jsonl+zstd\ncluster=%s\ndatabase=%s\ndataset=%s\nperiod_start=%s\nperiod_end=%s\n' \
+      "$cluster" "$database" "$dataset" "$start" "$finish"
+    for rows_file in "$output_dir"/*.rows; do
+      [[ -e "$rows_file" ]] || continue
+      table="${rows_file##*/}"
+      table="${table%.jsonl.zst.rows}"
+      printf 'file=%s.jsonl.zst rows=%s sha256=%s\n' \
+        "$table" "$(<"$rows_file")" "$(awk '{print $1}' "${output_dir}/${table}.jsonl.zst.sha256")"
+    done
+  } >"$manifest_tmp"
+  mv "$manifest_tmp" "${output_dir}/MANIFEST"
+  sync -f "${output_dir}/MANIFEST"
+  printf '%s\n' "$(date +%s)" >"${output_dir}/READY"
+  sync -f "${output_dir}/READY"
+}
+
+delete_batch() {
+  local dataset="$1" start="$2" finish="$3" sql
+  case "$dataset" in
+    gate_benchmarks)
+      sql="WITH victims AS (SELECT id FROM gate_benchmark_results WHERE $(period_condition measured_at "$start" "$finish") ORDER BY measured_at,id LIMIT ${delete_batch_size} FOR UPDATE SKIP LOCKED), deleted AS (DELETE FROM gate_benchmark_results rows USING victims WHERE rows.id=victims.id RETURNING 1) SELECT count(*) FROM deleted"
+      ;;
+    jobs)
+      sql="WITH victims AS (SELECT jobs.id FROM jobs WHERE $(period_condition updated_at "$start" "$finish") AND $(dataset_condition jobs) AND NOT EXISTS (SELECT 1 FROM gate_benchmark_results results WHERE results.job_id=jobs.id) ORDER BY updated_at,jobs.id LIMIT ${delete_batch_size} FOR UPDATE SKIP LOCKED), deleted AS (DELETE FROM jobs rows USING victims WHERE rows.id=victims.id RETURNING 1) SELECT count(*) FROM deleted"
+      ;;
+    trading_jobs)
+      sql="WITH victims AS (SELECT id FROM trading_probe_jobs WHERE $(period_condition updated_at "$start" "$finish") AND $(dataset_condition trading_jobs) ORDER BY updated_at,id LIMIT ${delete_batch_size} FOR UPDATE SKIP LOCKED), deleted AS (DELETE FROM trading_probe_jobs rows USING victims WHERE rows.id=victims.id RETURNING 1) SELECT count(*) FROM deleted"
+      ;;
+    trading_rollups)
+      sql="WITH victims AS (SELECT id FROM trading_latency_rollups WHERE $(period_condition bucket_start "$start" "$finish") ORDER BY bucket_start,id LIMIT ${delete_batch_size} FOR UPDATE SKIP LOCKED), deleted AS (DELETE FROM trading_latency_rollups rows USING victims WHERE rows.id=victims.id RETURNING 1) SELECT count(*) FROM deleted"
+      ;;
+    assignment_usage)
+      sql="WITH victims AS (SELECT id FROM gate_assignment_counter_samples WHERE $(period_condition sampled_at "$start" "$finish") ORDER BY sampled_at,id LIMIT ${delete_batch_size} FOR UPDATE SKIP LOCKED), deleted AS (DELETE FROM gate_assignment_counter_samples rows USING victims WHERE rows.id=victims.id RETURNING 1) SELECT count(*) FROM deleted"
+      ;;
+  esac
+  sql_scalar "$sql"
+}
+
+delete_archived_day() {
+  local dataset="$1" day="$2" output_dir="$3"
+  local start="${day} 00:00:00+00" finish deleted batch=0
+  finish="$(date -u -d "${day} + 1 day" +'%Y-%m-%d 00:00:00+00')"
+  while (( batch < delete_batch_limit )); do
+    wait_for_database_capacity
+    deleted="$(delete_batch "$dataset" "$start" "$finish")"
+    [[ "$deleted" =~ ^[0-9]+$ ]] || return 1
+    if (( deleted == 0 )); then
+      printf '%s\n' "$(date +%s)" >"${output_dir}/COMPLETE"
+      sync -f "${output_dir}/COMPLETE"
+      return 0
+    fi
+    (( batch += 1 ))
+    sleep "$delete_sleep_seconds"
+  done
+  echo "$dataset $day deletion reached the per-run batch limit; continuing next run" >&2
+}
+
+process_dataset_once() {
+  local dataset="$1" day output_dir
+  day="$(oldest_eligible_day "$dataset")"
+  [[ -n "$day" ]] || return 1
+  [[ "$day" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || {
+    echo "invalid archive day returned for $dataset: $day" >&2
+    return 2
+  }
+  output_dir="${archive_root}/${cluster}/${dataset}/${day}"
+  install -d -m 0700 "$output_dir"
+  if [[ ! -s "${output_dir}/READY" ]]; then
+    archive_dataset_day "$dataset" "$day" "$output_dir"
+  fi
+  delete_archived_day "$dataset" "$day" "$output_dir"
+  return 0
+}
+
+datasets=(gate_benchmarks jobs trading_jobs trading_rollups assignment_usage)
+for (( slice=0; slice<max_slices; slice++ )); do
+  processed=0
+  for dataset in "${datasets[@]}"; do
+    if process_dataset_once "$dataset"; then
+      processed=1
+    fi
+  done
+  (( processed == 1 )) || break
+done
+
+run_ok=1

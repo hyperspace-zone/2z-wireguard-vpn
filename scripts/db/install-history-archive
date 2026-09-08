@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then
+  echo "run as root on the PostgreSQL host" >&2
+  exit 2
+fi
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+
+apt-get update
+DEBIAN_FRONTEND=noninteractive apt-get install -y zstd util-linux
+install -d -o postgres -g postgres -m 0700 /var/lib/hyperspace/db-history-archive
+install -d -o root -g root -m 0750 /etc/hyperspace
+install -o root -g root -m 0755 \
+  "$repo_root/scripts/db/hyperspace-pg-history-archive" \
+  /usr/local/sbin/hyperspace-pg-history-archive
+install -o root -g root -m 0644 \
+  "$repo_root/infra/systemd/hyperspace-db-history-archive.service" \
+  /etc/systemd/system/hyperspace-db-history-archive.service
+install -o root -g root -m 0644 \
+  "$repo_root/infra/systemd/hyperspace-db-history-archive.timer" \
+  /etc/systemd/system/hyperspace-db-history-archive.timer
+
+if [[ ! -e /etc/hyperspace/db-history-archive.env ]]; then
+  install -o root -g postgres -m 0640 /dev/stdin /etc/hyperspace/db-history-archive.env <<'EOF'
+HS_CLUSTER=replace-me
+HS_DB_NAME=hyperspace
+HS_DB_HISTORY_ARCHIVE_ENABLED=1
+HS_DB_HISTORY_ARCHIVE_MOUNTPOINT=/var/backups/hyperspace
+HS_DB_HISTORY_ARCHIVE_ROOT=/var/backups/hyperspace/history-archive
+HS_DB_HISTORY_ARCHIVE_MAX_SLICES_PER_RUN=1
+HS_DB_HISTORY_ARCHIVE_DELETE_BATCH_SIZE=5000
+HS_DB_HISTORY_ARCHIVE_DELETE_BATCH_LIMIT=200
+HS_DB_HISTORY_ARCHIVE_DELETE_SLEEP_SECONDS=0.20
+HS_DB_HISTORY_ARCHIVE_MAX_ACTIVE_QUERIES=4
+HS_DB_HISTORY_ARCHIVE_MIN_FREE_BYTES=10737418240
+HS_DB_HISTORY_ARCHIVE_MIN_FREE_PERCENT=15
+EOF
+fi
+
+systemctl daemon-reload
+systemctl enable --now hyperspace-db-history-archive.timer
+systemctl is-active --quiet hyperspace-db-history-archive.timer
