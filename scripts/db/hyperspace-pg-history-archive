@@ -313,17 +313,30 @@ delete_batch() {
   sql_scalar "$sql"
 }
 
+archive_day_has_rows() {
+  local dataset="$1" start="$2" finish="$3" table time_column key_column condition
+  read -r table time_column key_column <<<"$(dataset_table_and_time "$dataset")"
+  condition="$(dataset_condition "$dataset")"
+  sql_scalar "SELECT count(*) FROM (SELECT 1 FROM ${table} WHERE $(period_condition "$time_column" "$start" "$finish") AND ${condition} LIMIT 1) remaining"
+}
+
 delete_archived_day() {
   local dataset="$1" day="$2" output_dir="$3"
-  local start="${day} 00:00:00+00" finish deleted batch=0
+  local start="${day} 00:00:00+00" finish deleted remaining batch=0
   finish="$(date -u -d "${day} + 1 day" +'%Y-%m-%d 00:00:00+00')"
   while (( batch < delete_batch_limit )); do
     wait_for_database_capacity
     deleted="$(delete_batch "$dataset" "$start" "$finish")"
     [[ "$deleted" =~ ^[0-9]+$ ]] || return 1
     if (( deleted == 0 )); then
-      printf '%s\n' "$(date +%s)" >"${output_dir}/COMPLETE"
-      sync -f "${output_dir}/COMPLETE"
+      remaining="$(archive_day_has_rows "$dataset" "$start" "$finish")"
+      [[ "$remaining" =~ ^[01]$ ]] || return 1
+      if (( remaining == 0 )); then
+        printf '%s\n' "$(date +%s)" >"${output_dir}/COMPLETE"
+        sync -f "${output_dir}/COMPLETE"
+      else
+        echo "$dataset $day still has referenced or locked rows; retrying in a later pass" >&2
+      fi
       return 0
     fi
     (( batch += 1 ))

@@ -85,7 +85,9 @@ Archive layout:
 ```
 
 `READY` means every file was verified before deletion began. `COMPLETE` means
-the matching hot rows were removed. A restore imports JSON objects into a
+the matching hot rows were removed; referenced parent jobs remain retryable
+without a premature completion marker until their archived attempts are
+deleted. A restore imports JSON objects into a
 schema-compatible scratch table with `jsonb_populate_record`; do not restore
 operational history directly into a live queue.
 
