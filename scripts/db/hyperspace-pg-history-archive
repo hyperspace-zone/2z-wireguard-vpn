@@ -15,19 +15,20 @@ delete_batch_size="${HS_DB_HISTORY_ARCHIVE_DELETE_BATCH_SIZE:-5000}"
 delete_batch_limit="${HS_DB_HISTORY_ARCHIVE_DELETE_BATCH_LIMIT:-500}"
 delete_sleep_seconds="${HS_DB_HISTORY_ARCHIVE_DELETE_SLEEP_SECONDS:-0.20}"
 export_sleep_seconds="${HS_DB_HISTORY_ARCHIVE_EXPORT_SLEEP_SECONDS:-0.50}"
+export_chunk_seconds="${HS_DB_HISTORY_ARCHIVE_EXPORT_CHUNK_SECONDS:-3600}"
 max_active_queries="${HS_DB_HISTORY_ARCHIVE_MAX_ACTIVE_QUERIES:-4}"
 minimum_free_bytes="${HS_DB_HISTORY_ARCHIVE_MIN_FREE_BYTES:-10737418240}"
 minimum_free_percent="${HS_DB_HISTORY_ARCHIVE_MIN_FREE_PERCENT:-15}"
 
-for value_name in max_slices delete_batch_size delete_batch_limit max_active_queries minimum_free_bytes minimum_free_percent; do
+for value_name in max_slices delete_batch_size delete_batch_limit export_chunk_seconds max_active_queries minimum_free_bytes minimum_free_percent; do
   value="${!value_name}"
   [[ "$value" =~ ^[0-9]+$ ]] || {
     echo "$value_name must be a non-negative integer" >&2
     exit 2
   }
 done
-(( max_slices > 0 && delete_batch_size > 0 && delete_batch_limit > 0 )) || {
-  echo "slice and batch limits must be positive" >&2
+(( max_slices > 0 && delete_batch_size > 0 && delete_batch_limit > 0 && export_chunk_seconds > 0 && export_chunk_seconds <= 86400 )) || {
+  echo "slice, batch, and export chunk limits must be positive; export chunks cannot exceed one day" >&2
   exit 2
 }
 [[ "$cluster" =~ ^[a-zA-Z0-9._-]+$ ]] || {
@@ -168,7 +169,7 @@ archive_query_to_file() {
   finish_epoch="$(date -u -d "$finish" +%s)"
   while (( current_epoch < finish_epoch )); do
     wait_for_database_capacity
-    next_epoch=$(( current_epoch + 3600 ))
+    next_epoch=$(( current_epoch + export_chunk_seconds ))
     (( next_epoch > finish_epoch )) && next_epoch="$finish_epoch"
     chunk_start="$(date -u -d "@${current_epoch}" +'%Y-%m-%d %H:%M:%S+00')"
     chunk_finish="$(date -u -d "@${next_epoch}" +'%Y-%m-%d %H:%M:%S+00')"

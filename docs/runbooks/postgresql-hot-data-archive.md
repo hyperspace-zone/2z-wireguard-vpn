@@ -51,6 +51,9 @@ one-hour index ranges, and lower the server backend CPU and I/O priority.
 hourly ranges and defaults to 0.5 seconds. Archive-side deletion uses
 asynchronous commit: an interrupted batch is safely repeated from the verified
 `READY` archive instead of competing with application commits for WAL fsync.
+`HS_DB_HISTORY_ARCHIVE_EXPORT_CHUNK_SECONDS` defaults to `3600`; a one-time,
+operator-monitored catch-up may use `21600` after a staging canary, while the
+daily timer must retain the one-hour default.
 
 Install on the DB host from the matching deployed branch:
 
