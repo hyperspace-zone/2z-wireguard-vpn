@@ -24,7 +24,7 @@ test("history archive shell is syntactically valid and fail-closed", () => {
 
 test("history archive indexes cover time scans and the benchmark job foreign key", () => {
   assert.match(migration, /jobs_history_archive_idx[\s\S]*updated_at, id/);
-  assert.match(migration, /gate_benchmark_results_history_archive_idx[\s\S]*measured_at, id/);
+  assert.match(migration, /gate_benchmark_results_created_history_archive_idx[\s\S]*created_at, id/);
   assert.match(migration, /gate_benchmark_results_job_id_idx[\s\S]*job_id/);
-  assert.match(migration, /gate_assignment_counter_samples_history_archive_idx[\s\S]*sampled_at, id/);
+  assert.match(migration, /gate_assignment_counter_samples_history_archive_idx[\s\S]*received_at, id/);
 });

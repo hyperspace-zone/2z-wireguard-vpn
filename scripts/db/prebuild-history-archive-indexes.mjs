@@ -11,13 +11,13 @@ const statements = [
   `CREATE INDEX CONCURRENTLY IF NOT EXISTS jobs_history_archive_idx
      ON jobs (updated_at, id)
      WHERE phase IN ('succeeded', 'dead')`,
-  `CREATE INDEX CONCURRENTLY IF NOT EXISTS gate_benchmark_results_history_archive_idx
-     ON gate_benchmark_results (measured_at, id)`,
+  `CREATE INDEX CONCURRENTLY IF NOT EXISTS gate_benchmark_results_created_history_archive_idx
+     ON gate_benchmark_results (created_at, id)`,
   `CREATE INDEX CONCURRENTLY IF NOT EXISTS gate_benchmark_results_job_id_idx
      ON gate_benchmark_results (job_id)
      WHERE job_id IS NOT NULL`,
   `CREATE INDEX CONCURRENTLY IF NOT EXISTS gate_assignment_counter_samples_history_archive_idx
-     ON gate_assignment_counter_samples (sampled_at, id)`
+     ON gate_assignment_counter_samples (received_at, id)`
 ];
 
 const client = new pg.Client({ connectionString: databaseUrl });
@@ -32,7 +32,7 @@ try {
     FROM pg_index
     WHERE indexrelid IN (
       'jobs_history_archive_idx'::regclass,
-      'gate_benchmark_results_history_archive_idx'::regclass,
+      'gate_benchmark_results_created_history_archive_idx'::regclass,
       'gate_benchmark_results_job_id_idx'::regclass,
       'gate_assignment_counter_samples_history_archive_idx'::regclass
     )
