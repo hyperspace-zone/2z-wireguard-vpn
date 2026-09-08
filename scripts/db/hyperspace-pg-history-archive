@@ -14,6 +14,7 @@ max_slices="${HS_DB_HISTORY_ARCHIVE_MAX_SLICES_PER_RUN:-1}"
 delete_batch_size="${HS_DB_HISTORY_ARCHIVE_DELETE_BATCH_SIZE:-5000}"
 delete_batch_limit="${HS_DB_HISTORY_ARCHIVE_DELETE_BATCH_LIMIT:-200}"
 delete_sleep_seconds="${HS_DB_HISTORY_ARCHIVE_DELETE_SLEEP_SECONDS:-0.20}"
+export_sleep_seconds="${HS_DB_HISTORY_ARCHIVE_EXPORT_SLEEP_SECONDS:-0.50}"
 max_active_queries="${HS_DB_HISTORY_ARCHIVE_MAX_ACTIVE_QUERIES:-4}"
 minimum_free_bytes="${HS_DB_HISTORY_ARCHIVE_MIN_FREE_BYTES:-10737418240}"
 minimum_free_percent="${HS_DB_HISTORY_ARCHIVE_MIN_FREE_PERCENT:-15}"
@@ -31,6 +32,10 @@ done
 }
 [[ "$cluster" =~ ^[a-zA-Z0-9._-]+$ ]] || {
   echo "HS_CLUSTER contains unsupported characters" >&2
+  exit 2
+}
+[[ "$export_sleep_seconds" =~ ^[0-9]+([.][0-9]+)?$ ]] || {
+  echo "HS_DB_HISTORY_ARCHIVE_EXPORT_SLEEP_SECONDS must be a non-negative number" >&2
   exit 2
 }
 
@@ -73,7 +78,7 @@ if [[ "$mounted_target" != "$mountpoint" || ! "$mounted_fstype" =~ ^nfs4?$ ]]; t
 fi
 install -d -m 0700 "$archive_root"
 
-export PGOPTIONS="-c application_name=hyperspace-history-archive -c lock_timeout=2s -c statement_timeout=30min -c idle_in_transaction_session_timeout=2min -c max_parallel_workers_per_gather=0 -c jit=off"
+export PGOPTIONS="-c application_name=hyperspace-history-archive -c lock_timeout=2s -c statement_timeout=30min -c idle_in_transaction_session_timeout=2min -c max_parallel_workers_per_gather=0 -c enable_seqscan=off -c jit=off"
 psql_base=(psql --dbname="$database" --no-psqlrc --set=ON_ERROR_STOP=1 --tuples-only --no-align)
 
 sql_scalar() {
@@ -151,29 +156,46 @@ period_condition() {
 }
 
 archive_query_to_file() {
-  local query="$1" tmp="$2"
+  local table="$1" where_clause="$2" order_by="$3" time_column="$4" start="$5" finish="$6" tmp="$7"
   local fifo="${state_dir}/export.$$.fifo" query_pid compressor_pid backend_pid=''
+  local archive_fd current_epoch finish_epoch next_epoch chunk_start chunk_finish query
   unlink "$fifo" 2>/dev/null || true
   mkfifo -m 0600 "$fifo"
   zstd --quiet -6 -T1 --stdout <"$fifo" >"$tmp" &
   compressor_pid=$!
-  PGOPTIONS="${PGOPTIONS} -c application_name=hyperspace-history-archive-export" \
-    "${psql_base[@]}" --quiet --command="$query" >"$fifo" &
-  query_pid=$!
-  for _ in {1..50}; do
-    backend_pid="$(sql_scalar "SELECT pid FROM pg_stat_activity WHERE application_name = 'hyperspace-history-archive-export' ORDER BY backend_start DESC LIMIT 1")"
-    [[ "$backend_pid" =~ ^[0-9]+$ ]] && break
-    sleep 0.1
+  exec {archive_fd}>"$fifo"
+  current_epoch="$(date -u -d "$start" +%s)"
+  finish_epoch="$(date -u -d "$finish" +%s)"
+  while (( current_epoch < finish_epoch )); do
+    wait_for_database_capacity
+    next_epoch=$(( current_epoch + 3600 ))
+    (( next_epoch > finish_epoch )) && next_epoch="$finish_epoch"
+    chunk_start="$(date -u -d "@${current_epoch}" +'%Y-%m-%d %H:%M:%S+00')"
+    chunk_finish="$(date -u -d "@${next_epoch}" +'%Y-%m-%d %H:%M:%S+00')"
+    query="COPY (SELECT row_to_json(archive_row)::text FROM (SELECT * FROM ${table} WHERE (${where_clause}) AND ${time_column} >= '${chunk_start}'::timestamptz AND ${time_column} < '${chunk_finish}'::timestamptz ORDER BY ${order_by}) AS archive_row) TO STDOUT WITH (FORMAT csv, DELIMITER E'\\t', QUOTE E'\\x01', ESCAPE E'\\x02')"
+    PGOPTIONS="${PGOPTIONS} -c application_name=hyperspace-history-archive-export" \
+      "${psql_base[@]}" --quiet --command="$query" 1>&${archive_fd} &
+    query_pid=$!
+    backend_pid=''
+    for _ in {1..50}; do
+      backend_pid="$(sql_scalar "SELECT pid FROM pg_stat_activity WHERE application_name = 'hyperspace-history-archive-export' ORDER BY backend_start DESC LIMIT 1")"
+      [[ "$backend_pid" =~ ^[0-9]+$ ]] && break
+      sleep 0.1
+    done
+    if [[ "$backend_pid" =~ ^[0-9]+$ ]]; then
+      renice 15 -p "$backend_pid" >/dev/null 2>&1 || true
+      ionice -c2 -n7 -p "$backend_pid" >/dev/null 2>&1 || true
+    fi
+    if ! wait "$query_pid"; then
+      exec {archive_fd}>&-
+      wait "$compressor_pid" 2>/dev/null || true
+      unlink "$fifo"
+      return 1
+    fi
+    current_epoch="$next_epoch"
+    sleep "$export_sleep_seconds"
   done
-  if [[ "$backend_pid" =~ ^[0-9]+$ ]]; then
-    renice 15 -p "$backend_pid" >/dev/null 2>&1 || true
-    ionice -c2 -n7 -p "$backend_pid" >/dev/null 2>&1 || true
-  fi
-  if ! wait "$query_pid"; then
-    wait "$compressor_pid" 2>/dev/null || true
-    unlink "$fifo"
-    return 1
-  fi
+  exec {archive_fd}>&-
   if ! wait "$compressor_pid"; then
     unlink "$fifo"
     return 1
@@ -182,7 +204,7 @@ archive_query_to_file() {
 }
 
 archive_table() {
-  local table="$1" where_clause="$2" output_dir="$3" order_by="$4"
+  local table="$1" where_clause="$2" output_dir="$3" order_by="$4" time_column="$5" start="$6" finish="$7"
   local final="${output_dir}/${table}.jsonl.zst"
   local tmp="${final}.tmp"
   local rows expected checksum
@@ -194,9 +216,7 @@ archive_table() {
   wait_for_database_capacity
   check_archive_capacity
   unlink "$tmp" 2>/dev/null || true
-  archive_query_to_file \
-    "SELECT row_to_json(archive_row) FROM (SELECT * FROM ${table} WHERE ${where_clause} ORDER BY ${order_by}) AS archive_row" \
-    "$tmp"
+  archive_query_to_file "$table" "$where_clause" "$order_by" "$time_column" "$start" "$finish" "$tmp"
   zstd --quiet --test "$tmp"
   rows="$(zstd --quiet --decompress --stdout "$tmp" | wc -l)"
   expected="$(sql_scalar "SELECT count(*) FROM ${table} WHERE ${where_clause}")"
@@ -217,30 +237,30 @@ archive_dataset_day() {
   finish="$(date -u -d "${day} + 1 day" +'%Y-%m-%d 00:00:00+00')"
   case "$dataset" in
     gate_benchmarks)
-      archive_table gate_benchmark_results "$(period_condition created_at "$start" "$finish")" "$output_dir" 'created_at,id'
+      archive_table gate_benchmark_results "$(period_condition created_at "$start" "$finish")" "$output_dir" 'created_at,id' created_at "$start" "$finish"
       ;;
     job_attempts)
-      archive_table job_attempts "$(period_condition completed_at "$start" "$finish") AND $(dataset_condition job_attempts)" "$output_dir" 'completed_at,id'
+      archive_table job_attempts "$(period_condition completed_at "$start" "$finish") AND $(dataset_condition job_attempts)" "$output_dir" 'completed_at,id' completed_at "$start" "$finish"
       ;;
     jobs)
       jobs_where="$(period_condition updated_at "$start" "$finish") AND $(dataset_condition jobs)"
-      archive_table jobs "$jobs_where" "$output_dir" 'updated_at,id'
+      archive_table jobs "$jobs_where" "$output_dir" 'updated_at,id' updated_at "$start" "$finish"
       ;;
     trading_attempts)
-      archive_table trading_probe_job_attempts "$(period_condition completed_at "$start" "$finish") AND $(dataset_condition trading_attempts)" "$output_dir" 'completed_at,id'
+      archive_table trading_probe_job_attempts "$(period_condition completed_at "$start" "$finish") AND $(dataset_condition trading_attempts)" "$output_dir" 'completed_at,id' completed_at "$start" "$finish"
       ;;
     trading_jobs)
       trading_where="$(period_condition updated_at "$start" "$finish") AND $(dataset_condition trading_jobs)"
-      archive_table trading_probe_jobs "$trading_where" "$output_dir" 'updated_at,id'
+      archive_table trading_probe_jobs "$trading_where" "$output_dir" 'updated_at,id' updated_at "$start" "$finish"
       ;;
     trading_rollups)
-      archive_table trading_latency_rollups "$(period_condition bucket_start "$start" "$finish")" "$output_dir" 'bucket_start,id'
+      archive_table trading_latency_rollups "$(period_condition bucket_start "$start" "$finish")" "$output_dir" 'bucket_start,id' bucket_start "$start" "$finish"
       ;;
     assignment_deltas)
-      archive_table gate_assignment_usage_deltas "$(period_condition created_at "$start" "$finish")" "$output_dir" 'created_at,sample_id'
+      archive_table gate_assignment_usage_deltas "$(period_condition created_at "$start" "$finish")" "$output_dir" 'created_at,sample_id' created_at "$start" "$finish"
       ;;
     assignment_samples)
-      archive_table gate_assignment_counter_samples "$(period_condition received_at "$start" "$finish")" "$output_dir" 'received_at,id'
+      archive_table gate_assignment_counter_samples "$(period_condition received_at "$start" "$finish")" "$output_dir" 'received_at,id' received_at "$start" "$finish"
       ;;
   esac
   manifest_tmp="${output_dir}/MANIFEST.tmp"

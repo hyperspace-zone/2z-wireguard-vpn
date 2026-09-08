@@ -23,6 +23,9 @@ test("history archive shell is syntactically valid and fail-closed", () => {
   assert.match(script, /LIMIT \$\{delete_batch_size\} FOR UPDATE SKIP LOCKED/);
   assert.match(script, /sleep "\$delete_sleep_seconds"/);
   assert.match(script, /max_parallel_workers_per_gather=0/);
+  assert.match(script, /enable_seqscan=off/);
+  assert.match(script, /COPY \(SELECT row_to_json\(archive_row\)::text/);
+  assert.match(script, /DELIMITER E'\\\\t', QUOTE E'\\\\x01'/);
   assert.match(script, /renice 15/);
   assert.match(
     script,
