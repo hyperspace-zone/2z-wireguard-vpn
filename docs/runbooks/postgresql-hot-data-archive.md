@@ -54,6 +54,10 @@ asynchronous commit: an interrupted batch is safely repeated from the verified
 `HS_DB_HISTORY_ARCHIVE_EXPORT_CHUNK_SECONDS` defaults to `3600`; a one-time,
 operator-monitored catch-up may use `21600` after a staging canary, while the
 daily timer must retain the one-hour default.
+`HS_DB_HISTORY_ARCHIVE_ZSTD_LEVEL` defaults to `6`; an attended catch-up may
+temporarily use level `1` to reduce CPU time. Every file remains independently
+verified with a row count, SHA-256, and `zstd -t` regardless of compression
+level.
 
 Install on the DB host from the matching deployed branch:
 
