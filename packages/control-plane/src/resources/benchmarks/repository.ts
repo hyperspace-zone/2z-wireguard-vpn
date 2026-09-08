@@ -329,7 +329,9 @@ export async function insertGateBenchmarkReport(
         finiteNumberOrNull(result.reverseOneWayMs?.p50),
         finiteNumberOrNull(result.reverseOneWayMs?.p95),
         finiteNumberOrNull(result.oneWayClockErrorMs),
-        JSON.stringify(Array.isArray(result.samples) ? result.samples.slice(0, 100) : []),
+        // Per-packet samples are intentionally not duplicated in PostgreSQL.
+        // The aggregate columns are the query and alerting source of truth.
+        JSON.stringify([]),
         textOrNull(result.errorCode),
         textOrNull(result.errorMessage),
         textOrNull(result.measuredAt)

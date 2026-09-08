@@ -39,13 +39,18 @@ export async function recordGateJobReport(
     }
 
     const transition = resolveReportedJobTransition(report.status, row.retryCount, row.maxRetries);
+    const persistedResultSummary = compactAttemptResultSummary(
+      row.type,
+      row.payload,
+      report.resultSummary
+    );
     await recordJobReportOutcome(client, {
       jobId: row.id,
       nextPhase: transition.nextPhase,
       retryDelaySeconds: transition.retryDelaySeconds,
       actualStateHash: report.actualStateHash,
       errorCode: report.errorCode,
-      resultSummary: report.resultSummary
+      resultSummary: persistedResultSummary
     });
 
     if (row.assignmentId) {
@@ -82,6 +87,30 @@ export async function recordGateJobReport(
 
     return true;
   });
+}
+
+export function compactAttemptResultSummary(
+  jobType: string,
+  payload: Record<string, unknown>,
+  resultSummary: Record<string, unknown>
+): Record<string, unknown> {
+  if (jobType !== "probe" || readString(payload, "kind") !== "gate_benchmark_v1") {
+    return resultSummary;
+  }
+  const results = resultSummary.results;
+  if (!Array.isArray(results)) {
+    return resultSummary;
+  }
+  return {
+    ...resultSummary,
+    results: results.map((result) => {
+      if (!result || typeof result !== "object" || Array.isArray(result)) {
+        return result;
+      }
+      const { samples: _discardedSamples, ...aggregate } = result as Record<string, unknown>;
+      return aggregate;
+    })
+  };
 }
 
 async function recordAssignmentProgress(
