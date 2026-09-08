@@ -44,7 +44,9 @@ parent/child full-table scans. Heavy export sessions disable PostgreSQL
 parallel and sequential scans, stream rows through PostgreSQL `COPY` in
 one-hour index ranges, and lower the server backend CPU and I/O priority.
 `HS_DB_HISTORY_ARCHIVE_EXPORT_SLEEP_SECONDS` controls the pause between
-hourly ranges and defaults to 0.5 seconds.
+hourly ranges and defaults to 0.5 seconds. Archive-side deletion uses
+asynchronous commit: an interrupted batch is safely repeated from the verified
+`READY` archive instead of competing with application commits for WAL fsync.
 
 Install on the DB host from the matching deployed branch:
 

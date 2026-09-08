@@ -78,7 +78,7 @@ if [[ "$mounted_target" != "$mountpoint" || ! "$mounted_fstype" =~ ^nfs4?$ ]]; t
 fi
 install -d -m 0700 "$archive_root"
 
-export PGOPTIONS="-c application_name=hyperspace-history-archive -c lock_timeout=2s -c statement_timeout=30min -c idle_in_transaction_session_timeout=2min -c max_parallel_workers_per_gather=0 -c enable_seqscan=off -c jit=off"
+export PGOPTIONS="-c application_name=hyperspace-history-archive -c lock_timeout=2s -c statement_timeout=30min -c idle_in_transaction_session_timeout=2min -c max_parallel_workers_per_gather=0 -c enable_seqscan=off -c synchronous_commit=off -c jit=off"
 psql_base=(psql --dbname="$database" --no-psqlrc --set=ON_ERROR_STOP=1 --tuples-only --no-align)
 
 sql_scalar() {
