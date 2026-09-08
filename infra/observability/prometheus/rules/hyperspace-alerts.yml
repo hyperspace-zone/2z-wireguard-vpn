@@ -617,17 +617,17 @@ groups:
       - alert: HyperspaceGateNetworkDrops
         expr: |
           sum by (cluster, gate, public_ipv4, probe_host) (
-            rate(node_network_receive_drop_total{job="hyperspace-gate-node",device!="lo"}[5m])
-            + rate(node_network_transmit_drop_total{job="hyperspace-gate-node",device!="lo"}[5m])
-            + rate(node_network_receive_errs_total{job="hyperspace-gate-node",device!="lo"}[5m])
-            + rate(node_network_transmit_errs_total{job="hyperspace-gate-node",device!="lo"}[5m])
+            rate(node_network_receive_drop_total{job="hyperspace-gate-node",device!~"lo|hsc.*|hste.*|hsti.*"}[5m])
+            + rate(node_network_transmit_drop_total{job="hyperspace-gate-node",device!~"lo|hsc.*|hste.*|hsti.*"}[5m])
+            + rate(node_network_receive_errs_total{job="hyperspace-gate-node",device!~"lo|hsc.*|hste.*|hsti.*"}[5m])
+            + rate(node_network_transmit_errs_total{job="hyperspace-gate-node",device!~"lo|hsc.*|hste.*|hsti.*"}[5m])
           ) > 1
         for: 5m
         labels:
           severity: warning
         annotations:
           summary: Sustained network drops or errors on a Hyperspace gate
-          description: Gate {{ $labels.gate }} reports more than one network drop or error per second for 5 minutes.
+          description: Gate {{ $labels.gate }} reports more than one network drop or error per second on non-Hyperspace interfaces for 5 minutes.
 
       - alert: HyperspaceGateUdpBufferErrors
         expr: |

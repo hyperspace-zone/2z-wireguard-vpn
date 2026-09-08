@@ -53,6 +53,9 @@ render the concrete machine's `Service access` block. PostgreSQL operational
 metrics combine the standard postgres exporter with a local node-exporter
 textfile collector for connection pressure, long transactions, autovacuum,
 database growth, WAL size, and backup age.
+`HyperspaceGateNetworkDrops` excludes per-assignment `hsc*`, `hste*`, and
+`hsti*` interfaces: their policy and teardown counters are expected dataplane
+activity. Physical NIC and shared DoubleZero-interface drops remain alertable.
 
 The worker `/metrics` endpoint remains HTTP 200 while a business snapshot is
 incomplete. `hyperspace_control_plane_snapshot_ready` reports aggregate
