@@ -180,6 +180,7 @@ archive_query_to_file() {
     for _ in {1..50}; do
       backend_pid="$(sql_scalar "SELECT pid FROM pg_stat_activity WHERE application_name = 'hyperspace-history-archive-export' ORDER BY backend_start DESC LIMIT 1")"
       [[ "$backend_pid" =~ ^[0-9]+$ ]] && break
+      kill -0 "$query_pid" 2>/dev/null || break
       sleep 0.1
     done
     if [[ "$backend_pid" =~ ^[0-9]+$ ]]; then

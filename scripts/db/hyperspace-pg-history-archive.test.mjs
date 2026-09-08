@@ -27,6 +27,7 @@ test("history archive shell is syntactically valid and fail-closed", () => {
   assert.match(script, /COPY \(SELECT row_to_json\(archive_row\)::text/);
   assert.match(script, /DELIMITER E'\\\\t', QUOTE E'\\\\x01'/);
   assert.match(script, /renice 15/);
+  assert.match(script, /kill -0 "\$query_pid"/);
   assert.match(
     script,
     /datasets=\(gate_benchmarks job_attempts jobs trading_attempts trading_jobs trading_rollups assignment_deltas assignment_samples\)/
