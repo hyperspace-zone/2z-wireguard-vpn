@@ -292,28 +292,28 @@ delete_batch() {
   local dataset="$1" start="$2" finish="$3" sql
   case "$dataset" in
     gate_benchmarks)
-      sql="WITH victims AS (SELECT id FROM gate_benchmark_results WHERE $(period_condition created_at "$start" "$finish") ORDER BY created_at,id LIMIT ${delete_batch_size} FOR UPDATE SKIP LOCKED), deleted AS (DELETE FROM gate_benchmark_results rows USING victims WHERE rows.id=victims.id RETURNING 1) SELECT count(*) FROM deleted"
+      sql="WITH victims AS (SELECT ctid AS row_ctid FROM gate_benchmark_results WHERE $(period_condition created_at "$start" "$finish") ORDER BY created_at,id LIMIT ${delete_batch_size} FOR UPDATE SKIP LOCKED), deleted AS (DELETE FROM gate_benchmark_results rows USING victims WHERE rows.ctid=victims.row_ctid RETURNING 1) SELECT count(*) FROM deleted"
       ;;
     job_attempts)
-      sql="WITH victims AS (SELECT id FROM job_attempts WHERE $(period_condition completed_at "$start" "$finish") AND $(dataset_condition job_attempts) ORDER BY completed_at,id LIMIT ${delete_batch_size} FOR UPDATE SKIP LOCKED), deleted AS (DELETE FROM job_attempts rows USING victims WHERE rows.id=victims.id RETURNING 1) SELECT count(*) FROM deleted"
+      sql="WITH victims AS (SELECT ctid AS row_ctid FROM job_attempts WHERE $(period_condition completed_at "$start" "$finish") AND $(dataset_condition job_attempts) ORDER BY completed_at,id LIMIT ${delete_batch_size} FOR UPDATE SKIP LOCKED), deleted AS (DELETE FROM job_attempts rows USING victims WHERE rows.ctid=victims.row_ctid RETURNING 1) SELECT count(*) FROM deleted"
       ;;
     jobs)
-      sql="WITH victims AS (SELECT jobs.id FROM jobs WHERE $(period_condition updated_at "$start" "$finish") AND $(dataset_condition jobs) AND NOT EXISTS (SELECT 1 FROM job_attempts attempts WHERE attempts.job_id=jobs.id) AND NOT EXISTS (SELECT 1 FROM gate_benchmark_results results WHERE results.job_id=jobs.id) ORDER BY updated_at,jobs.id LIMIT ${delete_batch_size} FOR UPDATE SKIP LOCKED), deleted AS (DELETE FROM jobs rows USING victims WHERE rows.id=victims.id RETURNING 1) SELECT count(*) FROM deleted"
+      sql="WITH victims AS (SELECT jobs.ctid AS row_ctid FROM jobs WHERE $(period_condition updated_at "$start" "$finish") AND $(dataset_condition jobs) AND NOT EXISTS (SELECT 1 FROM job_attempts attempts WHERE attempts.job_id=jobs.id) AND NOT EXISTS (SELECT 1 FROM gate_benchmark_results results WHERE results.job_id=jobs.id) ORDER BY updated_at,jobs.id LIMIT ${delete_batch_size} FOR UPDATE SKIP LOCKED), deleted AS (DELETE FROM jobs rows USING victims WHERE rows.ctid=victims.row_ctid RETURNING 1) SELECT count(*) FROM deleted"
       ;;
     trading_attempts)
-      sql="WITH victims AS (SELECT id FROM trading_probe_job_attempts WHERE $(period_condition completed_at "$start" "$finish") AND $(dataset_condition trading_attempts) ORDER BY completed_at,id LIMIT ${delete_batch_size} FOR UPDATE SKIP LOCKED), deleted AS (DELETE FROM trading_probe_job_attempts rows USING victims WHERE rows.id=victims.id RETURNING 1) SELECT count(*) FROM deleted"
+      sql="WITH victims AS (SELECT ctid AS row_ctid FROM trading_probe_job_attempts WHERE $(period_condition completed_at "$start" "$finish") AND $(dataset_condition trading_attempts) ORDER BY completed_at,id LIMIT ${delete_batch_size} FOR UPDATE SKIP LOCKED), deleted AS (DELETE FROM trading_probe_job_attempts rows USING victims WHERE rows.ctid=victims.row_ctid RETURNING 1) SELECT count(*) FROM deleted"
       ;;
     trading_jobs)
-      sql="WITH victims AS (SELECT jobs.id FROM trading_probe_jobs jobs WHERE $(period_condition updated_at "$start" "$finish") AND $(dataset_condition trading_jobs) AND NOT EXISTS (SELECT 1 FROM trading_probe_job_attempts attempts WHERE attempts.job_id=jobs.id) ORDER BY updated_at,jobs.id LIMIT ${delete_batch_size} FOR UPDATE SKIP LOCKED), deleted AS (DELETE FROM trading_probe_jobs rows USING victims WHERE rows.id=victims.id RETURNING 1) SELECT count(*) FROM deleted"
+      sql="WITH victims AS (SELECT jobs.ctid AS row_ctid FROM trading_probe_jobs jobs WHERE $(period_condition updated_at "$start" "$finish") AND $(dataset_condition trading_jobs) AND NOT EXISTS (SELECT 1 FROM trading_probe_job_attempts attempts WHERE attempts.job_id=jobs.id) ORDER BY updated_at,jobs.id LIMIT ${delete_batch_size} FOR UPDATE SKIP LOCKED), deleted AS (DELETE FROM trading_probe_jobs rows USING victims WHERE rows.ctid=victims.row_ctid RETURNING 1) SELECT count(*) FROM deleted"
       ;;
     trading_rollups)
-      sql="WITH victims AS (SELECT id FROM trading_latency_rollups WHERE $(period_condition bucket_start "$start" "$finish") ORDER BY bucket_start,id LIMIT ${delete_batch_size} FOR UPDATE SKIP LOCKED), deleted AS (DELETE FROM trading_latency_rollups rows USING victims WHERE rows.id=victims.id RETURNING 1) SELECT count(*) FROM deleted"
+      sql="WITH victims AS (SELECT ctid AS row_ctid FROM trading_latency_rollups WHERE $(period_condition bucket_start "$start" "$finish") ORDER BY bucket_start,id LIMIT ${delete_batch_size} FOR UPDATE SKIP LOCKED), deleted AS (DELETE FROM trading_latency_rollups rows USING victims WHERE rows.ctid=victims.row_ctid RETURNING 1) SELECT count(*) FROM deleted"
       ;;
     assignment_deltas)
-      sql="WITH victims AS (SELECT sample_id FROM gate_assignment_usage_deltas WHERE $(period_condition created_at "$start" "$finish") ORDER BY created_at,sample_id LIMIT ${delete_batch_size} FOR UPDATE SKIP LOCKED), deleted AS (DELETE FROM gate_assignment_usage_deltas rows USING victims WHERE rows.sample_id=victims.sample_id RETURNING 1) SELECT count(*) FROM deleted"
+      sql="WITH victims AS (SELECT ctid AS row_ctid FROM gate_assignment_usage_deltas WHERE $(period_condition created_at "$start" "$finish") ORDER BY created_at,sample_id LIMIT ${delete_batch_size} FOR UPDATE SKIP LOCKED), deleted AS (DELETE FROM gate_assignment_usage_deltas rows USING victims WHERE rows.ctid=victims.row_ctid RETURNING 1) SELECT count(*) FROM deleted"
       ;;
     assignment_samples)
-      sql="WITH victims AS (SELECT samples.id FROM gate_assignment_counter_samples samples WHERE $(period_condition received_at "$start" "$finish") AND NOT EXISTS (SELECT 1 FROM gate_assignment_usage_deltas deltas WHERE deltas.sample_id=samples.id) ORDER BY received_at,samples.id LIMIT ${delete_batch_size} FOR UPDATE SKIP LOCKED), deleted AS (DELETE FROM gate_assignment_counter_samples rows USING victims WHERE rows.id=victims.id RETURNING 1) SELECT count(*) FROM deleted"
+      sql="WITH victims AS (SELECT samples.ctid AS row_ctid FROM gate_assignment_counter_samples samples WHERE $(period_condition received_at "$start" "$finish") AND NOT EXISTS (SELECT 1 FROM gate_assignment_usage_deltas deltas WHERE deltas.sample_id=samples.id) ORDER BY received_at,samples.id LIMIT ${delete_batch_size} FOR UPDATE SKIP LOCKED), deleted AS (DELETE FROM gate_assignment_counter_samples rows USING victims WHERE rows.ctid=victims.row_ctid RETURNING 1) SELECT count(*) FROM deleted"
       ;;
   esac
   sql_scalar "$sql"

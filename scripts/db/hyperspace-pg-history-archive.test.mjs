@@ -21,6 +21,8 @@ test("history archive shell is syntactically valid and fail-closed", () => {
   assert.match(script, /archive row count mismatch/);
   assert.ok(script.indexOf('>"${output_dir}\/READY"') < script.indexOf("delete_archived_day"));
   assert.match(script, /LIMIT \$\{delete_batch_size\} FOR UPDATE SKIP LOCKED/);
+  assert.equal((script.match(/SELECT (?:[a-z]+\.)?ctid AS row_ctid/g) ?? []).length, 8);
+  assert.equal((script.match(/rows\.ctid=victims\.row_ctid/g) ?? []).length, 8);
   assert.match(script, /archive_day_has_rows/);
   assert.match(script, /still has referenced or locked rows/);
   assert.ok(script.indexOf('remaining == 0') < script.indexOf('>"${output_dir}\/COMPLETE"'));
