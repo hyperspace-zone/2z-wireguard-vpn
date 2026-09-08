@@ -8,6 +8,7 @@ import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 const scriptUrl = new URL("./hyperspace-pg-backup", import.meta.url);
+const serviceUrl = new URL("../../infra/systemd/hyperspace-db-backup.service", import.meta.url);
 
 async function createHarness(availableBytes = "1000000000") {
   const root = await mkdtemp(join(tmpdir(), "hyperspace-pg-backup-"));
@@ -66,6 +67,14 @@ async function addManagedBackup(backupDir, stamp) {
 
 test("PostgreSQL backup script is valid Bash", async () => {
   await execFileAsync("bash", ["-n", scriptUrl.pathname]);
+});
+
+test("PostgreSQL backup runs with bounded CPU and low I/O priority", async () => {
+  const service = await readFile(serviceUrl, "utf8");
+  assert.match(service, /^Nice=15$/m);
+  assert.match(service, /^IOSchedulingClass=best-effort$/m);
+  assert.match(service, /^IOSchedulingPriority=7$/m);
+  assert.match(service, /^CPUQuota=25%$/m);
 });
 
 test("offsite success is recorded only after verification, upload, check, and retention", async () => {
