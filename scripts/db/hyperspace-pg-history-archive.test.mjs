@@ -29,6 +29,7 @@ test("history archive shell is syntactically valid and fail-closed", () => {
     /datasets=\(gate_benchmarks job_attempts jobs trading_attempts trading_jobs trading_rollups assignment_deltas assignment_samples\)/
   );
   assert.doesNotMatch(script, /job_id IN \(SELECT id FROM (?:jobs|trading_probe_jobs)/);
+  assert.match(script, /assignment_deltas\) printf '%s' 'gate_assignment_usage_deltas created_at sample_id'/);
   assert.doesNotMatch(script, /if process_dataset_day/);
   assert.doesNotMatch(script, /VACUUM FULL|TRUNCATE/);
 });

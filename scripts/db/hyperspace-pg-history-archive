@@ -126,23 +126,23 @@ dataset_condition() {
 
 dataset_table_and_time() {
   case "$1" in
-    gate_benchmarks) printf '%s' 'gate_benchmark_results created_at' ;;
-    job_attempts) printf '%s' 'job_attempts completed_at' ;;
-    jobs) printf '%s' 'jobs updated_at' ;;
-    trading_attempts) printf '%s' 'trading_probe_job_attempts completed_at' ;;
-    trading_jobs) printf '%s' 'trading_probe_jobs updated_at' ;;
-    trading_rollups) printf '%s' 'trading_latency_rollups bucket_start' ;;
-    assignment_deltas) printf '%s' 'gate_assignment_usage_deltas created_at' ;;
-    assignment_samples) printf '%s' 'gate_assignment_counter_samples received_at' ;;
+    gate_benchmarks) printf '%s' 'gate_benchmark_results created_at id' ;;
+    job_attempts) printf '%s' 'job_attempts completed_at id' ;;
+    jobs) printf '%s' 'jobs updated_at id' ;;
+    trading_attempts) printf '%s' 'trading_probe_job_attempts completed_at id' ;;
+    trading_jobs) printf '%s' 'trading_probe_jobs updated_at id' ;;
+    trading_rollups) printf '%s' 'trading_latency_rollups bucket_start id' ;;
+    assignment_deltas) printf '%s' 'gate_assignment_usage_deltas created_at sample_id' ;;
+    assignment_samples) printf '%s' 'gate_assignment_counter_samples received_at id' ;;
     *) return 2 ;;
   esac
 }
 
 oldest_eligible_day() {
-  local dataset="$1" table time_column condition
-  read -r table time_column <<<"$(dataset_table_and_time "$dataset")"
+  local dataset="$1" table time_column key_column condition
+  read -r table time_column key_column <<<"$(dataset_table_and_time "$dataset")"
   condition="$(dataset_condition "$dataset")"
-  sql_scalar "SELECT to_char(${time_column} AT TIME ZONE 'UTC', 'YYYY-MM-DD') FROM ${table} WHERE ${condition} ORDER BY ${time_column}, id LIMIT 1"
+  sql_scalar "SELECT to_char(${time_column} AT TIME ZONE 'UTC', 'YYYY-MM-DD') FROM ${table} WHERE ${condition} ORDER BY ${time_column}, ${key_column} LIMIT 1"
 }
 
 period_condition() {
