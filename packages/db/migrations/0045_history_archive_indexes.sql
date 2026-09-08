@@ -5,8 +5,8 @@ CREATE INDEX IF NOT EXISTS jobs_history_archive_idx
   ON jobs (updated_at, id)
   WHERE phase IN ('succeeded', 'dead');
 
-CREATE INDEX IF NOT EXISTS gate_benchmark_results_history_archive_idx
-  ON gate_benchmark_results (measured_at, id);
+CREATE INDEX IF NOT EXISTS gate_benchmark_results_created_history_archive_idx
+  ON gate_benchmark_results (created_at, id);
 
 -- PostgreSQL does not automatically index the referencing side of this
 -- foreign key. The archiver needs it before old parent jobs can be removed.
@@ -15,7 +15,7 @@ CREATE INDEX IF NOT EXISTS gate_benchmark_results_job_id_idx
   WHERE job_id IS NOT NULL;
 
 CREATE INDEX IF NOT EXISTS gate_assignment_counter_samples_history_archive_idx
-  ON gate_assignment_counter_samples (sampled_at, id);
+  ON gate_assignment_counter_samples (received_at, id);
 
 DO $$
 BEGIN
@@ -24,7 +24,7 @@ BEGIN
     FROM pg_index
     WHERE indexrelid IN (
       'jobs_history_archive_idx'::regclass,
-      'gate_benchmark_results_history_archive_idx'::regclass,
+      'gate_benchmark_results_created_history_archive_idx'::regclass,
       'gate_benchmark_results_job_id_idx'::regclass,
       'gate_assignment_counter_samples_history_archive_idx'::regclass
     )

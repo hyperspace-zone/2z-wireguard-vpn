@@ -112,22 +112,22 @@ wait_for_database_capacity() {
 
 dataset_condition() {
   case "$1" in
-    gate_benchmarks) printf '%s' "measured_at < (date_trunc('day', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC') - interval '1 day'" ;;
+    gate_benchmarks) printf '%s' "created_at < (date_trunc('day', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC') - interval '1 day'" ;;
     jobs) printf '%s' "phase IN ('succeeded','dead') AND ((type = 'probe' AND updated_at < (date_trunc('day', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC') - interval '1 day') OR (type <> 'probe' AND updated_at < (date_trunc('day', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC') - interval '30 days'))" ;;
     trading_jobs) printf '%s' "phase IN ('succeeded','failed','dead') AND updated_at < (date_trunc('day', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC') - interval '1 day'" ;;
     trading_rollups) printf '%s' "bucket_start < (date_trunc('day', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC') - interval '30 days'" ;;
-    assignment_usage) printf '%s' "sampled_at < (date_trunc('day', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC') - interval '90 days'" ;;
+    assignment_usage) printf '%s' "received_at < (date_trunc('day', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC') - interval '90 days'" ;;
     *) echo "unknown dataset: $1" >&2; return 2 ;;
   esac
 }
 
 dataset_table_and_time() {
   case "$1" in
-    gate_benchmarks) printf '%s' 'gate_benchmark_results measured_at' ;;
+    gate_benchmarks) printf '%s' 'gate_benchmark_results created_at' ;;
     jobs) printf '%s' 'jobs updated_at' ;;
     trading_jobs) printf '%s' 'trading_probe_jobs updated_at' ;;
     trading_rollups) printf '%s' 'trading_latency_rollups bucket_start' ;;
-    assignment_usage) printf '%s' 'gate_assignment_counter_samples sampled_at' ;;
+    assignment_usage) printf '%s' 'gate_assignment_counter_samples received_at' ;;
     *) return 2 ;;
   esac
 }
@@ -179,7 +179,7 @@ archive_dataset_day() {
   finish="$(date -u -d "${day} + 1 day" +'%Y-%m-%d 00:00:00+00')"
   case "$dataset" in
     gate_benchmarks)
-      archive_table gate_benchmark_results "$(period_condition measured_at "$start" "$finish")" "$output_dir"
+      archive_table gate_benchmark_results "$(period_condition created_at "$start" "$finish")" "$output_dir"
       ;;
     jobs)
       jobs_where="$(period_condition updated_at "$start" "$finish") AND $(dataset_condition jobs)"
@@ -195,7 +195,7 @@ archive_dataset_day() {
       archive_table trading_latency_rollups "$(period_condition bucket_start "$start" "$finish")" "$output_dir"
       ;;
     assignment_usage)
-      samples_where="$(period_condition sampled_at "$start" "$finish")"
+      samples_where="$(period_condition received_at "$start" "$finish")"
       archive_table gate_assignment_usage_deltas "sample_id IN (SELECT id FROM gate_assignment_counter_samples WHERE ${samples_where})" "$output_dir"
       archive_table gate_assignment_counter_samples "$samples_where" "$output_dir"
       ;;
@@ -222,7 +222,7 @@ delete_batch() {
   local dataset="$1" start="$2" finish="$3" sql
   case "$dataset" in
     gate_benchmarks)
-      sql="WITH victims AS (SELECT id FROM gate_benchmark_results WHERE $(period_condition measured_at "$start" "$finish") ORDER BY measured_at,id LIMIT ${delete_batch_size} FOR UPDATE SKIP LOCKED), deleted AS (DELETE FROM gate_benchmark_results rows USING victims WHERE rows.id=victims.id RETURNING 1) SELECT count(*) FROM deleted"
+      sql="WITH victims AS (SELECT id FROM gate_benchmark_results WHERE $(period_condition created_at "$start" "$finish") ORDER BY created_at,id LIMIT ${delete_batch_size} FOR UPDATE SKIP LOCKED), deleted AS (DELETE FROM gate_benchmark_results rows USING victims WHERE rows.id=victims.id RETURNING 1) SELECT count(*) FROM deleted"
       ;;
     jobs)
       sql="WITH victims AS (SELECT jobs.id FROM jobs WHERE $(period_condition updated_at "$start" "$finish") AND $(dataset_condition jobs) AND NOT EXISTS (SELECT 1 FROM gate_benchmark_results results WHERE results.job_id=jobs.id) ORDER BY updated_at,jobs.id LIMIT ${delete_batch_size} FOR UPDATE SKIP LOCKED), deleted AS (DELETE FROM jobs rows USING victims WHERE rows.id=victims.id RETURNING 1) SELECT count(*) FROM deleted"
@@ -234,7 +234,7 @@ delete_batch() {
       sql="WITH victims AS (SELECT id FROM trading_latency_rollups WHERE $(period_condition bucket_start "$start" "$finish") ORDER BY bucket_start,id LIMIT ${delete_batch_size} FOR UPDATE SKIP LOCKED), deleted AS (DELETE FROM trading_latency_rollups rows USING victims WHERE rows.id=victims.id RETURNING 1) SELECT count(*) FROM deleted"
       ;;
     assignment_usage)
-      sql="WITH victims AS (SELECT id FROM gate_assignment_counter_samples WHERE $(period_condition sampled_at "$start" "$finish") ORDER BY sampled_at,id LIMIT ${delete_batch_size} FOR UPDATE SKIP LOCKED), deleted AS (DELETE FROM gate_assignment_counter_samples rows USING victims WHERE rows.id=victims.id RETURNING 1) SELECT count(*) FROM deleted"
+      sql="WITH victims AS (SELECT id FROM gate_assignment_counter_samples WHERE $(period_condition received_at "$start" "$finish") ORDER BY received_at,id LIMIT ${delete_batch_size} FOR UPDATE SKIP LOCKED), deleted AS (DELETE FROM gate_assignment_counter_samples rows USING victims WHERE rows.id=victims.id RETURNING 1) SELECT count(*) FROM deleted"
       ;;
   esac
   sql_scalar "$sql"
