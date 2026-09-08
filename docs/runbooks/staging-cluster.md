@@ -71,8 +71,11 @@ find /var/backups/hyperspace -type f -name 'hyperspace-*.dump'
 ```
 
 The service validates each archive with `pg_restore --list`, publishes it
-atomically, and retains 14 days by default. Override the database, directory, or
-retention in `/etc/hyperspace/db-backup.env`.
+atomically, and retains the latest three managed dumps by default. Before a new
+dump it removes surplus managed dumps and reserves the size of the latest dump
+plus a 25% growth margin, but never removes the final known-good dump. Override
+the database, directory, keep count, or margin in
+`/etc/hyperspace/db-backup.env`. Manually named snapshots are not pruned.
 
 The Cherry Servers backup volume is mounted over the staging private network:
 

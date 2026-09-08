@@ -1828,6 +1828,14 @@ grep '^hyperspace_postgres_backup_' \
 Do not start a local production dump when free disk cannot hold the dump plus
 PostgreSQL working space. Add backup storage first. Until a verified dump is
 visible, `HyperspacePostgreSQLBackupMissing` intentionally remains critical.
+Managed daily dumps use the strict `<database>-YYYYMMDDTHHMMSSZ.dump` naming
+scheme. The backup job keeps the newest three by default, with matching globals,
+and ignores manually named snapshots. It trims surplus copies before creating a
+new dump, reserves the latest dump size plus a 25% growth margin, and refuses to
+delete the final known-good dump when capacity remains insufficient. Configure
+`HS_DB_BACKUP_KEEP_LAST=3` and, if necessary,
+`HS_DB_BACKUP_FREE_SPACE_MARGIN_PERCENT=25` in
+`/etc/hyperspace/db-backup.env`.
 
 For offsite object storage, place a root-only
 `/etc/hyperspace/db-backup-offsite.env` on the DB host before running the

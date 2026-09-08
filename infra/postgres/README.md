@@ -71,4 +71,8 @@ HS_DB_OFFSITE_SUCCESS_FILE=/var/lib/hyperspace/db-backup/offsite-last-success
 The backup job checks the exact mount and filesystem type before creating a
 dump, flushes verified files to the remote filesystem, and only then records
 offsite success. If the mount is absent it fails closed rather than filling the
-local root filesystem.
+local root filesystem. Managed daily dumps retain the newest three copies by
+default (`HS_DB_BACKUP_KEEP_LAST=3`). Capacity is checked before `pg_dump` using
+the latest dump size plus a 25% growth margin; surplus copies may be removed,
+but the final known-good dump is always preserved. Manually named snapshots are
+outside this retention policy.
