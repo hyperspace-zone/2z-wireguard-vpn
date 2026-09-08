@@ -554,6 +554,39 @@ tests:
               summary: Hyperspace gate conntrack table is critically full
               description: Gate gate-test has used at least 90% of its conntrack table and may drop new connections.
 
+  - name: network drops ignore assignment interfaces but retain physical failures
+    interval: 1m
+    input_series:
+      - series: 'node_network_receive_drop_total{job="hyperspace-gate-node",cluster="mainnet",gate="gate-test",public_ipv4="192.0.2.10",probe_host="gate-test.hyperspace.zone",device="hsc1234"}'
+        values: '0+600x12'
+      - series: 'node_network_transmit_drop_total{job="hyperspace-gate-node",cluster="mainnet",gate="gate-test",public_ipv4="192.0.2.10",probe_host="gate-test.hyperspace.zone",device="hsc1234"}'
+        values: '0x12'
+      - series: 'node_network_receive_errs_total{job="hyperspace-gate-node",cluster="mainnet",gate="gate-test",public_ipv4="192.0.2.10",probe_host="gate-test.hyperspace.zone",device="hsc1234"}'
+        values: '0x12'
+      - series: 'node_network_transmit_errs_total{job="hyperspace-gate-node",cluster="mainnet",gate="gate-test",public_ipv4="192.0.2.10",probe_host="gate-test.hyperspace.zone",device="hsc1234"}'
+        values: '0x12'
+      - series: 'node_network_receive_drop_total{job="hyperspace-gate-node",cluster="mainnet",gate="gate-test",public_ipv4="192.0.2.10",probe_host="gate-test.hyperspace.zone",device="ens4"}'
+        values: '0+120x12'
+      - series: 'node_network_transmit_drop_total{job="hyperspace-gate-node",cluster="mainnet",gate="gate-test",public_ipv4="192.0.2.10",probe_host="gate-test.hyperspace.zone",device="ens4"}'
+        values: '0x12'
+      - series: 'node_network_receive_errs_total{job="hyperspace-gate-node",cluster="mainnet",gate="gate-test",public_ipv4="192.0.2.10",probe_host="gate-test.hyperspace.zone",device="ens4"}'
+        values: '0x12'
+      - series: 'node_network_transmit_errs_total{job="hyperspace-gate-node",cluster="mainnet",gate="gate-test",public_ipv4="192.0.2.10",probe_host="gate-test.hyperspace.zone",device="ens4"}'
+        values: '0x12'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: HyperspaceGateNetworkDrops
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              cluster: mainnet
+              gate: gate-test
+              public_ipv4: 192.0.2.10
+              probe_host: gate-test.hyperspace.zone
+            exp_annotations:
+              summary: Sustained network drops or errors on a Hyperspace gate
+              description: Gate gate-test reports more than one network drop or error per second on non-Hyperspace interfaces for 5 minutes.
+
   - name: enabled gate missing from discovery
     interval: 15s
     input_series:
