@@ -97,6 +97,11 @@ Set `HS_DB_OFFSITE_BACKUP_ENABLED=1` in
 unless `/var/backups/hyperspace` is the exact NFSv4 mount. Prometheus reports a
 missing mount as critical and low backup capacity as warning.
 
+Install `scripts/db/install-history-archive`, set `HS_CLUSTER=staging` and use
+the same `/var/backups/hyperspace` NFS mount. The archive timer runs after the
+daily dump and retains only bounded hot operational history. See
+[PostgreSQL hot-data and NFS history archive](postgresql-hot-data-archive.md).
+
 ## Service Host Monitoring
 
 Install the repository-managed node exporter on the web, control-plane, and

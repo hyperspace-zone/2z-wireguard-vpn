@@ -59,6 +59,11 @@ HS_DB_OFFSITE_SUCCESS_FILE=/var/lib/hyperspace/db-backup/offsite-last-success
 The local dump and offsite timestamp have independent critical alerts. Never
 commit the Restic password or object-storage credentials.
 
+High-volume operational history uses a separate verified archive on the same
+provider-managed NFS tier. Its bounded hot-retention policy, installation and
+online compaction procedure are documented in
+[PostgreSQL hot-data and NFS history archive](../../docs/runbooks/postgresql-hot-data-archive.md).
+
 For a provider-managed NFS backup volume, mount the export exactly at
 `/var/backups/hyperspace` and configure:
 

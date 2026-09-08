@@ -1882,6 +1882,23 @@ filesystem type before writing. Enable offsite monitoring as above. Never use
 `nofail` without the script mount check: otherwise an unavailable NFS export
 can silently redirect large dumps to the local root filesystem.
 
+Install the operational-history archiver after the NFS mount and daily backup
+are healthy. Configure the cluster and exact mount paths in
+`/etc/hyperspace/db-history-archive.env`, then run the first catch-up under
+observation:
+
+```bash
+scripts/db/install-history-archive
+systemctl start hyperspace-db-history-archive.service
+systemctl status hyperspace-db-history-archive.service
+```
+
+The archive is not a replacement for the full database dump. It keeps the hot
+database below the 30-GiB ceiling by moving verified synthetic and operational
+history to compressed daily NFS slices. See
+[PostgreSQL hot-data and NFS history archive](postgresql-hot-data-archive.md)
+for retention, fail-closed deletion and initial `pg_repack` guidance.
+
 For a small observability host, provision swap once:
 
 ```bash
