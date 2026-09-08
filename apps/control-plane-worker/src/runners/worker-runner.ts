@@ -13,6 +13,7 @@ import { createSolanaWithdrawalLoop } from "../loops/solana-withdrawal-loop.js";
 import { createSolanaRevenueSweepLoop } from "../loops/solana-revenue-sweep-loop.js";
 import { createHeliusUsageLoop } from "../loops/helius-usage-loop.js";
 import { createTradingProbeSchedulerLoop } from "../loops/trading-probe-scheduler-loop.js";
+import { createSyntheticWriteGuard } from "../loops/synthetic-write-guard.js";
 import { createReconcileRunner } from "./reconcile-runner.js";
 import { reconcileGateAgentDeployments } from "@hyperspace-zone/control-plane";
 import { log, sleep } from "../support/runtime.js";
@@ -62,6 +63,13 @@ export function createWorkerRunner(input: {
     db: input.db,
     config: input.config
   });
+  const syntheticWriteGuard = createSyntheticWriteGuard({
+    db: input.db,
+    health: input.health,
+    metrics: input.metrics,
+    hardLimitBytes: input.config.syntheticWriteHardLimitBytes,
+    refreshMs: input.config.syntheticWriteGuardRefreshMs
+  });
   const tasks: WorkerRunnerTasks = input.tasks ? {
     ...input.tasks,
     tradingProbeScheduler: input.tasks.tradingProbeScheduler ?? (async () => undefined)
@@ -70,8 +78,12 @@ export function createWorkerRunner(input: {
     retry: () => retryLoop.runOnce(),
     cleanup: () => cleanupLoop.runOnce(),
     gateAgentDeployments: async () => { await reconcileGateAgentDeployments(input.db); },
-    benchmarkScheduler: () => benchmarkSchedulerLoop.runOnce(),
-    tradingProbeScheduler: () => tradingProbeSchedulerLoop.runOnce(),
+    benchmarkScheduler: async () => {
+      if (await syntheticWriteGuard.allowsWrites()) await benchmarkSchedulerLoop.runOnce();
+    },
+    tradingProbeScheduler: async () => {
+      if (await syntheticWriteGuard.allowsWrites()) await tradingProbeSchedulerLoop.runOnce();
+    },
     snapshot: () => collectControlPlaneSnapshotMetrics({ ...input, db: input.metricsDb ?? input.db })
   };
   let stopping = false;

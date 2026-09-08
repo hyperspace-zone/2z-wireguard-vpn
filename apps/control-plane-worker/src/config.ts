@@ -14,6 +14,8 @@ export interface ControlPlaneWorkerConfig extends ReconcileLoopRuntimeConfig, Be
   workerId: string;
   observabilityHost: string;
   observabilityPort: number;
+  syntheticWriteHardLimitBytes: number;
+  syntheticWriteGuardRefreshMs: number;
   solanaDepositReconcileIntervalSeconds: number;
   solanaDirectDepositScanIntervalSeconds: number;
   solanaDirectDepositScanBatchSize: number;
@@ -78,6 +80,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ControlPlaneWo
     workerId: env.WORKER_ID ?? `worker-${process.pid}`,
     observabilityHost: env.WORKER_OBSERVABILITY_HOST ?? "0.0.0.0",
     observabilityPort: Number(env.WORKER_OBSERVABILITY_PORT ?? 9091),
+    syntheticWriteHardLimitBytes: Number(env.SYNTHETIC_WRITE_HARD_LIMIT_BYTES ?? 28 * 1024 * 1024 * 1024),
+    syntheticWriteGuardRefreshMs: Number(env.SYNTHETIC_WRITE_GUARD_REFRESH_MS ?? 30_000),
     solanaDepositReconcileIntervalSeconds: Number(
       env.SOLANA_DEPOSIT_RECONCILE_INTERVAL_SECONDS ?? env.SOLANA_TOPUP_RECONCILE_INTERVAL_SECONDS ?? 15
     ),

@@ -301,6 +301,15 @@ groups:
           summary: Hyperspace hot PostgreSQL database exceeded 30GiB
           description: PostgreSQL on {{ $labels.service_host }} exceeded the 30GiB hot-data ceiling; verify NFS archival and schedule online compaction.
 
+      - alert: HyperspacePostgreSQLSyntheticWritesSuppressed
+        expr: hyperspace_synthetic_writes_allowed{job="hyperspace-control-plane-worker"} == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: Hyperspace synthetic writes are paused by database protection
+          description: The worker automatically stopped creating benchmark and trading-probe jobs because PostgreSQL reached the 28GiB safety limit or its size could not be verified. VPN, billing, reconcile and archival remain active; inspect database and NFS archive health.
+
       - alert: HyperspacePostgreSQLHistoryArchiveNotConfigured
         expr: hyperspace_postgres_history_archive_configured{job="hyperspace-host-node",cluster=~"mainnet|staging"} != 1
         for: 30m
