@@ -64,6 +64,30 @@ provider-managed NFS tier. Its bounded hot-retention policy, installation and
 online compaction procedure are documented in
 [PostgreSQL hot-data and NFS history archive](../../docs/runbooks/postgresql-hot-data-archive.md).
 
+For the current SSD-backed database hosts, use conservative memory settings
+and spread checkpoints so archive cleanup does not create write-I/O spikes:
+
+| Setting | 2 GB staging DB | 6 GB production DB |
+| --- | ---: | ---: |
+| `shared_buffers` | 512 MB | 1536 MB |
+| `effective_cache_size` | 1536 MB | 4 GB |
+| `maintenance_work_mem` | 128 MB | 256 MB |
+| `work_mem` | 4 MB | 4 MB |
+| `min_wal_size` / `max_wal_size` | 512 MB / 2 GB | 1 GB / 4 GB |
+| `autovacuum_max_workers` | 3 | 4 |
+| `autovacuum_vacuum_cost_limit` | 500 | 1000 |
+
+Both profiles use `checkpoint_timeout=15min`,
+`checkpoint_completion_target=0.9`, `wal_compression=on`,
+`track_io_timing=on`, `random_page_cost=1.5`,
+`effective_io_concurrency=100`, and
+`idle_in_transaction_session_timeout=10min`. Keep `work_mem` low because it is
+allocated per sort/hash node and per connection. Preload and create
+`pg_stat_statements` (`max=5000`, `track=top`, `track_utility=off`) so index and
+query changes are driven by measured total execution time rather than a single
+slow sample. These settings require one controlled PostgreSQL restart; verify
+control-plane health immediately afterwards.
+
 For a provider-managed NFS backup volume, mount the export exactly at
 `/var/backups/hyperspace` and configure:
 
