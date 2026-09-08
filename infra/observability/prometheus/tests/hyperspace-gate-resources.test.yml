@@ -648,3 +648,45 @@ tests:
             exp_annotations:
               summary: Solana historical deposit reconciliation is stale
               description: No custodial wallet history scan has succeeded for more than 30 minutes; deposits without a submitted transaction hash may be delayed.
+
+  - name: hot PostgreSQL database above 30 GiB is critical
+    interval: 1m
+    input_series:
+      - series: 'hyperspace_postgres_database_size_bytes{job="hyperspace-host-node",cluster="mainnet",role="postgresql",service_host="db.hyperspace.zone",service_ipv4="84.32.51.45"}'
+        values: '34359738368x20'
+    alert_rule_test:
+      - eval_time: 16m
+        alertname: HyperspacePostgreSQLHotDatabaseSizeCritical
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: hyperspace-host-node
+              cluster: mainnet
+              role: postgresql
+              service_host: db.hyperspace.zone
+              service_ipv4: 84.32.51.45
+            exp_annotations:
+              summary: Hyperspace hot PostgreSQL database exceeded 30GiB
+              description: PostgreSQL on db.hyperspace.zone exceeded the 30GiB hot-data ceiling; verify NFS archival and schedule online compaction.
+
+  - name: failed PostgreSQL history archive is critical
+    interval: 1m
+    input_series:
+      - series: 'hyperspace_postgres_history_archive_last_attempt_timestamp_seconds{job="hyperspace-host-node",cluster="staging",role="postgresql",service_host="db.staging.hyperspace.zone",service_ipv4="84.32.97.140"}'
+        values: '1788868800x20'
+      - series: 'hyperspace_postgres_history_archive_last_attempt_success{job="hyperspace-host-node",cluster="staging",role="postgresql",service_host="db.staging.hyperspace.zone",service_ipv4="84.32.97.140"}'
+        values: '0x20'
+    alert_rule_test:
+      - eval_time: 16m
+        alertname: HyperspacePostgreSQLHistoryArchiveFailed
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: hyperspace-host-node
+              cluster: staging
+              role: postgresql
+              service_host: db.staging.hyperspace.zone
+              service_ipv4: 84.32.97.140
+            exp_annotations:
+              summary: Hyperspace PostgreSQL history archive failed
+              description: The latest verified NFS history archive run failed on db.staging.hyperspace.zone; no unverified rows are deleted.
