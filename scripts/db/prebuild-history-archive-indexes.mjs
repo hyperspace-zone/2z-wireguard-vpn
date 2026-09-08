@@ -17,7 +17,15 @@ const statements = [
      ON gate_benchmark_results (job_id)
      WHERE job_id IS NOT NULL`,
   `CREATE INDEX CONCURRENTLY IF NOT EXISTS gate_assignment_counter_samples_history_archive_idx
-     ON gate_assignment_counter_samples (received_at, id)`
+     ON gate_assignment_counter_samples (received_at, id)`,
+  `CREATE INDEX CONCURRENTLY IF NOT EXISTS job_attempts_completed_history_archive_idx
+     ON job_attempts (completed_at, id)
+     WHERE completed_at IS NOT NULL`,
+  `CREATE INDEX CONCURRENTLY IF NOT EXISTS trading_probe_job_attempts_completed_history_archive_idx
+     ON trading_probe_job_attempts (completed_at, id)
+     WHERE completed_at IS NOT NULL`,
+  `CREATE INDEX CONCURRENTLY IF NOT EXISTS gate_assignment_usage_deltas_history_archive_idx
+     ON gate_assignment_usage_deltas (created_at, sample_id)`
 ];
 
 const client = new pg.Client({ connectionString: databaseUrl });
@@ -34,7 +42,10 @@ try {
       'jobs_history_archive_idx'::regclass,
       'gate_benchmark_results_created_history_archive_idx'::regclass,
       'gate_benchmark_results_job_id_idx'::regclass,
-      'gate_assignment_counter_samples_history_archive_idx'::regclass
+      'gate_assignment_counter_samples_history_archive_idx'::regclass,
+      'job_attempts_completed_history_archive_idx'::regclass,
+      'trading_probe_job_attempts_completed_history_archive_idx'::regclass,
+      'gate_assignment_usage_deltas_history_archive_idx'::regclass
     )
     ORDER BY 1
   `);

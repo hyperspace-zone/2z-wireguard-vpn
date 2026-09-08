@@ -38,6 +38,12 @@ It pauses when more than four other PostgreSQL queries are active. Initial
 catch-up may temporarily raise `HS_DB_HISTORY_ARCHIVE_MAX_SLICES_PER_RUN`, but
 must be monitored and returned to `1` afterwards.
 
+Parent jobs and their attempts are archived as separate datasets. Attempts
+use their immutable `completed_at`, which avoids multi-million-row
+parent/child full-table scans. Heavy export sessions disable PostgreSQL
+parallel scans and lower the server backend CPU and I/O priority before
+reading data.
+
 Install on the DB host from the matching deployed branch:
 
 ```bash
