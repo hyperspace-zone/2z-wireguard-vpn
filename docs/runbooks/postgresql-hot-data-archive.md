@@ -100,6 +100,9 @@ Do not schedule routine repacks: autovacuum should reuse the reclaimed pages.
 Migration `0048_history_tables_autovacuum.sql` gives every high-volume archive
 table a 1% vacuum and 0.5% analyze scale factor, so reusable pages are returned
 to PostgreSQL well before the default 20% threshold.
+Migration `0049_jobs_session_foreign_key_index.sql` adds a partial index for
+the approximately 0.02% of jobs linked to user sessions, preventing session
+cleanup and FK checks from scanning synthetic job history.
 
 The control-plane worker independently stops creating new synthetic benchmark
 and trading-probe jobs at 28 GiB. The fail-closed guard is cached for 30
