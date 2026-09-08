@@ -2,7 +2,6 @@ import type { TransactionalQueryable } from "../db/queryable.js";
 import { deleteExpiredGateActualStateSnapshots } from "../resources/actual-state/repository.js";
 import { revokeExpiredArtifactDownloadTokens } from "../resources/artifacts/repository.js";
 import { revokeExpiredAuthSessions } from "../resources/users/repository.js";
-import { cleanupTradingProbeHistory } from "../resources/trading-probes/service.js";
 
 export interface CleanupResult {
   authSessionsRevoked: number;
@@ -17,13 +16,15 @@ export async function runCleanupTasks(db: TransactionalQueryable): Promise<Clean
     const authSessionsRevoked = await revokeExpiredAuthSessions(client);
     const artifactDownloadTokensRevoked = await revokeExpiredArtifactDownloadTokens(client);
     const gateActualStateSnapshotsDeleted = await deleteExpiredGateActualStateSnapshots(client);
-    const tradingProbeCleanup = await cleanupTradingProbeHistory(client);
     return {
       authSessionsRevoked,
       artifactDownloadTokensRevoked,
       gateActualStateSnapshotsDeleted,
-      tradingProbeJobsDeleted: tradingProbeCleanup.jobsDeleted,
-      tradingProbeRollupsDeleted: tradingProbeCleanup.rollupsDeleted
+      // History is deleted only by the DB-host NFS archiver after its files,
+      // row counts and checksums have been verified. The worker must not race
+      // that fail-closed process.
+      tradingProbeJobsDeleted: 0,
+      tradingProbeRollupsDeleted: 0
     };
   });
 }

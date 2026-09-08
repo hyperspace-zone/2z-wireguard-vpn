@@ -259,10 +259,9 @@ delete_archived_day() {
   echo "$dataset $day deletion reached the per-run batch limit; continuing next run" >&2
 }
 
-process_dataset_once() {
+process_dataset_day() {
   local dataset="$1" day output_dir
-  day="$(oldest_eligible_day "$dataset")"
-  [[ -n "$day" ]] || return 1
+  day="$2"
   [[ "$day" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || {
     echo "invalid archive day returned for $dataset: $day" >&2
     return 2
@@ -280,9 +279,12 @@ datasets=(gate_benchmarks jobs trading_jobs trading_rollups assignment_usage)
 for (( slice=0; slice<max_slices; slice++ )); do
   processed=0
   for dataset in "${datasets[@]}"; do
-    if process_dataset_once "$dataset"; then
-      processed=1
+    day="$(oldest_eligible_day "$dataset")"
+    if [[ -z "$day" ]]; then
+      continue
     fi
+    process_dataset_day "$dataset" "$day"
+    processed=1
   done
   (( processed == 1 )) || break
 done
