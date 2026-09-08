@@ -97,6 +97,9 @@ space reusable by PostgreSQL but does not return existing relation files to
 the operating system. After the initial archive catch-up, use `pg_repack` one
 large table at a time to establish a compact baseline without `VACUUM FULL`.
 Do not schedule routine repacks: autovacuum should reuse the reclaimed pages.
+Migration `0048_history_tables_autovacuum.sql` gives every high-volume archive
+table a 1% vacuum and 0.5% analyze scale factor, so reusable pages are returned
+to PostgreSQL well before the default 20% threshold.
 
 The control-plane worker independently stops creating new synthetic benchmark
 and trading-probe jobs at 28 GiB. The fail-closed guard is cached for 30
