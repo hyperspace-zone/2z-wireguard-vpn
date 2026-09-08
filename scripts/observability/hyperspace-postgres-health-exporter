@@ -6,6 +6,9 @@ backup_dir="${HS_DB_BACKUP_DIR:-/var/backups/hyperspace}"
 metrics_dir="${HS_POSTGRES_METRICS_DIR:-/var/lib/node_exporter/textfile_collector}"
 offsite_enabled="${HS_DB_OFFSITE_BACKUP_ENABLED:-0}"
 offsite_success_file="${HS_DB_OFFSITE_SUCCESS_FILE:-/var/lib/hyperspace/db-backup/offsite-last-success}"
+history_archive_enabled="${HS_DB_HISTORY_ARCHIVE_ENABLED:-0}"
+history_archive_mountpoint="${HS_DB_HISTORY_ARCHIVE_MOUNTPOINT:-/var/backups/hyperspace}"
+history_archive_state_dir="${HS_DB_HISTORY_ARCHIVE_STATE_DIR:-/var/lib/hyperspace/db-history-archive}"
 output="${metrics_dir}/hyperspace_postgres_health.prom"
 tmp="$(mktemp "${metrics_dir}/.hyperspace_postgres_health.XXXXXX")"
 trap 'test ! -e "$tmp" || unlink "$tmp"' EXIT
@@ -39,6 +42,31 @@ offsite_timestamp=0
 if [[ "$offsite_enabled" == "1" && -r "$offsite_success_file" ]]; then
   read -r offsite_timestamp <"$offsite_success_file"
   [[ "$offsite_timestamp" =~ ^[0-9]+$ ]] || offsite_timestamp=0
+fi
+
+history_archive_last_success=0
+history_archive_last_attempt=0
+history_archive_last_attempt_success=0
+history_archive_storage_size=0
+history_archive_storage_available=0
+[[ "$history_archive_enabled" == "1" ]] || history_archive_enabled=0
+if [[ "$history_archive_enabled" == "1" ]]; then
+  if [[ -r "${history_archive_state_dir}/last-success" ]]; then
+    read -r history_archive_last_success <"${history_archive_state_dir}/last-success"
+    [[ "$history_archive_last_success" =~ ^[0-9]+$ ]] || history_archive_last_success=0
+  fi
+  if [[ -r "${history_archive_state_dir}/last-attempt" ]]; then
+    read -r history_archive_last_attempt history_archive_status <"${history_archive_state_dir}/last-attempt"
+    [[ "$history_archive_last_attempt" =~ ^[0-9]+$ ]] || history_archive_last_attempt=0
+    if [[ "$history_archive_status" == "0" ]]; then
+      history_archive_last_attempt_success=1
+    fi
+  fi
+  if findmnt --mountpoint "$history_archive_mountpoint" --types nfs,nfs4 >/dev/null 2>&1; then
+    read -r history_archive_storage_size history_archive_storage_available < <(
+      df -PB1 "$history_archive_mountpoint" | awk 'NR == 2 { print $2, $4 }'
+    )
+  fi
 fi
 
 cat >"$tmp" <<EOF
@@ -81,6 +109,24 @@ hyperspace_postgres_offsite_backup_configured ${offsite_enabled}
 # HELP hyperspace_postgres_offsite_backup_last_success_timestamp_seconds Unix timestamp of the latest successful offsite PostgreSQL backup.
 # TYPE hyperspace_postgres_offsite_backup_last_success_timestamp_seconds gauge
 hyperspace_postgres_offsite_backup_last_success_timestamp_seconds ${offsite_timestamp}
+# HELP hyperspace_postgres_history_archive_configured Whether verified NFS history archival is configured.
+# TYPE hyperspace_postgres_history_archive_configured gauge
+hyperspace_postgres_history_archive_configured ${history_archive_enabled}
+# HELP hyperspace_postgres_history_archive_last_success_timestamp_seconds Unix timestamp of the latest successful archive run.
+# TYPE hyperspace_postgres_history_archive_last_success_timestamp_seconds gauge
+hyperspace_postgres_history_archive_last_success_timestamp_seconds ${history_archive_last_success}
+# HELP hyperspace_postgres_history_archive_last_attempt_timestamp_seconds Unix timestamp when the latest archive run started.
+# TYPE hyperspace_postgres_history_archive_last_attempt_timestamp_seconds gauge
+hyperspace_postgres_history_archive_last_attempt_timestamp_seconds ${history_archive_last_attempt}
+# HELP hyperspace_postgres_history_archive_last_attempt_success Whether the latest archive run completed successfully.
+# TYPE hyperspace_postgres_history_archive_last_attempt_success gauge
+hyperspace_postgres_history_archive_last_attempt_success ${history_archive_last_attempt_success}
+# HELP hyperspace_postgres_history_archive_storage_size_bytes Size of the mounted history archive filesystem.
+# TYPE hyperspace_postgres_history_archive_storage_size_bytes gauge
+hyperspace_postgres_history_archive_storage_size_bytes ${history_archive_storage_size}
+# HELP hyperspace_postgres_history_archive_storage_available_bytes Available bytes on the mounted history archive filesystem.
+# TYPE hyperspace_postgres_history_archive_storage_available_bytes gauge
+hyperspace_postgres_history_archive_storage_available_bytes ${history_archive_storage_available}
 EOF
 chmod 0644 "$tmp"
 mv "$tmp" "$output"
