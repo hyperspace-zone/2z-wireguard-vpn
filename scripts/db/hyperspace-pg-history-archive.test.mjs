@@ -29,6 +29,9 @@ test("history archive shell is syntactically valid and fail-closed", () => {
   assert.match(script, /enable_seqscan=off/);
   assert.match(script, /synchronous_commit=off/);
   assert.match(script, /COPY \(SELECT row_to_json\(archive_row\)::text/);
+  assert.match(script, /HS_DB_HISTORY_ARCHIVE_EXPORT_CHUNK_SECONDS:-3600/);
+  assert.match(script, /export_chunk_seconds <= 86400/);
+  assert.match(script, /current_epoch \+ export_chunk_seconds/);
   assert.match(script, /DELIMITER E'\\\\t', QUOTE E'\\\\x01'/);
   assert.match(script, /renice 15/);
   assert.match(script, /kill -0 "\$query_pid"/);
