@@ -32,6 +32,9 @@ test("history archive shell is syntactically valid and fail-closed", () => {
   assert.match(script, /HS_DB_HISTORY_ARCHIVE_EXPORT_CHUNK_SECONDS:-3600/);
   assert.match(script, /export_chunk_seconds <= 86400/);
   assert.match(script, /current_epoch \+ export_chunk_seconds/);
+  assert.match(script, /HS_DB_HISTORY_ARCHIVE_ZSTD_LEVEL:-6/);
+  assert.match(script, /compression_level >= 1 && compression_level <= 19/);
+  assert.match(script, /zstd --quiet "-\$\{compression_level\}" -T1/);
   assert.match(script, /DELIMITER E'\\\\t', QUOTE E'\\\\x01'/);
   assert.match(script, /renice 15/);
   assert.match(script, /kill -0 "\$query_pid"/);
