@@ -18,6 +18,7 @@ test("history archive shell is syntactically valid and fail-closed", () => {
   assert.ok(script.indexOf('>"${output_dir}\/READY"') < script.indexOf("delete_archived_day"));
   assert.match(script, /LIMIT \$\{delete_batch_size\} FOR UPDATE SKIP LOCKED/);
   assert.match(script, /sleep "\$delete_sleep_seconds"/);
+  assert.doesNotMatch(script, /if process_dataset_day/);
   assert.doesNotMatch(script, /VACUUM FULL|TRUNCATE/);
 });
 
