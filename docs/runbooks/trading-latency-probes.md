@@ -57,6 +57,50 @@ scripts/trading/pairs-sustained-smoke.mjs`. It checks both environments, both
 Pair Routes and legacy benchmarks, snapshot freshness/safety and advancing
 snapshot timestamps. A finite successful canary is not a performance SLA.
 
+Deployment: API, worker and web revision
+`f07c8bc12b1f81d72e70b417454a0cf87347e219`, promoted to GitHub `staging` and
+`main` while preserving the separately landed backup/alert changes. Staging
+became ready at approximately 07:25 UTC and production at 07:27 UTC. Both
+databases recorded `0044`; both prepared partial indexes were valid and 16 kB
+after rollout. Production EXPLAIN used the partial Index Only Scan even with
+heap visibility misses: the sampled aggregate took 0.61 ms, then 0.47 ms.
+Complete worker snapshots were about 0.35–0.37 seconds; all sections were ready.
+No additional vacuum, job-history deletion, new host or gate-service restart
+was needed. The API, worker and web have retained immutable rollback pointers.
+
+Build and all 192 workspace tests passed, along with both Go agents (gate
+tests use `GOTOOLCHAIN=go1.23.12`), the comparison-client test and 19 fixture
+browser scenarios. Read-only live browser checks passed in both environments,
+including a browser-local injected first-load 503 and later refresh failure,
+maps, venue matrix, legacy benchmarks and login. Production additionally
+exercised an eligible route's exact preset/login intent; staging had no current
+positive estimates, so issuance paths remain covered by fixtures. Ten separate
+new browser contexts all opened successfully, rendering in 370–720 ms from the
+operator's test location. These timings are not global latency guarantees.
+
+The final 60-round canary ran from approximately 07:27:51 to 07:38:30 UTC:
+all 240 public requests returned HTTP 200, with no unsafe/fallback snapshots.
+Each environment published 60 distinct observed snapshots; this was not a
+single permanently cached response. The maximum response across Pair Routes
+and legacy benchmarks was 2,127 ms. Production retained all 812 directed
+benchmark routes throughout. Worker/API checks remained ready; the final
+worker snapshot samples were 54 ms staging and 242 ms production, with no
+failed metric sections. Post-ready API logs contained no 5xx or statement
+timeouts at the final log check. All five staging and twelve production VPN
+sessions retained their exact IDs, phases and two applied assignments; target
+catalogs and probe versions/desired state also matched the before-deploy
+inventory. No live checks created configs or transferred funds.
+
+The old production process logged one pool-closed 500 while it was being
+replaced, before the new API became ready at 07:27:29 UTC. Do not count a
+single-instance process restart as zero-downtime deployment or conflate that
+shutdown event with the earlier recurring SQL timeout.
+
+Artifact SHA-256:
+
+- API/worker: `9bc5e51c5f9ecf6ce360573016174ecdc533b29a5d241dbc1b54e24f1591ce9b`.
+- Web: `87945e559d8018f5f92e41357d18c1686fb712c4d67c19862b260b8a41ff8e36`.
+
 ## Pair Routes release (2026-09-07, historical)
 
 API, worker and web source: `bb3c4833bb700b478ef065773f24cedb81d23b1b`.

@@ -92,8 +92,8 @@ remain visible in job metrics and admin job listings but do not page the
 operator again.
 
 Operational `hyperspace_control_plane_jobs_total` excludes `succeeded` since
-2026-09-08: scanning millions of successful historical jobs on every scrape
-cycle overloaded the database. All other phases (including `dead` and
+2026-09-08: scanning millions of successful historical jobs on every worker
+snapshot cycle overloaded the database. All other phases (including `dead` and
 `acknowledged_dead`) remain exact, with zero-valued enum combinations retained.
 No job history is deleted; historical successful jobs remain in admin listings
 and PostgreSQL. There is no fabricated zero or approximate replacement series.
