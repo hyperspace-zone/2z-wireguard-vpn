@@ -92,6 +92,13 @@ the operating system. After the initial archive catch-up, use `pg_repack` one
 large table at a time to establish a compact baseline without `VACUUM FULL`.
 Do not schedule routine repacks: autovacuum should reuse the reclaimed pages.
 
+The control-plane worker independently stops creating new synthetic benchmark
+and trading-probe jobs at 28 GiB. The fail-closed guard is cached for 30
+seconds and automatically resumes scheduling below the threshold; VPN,
+billing, reconcile and archive work continue. Configure it with
+`SYNTHETIC_WRITE_HARD_LIMIT_BYTES` and `SYNTHETIC_WRITE_GUARD_REFRESH_MS` only
+when the filesystem safety budget changes.
+
 The production 100-GB NFS volume shares capacity with three verified database
 dumps. It is enough for initial catch-up only while the safety reserve remains;
 500 GB is the recommended tier for long-lived history retention.

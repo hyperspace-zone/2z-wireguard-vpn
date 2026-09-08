@@ -4,6 +4,23 @@ rule_files:
 evaluation_interval: 15s
 
 tests:
+  - name: database safety guard suppression is critical
+    interval: 1m
+    input_series:
+      - series: 'hyperspace_synthetic_writes_allowed{job="hyperspace-control-plane-worker",cluster="mainnet"}'
+        values: '0x10'
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: HyperspacePostgreSQLSyntheticWritesSuppressed
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: hyperspace-control-plane-worker
+              cluster: mainnet
+            exp_annotations:
+              summary: Hyperspace synthetic writes are paused by database protection
+              description: The worker automatically stopped creating benchmark and trading-probe jobs because PostgreSQL reached the 28GiB safety limit or its size could not be verified. VPN, billing, reconcile and archival remain active; inspect database and NFS archive health.
+
   - name: stale independent meta monitor is critical
     interval: 1m
     input_series:
