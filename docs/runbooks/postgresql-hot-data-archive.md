@@ -32,6 +32,10 @@ flush and a `READY` marker. Deletion then uses 5,000-row
 `FOR UPDATE SKIP LOCKED` batches with pauses. An unavailable or incomplete
 archive therefore deletes nothing.
 
+The default 500-batch ceiling permits up to 2.5 million archived rows per
+dataset and run, above the current daily trading-probe volume. The ceiling is
+a safety bound rather than a retention target.
+
 The systemd unit runs with low CPU and I/O priority. By default it processes
 one UTC-day slice per dataset at 04:30 UTC, away from the 02:15 database dump.
 It pauses when more than four other PostgreSQL queries are active. Initial
