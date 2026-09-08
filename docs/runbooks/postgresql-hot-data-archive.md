@@ -41,8 +41,10 @@ must be monitored and returned to `1` afterwards.
 Parent jobs and their attempts are archived as separate datasets. Attempts
 use their immutable `completed_at`, which avoids multi-million-row
 parent/child full-table scans. Heavy export sessions disable PostgreSQL
-parallel scans and lower the server backend CPU and I/O priority before
-reading data.
+parallel and sequential scans, stream rows through PostgreSQL `COPY` in
+one-hour index ranges, and lower the server backend CPU and I/O priority.
+`HS_DB_HISTORY_ARCHIVE_EXPORT_SLEEP_SECONDS` controls the pause between
+hourly ranges and defaults to 0.5 seconds.
 
 Install on the DB host from the matching deployed branch:
 
