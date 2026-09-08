@@ -12,17 +12,21 @@ import {
   gateAlertProbeHost
 } from "./control-plane-snapshot.js";
 
-test("job metrics aggregate only indexed columns and preserve zero-count enum combinations", async () => {
+test("job metrics exclude successful history but preserve exact operational and dead counts", async () => {
   const statements: string[] = [];
-  const db = { query: async (sql: string) => { statements.push(sql); return { rows: [{ type: "gate_benchmark_probe", phase: "queued", count: 0 }] }; } } as unknown as Database;
+  const db = { query: async (sql: string) => { statements.push(sql); return { rows: [{ type: "gate_benchmark_probe", phase: "queued", count: 0 }, { type: "gate_benchmark_probe", phase: "dead", count: 3 }, { type: "gate_benchmark_probe", phase: "acknowledged_dead", count: 2 }] }; } } as unknown as Database;
   const metrics = createRuntimeMetrics({ service: "jobs-test", flushIntervalMs: 60_000 });
   try {
     await collectJobMetrics(db, metrics);
     assert.equal(statements.length, 1);
-    assert.match(statements[0]!, /SELECT type, phase, COUNT\(\*\)::int AS count FROM jobs GROUP BY type, phase/);
+    assert.match(statements[0]!, /FROM jobs\s+WHERE phase <> 'succeeded'\s+GROUP BY type, phase/);
+    assert.match(statements[0]!, /WHERE phases.phase <> 'succeeded'/);
     assert.match(statements[0]!, /COALESCE\(counts.count, 0\)/);
     assert.doesNotMatch(statements[0]!, /jobs.id|LEFT JOIN jobs/);
     assert.match(metrics.renderPrometheus(), /control_plane_jobs_total\{phase="queued",service="jobs-test",type="gate_benchmark_probe"\} 0/);
+    assert.match(metrics.renderPrometheus(), /control_plane_jobs_total\{phase="dead",service="jobs-test",type="gate_benchmark_probe"\} 3/);
+    assert.match(metrics.renderPrometheus(), /control_plane_jobs_total\{phase="acknowledged_dead",service="jobs-test",type="gate_benchmark_probe"\} 2/);
+    assert.doesNotMatch(metrics.renderPrometheus(), /phase="succeeded"/);
   } finally { metrics.stop(); }
 });
 

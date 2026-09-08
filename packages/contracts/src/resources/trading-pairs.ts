@@ -46,6 +46,8 @@ export const publicTradingPairsResponseSchema = {
   required: ["generatedAt", "methodology", "venues", "nodes", "matrix", "rows", "total", "offset", "limit", "summary"],
   properties: {
     generatedAt: { type: "string", format: "date-time" },
+    snapshotStatus: { enum: ["live", "refreshing", "stale"] },
+    snapshotAgeSeconds: { type: "integer", minimum: 0 },
     methodology: { const: "tcp-connect-estimate-v1" },
     venues: { type: "array", items: tradingLatencyPublicTargetSchema },
     nodes: { type: "array", items: tradingPairNodeSchema },
@@ -72,6 +74,11 @@ export const publicTradingPairsQuerySchema = {
     offset: { type: "integer", minimum: 0, maximum: 100000 },
     limit: { type: "integer", minimum: 1, maximum: 200 }
   }
+} as const;
+
+export const publicTradingUnavailableResponseSchema = {
+  type: "object", additionalProperties: false, required: ["error", "message"],
+  properties: { error: { const: "trading_snapshot_unavailable" }, message: { type: "string" } }
 } as const;
 
 export const publicTradingRouteResponseSchema = {

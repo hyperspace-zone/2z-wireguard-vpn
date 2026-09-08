@@ -34,6 +34,7 @@ interface WorkerRunnerTasks {
 
 export function createWorkerRunner(input: {
   db: Database;
+  metricsDb?: Database;
   config: ControlPlaneWorkerConfig;
   health: HealthRegistry;
   metrics: RuntimeMetrics;
@@ -71,7 +72,7 @@ export function createWorkerRunner(input: {
     gateAgentDeployments: async () => { await reconcileGateAgentDeployments(input.db); },
     benchmarkScheduler: () => benchmarkSchedulerLoop.runOnce(),
     tradingProbeScheduler: () => tradingProbeSchedulerLoop.runOnce(),
-    snapshot: () => collectControlPlaneSnapshotMetrics(input)
+    snapshot: () => collectControlPlaneSnapshotMetrics({ ...input, db: input.metricsDb ?? input.db })
   };
   let stopping = false;
   let running: Promise<void> | null = null;

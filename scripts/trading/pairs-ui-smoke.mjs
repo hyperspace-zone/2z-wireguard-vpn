@@ -13,13 +13,17 @@ const latency = { generatedAt: date, nodes, targets, measurements: nodes.flatMap
 const matrix = { generatedAt: date, gates: nodes.map(node => ({ id: node.id, name: `gate-${node.id}`, city: node.city, country: node.country, desiredState: "Enabled", publicIpv4: "8.8.8.8", ready: true, schedulable: true })), routes: [{ sourceGateId: "source", targetGateId: "egress", sourceGateName: "gate-source", targetGateName: "gate-egress", doublezero: { transport: "doublezero", status: "succeeded", sourceInterface: "doublezero0", lossPercent: 0, measuredAt: date, rttMs: { p50: 5 } }, public: { transport: "public", status: "succeeded", measuredAt: date, rttMs: { p50: 20 } } }] };
 const snapshot = buildTradingPairsSnapshot(latency, matrix);
 const requests = []; let postedSession; let rejectPreset = false; let acceptSession = false;
+let pairFailuresRemaining = 0; let pairsUnavailable = false; let pairResponseState = "live";
 const dist = resolve("apps/web/dist");
 const server = createServer(async (request, response) => {
   try {
     const url = new URL(request.url, "http://localhost"); const path = url.pathname;
     requests.push(path);
     const json = (data, code = 200) => { response.writeHead(code, { "content-type": "application/json" }); response.end(JSON.stringify(data)); };
-    if (path === "/api/v1/public/trading/pairs") return json(filterTradingPairs(snapshot, { ...Object.fromEntries(url.searchParams), offset: Number(url.searchParams.get("offset") ?? 0), limit: Number(url.searchParams.get("limit") ?? 50) }));
+    if (path === "/api/v1/public/trading/pairs") {
+      if (pairsUnavailable || pairFailuresRemaining > 0) { pairFailuresRemaining--; return json({ error: "synthetic_outage" }, 500); }
+      return json(filterTradingPairs({ ...snapshot, generatedAt: new Date().toISOString(), snapshotStatus: pairResponseState }, { ...Object.fromEntries(url.searchParams), offset: Number(url.searchParams.get("offset") ?? 0), limit: Number(url.searchParams.get("limit") ?? 50) }));
+    }
     if (path === "/api/v1/public/trading/latency") return json(latency);
     if (path.startsWith("/api/v1/public/trading/routes/")) {
       const row = snapshot.rows.find(row => row.id === path.split("/").at(-1) && row.configEligible);
@@ -86,6 +90,33 @@ try {
   await page.locator('a[data-view="dashboard"]').first().click();
   await page.locator('a[data-view="create-config"]').first().click(); await page.locator("#session-form").waitFor();
   assert.equal(await page.locator(".pairs-checkout-notice").count(), 0, "A completed preset must not constrain the next manual config");
+  pairFailuresRemaining = 1;
+  await page.goto(`${local}/trading/pairs`);
+  await page.getByText("Connecting to live measurements", { exact: false }).waitFor();
+  assert.equal(await page.getByRole("heading", { name: "Pair Routes temporarily unavailable" }).count(), 0);
+  await page.locator(".pairs-data-row").first().waitFor({ timeout: 5000 });
+  assert.equal(await page.locator(".pairs-data-row").count(), 15, "First transient 500 must recover automatically");
+  await page.locator("[data-expand]").first().click();
+  await page.getByRole("link", { name: "Configure this route" }).waitFor();
+  pairsUnavailable = true;
+  await page.locator('input[name="search"]').fill("Tokyo");
+  await page.getByRole("button", { name: "Apply filters" }).click();
+  await page.getByText("The requested filters have not loaded", { exact: false }).waitFor();
+  assert.equal(await page.locator(".pairs-data-row").count(), 15);
+  assert.equal(await page.locator(".pairs-detail").count(), 1, "Do not destroy the expanded comparison");
+  assert.equal(await page.locator('input[name="search"]').inputValue(), "Tokyo", "Do not erase the requested input on a failed refresh");
+  assert.equal(await page.getByRole("link", { name: "Configure this route" }).count(), 0);
+  pairsUnavailable = false;
+  await page.getByRole("button", { name: "Retry now" }).click();
+  await page.getByRole("heading", { name: "No routes match these filters" }).waitFor();
+  await page.locator("#pairs-reset").click(); await page.locator(".pairs-data-row").first().waitFor();
+  pairResponseState = "stale";
+  await page.getByRole("button", { name: "Apply filters" }).click();
+  await page.getByText("Live refresh is delayed", { exact: false }).waitFor();
+  if (await page.getByRole("link", { name: "Configure this route" }).count()) throw new Error("Stale server snapshots must not expose checkout");
+  pairResponseState = "live";
+  await page.getByRole("button", { name: "Retry now" }).click();
+  await page.waitForFunction(() => document.querySelector("#pairs-refresh-status").hidden);
   assert.deepEqual(errors, []);
-  console.log(JSON.stringify({ ok: true, checks: ["pair table", "pair type filters", "honest measured empty state", "venue matrix", "mobile overflow", "legacy alias", "four venue maps", "login intent", "exact config preset", "payment-error path", "stale preset blocks issuance", "manual detachment", "old dashboard", "benchmarks isolation", "successful issuance clears preset for the next config"], fixture: true }));
+  console.log(JSON.stringify({ ok: true, checks: ["pair table", "pair type filters", "honest measured empty state", "venue matrix", "mobile overflow", "legacy alias", "four venue maps", "login intent", "exact config preset", "payment-error path", "stale preset blocks issuance", "manual detachment", "old dashboard", "benchmarks isolation", "successful issuance clears preset for the next config", "first-load 500 auto-recovery", "failed refresh retains table, detail and inputs", "stale snapshot blocks checkout", "fresh snapshot recovers the view"], fixture: true }));
 } finally { await browser.close(); await new Promise(resolve => server.close(resolve)); }

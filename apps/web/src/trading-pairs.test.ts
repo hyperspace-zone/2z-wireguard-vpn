@@ -1,7 +1,17 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { isTradingPairsPath, pairConfigUrl, pairMeasurementFresh } from "./trading-pairs.js";
+import { isTradingPairsPath, pairConfigUrl, pairMeasurementFresh, pairRetryDelay, pairSnapshotUsable } from "./trading-pairs.js";
 import { tradingRouteIntent } from "./trading-route-intent.js";
+
+test("retry delay backs off and cached or expired snapshots cannot offer a config", () => {
+  assert.deepEqual([1, 2, 3, 4, 5, 100].map(pairRetryDelay), [1000, 2000, 4000, 8000, 15000, 15000]);
+  const now = Date.now(); const value = { generatedAt: new Date(now).toISOString(), snapshotStatus: "live" as const };
+  assert.equal(pairSnapshotUsable(value, false, now), true);
+  assert.equal(pairSnapshotUsable(value, true, now), false);
+  assert.equal(pairSnapshotUsable({ ...value, snapshotStatus: "stale" }, false, now), false);
+  assert.equal(pairSnapshotUsable({ ...value, snapshotStatus: "refreshing" }, false, now), false);
+  assert.equal(pairSnapshotUsable(value, false, now + 30_000), false);
+});
 
 test("pair routes and legacy alias do not hijack the map, benchmarks or VPN app", () => {
   for (const path of ["/trading/pairs", "/trading/pairs/", "/trading/routes", "/trading/routes/about"]) assert.ok(isTradingPairsPath(path));

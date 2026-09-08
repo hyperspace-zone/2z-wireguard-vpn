@@ -564,9 +564,11 @@ async function collectSessionMetrics(db: Database, metrics: RuntimeMetrics): Pro
 export async function collectJobMetrics(db: Database, metrics: RuntimeMetrics): Promise<void> {
   const result = await db.query<{ type: string; phase: string; count: number }>(`
     WITH counts AS MATERIALIZED (
-      -- The compact (type, phase) index can answer this without reading job
-      -- payloads/history from the heap. Preserve exact counts, including zero.
-      SELECT type, phase, COUNT(*)::int AS count FROM jobs GROUP BY type, phase
+      -- Poll only operational states through the partial index. Counting all
+      -- successful history scales with fleet lifetime, even with a covering index.
+      SELECT type, phase, COUNT(*)::int AS count FROM jobs
+      WHERE phase <> 'succeeded'
+      GROUP BY type, phase
     ), types AS (
       SELECT unnest(enum_range(NULL::job_type)) AS type
     ),
@@ -580,11 +582,13 @@ export async function collectJobMetrics(db: Database, metrics: RuntimeMetrics): 
     FROM types
     CROSS JOIN phases
     LEFT JOIN counts ON counts.type = types.type AND counts.phase = phases.phase
+    WHERE phases.phase <> 'succeeded'
     ORDER BY types.type::text, phases.phase::text
   `);
+  metrics.resetGauge("control_plane_jobs_total");
   for (const row of result.rows) {
     metrics.gauge("control_plane_jobs_total", row.count, {
-      help: "Control-plane jobs by type and phase.",
+      help: "Exact operational job counts by type and phase, excluding successful history. Includes dead and acknowledged_dead.",
       labels: { type: row.type, phase: row.phase }
     });
   }

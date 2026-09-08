@@ -9,6 +9,14 @@ const db = createDatabase({
   connectionString: config.databaseUrl,
   applicationName: "hyperspace-control-plane-worker"
 });
+// Observability must not hold the operational pool or run unbounded historical
+// scans. A slow collector keeps its last gauges and reports degraded health.
+const metricsDb = createDatabase({
+  connectionString: config.databaseUrl,
+  applicationName: "hyperspace-control-plane-worker-metrics",
+  maxConnections: 1,
+  statementTimeoutMs: 2000
+});
 const health = createHealthRegistry("control-plane-worker");
 const metrics = createRuntimeMetrics({ service: "control-plane-worker" });
 metrics.gauge("control_plane_snapshot_ready", 0, {
@@ -24,6 +32,7 @@ const observability = createWorkerObservabilityServer({
 });
 const runner = createWorkerRunner({
   db,
+  metricsDb,
   config,
   health,
   metrics
@@ -31,6 +40,7 @@ const runner = createWorkerRunner({
 
 process.on("SIGTERM", () => {
   void runner.stop()
+    .then(() => metricsDb.close())
     .then(() => observability.stop())
     .then(() => metrics.stop())
     .then(() => process.exit(0));

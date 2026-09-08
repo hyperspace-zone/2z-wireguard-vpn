@@ -134,7 +134,7 @@ export function createApp(input: CreateControlPlaneApiAppInput): FastifyInstance
     hasBillingAdminAccess: auth.hasBillingAdminAccess
   });
   registerPublicBenchmarkRoutes(app, { db: benchmarkDb });
-  registerPublicTradingRoutes(app, { db: benchmarkDb });
+  registerPublicTradingRoutes(app, { db: benchmarkDb, backgroundRefresh: Boolean(input.benchmarkDb) });
   registerPublicGatesRoutes(app, { db });
   registerPublicNetworkRoutes(app, { requireUser: auth.requireUser });
   registerPublicBillingRoutes(app, {

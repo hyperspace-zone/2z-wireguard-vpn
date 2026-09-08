@@ -87,6 +87,15 @@ scripts/acknowledge-dead-jobs.mjs --env-file /etc/hyperspace/control-plane-worke
 Only `phase="dead"` triggers `HyperspaceDeadJobsPresent`; acknowledged dead jobs
 remain visible in job metrics and admin job listings but do not page the
 operator again.
+
+Operational `hyperspace_control_plane_jobs_total` excludes `succeeded` since
+2026-09-08: scanning millions of successful historical jobs on every scrape
+cycle overloaded the database. All other phases (including `dead` and
+`acknowledged_dead`) remain exact, with zero-valued enum combinations retained.
+No job history is deleted; historical successful jobs remain in admin listings
+and PostgreSQL. There is no fabricated zero or approximate replacement series.
+Worker snapshots use a separate one-connection pool with a 2-second SQL limit;
+failed collectors retain their previous gauges and expose degraded health.
 Benchmark route alerts are suppressed when either endpoint gate is disconnected;
 that case is covered by the per-gate agent connectivity alert.
 Benchmark route notifications render separate copyable `Source gate access`

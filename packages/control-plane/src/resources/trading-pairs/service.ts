@@ -3,11 +3,12 @@ import type { PublicTradingLatencyResponse, PublicGateBenchmarkMatrixResponse, P
 import type { Queryable } from "../../db/queryable.js";
 import { readPublicTradingLatency } from "../trading-probes/service.js";
 import { readPublicGateBenchmarkMatrix } from "../../read-models/public-benchmarks.query.js";
+import { SnapshotCache } from "./snapshot-cache.js";
 
 type Target = PublicTradingLatencyResponse["targets"][number];
 type Measurement = PublicTradingLatencyResponse["measurements"][number];
 export type TradingPairsSnapshot = Omit<PublicTradingPairsResponse, "total" | "offset" | "limit">;
-const caches = new WeakMap<Queryable, { expires: number; promise: Promise<TradingPairsSnapshot> }>();
+const caches = new WeakMap<Queryable, SnapshotCache<TradingPairsSnapshot>>();
 
 export function tradingMeasurementState(node: { fresh: boolean }, target: Target, measurement: Measurement | undefined, now: number): "fresh" | "stale" | "unavailable" {
   if (!node.fresh) return "stale";
@@ -108,11 +109,38 @@ export function buildTradingPairsSnapshot(latency: PublicTradingLatencyResponse,
 }
 
 export async function readTradingPairsSnapshot(db: Queryable, force = false): Promise<TradingPairsSnapshot> {
-  const cached = caches.get(db);
-  if (!force && cached && cached.expires > Date.now()) return cached.promise;
-  const promise = Promise.all([readPublicTradingLatency(db), readPublicGateBenchmarkMatrix(db)]).then(([latency, matrix]) => buildTradingPairsSnapshot(latency, matrix));
-  caches.set(db, { expires: Date.now() + 15_000, promise });
-  try { return await promise; } catch (error) { if (caches.get(db)?.promise === promise) caches.delete(db); throw error; }
+  const cache = snapshotCache(db);
+  if (force) return { ...await cache.fresh(), snapshotStatus: "live", snapshotAgeSeconds: 0 };
+  const { data, state, ageSeconds } = await cache.read();
+  return {
+    ...data, snapshotStatus: state, snapshotAgeSeconds: ageSeconds,
+    // An old published snapshot is useful for browsing, never for a preset.
+    rows: state === "live" ? data.rows : data.rows.map(row => ({ ...row, configEligible: false }))
+  };
+}
+
+function snapshotCache(db: Queryable): SnapshotCache<TradingPairsSnapshot> {
+  let cache = caches.get(db);
+  if (!cache) {
+    cache = new SnapshotCache(async () => {
+      const [latency, matrix] = await Promise.all([readPublicTradingLatency(db), readPublicGateBenchmarkMatrix(db)]);
+      return buildTradingPairsSnapshot(latency, matrix);
+    });
+    caches.set(db, cache);
+  }
+  return cache;
+}
+
+export function startTradingPairsRefresh(db: Queryable, onError: (error: unknown) => void): () => Promise<void> {
+  let stopped = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let active: Promise<void>;
+  const tick = async () => {
+    try { await snapshotCache(db).fresh(); } catch (error) { onError(error); }
+    finally { if (!stopped) { timer = setTimeout(() => { active = tick(); }, 10_000); timer.unref(); } }
+  };
+  active = tick();
+  return async () => { stopped = true; clearTimeout(timer); await active; };
 }
 
 export function filterTradingPairs(snapshot: TradingPairsSnapshot, query: TradingPairsQuery): PublicTradingPairsResponse {
@@ -148,7 +176,7 @@ export function filterTradingPairs(snapshot: TradingPairsSnapshot, query: Tradin
   return { ...snapshot, rows: rows.slice(offset, offset + limit), total: rows.length, offset, limit };
 }
 
-export async function resolveTradingRoute(db: Queryable, id: string, force = false): Promise<PublicTradingRouteResponse | null> {
+export async function resolveTradingRoute(db: Queryable, id: string, force = true): Promise<PublicTradingRouteResponse | null> {
   if (!/^[a-f0-9]{64}$/.test(id)) return null;
   const snapshot = await readTradingPairsSnapshot(db, force);
   const route = snapshot.rows.find(row => row.id === id && row.configEligible);

@@ -30,7 +30,25 @@ try {
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
   const errors = []; page.on("pageerror", error => errors.push(error.message));
   page.on("request", request => { if (request.url().startsWith(`${base}/api/`) && !["GET", "HEAD", "OPTIONS"].includes(request.method())) errors.push(`Unexpected mutation: ${request.method()} ${request.url()}`); });
+  // Fail only this browser's request; never disrupt the live database/service.
+  let failNextPairs = true;
+  await page.route("**/api/v1/public/trading/pairs?*", route => {
+    if (!failNextPairs) return route.continue();
+    failNextPairs = false;
+    return route.fulfill({ status: 503, headers: { "retry-after": "2" }, contentType: "application/json", body: JSON.stringify({ error: "trading_snapshot_unavailable" }) });
+  });
   await page.goto(`${base}/trading/pairs`);
+  await page.getByText("Connecting to live measurements", { exact: false }).waitFor();
+  await page.locator("#pairs-filters").waitFor();
+  assert.equal(await page.getByText("Pair Routes temporarily unavailable", { exact: true }).count(), 0);
+  const previousRows = await page.locator(".pairs-data-row").count();
+  failNextPairs = true;
+  await page.getByRole("button", { name: "Apply filters" }).click();
+  await page.getByText("Live refresh is delayed", { exact: false }).waitFor();
+  assert.equal(await page.locator(".pairs-data-row").count(), previousRows);
+  assert.equal(await page.locator('a[href^="/create-config?tradingRoute="]').count(), 0);
+  await page.getByRole("button", { name: "Retry now" }).click();
+  await page.locator("#pairs-refresh-status").waitFor({ state: "hidden" });
   await page.getByRole("heading", { name: /Pair Routes/ }).waitFor();
   if (pairs.total > 0) {
     await page.locator("[data-expand]").first().click();
@@ -61,5 +79,5 @@ try {
   await page.goto(`${base}/`); await page.getByRole("heading", { name: "Log in", exact: true }).waitFor();
   const client = await fetch(`${base}/trading-pair-check.mjs`); assert.equal(client.status, 200); assert.match(await client.text(), /network namespace/);
   assert.deepEqual(errors, []);
-  console.log(JSON.stringify({ ok: true, environment: base, targets: latency.targets.length, venues: pairs.venues.length, nodes: pairs.nodes.length, matchingRoutes: pairs.total, verifiedRoutes: 0, readOnly: true, configIntentChecked, ...(!configIntentChecked ? { skipped: "No currently eligible route; config intent is covered by the fixture suite." } : {}), checks: ["public API", "new venue reports", "pair view", "matrix", "mobile", "new and old maps", "benchmarks", "login", "client download"] }));
+  console.log(JSON.stringify({ ok: true, environment: base, targets: latency.targets.length, venues: pairs.venues.length, nodes: pairs.nodes.length, matchingRoutes: pairs.total, verifiedRoutes: 0, readOnly: true, configIntentChecked, ...(!configIntentChecked ? { skipped: "No currently eligible route; config intent is covered by the fixture suite." } : {}), checks: ["public API", "first-load retry", "failed refresh retains table", "new venue reports", "pair view", "matrix", "mobile", "new and old maps", "benchmarks", "login", "client download"] }));
 } finally { await browser.close(); }

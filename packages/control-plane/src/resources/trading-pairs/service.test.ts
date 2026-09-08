@@ -1,9 +1,34 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { PublicTradingLatencyResponse, PublicGateBenchmarkMatrixResponse } from "@hyperspace-zone/contracts";
-import { buildTradingPairsSnapshot, filterTradingPairs } from "./service.js";
+import { buildTradingPairsSnapshot, filterTradingPairs, readTradingPairsSnapshot } from "./service.js";
+import type { Queryable } from "../../db/queryable.js";
 
 const now = Date.parse("2026-09-07T12:00:00Z");
+
+test("public stale snapshots preserve observations but cannot authorize a route", async t => {
+  t.mock.timers.enable({ apis: ["Date"], now });
+  const { latency, matrix } = fixture(); let fail = false;
+  const db = { query: async (sql: string) => {
+    if (fail) throw new Error("outage");
+    if (sql.includes("FROM trading_probe_nodes")) return { rows: latency.nodes };
+    if (sql.includes("FROM trading_probe_targets")) return { rows: latency.targets };
+    if (sql.includes("FROM trading_latency_latest")) return { rows: latency.measurements };
+    if (sql.includes("WITH recent_latest")) return { rows: matrix.routes.map(row => ({ ...row, publicMetric: row.public, doublezeroMetric: row.doublezero })) };
+    return { rows: matrix.gates };
+  } } as Queryable;
+  try {
+    const live = await readTradingPairsSnapshot(db);
+    assert.equal(live.rows[0]!.configEligible, true);
+    fail = true; t.mock.timers.tick(16_000);
+    const cached = await readTradingPairsSnapshot(db);
+    assert.equal(cached.snapshotStatus, "refreshing");
+    assert.equal(cached.generatedAt, live.generatedAt);
+    assert.equal(cached.rows[0]!.savedMs, live.rows[0]!.savedMs);
+    assert.equal(cached.rows.some(row => row.configEligible), false);
+    await assert.rejects(readTradingPairsSnapshot(db, true), /outage/);
+  } finally { t.mock.timers.reset(); }
+});
 function fixture() {
   const latency: PublicTradingLatencyResponse = {
     generatedAt: new Date(now).toISOString(),

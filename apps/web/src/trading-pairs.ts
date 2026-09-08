@@ -8,7 +8,20 @@ let controller: AbortController | undefined;
 let requestGeneration = 0;
 const expanded = new Set<string>();
 let paused = false;
+let refreshFailures = 0;
+let refreshIssue = "";
+let retryAfterMs = 0;
+let displayedParams: URLSearchParams | undefined;
 const queryKeys = ["a", "b", "source", "search", "kind", "evidence", "positive", "noRegression", "group", "sort", "offset"];
+
+export function pairRetryDelay(failures: number): number {
+  return Math.min(15000, 1000 * 2 ** Math.min(4, Math.max(0, failures - 1)));
+}
+
+export function pairSnapshotUsable(data: Pick<PublicTradingPairsResponse, "generatedAt" | "snapshotStatus">, failed = false, now = Date.now()): boolean {
+  const age = now - Date.parse(data.generatedAt);
+  return !failed && (!data.snapshotStatus || data.snapshotStatus === "live") && Number.isFinite(age) && age >= -5000 && age < 30_000;
+}
 
 export function isTradingPairsPath(path: string): boolean {
   return /^\/trading\/(pairs|routes)(\/|$)/.test(path);
@@ -51,15 +64,27 @@ async function refresh(root: HTMLElement): Promise<void> {
     for (const key of queryKeys) if (params.has(key)) apiParams.set(key, params.get(key)!);
     apiParams.set("limit", "50");
     const response = await fetch(`/api/v1/public/trading/pairs?${apiParams}`, { signal: controller.signal, headers: { accept: "application/json" } });
-    if (!response.ok) throw new Error(`Pair Routes API returned HTTP ${response.status}`);
+    if (!response.ok) {
+      retryAfterMs = Math.min(15000, Math.max(0, Number(response.headers.get("retry-after")) || 0) * 1000);
+      throw new Error(`Pair Routes API returned HTTP ${response.status}`);
+    }
     const next = await response.json() as PublicTradingPairsResponse;
     if (generation !== requestGeneration) return;
     payload = next;
+    displayedParams = params;
+    refreshFailures = 0;
+    refreshIssue = "";
+    retryAfterMs = 0;
     render(root);
   } catch (error) {
     if (generation !== requestGeneration) return;
-    root.innerHTML = `${navigation()}<main class="pairs-shell"><h1>Pair Routes temporarily unavailable</h1><p>${escape(error instanceof Error ? error.message : "Could not load measurements")}</p><p><a href="/trading/cex">Open the latency map</a> · <a href="/benchmarks">Gate benchmarks</a></p><button id="pairs-retry">Retry</button></main>`;
-    root.querySelector("#pairs-retry")?.addEventListener("click", () => void refresh(root));
+    refreshFailures += 1;
+    refreshIssue = error instanceof Error ? error.message : "Could not load measurements";
+    if (!payload) {
+      root.innerHTML = `${navigation()}<main class="pairs-shell"><h1>Pair Routes</h1><div id="pairs-refresh-status" role="status" aria-live="polite"></div><p><a href="/trading/cex">Open the latency map</a> · <a href="/benchmarks">Gate benchmarks</a></p></main>`;
+    }
+    // Keep the table, expanded comparison and form inputs intact on failure.
+    showRefreshStatus(root);
   } finally {
     window.clearTimeout(timeout);
     if (generation === requestGeneration) scheduleRefresh(root);
@@ -71,25 +96,47 @@ function scheduleRefresh(root: HTMLElement): void {
   timer = window.setTimeout(() => {
     if (root.querySelector("#pairs-filters")?.contains(document.activeElement)) scheduleRefresh(root);
     else void refresh(root);
-  }, 15000);
+  }, refreshFailures ? Math.max(pairRetryDelay(refreshFailures), retryAfterMs) : payload?.snapshotStatus && payload.snapshotStatus !== "live" ? 2000 : 15000);
+}
+
+function showRefreshStatus(root: HTMLElement): void {
+  const status = root.querySelector<HTMLElement>("#pairs-refresh-status");
+  if (!status) return;
+  const cached = payload && !pairSnapshotUsable(payload, Boolean(refreshIssue));
+  status.hidden = !refreshIssue && !cached;
+  status.className = "pairs-notice pairs-refresh-warning";
+  if (status.hidden) { status.innerHTML = ""; return; }
+  const mismatch = displayedParams && displayedParams.toString() !== currentParams().toString();
+  const message = payload
+    ? `Showing the last successful snapshot from ${new Date(payload.generatedAt).toLocaleTimeString()} (${ago(payload.generatedAt)}). ${mismatch ? "The requested filters have not loaded; the previous view is still displayed. " : ""}Live refresh is delayed. Config selection is paused until fresh data arrives.`
+    : refreshFailures < 3 ? "Connecting to live measurements… Retrying automatically." : "Measurements are temporarily unavailable. Retrying automatically.";
+  status.innerHTML = `<span>${escape(message)}</span> <button id="pairs-retry" class="pairs-text-button">Retry now</button>`;
+  status.querySelector("#pairs-retry")?.addEventListener("click", () => void refresh(root));
+  root.querySelector("#pairs-connection-status")?.replaceChildren(document.createTextNode("Cached snapshot"));
+  root.querySelector(".pairs-live-dot")?.classList.add("is-stale");
+  root.querySelectorAll<HTMLAnchorElement>('a[href^="/create-config?tradingRoute="]').forEach(link => {
+    link.removeAttribute("href"); link.setAttribute("aria-disabled", "true"); link.textContent = "Waiting for fresh measurements";
+  });
 }
 
 function render(root: HTMLElement): void {
   if (!payload) return;
-  const params = currentParams(); const matrix = params.get("view") === "matrix";
+  const params = displayedParams ?? currentParams(); const matrix = params.get("view") === "matrix";
   const source = payload.nodes.find(node => node.id === params.get("source"));
   root.innerHTML = `${navigation()}
     <main class="pairs-shell">
       <header class="pairs-hero"><div><div class="pairs-eyebrow">NETWORK INTELLIGENCE · POWERED BY DOUBLEZERO</div><h1>Pair Routes<span class="pairs-beta">BETA</span></h1><p>Two venues. One trading server. Find a better network path.</p></div>
-        <div class="pairs-live"><span class="pairs-live-dot"></span> ${payload.summary.freshNodes}/${payload.nodes.length} probes online <small>Snapshot ${escape(new Date(payload.generatedAt).toLocaleTimeString())}</small><button id="pairs-pause" class="pairs-text-button">${paused ? "Resume updates" : "Pause updates"}</button></div></header>
+        <div class="pairs-live"><span class="pairs-live-dot"></span> <span id="pairs-connection-status">${payload.summary.freshNodes}/${payload.nodes.length} probes online</span><small>Snapshot ${escape(new Date(payload.generatedAt).toLocaleTimeString())}</small><button id="pairs-pause" class="pairs-text-button">${paused ? "Resume updates" : "Pause updates"}</button></div></header>
+      <div id="pairs-refresh-status" role="status" aria-live="polite" hidden></div>
       <div class="pairs-stats"><div><span>Tracked venues</span><strong>${payload.venues.length}</strong></div><div><span>Probe locations</span><strong>${payload.nodes.length}</strong></div><div><span>Estimated improvements · all pairs</span><strong>${payload.summary.estimatedImprovements}</strong></div><div><span>VPN A/B verified routes</span><strong>Not measured yet</strong></div></div>
       <div class="pairs-notice"><strong>Estimated network paths, not trading signals.</strong> We combine measured TCP connection times with measured DoubleZero gate RTT. WireGuard overhead and your server’s access path are not included. These are not measured VPN improvements, order latency or profit estimates. <a href="#pairs-methodology">How it works ↓</a></div>
       ${filters(payload, params)}
       <div class="pairs-toolbar"><div class="pairs-tabs"><button data-pairs-view="pairs" class="${!matrix ? "selected" : ""}">Pair opportunities</button><button data-pairs-view="matrix" class="${matrix ? "selected" : ""}">Venue matrix</button></div><span>${source ? `From ${escape(location(source))}` : params.get("group") === "all" ? "All probe locations" : "Best matching location per pair"}</span><button id="pairs-share" class="pairs-text-button">Copy view link</button></div>
-      ${matrix ? matrixView(payload, params) : tableView(payload)}
+      ${matrix ? matrixView(payload, params) : tableView(payload, params)}
       ${methodology()}
     </main>`;
   bind(root);
+  showRefreshStatus(root);
 }
 
 function navigation(): string {
@@ -117,8 +164,8 @@ function venuePicker(name: string, label: string, venues: Venue[], params: URLSe
   return `<details class="pairs-venue-picker"><summary><span>${label}</span><strong>${selected.size ? `${selected.size} selected` : "All venues"}⌄</strong></summary><div>${venues.map(venue => `<label><input type="checkbox" name="${name}" value="${escape(venue.venueKey ?? "")}" ${selected.has(venue.venueKey ?? "") ? "checked" : ""}/><span>${escape(venue.displayName)}</span><small>${escape(venue.venueType ?? "")}</small></label>`).join("")}</div></details>`;
 }
 
-function tableView(data: PublicTradingPairsResponse): string {
-  if (!data.rows.length) return `<section class="pairs-empty"><h2>${currentParams().get("evidence") === "measured" ? "No VPN A/B verified routes yet" : "No routes match these filters"}</h2><p>${currentParams().get("evidence") === "measured" ? "We will not label a calculated path as a measured VPN improvement. Explore estimates or compare current direct API access in the venue matrix." : "Try other venues or locations, or disable “Positive saving” to inspect unavailable and slower paths. No data does not mean zero latency."}</p><button data-pairs-view="matrix" class="pairs-primary">Open venue matrix</button></section>`;
+function tableView(data: PublicTradingPairsResponse, params: URLSearchParams): string {
+  if (!data.rows.length) return `<section class="pairs-empty"><h2>${params.get("evidence") === "measured" ? "No VPN A/B verified routes yet" : "No routes match these filters"}</h2><p>${params.get("evidence") === "measured" ? "We will not label a calculated path as a measured VPN improvement. Explore estimates or compare current direct API access in the venue matrix." : "Try other venues or locations, or disable “Positive saving” to inspect unavailable and slower paths. No data does not mean zero latency."}</p><button data-pairs-view="matrix" class="pairs-primary">Open venue matrix</button></section>`;
   return `<section class="pairs-table-panel"><div class="pairs-table-scroll"><table class="pairs-table"><thead><tr><th>Venue pair</th><th>Trading server / probe</th><th>Venue A <small>Direct → est. HS</small></th><th>Venue B <small>Direct → est. HS</small></th><th>Pair index <small>Direct → est. HS</small></th><th>Estimated saving</th><th>Path / evidence</th><th></th></tr></thead><tbody>${data.rows.map(row => {
     const a = data.venues.find(venue => venue.id === row.venueAId)!; const b = data.venues.find(venue => venue.id === row.venueBId)!;
     const source = data.nodes.find(node => node.id === row.sourceNodeId)!; const egress = data.nodes.find(node => node.id === row.egressNodeId);
@@ -139,7 +186,7 @@ function detail(row: TradingPairRow, a: Venue, b: Venue, source: TradingPairNode
     <div class="pairs-legs">${leg(a, row.legA)}${leg(b, row.legB)}</div>
     <p>${escape(row.reason)}</p>
     ${row.backboneRttMs !== undefined ? `<div class="pairs-backbone"><strong>Measured gate transport</strong><span>Internet ${ms(row.publicBackboneRttMs)}</span><span>DoubleZero ${ms(row.backboneRttMs)}</span><span>Gate RTT saving ${ms(row.backboneSavedMs)}</span><span>Loss ${row.backboneLossPercent ?? "—"}%</span><small>${ago(row.backboneMeasuredAt)}</small></div>` : ""}
-    <div class="pairs-detail-actions"><div><strong>Check this route with your own trading server</strong><p>Gate estimates exclude your server → ingress link and VPN overhead. FullTunnel covers all IPv4 traffic in the chosen network namespace, not only these venues. Do not change a live trading host’s default route without an isolated test.</p></div>${row.configEligible ? `<a class="pairs-primary" href="${pairConfigUrl(row.id)}">Configure this route →</a>` : '<span class="pairs-muted">No recommended config for this result</span>'}</div>
+    <div class="pairs-detail-actions"><div><strong>Check this route with your own trading server</strong><p>Gate estimates exclude your server → ingress link and VPN overhead. FullTunnel covers all IPv4 traffic in the chosen network namespace, not only these venues. Do not change a live trading host’s default route without an isolated test.</p></div>${row.configEligible && payload && pairSnapshotUsable(payload, Boolean(refreshIssue)) ? `<a class="pairs-primary" href="${pairConfigUrl(row.id)}">Configure this route →</a>` : '<span class="pairs-muted">No recommended config for this result</span>'}</div>
     <p class="pairs-footnote">Already have a config? Use the <a href="/trading-pair-check.mjs" download>read-only comparison tool</a> to record direct and VPN results in your own network namespace. No exchange keys or orders. <code>node trading-pair-check.mjs --help</code></p></div>`;
 }
 
@@ -161,6 +208,11 @@ function methodology(): string {
 }
 
 function bind(root: HTMLElement): void {
+  root.querySelectorAll<HTMLAnchorElement>('a[href^="/create-config?tradingRoute="]').forEach(link => link.addEventListener("click", event => {
+    if (!payload || !pairSnapshotUsable(payload, Boolean(refreshIssue))) {
+      event.preventDefault(); refreshIssue = "Snapshot expired"; showRefreshStatus(root); void refresh(root);
+    }
+  }));
   root.querySelector<HTMLFormElement>("#pairs-filters")?.addEventListener("submit", event => {
     event.preventDefault(); const form = new FormData(event.currentTarget as HTMLFormElement); const params = currentParams();
     for (const key of ["a", "b"]) { const values = form.getAll(key).map(String).filter(Boolean); if (values.length) params.set(key, values.join(",")); else params.delete(key); }

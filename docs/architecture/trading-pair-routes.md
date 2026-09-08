@@ -15,7 +15,13 @@
   отдельные legs, раскрытие маршрута, матрица и share URL. Нет инструментов.
 - Schema-first public API `/v1/public/trading/pairs` и
   `/v1/public/trading/routes/:routeId`. Derived service использует существующие
-  latest measurements и gate benchmarks; API-кэш на 15 секунд со singleflight.
+  latest measurements и gate benchmarks; API готовит снимок при запуске и
+  обновляет его в фоне каждые 10 секунд после завершения предыдущего расчёта
+  со singleflight. Fresh TTL — 15 секунд. При задержке обновления последний
+  успешный снимок доступен до 120 секунд с явным статусом/возрастом, без
+  возможности выбрать конфиг. Lookup preset и checkout требуют свежего расчёта.
+  Без доступного снимка API возвращает некэшируемый 503 с Retry-After; браузер
+  автоматически повторяет запрос, сохраняя уже показанные данные и фильтры.
   Пары не создают дополнительных jobs или запросов к площадкам.
 - Только TCP-оценка по одному общему egress, revision/freshness/skew checks,
   запрет stale/offline/maintenance/same-metro N/A и потерь на gate-сегменте.

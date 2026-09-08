@@ -5,7 +5,59 @@ testnet, and production. Trading probes are a separate subsystem from the VPN
 gate agent. A probe failure must not affect WireGuard assignments, DoubleZero
 recovery, gate heartbeats, or config issuance.
 
-## Pair Routes release (2026-09-07)
+## First-open availability fix (2026-09-08)
+
+The September 7 canary was not evidence of durable recovery. Production logs
+on September 8 at 06:53:43 UTC show `/v1/public/trading/pairs` returning HTTP
+500 after 8.2 seconds: PostgreSQL `57014` statement timeout in the legacy gate
+benchmark read. The browser's later retry succeeded. The API had not restarted.
+The worker's all-history job-count aggregate had again selected a 6.5 GB heap
+scan as visibility-map coverage fell; a recent vacuum alone was not sufficient.
+
+The fix does not depend on periodically vacuuming history to keep an unbounded
+aggregate affordable. Operational job metrics now count only phases other than
+`succeeded`, using `jobs_actionable_metrics_idx`. Queued, leased, running,
+retryable failure, dead and acknowledged-dead counts remain exact, including
+zero-valued enum combinations. Successful history is preserved in PostgreSQL
+and the admin inventory but is intentionally no longer a polled gauge series;
+do not interpret the absent success series as zero or an approximate lifetime
+total. Existing dead-job alerts remain covered. The metrics collector has a
+separate one-connection pool and a two-second per-statement budget, independent
+of operational work. A failed collector retains its gauges and reports degraded
+health instead of monopolizing the main pool.
+
+Prebuild the additive index before migration `0044` on an existing fleet:
+
+```bash
+node --env-file=/etc/hyperspace/control-plane-api.env scripts/control-plane/prebuild-active-job-metrics-index.mjs
+```
+
+This uses `CREATE INDEX CONCURRENTLY`, verifies validity, and refuses to replace
+an invalid existing index. The migration records/verifies the prepared index.
+No sessions, job history, billing counters or gate routing are removed/changed.
+
+Pair Routes now starts background preparation with the API and refreshes ten
+seconds after each calculation finishes. All display requests share one
+in-flight calculation. A last-good snapshot is fresh for 15 seconds and may be
+displayed up to 120 seconds with its original timestamp and explicit
+`snapshotStatus` / `snapshotAgeSeconds`. Fallback rows cannot select a config.
+Preset lookup and new checkout validation always require a fresh calculation;
+they never authorize using the display fallback. A cold/unavailable snapshot
+returns 503 with `Retry-After: 2` and `Cache-Control: no-store`, not an unhandled
+500. This is a bounded in-memory cache, not persistence across restarts.
+
+The browser retries automatically with bounded backoff, shows a connecting
+state on first open, and preserves the table, comparison and filter inputs
+when a later refresh fails. Cached data is explicitly identified and config
+selection is paused until fresh data returns. Browser tests inject failures
+only into their own requests; they do not interrupt the live database.
+
+For a longer read-only canary, use `TRADING_SMOKE_ROUNDS=60 node
+scripts/trading/pairs-sustained-smoke.mjs`. It checks both environments, both
+Pair Routes and legacy benchmarks, snapshot freshness/safety and advancing
+snapshot timestamps. A finite successful canary is not a performance SLA.
+
+## Pair Routes release (2026-09-07, historical)
 
 API, worker and web source: `bb3c4833bb700b478ef065773f24cedb81d23b1b`.
 The same source was promoted through `staging` to `main`. No testnet rollout,

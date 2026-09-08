@@ -17,3 +17,12 @@ test("job metrics use a compact covering index with a nonblocking rollout path",
   assert.match(tuning, /options.option_value::numeric <= target_scale/, "Preserve stricter existing thresholds");
   assert.doesNotMatch(tuning, /DELETE FROM|DROP |UPDATE jobs/);
 });
+
+test("operational metrics index excludes successful history without deleting jobs", async () => {
+  const root = new URL("../../../", import.meta.url);
+  const migration = await readFile(new URL("packages/db/migrations/0044_actionable_job_metrics_index.sql", root), "utf8");
+  const script = await readFile(new URL("scripts/control-plane/prebuild-active-job-metrics-index.mjs", root), "utf8");
+  assert.match(migration, /ON jobs \(type, phase\)\s+WHERE phase <> 'succeeded'/);
+  assert.match(script, /CREATE INDEX CONCURRENTLY IF NOT EXISTS jobs_actionable_metrics_idx/);
+  assert.doesNotMatch(migration, /DELETE FROM|DROP |UPDATE jobs/);
+});
