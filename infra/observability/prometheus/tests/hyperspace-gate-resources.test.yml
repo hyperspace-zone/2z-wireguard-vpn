@@ -4,23 +4,6 @@ rule_files:
 evaluation_interval: 15s
 
 tests:
-  - name: database safety guard suppression is critical
-    interval: 1m
-    input_series:
-      - series: 'hyperspace_synthetic_writes_allowed{job="hyperspace-control-plane-worker",cluster="mainnet"}'
-        values: '0x10'
-    alert_rule_test:
-      - eval_time: 6m
-        alertname: HyperspacePostgreSQLSyntheticWritesSuppressed
-        exp_alerts:
-          - exp_labels:
-              severity: critical
-              job: hyperspace-control-plane-worker
-              cluster: mainnet
-            exp_annotations:
-              summary: Hyperspace synthetic writes are paused by database protection
-              description: The worker automatically stopped creating benchmark and trading-probe jobs because PostgreSQL reached the 28GiB safety limit or its size could not be verified. VPN, billing, reconcile and archival remain active; inspect database and NFS archive health.
-
   - name: stale independent meta monitor is critical
     interval: 1m
     input_series:
@@ -666,11 +649,11 @@ tests:
               summary: Solana historical deposit reconciliation is stale
               description: No custodial wallet history scan has succeeded for more than 30 minutes; deposits without a submitted transaction hash may be delayed.
 
-  - name: hot PostgreSQL database above 30 GiB is critical
+  - name: hot PostgreSQL database above 28 GiB is critical
     interval: 1m
     input_series:
       - series: 'hyperspace_postgres_database_size_bytes{job="hyperspace-host-node",cluster="mainnet",role="postgresql",service_host="db.hyperspace.zone",service_ipv4="84.32.51.45"}'
-        values: '34359738368x20'
+        values: '31138512896x20'
     alert_rule_test:
       - eval_time: 16m
         alertname: HyperspacePostgreSQLHotDatabaseSizeCritical
@@ -683,8 +666,8 @@ tests:
               service_host: db.hyperspace.zone
               service_ipv4: 84.32.51.45
             exp_annotations:
-              summary: Hyperspace hot PostgreSQL database exceeded 30GiB
-              description: PostgreSQL on db.hyperspace.zone exceeded the 30GiB hot-data ceiling; verify NFS archival and schedule online compaction.
+              summary: Hyperspace hot PostgreSQL database is approaching its 30GiB ceiling
+              description: PostgreSQL on db.hyperspace.zone exceeded 28GiB. Writes remain enabled; urgently inspect hourly NFS archival, retention backlog and reusable table space.
 
   - name: failed PostgreSQL history archive is critical
     interval: 1m

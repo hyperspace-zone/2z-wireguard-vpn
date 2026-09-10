@@ -1,9 +1,10 @@
 [Unit]
-Description=Daily Hyperspace PostgreSQL history archive
+Description=Hourly Hyperspace PostgreSQL history archive
 
 [Timer]
-OnCalendar=*-*-* 04:30:00 UTC
-RandomizedDelaySec=20m
+OnCalendar=hourly
+RandomizedDelaySec=10m
+AccuracySec=1m
 Persistent=true
 Unit=hyperspace-db-history-archive.service
 

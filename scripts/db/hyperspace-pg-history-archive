@@ -11,6 +11,8 @@ mountpoint="${HS_DB_HISTORY_ARCHIVE_MOUNTPOINT:-/var/backups/hyperspace}"
 archive_root="${HS_DB_HISTORY_ARCHIVE_ROOT:-${mountpoint}/history-archive}"
 state_dir="${HS_DB_HISTORY_ARCHIVE_STATE_DIR:-/var/lib/hyperspace/db-history-archive}"
 max_slices="${HS_DB_HISTORY_ARCHIVE_MAX_SLICES_PER_RUN:-1}"
+pressure_bytes="${HS_DB_HISTORY_ARCHIVE_PRESSURE_BYTES:-21474836480}"
+pressure_max_slices="${HS_DB_HISTORY_ARCHIVE_PRESSURE_MAX_SLICES_PER_RUN:-4}"
 delete_batch_size="${HS_DB_HISTORY_ARCHIVE_DELETE_BATCH_SIZE:-5000}"
 delete_batch_limit="${HS_DB_HISTORY_ARCHIVE_DELETE_BATCH_LIMIT:-500}"
 delete_sleep_seconds="${HS_DB_HISTORY_ARCHIVE_DELETE_SLEEP_SECONDS:-0.20}"
@@ -21,14 +23,14 @@ max_active_queries="${HS_DB_HISTORY_ARCHIVE_MAX_ACTIVE_QUERIES:-4}"
 minimum_free_bytes="${HS_DB_HISTORY_ARCHIVE_MIN_FREE_BYTES:-10737418240}"
 minimum_free_percent="${HS_DB_HISTORY_ARCHIVE_MIN_FREE_PERCENT:-15}"
 
-for value_name in max_slices delete_batch_size delete_batch_limit export_chunk_seconds compression_level max_active_queries minimum_free_bytes minimum_free_percent; do
+for value_name in max_slices pressure_bytes pressure_max_slices delete_batch_size delete_batch_limit export_chunk_seconds compression_level max_active_queries minimum_free_bytes minimum_free_percent; do
   value="${!value_name}"
   [[ "$value" =~ ^[0-9]+$ ]] || {
     echo "$value_name must be a non-negative integer" >&2
     exit 2
   }
 done
-(( max_slices > 0 && delete_batch_size > 0 && delete_batch_limit > 0 && export_chunk_seconds > 0 && export_chunk_seconds <= 86400 )) || {
+(( max_slices > 0 && pressure_bytes > 0 && pressure_max_slices > 0 && delete_batch_size > 0 && delete_batch_limit > 0 && export_chunk_seconds > 0 && export_chunk_seconds <= 86400 )) || {
   echo "slice, batch, and export chunk limits must be positive; export chunks cannot exceed one day" >&2
   exit 2
 }
@@ -368,7 +370,17 @@ process_dataset_day() {
 }
 
 datasets=(gate_benchmarks job_attempts jobs trading_attempts trading_jobs trading_rollups assignment_deltas assignment_samples)
-for (( slice=0; slice<max_slices; slice++ )); do
+database_size="$(sql_scalar "SELECT pg_database_size(current_database())")"
+[[ "$database_size" =~ ^[0-9]+$ ]] || {
+  echo "cannot determine PostgreSQL database size" >&2
+  exit 1
+}
+effective_max_slices="$max_slices"
+if (( database_size >= pressure_bytes && pressure_max_slices > effective_max_slices )); then
+  effective_max_slices="$pressure_max_slices"
+  echo "database pressure mode: ${database_size} bytes, processing up to ${effective_max_slices} slices per dataset"
+fi
+for (( slice=0; slice<effective_max_slices; slice++ )); do
   processed=0
   for dataset in "${datasets[@]}"; do
     day="$(oldest_eligible_day "$dataset")"
