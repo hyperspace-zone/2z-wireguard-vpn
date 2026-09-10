@@ -2313,15 +2313,18 @@ func runAgentSelfTest() error {
 func validateDoubleZeroRecoverySafetyPolicy() error {
 	now := time.Date(2026, 8, 19, 12, 0, 0, 0, time.UTC)
 	confirmed := doubleZeroRecoveryRecord{DrainedSince: now.Add(-3 * time.Minute).Format(time.RFC3339)}
-	if shouldStartDoubleZeroRecovery(confirmed, "activated", true, false, now, 2*time.Minute) {
+	if shouldStartDoubleZeroRecovery(confirmed, "", true, false, now, 2*time.Minute) {
 		return errors.New("DoubleZero recovery safety self-test allowed an activated device")
 	}
-	if !shouldStartDoubleZeroRecovery(confirmed, "drained", true, false, now, 2*time.Minute) {
+	if !shouldStartDoubleZeroRecovery(confirmed, "current_doublezero_device_drained", true, false, now, 2*time.Minute) {
 		return errors.New("DoubleZero recovery safety self-test rejected a confirmed drained device")
+	}
+	if !shouldStartDoubleZeroRecovery(confirmed, "persistent_bgp_session_failed", true, false, now, 2*time.Minute) {
+		return errors.New("DoubleZero recovery safety self-test rejected a confirmed failed BGP session")
 	}
 	cooldown := confirmed
 	cooldown.NextEligibleAt = now.Add(time.Hour).Format(time.RFC3339)
-	if shouldStartDoubleZeroRecovery(cooldown, "drained", true, false, now, 2*time.Minute) {
+	if shouldStartDoubleZeroRecovery(cooldown, "current_doublezero_device_drained", true, false, now, 2*time.Minute) {
 		return errors.New("DoubleZero recovery safety self-test ignored cooldown")
 	}
 	return nil
@@ -2713,6 +2716,12 @@ func (manager *doubleZeroRecoveryManager) Observe(status map[string]any) {
 	}
 
 	manager.mu.Lock()
+	if manager.running {
+		manager.transitionLocked("in_progress", "automatic_reconnect_running", manager.record.DrainedSince)
+		manager.decorateLocked(status)
+		manager.mu.Unlock()
+		return
+	}
 	healthy := tunnelStatus == "BGP Session Up" && routeState == "ready" && deviceState != "drained"
 	if healthy {
 		changed := manager.record.State != "not_required" || manager.record.Reason != "doublezero_ready" || manager.record.DrainedSince != ""
@@ -2727,7 +2736,8 @@ func (manager *doubleZeroRecoveryManager) Observe(status map[string]any) {
 		return
 	}
 
-	if deviceState != "drained" {
+	triggerReason := doubleZeroAutomaticRecoveryTrigger(deviceState, tunnelStatus, currentDevice)
+	if triggerReason == "" {
 		state := "manual_required"
 		reason := "doublezero_not_ready_device_not_drained"
 		if currentDevice == "" {
@@ -2742,16 +2752,10 @@ func (manager *doubleZeroRecoveryManager) Observe(status map[string]any) {
 	}
 
 	if manager.record.DrainedSince == "" {
-		manager.transitionLocked("observing", "current_doublezero_device_drained", now.Format(time.RFC3339))
+		manager.transitionLocked("observing", triggerReason, now.Format(time.RFC3339))
 	}
 	if !manager.cfg.DoubleZeroRecoveryEnabled {
 		manager.transitionLocked("manual_required", "automatic_recovery_disabled", manager.record.DrainedSince)
-		manager.decorateLocked(status)
-		manager.mu.Unlock()
-		return
-	}
-	if manager.running {
-		manager.transitionLocked("in_progress", "automatic_reconnect_running", manager.record.DrainedSince)
 		manager.decorateLocked(status)
 		manager.mu.Unlock()
 		return
@@ -2766,16 +2770,16 @@ func (manager *doubleZeroRecoveryManager) Observe(status map[string]any) {
 		manager.mu.Unlock()
 		return
 	}
-	drainedSince, ok := parseRecoveryTime(manager.record.DrainedSince)
-	if !ok || now.Sub(drainedSince) < manager.cfg.DoubleZeroRecoveryConfirmation {
-		manager.transitionLocked("observing", "current_doublezero_device_drained", manager.record.DrainedSince)
+	conditionSince, ok := parseRecoveryTime(manager.record.DrainedSince)
+	if !ok || now.Sub(conditionSince) < manager.cfg.DoubleZeroRecoveryConfirmation {
+		manager.transitionLocked("observing", triggerReason, manager.record.DrainedSince)
 		manager.decorateLocked(status)
 		manager.mu.Unlock()
 		return
 	}
 	if !shouldStartDoubleZeroRecovery(
 		manager.record,
-		deviceState,
+		triggerReason,
 		manager.cfg.DoubleZeroRecoveryEnabled,
 		manager.running,
 		now,
@@ -2804,7 +2808,7 @@ func (manager *doubleZeroRecoveryManager) Observe(status map[string]any) {
 
 	logJSON("doublezero_recovery_started", map[string]any{
 		"gate":         manager.cfg.GateName,
-		"reason":       "current_doublezero_device_drained",
+		"reason":       triggerReason,
 		"beforeDevice": currentDevice,
 		"network":      network,
 	})
@@ -3026,13 +3030,13 @@ func parseRecoveryTime(value string) (time.Time, bool) {
 
 func shouldStartDoubleZeroRecovery(
 	record doubleZeroRecoveryRecord,
-	deviceState string,
+	triggerReason string,
 	enabled bool,
 	running bool,
 	now time.Time,
 	confirmation time.Duration,
 ) bool {
-	if !enabled || running || deviceState != "drained" {
+	if !enabled || running || (triggerReason != "current_doublezero_device_drained" && triggerReason != "persistent_bgp_session_failed") {
 		return false
 	}
 	drainedSince, ok := parseRecoveryTime(record.DrainedSince)
@@ -3043,6 +3047,16 @@ func shouldStartDoubleZeroRecovery(
 		return false
 	}
 	return true
+}
+
+func doubleZeroAutomaticRecoveryTrigger(deviceState string, tunnelStatus string, currentDevice string) string {
+	if deviceState == "drained" {
+		return "current_doublezero_device_drained"
+	}
+	if tunnelStatus == "BGP Session Failed" && strings.TrimSpace(currentDevice) != "" {
+		return "persistent_bgp_session_failed"
+	}
+	return ""
 }
 
 func compactRecoveryError(err error, output string) string {

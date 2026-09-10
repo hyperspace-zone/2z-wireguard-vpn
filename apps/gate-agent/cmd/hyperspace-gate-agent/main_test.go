@@ -112,17 +112,23 @@ func TestDoubleZeroRecoveryOnlyStartsForConfirmedDrainedDevice(t *testing.T) {
 		DrainedSince: now.Add(-3 * time.Minute).Format(time.RFC3339),
 	}
 
-	if !shouldStartDoubleZeroRecovery(confirmed, "drained", true, false, now, 2*time.Minute) {
+	if !shouldStartDoubleZeroRecovery(confirmed, "current_doublezero_device_drained", true, false, now, 2*time.Minute) {
 		t.Fatal("confirmed drained device should start one automatic recovery")
 	}
-	if shouldStartDoubleZeroRecovery(confirmed, "activated", true, false, now, 2*time.Minute) {
+	if shouldStartDoubleZeroRecovery(confirmed, "", true, false, now, 2*time.Minute) {
 		t.Fatal("activated device must never be disconnected automatically")
 	}
-	if shouldStartDoubleZeroRecovery(confirmed, "drained", false, false, now, 2*time.Minute) {
+	if shouldStartDoubleZeroRecovery(confirmed, "current_doublezero_device_drained", false, false, now, 2*time.Minute) {
 		t.Fatal("disabled automatic recovery must not start")
 	}
-	if shouldStartDoubleZeroRecovery(confirmed, "drained", true, true, now, 2*time.Minute) {
+	if shouldStartDoubleZeroRecovery(confirmed, "current_doublezero_device_drained", true, true, now, 2*time.Minute) {
 		t.Fatal("a second recovery must not start while one is running")
+	}
+	if !shouldStartDoubleZeroRecovery(confirmed, "persistent_bgp_session_failed", true, false, now, 2*time.Minute) {
+		t.Fatal("confirmed failed BGP session should start one automatic recovery")
+	}
+	if shouldStartDoubleZeroRecovery(confirmed, "unsupported_failure", true, false, now, 2*time.Minute) {
+		t.Fatal("an unlisted failure must never start automatic recovery")
 	}
 }
 
@@ -131,7 +137,7 @@ func TestDoubleZeroRecoveryRequiresConfirmationAndHonorsCooldown(t *testing.T) {
 	unconfirmed := doubleZeroRecoveryRecord{
 		DrainedSince: now.Add(-30 * time.Second).Format(time.RFC3339),
 	}
-	if shouldStartDoubleZeroRecovery(unconfirmed, "drained", true, false, now, 2*time.Minute) {
+	if shouldStartDoubleZeroRecovery(unconfirmed, "persistent_bgp_session_failed", true, false, now, 2*time.Minute) {
 		t.Fatal("a transient drained observation must not trigger recovery")
 	}
 
@@ -139,11 +145,29 @@ func TestDoubleZeroRecoveryRequiresConfirmationAndHonorsCooldown(t *testing.T) {
 		DrainedSince:   now.Add(-10 * time.Minute).Format(time.RFC3339),
 		NextEligibleAt: now.Add(6 * time.Hour).Format(time.RFC3339),
 	}
-	if shouldStartDoubleZeroRecovery(cooldown, "drained", true, false, now, 2*time.Minute) {
+	if shouldStartDoubleZeroRecovery(cooldown, "persistent_bgp_session_failed", true, false, now, 2*time.Minute) {
 		t.Fatal("recovery must not loop during cooldown")
 	}
-	if !shouldStartDoubleZeroRecovery(cooldown, "drained", true, false, now.Add(7*time.Hour), 2*time.Minute) {
+	if !shouldStartDoubleZeroRecovery(cooldown, "persistent_bgp_session_failed", true, false, now.Add(7*time.Hour), 2*time.Minute) {
 		t.Fatal("recovery may be attempted again after cooldown if the device is still drained")
+	}
+}
+
+func TestDoubleZeroAutomaticRecoveryTrigger(t *testing.T) {
+	if got := doubleZeroAutomaticRecoveryTrigger("drained", "BGP Session Up", "cherydam"); got != "current_doublezero_device_drained" {
+		t.Fatalf("drained device trigger = %q", got)
+	}
+	if got := doubleZeroAutomaticRecoveryTrigger("", "BGP Session Failed", "cherydam"); got != "persistent_bgp_session_failed" {
+		t.Fatalf("failed BGP trigger = %q", got)
+	}
+	if got := doubleZeroAutomaticRecoveryTrigger("activated", "BGP Session Failed", "cherydam"); got != "persistent_bgp_session_failed" {
+		t.Fatalf("failed BGP on activated device trigger = %q", got)
+	}
+	if got := doubleZeroAutomaticRecoveryTrigger("", "BGP Session Failed", ""); got != "" {
+		t.Fatalf("failed BGP without a current device must not trigger recovery: %q", got)
+	}
+	if got := doubleZeroAutomaticRecoveryTrigger("activated", "Pending BGP Session", "cherydam"); got != "" {
+		t.Fatalf("pending BGP must not trigger recovery: %q", got)
 	}
 }
 
