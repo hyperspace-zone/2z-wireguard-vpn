@@ -329,14 +329,14 @@ groups:
           (
             hyperspace_postgres_history_archive_last_success_timestamp_seconds{job="hyperspace-host-node",cluster=~"mainnet|staging"} == 0
             or
-            time() - hyperspace_postgres_history_archive_last_success_timestamp_seconds{job="hyperspace-host-node",cluster=~"mainnet|staging"} > 129600
+            time() - hyperspace_postgres_history_archive_last_success_timestamp_seconds{job="hyperspace-host-node",cluster=~"mainnet|staging"} > 21600
           )
         for: 30m
         labels:
           severity: critical
         annotations:
           summary: Hyperspace PostgreSQL history archive is stale
-          description: No successful verified NFS history archive has completed on {{ $labels.service_host }} within 36 hours.
+          description: No successful verified NFS history archive has completed on {{ $labels.service_host }} within 6 hours.
 
       - alert: HyperspacePostgreSQLHistoryArchiveStorageUnavailable
         expr: |

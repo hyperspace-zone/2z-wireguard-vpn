@@ -690,3 +690,25 @@ tests:
             exp_annotations:
               summary: Hyperspace PostgreSQL history archive failed
               description: The latest verified NFS history archive run failed on db.staging.hyperspace.zone; no unverified rows are deleted.
+
+  - name: PostgreSQL hourly history archive stale for six hours is critical
+    interval: 1m
+    input_series:
+      - series: 'hyperspace_postgres_history_archive_configured{job="hyperspace-host-node",cluster="staging",role="postgresql",service_host="db.staging.hyperspace.zone",service_ipv4="84.32.97.140"}'
+        values: '1x440'
+      - series: 'hyperspace_postgres_history_archive_last_success_timestamp_seconds{job="hyperspace-host-node",cluster="staging",role="postgresql",service_host="db.staging.hyperspace.zone",service_ipv4="84.32.97.140"}'
+        values: '1x440'
+    alert_rule_test:
+      - eval_time: 6h31m
+        alertname: HyperspacePostgreSQLHistoryArchiveStale
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: hyperspace-host-node
+              cluster: staging
+              role: postgresql
+              service_host: db.staging.hyperspace.zone
+              service_ipv4: 84.32.97.140
+            exp_annotations:
+              summary: Hyperspace PostgreSQL history archive is stale
+              description: No successful verified NFS history archive has completed on db.staging.hyperspace.zone within 6 hours.
