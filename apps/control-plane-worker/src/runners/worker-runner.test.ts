@@ -15,6 +15,8 @@ test("snapshot collection runs independently from a slow reconcile cycle", async
     snapshotRan = resolve;
   });
   let databaseClosed = false;
+  let benchmarkSchedulerRuns = 0;
+  let tradingProbeSchedulerRuns = 0;
   const db = {
     close: async () => {
       databaseClosed = true;
@@ -39,7 +41,12 @@ test("snapshot collection runs independently from a slow reconcile cycle", async
       retry: async () => undefined,
       cleanup: async () => undefined,
       gateAgentDeployments: async () => undefined,
-      benchmarkScheduler: async () => undefined,
+      benchmarkScheduler: async () => {
+        benchmarkSchedulerRuns += 1;
+      },
+      tradingProbeScheduler: async () => {
+        tradingProbeSchedulerRuns += 1;
+      },
       snapshot: async () => {
         snapshotRan();
         return true;
@@ -58,4 +65,6 @@ test("snapshot collection runs independently from a slow reconcile cycle", async
   await running;
   await metrics.stop();
   assert.equal(databaseClosed, true);
+  assert.ok(benchmarkSchedulerRuns > 0);
+  assert.ok(tradingProbeSchedulerRuns > 0);
 });

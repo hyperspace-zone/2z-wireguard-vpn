@@ -5,6 +5,11 @@ import test from "node:test";
 
 const scriptUrl = new URL("./hyperspace-pg-history-archive", import.meta.url);
 const script = readFileSync(scriptUrl, "utf8");
+const timer = readFileSync(
+  new URL("../../infra/systemd/hyperspace-db-history-archive.timer", import.meta.url),
+  "utf8"
+);
+const installer = readFileSync(new URL("./install-history-archive", import.meta.url), "utf8");
 const migration = readFileSync(
   new URL("../../packages/db/migrations/0045_history_archive_indexes.sql", import.meta.url),
   "utf8"
@@ -48,6 +53,14 @@ test("history archive shell is syntactically valid and fail-closed", () => {
   assert.match(script, /assignment_deltas\) printf '%s' 'gate_assignment_usage_deltas created_at sample_id'/);
   assert.doesNotMatch(script, /if process_dataset_day/);
   assert.doesNotMatch(script, /VACUUM FULL|TRUNCATE/);
+  assert.match(script, /HS_DB_HISTORY_ARCHIVE_PRESSURE_BYTES:-21474836480/);
+  assert.match(script, /HS_DB_HISTORY_ARCHIVE_PRESSURE_MAX_SLICES_PER_RUN:-4/);
+  assert.match(script, /SELECT pg_database_size\(current_database\(\)\)/);
+  assert.match(script, /slice<effective_max_slices/);
+  assert.match(timer, /OnCalendar=hourly/);
+  assert.match(timer, /RandomizedDelaySec=10m/);
+  assert.match(installer, /HS_DB_HISTORY_ARCHIVE_PRESSURE_BYTES=21474836480/);
+  assert.match(installer, /HS_DB_HISTORY_ARCHIVE_PRESSURE_MAX_SLICES_PER_RUN=4/);
 });
 
 test("history archive indexes cover time scans and the benchmark job foreign key", () => {

@@ -100,7 +100,10 @@ operational history directly into a live queue.
 
 ## Capacity and compaction
 
-Alerts fire at 24 GiB (warning) and 30 GiB (critical) for the hot database,
+The archive timer runs hourly. It normally processes at most one eligible day
+per dataset; at 20 GiB it automatically enters pressure mode and processes up
+to four eligible days per dataset. Alerts fire at 20 GiB (warning) and 28 GiB
+(critical) for the hot database,
 and also cover archive failure, staleness and NFS capacity. `DELETE` makes
 space reusable by PostgreSQL but does not return existing relation files to
 the operating system. After the initial archive catch-up, use `pg_repack` one
@@ -113,13 +116,14 @@ Migration `0049_jobs_session_foreign_key_index.sql` adds a partial index for
 the approximately 0.02% of jobs linked to user sessions, preventing session
 cleanup and FK checks from scanning synthetic job history.
 
-The control-plane worker independently stops creating new synthetic benchmark
-and trading-probe jobs at 28 GiB. The fail-closed guard is cached for 30
-seconds and automatically resumes scheduling below the threshold; VPN,
-billing, reconcile and archive work continue. Configure it with
-`SYNTHETIC_WRITE_HARD_LIMIT_BYTES` and `SYNTHETIC_WRITE_GUARD_REFRESH_MS` only
-when the filesystem safety budget changes.
+Archival never pauses benchmark or trading-probe scheduling. The worker keeps
+writing while the DB-host archive loop moves verified immutable history to NFS
+and deletes it in throttled batches. Tune pressure mode with
+`HS_DB_HISTORY_ARCHIVE_PRESSURE_BYTES` and
+`HS_DB_HISTORY_ARCHIVE_PRESSURE_MAX_SLICES_PER_RUN`; do not reduce the NFS
+safety reserve or bypass archive verification to reclaim space faster.
 
 The production 100-GB NFS volume shares capacity with three verified database
-dumps. It is enough for initial catch-up only while the safety reserve remains;
-500 GB is the recommended tier for long-lived history retention.
+dumps. Keep it while the configured 20-GiB safety reserve remains; move to the
+500-GB tier when the storage-pressure alert shows that normal retention no
+longer leaves enough headroom.
