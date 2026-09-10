@@ -10,6 +10,10 @@ const timer = readFileSync(
   "utf8"
 );
 const installer = readFileSync(new URL("./install-history-archive", import.meta.url), "utf8");
+const healthExporter = readFileSync(
+  new URL("../observability/hyperspace-postgres-health-exporter", import.meta.url),
+  "utf8"
+);
 const migration = readFileSync(
   new URL("../../packages/db/migrations/0045_history_archive_indexes.sql", import.meta.url),
   "utf8"
@@ -74,4 +78,11 @@ test("history archive indexes cover time scans and the benchmark job foreign key
     /trading_probe_job_attempts_completed_history_archive_idx[\s\S]*completed_at, id/
   );
   assert.match(directTimeMigration, /gate_assignment_usage_deltas_history_archive_idx[\s\S]*created_at, sample_id/);
+});
+
+test("vacuum backlog follows each table's configured autovacuum trigger", () => {
+  assert.match(healthExporter, /pg_options_to_table\(relation\.reloptions\)/);
+  assert.match(healthExporter, /option_name = 'autovacuum_vacuum_threshold'/);
+  assert.match(healthExporter, /option_name = 'autovacuum_vacuum_scale_factor'/);
+  assert.doesNotMatch(healthExporter, /GREATEST\(1000, n_live_tup \* 0\.20\)/);
 });

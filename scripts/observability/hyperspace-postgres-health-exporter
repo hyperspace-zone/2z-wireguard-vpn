@@ -20,8 +20,21 @@ IFS=$'\t' read -r connections max_connections longest_transaction tables_requiri
       current_setting('max_connections')::bigint,
       COALESCE(max(EXTRACT(EPOCH FROM clock_timestamp() - xact_start))
         FILTER (WHERE xact_start IS NOT NULL AND state <> 'idle'), 0)::bigint,
-      (SELECT count(*) FROM pg_stat_user_tables
-        WHERE n_dead_tup > GREATEST(1000, n_live_tup * 0.20))::bigint,
+      (SELECT count(*)
+        FROM pg_stat_user_tables stats
+        JOIN pg_class relation ON relation.oid = stats.relid
+        WHERE stats.n_dead_tup >
+          COALESCE(
+            (SELECT option_value::double precision
+             FROM pg_options_to_table(relation.reloptions)
+             WHERE option_name = 'autovacuum_vacuum_threshold'),
+            current_setting('autovacuum_vacuum_threshold')::double precision
+          ) + stats.n_live_tup * COALESCE(
+            (SELECT option_value::double precision
+             FROM pg_options_to_table(relation.reloptions)
+             WHERE option_name = 'autovacuum_vacuum_scale_factor'),
+            current_setting('autovacuum_vacuum_scale_factor')::double precision
+          ))::bigint,
       COALESCE((SELECT max(age(relfrozenxid)) FROM pg_class
         WHERE relkind IN ('r', 'm')), 0)::bigint,
       count(*) FILTER (WHERE backend_type = 'autovacuum worker'),
@@ -82,7 +95,7 @@ hyperspace_postgres_max_connections ${max_connections}
 # HELP hyperspace_postgres_longest_transaction_seconds Age of the longest active transaction.
 # TYPE hyperspace_postgres_longest_transaction_seconds gauge
 hyperspace_postgres_longest_transaction_seconds ${longest_transaction}
-# HELP hyperspace_postgres_tables_requiring_vacuum Tables whose dead tuple estimate exceeds the default autovacuum threshold.
+# HELP hyperspace_postgres_tables_requiring_vacuum Tables whose dead tuple estimate exceeds their configured autovacuum threshold.
 # TYPE hyperspace_postgres_tables_requiring_vacuum gauge
 hyperspace_postgres_tables_requiring_vacuum ${tables_requiring_vacuum}
 # HELP hyperspace_postgres_oldest_xid_age Oldest relation transaction ID age.
