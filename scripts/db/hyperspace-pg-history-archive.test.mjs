@@ -84,5 +84,6 @@ test("vacuum backlog follows each table's configured autovacuum trigger", () => 
   assert.match(healthExporter, /pg_options_to_table\(relation\.reloptions\)/);
   assert.match(healthExporter, /option_name = 'autovacuum_vacuum_threshold'/);
   assert.match(healthExporter, /option_name = 'autovacuum_vacuum_scale_factor'/);
+  assert.match(healthExporter, /stats\.n_dead_tup > GREATEST\(1000,/);
   assert.doesNotMatch(healthExporter, /GREATEST\(1000, n_live_tup \* 0\.20\)/);
 });

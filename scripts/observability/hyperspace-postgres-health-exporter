@@ -23,7 +23,7 @@ IFS=$'\t' read -r connections max_connections longest_transaction tables_requiri
       (SELECT count(*)
         FROM pg_stat_user_tables stats
         JOIN pg_class relation ON relation.oid = stats.relid
-        WHERE stats.n_dead_tup >
+        WHERE stats.n_dead_tup > GREATEST(1000,
           COALESCE(
             (SELECT option_value::double precision
              FROM pg_options_to_table(relation.reloptions)
@@ -34,7 +34,7 @@ IFS=$'\t' read -r connections max_connections longest_transaction tables_requiri
              FROM pg_options_to_table(relation.reloptions)
              WHERE option_name = 'autovacuum_vacuum_scale_factor'),
             current_setting('autovacuum_vacuum_scale_factor')::double precision
-          ))::bigint,
+          )))::bigint,
       COALESCE((SELECT max(age(relfrozenxid)) FROM pg_class
         WHERE relkind IN ('r', 'm')), 0)::bigint,
       count(*) FILTER (WHERE backend_type = 'autovacuum worker'),
