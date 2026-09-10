@@ -379,6 +379,9 @@ let adminTrafficSessionId = "";
 let adminConfigFilter = "active";
 let adminConfigSearch = "";
 let adminTrafficLoading = false;
+let adminQuotaEditingSessionId = "";
+let adminQuotaUpdatingSessionId = "";
+let adminQuotaFeedback = "";
 const gateLatencyById = new Map<string, { medianMs: number | null; minMs: number | null; maxMs: number | null; sampleCount: number }>();
 const gateLatencyInProgressIds = new Set<string>();
 const revokingConfigIds = new Set<string>();
@@ -1053,6 +1056,7 @@ function adminBillingView(summary: AdminBillingSummary | null): string {
 
     <section class="panel secondary-panel">
       <div class="panel-heading"><h2>VPN configs</h2><small>${visibleConfigs.length} of ${summary.configs.length}</small></div>
+      ${adminQuotaFeedback ? `<p class="admin-quota-feedback" role="status">${escapeHtml(adminQuotaFeedback)}</p>` : ""}
       <form id="admin-config-filters" class="admin-filter-row">
         <label>Search <input name="search" value="${escapeHtml(adminConfigSearch)}" placeholder="Email, config, gate or ID" /></label>
         <label>Show
@@ -1067,8 +1071,8 @@ function adminBillingView(summary: AdminBillingSummary | null): string {
         <button type="submit">Apply</button>
       </form>
       <div class="table-scroll"><table>
-        <thead><tr><th>Config</th><th>Customer</th><th>Route</th><th>State</th><th>Payment</th><th>Traffic</th><th>Last traffic</th><th>Created</th></tr></thead>
-        <tbody>${visibleConfigs.length ? visibleConfigs.map((config) => adminConfigRow(config, summary.asset)).join("") : '<tr><td colspan="8" class="empty-marker">No configs match this filter.</td></tr>'}</tbody>
+        <thead><tr><th>Config</th><th>Customer</th><th>Route</th><th>State</th><th>Payment</th><th>Quota</th><th>Traffic</th><th>Last traffic</th><th>Created</th></tr></thead>
+        <tbody>${visibleConfigs.length ? visibleConfigs.map((config) => adminConfigRow(config, summary.asset)).join("") : '<tr><td colspan="9" class="empty-marker">No configs match this filter.</td></tr>'}</tbody>
       </table></div>
     </section>
 
@@ -1120,19 +1124,43 @@ function adminConfigRow(config: AdminBillingConfig, asset: AdminBillingAsset): s
   const payment = config.paymentStatus
     ? `<span class="status-badge ${adminStatusClass(config.paymentStatus)}">${escapeHtml(config.paymentStatus)}</span>${config.paymentAmountLamports ? `<small>${escapeHtml(formatTokenBaseUnits(config.paymentAmountLamports, asset.decimals))} ${escapeHtml(asset.symbol)}</small>` : ""}`
     : '<span class="status-badge neutral">no payment</span><small>No config payment record</small>';
-  const allowance = config.trafficLimitBytes && config.trafficUsedBytes
-    ? `<small class="${config.trafficLimitReachedAt ? "amount-debit" : ""}">${escapeHtml(formatByteCount(safeBigInt(config.trafficUsedBytes)))} / ${escapeHtml(formatByteCount(safeBigInt(config.trafficLimitBytes)))}</small>`
-    : "";
   return `<tr data-admin-config-row="${escapeHtml(config.sessionId)}">
     <td><strong>${escapeHtml(config.label?.trim() || config.sessionId.slice(0, 8))}</strong><small class="mono">${escapeHtml(config.sessionId)}</small><small>${escapeHtml(config.mode)}</small></td>
     <td>${escapeHtml(config.customerEmail)}</td>
     <td>${escapeHtml(config.ingressGateName || "n/a")} → ${escapeHtml(config.egressGateName || "n/a")}</td>
     <td><span class="status-badge ${adminStatusClass(config.phase)}">${escapeHtml(config.phase)}</span><small>${escapeHtml(formatDurationSeconds(config.activeSeconds))}</small></td>
     <td>${payment}</td>
-    <td><strong>${escapeHtml(formatByteCount(safeBigInt(config.payloadBytes)))}</strong><small>out ${escapeHtml(formatByteCount(safeBigInt(config.bytesToDestination)))} · in ${escapeHtml(formatByteCount(safeBigInt(config.bytesFromDestination)))}</small>${allowance}${safeBigInt(config.droppedBytes) > 0n ? `<small class="amount-debit">dropped ${escapeHtml(formatByteCount(safeBigInt(config.droppedBytes)))}</small>` : ""}</td>
+    <td>${adminConfigQuotaCell(config)}</td>
+    <td><strong>${escapeHtml(formatByteCount(safeBigInt(config.payloadBytes)))}</strong><small>out ${escapeHtml(formatByteCount(safeBigInt(config.bytesToDestination)))} · in ${escapeHtml(formatByteCount(safeBigInt(config.bytesFromDestination)))}</small>${safeBigInt(config.droppedBytes) > 0n ? `<small class="amount-debit">dropped ${escapeHtml(formatByteCount(safeBigInt(config.droppedBytes)))}</small>` : ""}</td>
     <td>${config.lastTrafficAt ? escapeHtml(relativeTime(config.lastTrafficAt)) : "No traffic"}</td>
     <td>${escapeHtml(relativeTime(config.createdAt))}</td>
   </tr>`;
+}
+
+function adminConfigQuotaCell(config: AdminBillingConfig): string {
+  if (!config.trafficLimitBytes || !config.trafficUsedBytes || config.trafficRemainingBytes === null || config.trafficRemainingBytes === undefined) {
+    return '<span class="status-badge neutral">unmetered</span><small>Legacy config</small>';
+  }
+  const limit = safeBigInt(config.trafficLimitBytes);
+  const used = safeBigInt(config.trafficUsedBytes);
+  const remaining = safeBigInt(config.trafficRemainingBytes);
+  const reached = Boolean(config.trafficLimitReachedAt) || remaining === 0n;
+  if (adminQuotaEditingSessionId === config.sessionId) {
+    const limitGb = limit / 1_000_000_000n;
+    const busy = adminQuotaUpdatingSessionId === config.sessionId;
+    return `<form class="admin-quota-editor" data-admin-quota-form="${escapeHtml(config.sessionId)}">
+      <label><input name="includedGb" type="number" min="1" max="1000000" step="1" required aria-label="Total quota in GB" value="${limitGb.toString()}" ${busy ? "disabled" : ""} /></label>
+      <span>GB</span>
+      <button type="submit" ${busy ? "disabled" : ""}>${busy ? "Saving..." : "Save"}</button>
+      <button type="button" class="secondary-button" data-cancel-admin-quota ${busy ? "disabled" : ""}>Cancel</button>
+    </form><small>${escapeHtml(formatByteCount(used))} already used</small>`;
+  }
+  return `<div class="admin-quota-summary ${reached ? "status-error" : ""}">
+    <strong>${escapeHtml(formatByteCount(remaining))} left</strong>
+    <small>${escapeHtml(formatByteCount(used))} used · ${escapeHtml(formatByteCount(limit))} total</small>
+    ${reached ? '<small>Quota reached</small>' : ""}
+    <button type="button" class="secondary-button" data-edit-admin-quota="${escapeHtml(config.sessionId)}">Change quota</button>
+  </div>`;
 }
 
 function adminPaymentRow(payment: AdminConfigPayment, asset: AdminBillingAsset): string {
@@ -2960,6 +2988,25 @@ function bindHandlers(): void {
   document.getElementById("refresh-admin-traffic")?.addEventListener("click", () => {
     void refreshAdminTraffic();
   });
+  for (const button of document.querySelectorAll("[data-edit-admin-quota]")) {
+    button.addEventListener("click", () => {
+      adminQuotaEditingSessionId = (button as HTMLElement).dataset.editAdminQuota ?? "";
+      adminQuotaFeedback = "";
+      render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
+      document.querySelector<HTMLInputElement>("[data-admin-quota-form] input[name='includedGb']")?.select();
+    });
+  }
+  document.querySelector("[data-cancel-admin-quota]")?.addEventListener("click", () => {
+    adminQuotaEditingSessionId = "";
+    render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
+  });
+  for (const form of document.querySelectorAll("[data-admin-quota-form]")) {
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const sessionId = (form as HTMLElement).dataset.adminQuotaForm;
+      if (sessionId) void updateAdminConfigQuota(sessionId, new FormData(form as HTMLFormElement));
+    });
+  }
   for (const row of document.querySelectorAll("[data-admin-config-row]")) {
     row.addEventListener("click", (event) => {
       if ((event.target as HTMLElement).closest("a,button,input,select")) return;
@@ -3347,6 +3394,39 @@ async function refreshAdminTraffic(): Promise<void> {
     log(error instanceof Error ? error.message : "Could not load traffic counters.");
   } finally {
     adminTrafficLoading = false;
+    render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
+  }
+}
+
+async function updateAdminConfigQuota(sessionId: string, form: FormData): Promise<void> {
+  if (adminQuotaUpdatingSessionId) return;
+  const includedGb = String(form.get("includedGb") ?? "").trim();
+  if (!/^[1-9]\d{0,6}$/.test(includedGb) || BigInt(includedGb) > 1_000_000n) {
+    adminQuotaFeedback = "Enter a whole quota from 1 to 1,000,000 GB.";
+    render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
+    return;
+  }
+  adminQuotaUpdatingSessionId = sessionId;
+  adminQuotaFeedback = "";
+  render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
+  try {
+    const result = await api(`/v1/admin/billing/configs/${encodeURIComponent(sessionId)}/traffic-quota`, {
+      method: "PATCH",
+      body: { includedGb, reason: "Manual quota adjustment from billing admin" }
+    });
+    adminQuotaEditingSessionId = "";
+    if (result.reactivation === "requested") {
+      adminQuotaFeedback = "Quota updated and config reprovisioning started. The customer must download the refreshed config after it becomes active.";
+    } else if (result.reactivation === "waiting_for_revocation") {
+      adminQuotaFeedback = "Quota updated. The config is still being revoked; update it once more after the state becomes revoked to restore it.";
+    } else {
+      adminQuotaFeedback = `Quota updated to ${includedGb} GB.`;
+    }
+    latestAdminBilling = await getAdminBilling();
+  } catch (error) {
+    adminQuotaFeedback = error instanceof Error ? error.message : "Could not update the traffic quota.";
+  } finally {
+    adminQuotaUpdatingSessionId = "";
     render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
   }
 }

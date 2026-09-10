@@ -93,6 +93,12 @@ export {
   enforceSessionTrafficQuotas,
   type TrafficQuotaEnforcementResult
 } from "./application/billing/traffic-quota.scenario.js";
+export {
+  adjustSessionTrafficQuota,
+  decimalGigabyteBytes,
+  maxAdminTrafficQuotaGb,
+  type AdminTrafficQuotaAdjustmentResult
+} from "./application/billing/admin-traffic-quota.scenario.js";
 export { issueClientConfigDownloadToken } from "./application/artifacts/issue-download-token.scenario.js";
 export { drainGate } from "./application/operator/drain-gate.scenario.js";
 export { forceReconcile } from "./application/operator/force-reconcile.scenario.js";

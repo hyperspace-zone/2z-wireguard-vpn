@@ -40,6 +40,8 @@ Operator flows:
 - force reconcile
 - drain, enable, disable, and maintain gates
 - apply operator overrides
+- inspect per-config traffic allowances and adjust a metered config with
+  `PATCH /v1/admin/billing/configs/:sessionId/traffic-quota`
 
 ## `/v1/gate/*`
 

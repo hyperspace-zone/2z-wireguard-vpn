@@ -126,6 +126,21 @@ data from loading. Traffic totals and time-series charts use raw egress
 assignment counters, so they remain independent from the disabled legacy USD
 usage-rating model.
 
+Each metered config row shows consumed, total, and remaining aggregate traffic.
+A billing administrator can replace the config's absolute allowance with any
+whole value from 1 through 1,000,000 decimal GB. The API rejects a value that is
+not greater than the already consumed counter and records the old limit, new
+limit, consumed counter, actor, reason, and reactivation decision in
+`audit_events` as `session_traffic_quota_adjusted`.
+
+Increasing an active config takes effect immediately. If quota enforcement has
+already fully revoked the config, the same operation starts reprovisioning of
+the logical session. Gate key material is regenerated, so the customer must
+download and apply the refreshed WireGuard config after it becomes active. If
+revocation is still in progress, the admin page reports that state; repeat the
+operation after the phase reaches `revoked`. Manually revoked and legacy
+unmetered configs are never reactivated implicitly.
+
 Legacy USD plans and promotional-credit controls are intentionally absent from
 the web admin. Their database records and admin-authenticated API endpoints are
 kept temporarily for compatibility and migration, but do not affect native SOL

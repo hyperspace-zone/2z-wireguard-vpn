@@ -112,10 +112,86 @@ test("billing admin traffic validates config IDs and maps the 7d range", async (
   await app.close();
 });
 
+test("billing admin quota route validates whole GB limits", async () => {
+  const app = Fastify();
+  registerAdminBillingRoutes(app, {
+    db: emptyDatabase(),
+    billing,
+    requireAdmin: async () => ({ kind: "admin", id: "admin-1" })
+  });
+  const sessionId = "90386aa8-73e5-4fe0-82c2-8b442e3ad47d";
+
+  const fractional = await app.inject({
+    method: "PATCH",
+    url: `/v1/admin/billing/configs/${sessionId}/traffic-quota`,
+    payload: { includedGb: "50.5" }
+  });
+  assert.equal(fractional.statusCode, 400);
+
+  const excessive = await app.inject({
+    method: "PATCH",
+    url: `/v1/admin/billing/configs/${sessionId}/traffic-quota`,
+    payload: { includedGb: "1000001" }
+  });
+  assert.equal(excessive.statusCode, 400);
+  await app.close();
+});
+
+test("billing admin quota route applies an exact large decimal-GB allowance", async () => {
+  const sessionId = "90386aa8-73e5-4fe0-82c2-8b442e3ad47d";
+  const db = meteredDatabase(sessionId);
+  const app = Fastify();
+  registerAdminBillingRoutes(app, {
+    db,
+    billing,
+    requireAdmin: async () => ({ kind: "admin", id: "00000000-0000-4000-8000-000000000001" })
+  });
+
+  const response = await app.inject({
+    method: "PATCH",
+    url: `/v1/admin/billing/configs/${sessionId}/traffic-quota`,
+    payload: { includedGb: "1000000", reason: "Approved high-volume customer" }
+  });
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.json().includedBytes, "1000000000000000");
+  assert.equal(response.json().remainingBytes, "999998800000000");
+  await app.close();
+});
+
 function emptyDatabase(): Database {
   return {
     async query() {
       return { rows: [] };
+    }
+  } as unknown as Database;
+}
+
+function meteredDatabase(sessionId: string): Database {
+  const client = {
+    async query<Row extends object>(sql: string) {
+      if (/JOIN session_traffic_entitlements/.test(sql) && /FOR UPDATE OF sessions/.test(sql)) {
+        return {
+          rows: [{
+            sessionId,
+            accountId: "00000000-0000-4000-8000-000000000002",
+            includedBytes: "50000000000",
+            consumedBytes: "1200000000",
+            exhaustedAt: null,
+            desiredState: "Active",
+            phase: "active",
+            generation: 1,
+            quotaRevoked: false
+          } as Row],
+          rowCount: 1
+        };
+      }
+      return { rows: [] as Row[], rowCount: 1 };
+    }
+  };
+  return {
+    query: client.query.bind(client),
+    async transaction<T>(fn: (transactionClient: typeof client) => Promise<T>) {
+      return fn(client);
     }
   } as unknown as Database;
 }

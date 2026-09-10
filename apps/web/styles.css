@@ -1838,6 +1838,51 @@ small {
   background: #f1f6fc;
 }
 
+.admin-quota-feedback {
+  background: #eef6ff;
+  border: 1px solid #9ec5fe;
+  border-radius: 6px;
+  color: #173b67;
+  margin: 0 0 14px;
+  padding: 10px 12px;
+}
+
+.admin-quota-summary {
+  display: grid;
+  gap: 4px;
+  min-width: 170px;
+}
+
+.admin-quota-summary button {
+  font-size: 12px;
+  justify-self: start;
+  margin-top: 4px;
+  padding: 5px 8px;
+}
+
+.admin-quota-editor {
+  align-items: center;
+  display: grid;
+  gap: 6px;
+  grid-template-columns: minmax(96px, 1fr) auto;
+  min-width: 190px;
+}
+
+.admin-quota-editor label {
+  min-width: 0;
+}
+
+.admin-quota-editor input {
+  min-width: 0;
+  width: 100%;
+}
+
+.admin-quota-editor button {
+  font-size: 12px;
+  margin: 0;
+  padding: 5px 8px;
+}
+
 .qr-overlay {
   align-items: center;
   background: rgba(22, 27, 34, 0.72);

@@ -8,6 +8,7 @@ import {
   errorResponseSchema
 } from "@hyperspace-zone/contracts";
 import {
+  adjustSessionTrafficQuota,
   applyBillingCredit,
   assignBillingPlan,
   createBillingPlanVersion,
@@ -18,6 +19,8 @@ import {
   listAdminSolanaConfigPayments,
   listAdminSolanaDeposits,
   listBillingCustomers,
+  decimalGigabyteBytes,
+  maxAdminTrafficQuotaGb,
   readAdminTrafficSeries,
   type BillingConfig
 } from "@hyperspace-zone/control-plane";
@@ -86,6 +89,53 @@ export function registerAdminBillingRoutes(
       bucketSeconds: range.bucketSeconds,
       points
     });
+  });
+
+  app.patch("/v1/admin/billing/configs/:sessionId/traffic-quota", async (request, reply) => {
+    const admin = await deps.requireAdmin(request, reply);
+    if (!admin) return;
+    const sessionId = readPathParam(request, "sessionId");
+    if (!uuidPattern.test(sessionId)) {
+      return reply.code(400).send({ error: "invalid_session_id", message: "sessionId must be a UUID." });
+    }
+    const body = asRecord(request.body);
+    const includedGbRaw = readString(body, "includedGb");
+    if (!/^[1-9]\d{0,6}$/.test(includedGbRaw)) {
+      return reply.code(400).send({
+        error: "invalid_traffic_quota",
+        message: `includedGb must be a whole number from 1 to ${maxAdminTrafficQuotaGb.toString()}.`
+      });
+    }
+    const includedGb = BigInt(includedGbRaw);
+    if (includedGb > maxAdminTrafficQuotaGb) {
+      return reply.code(400).send({
+        error: "invalid_traffic_quota",
+        message: `includedGb must not exceed ${maxAdminTrafficQuotaGb.toString()}.`
+      });
+    }
+    const result = await adjustSessionTrafficQuota(deps.db, {
+      sessionId,
+      includedBytes: includedGb * decimalGigabyteBytes,
+      adminId: admin.id,
+      reason: readString(body, "reason") || "Manual traffic quota adjustment"
+    });
+    if (result.status === "not_found") {
+      return reply.code(404).send({ error: "session_not_found", message: "VPN config was not found." });
+    }
+    if (result.status === "not_metered") {
+      return reply.code(409).send({
+        error: "traffic_quota_not_configured",
+        message: "This legacy config does not have an enforceable traffic quota."
+      });
+    }
+    if (result.status === "below_consumed") {
+      return reply.code(409).send({
+        error: "traffic_quota_below_consumed",
+        message: "The new quota must be greater than the traffic already consumed.",
+        consumedBytes: result.consumedBytes
+      });
+    }
+    return reply.send(result);
   });
 
   app.post("/v1/admin/billing/customers/:accountId/credits", async (request, reply) => {

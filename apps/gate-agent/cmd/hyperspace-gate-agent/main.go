@@ -1973,7 +1973,7 @@ func decodeAssignmentPayload(item job) (assignmentPayload, error) {
 
 func prepareAssignment(cfg config, payload assignmentPayload) (localMaterial, error) {
 	existing, err := readAssignmentState(cfg, payload.AssignmentID)
-	if err == nil && existing.Material.AssignmentID != "" {
+	if err == nil && reusablePreparedAssignment(existing, payload.Role) {
 		return existing.Material, nil
 	}
 	if payload.Role != "Ingress" && payload.Role != "Egress" {
@@ -2028,6 +2028,7 @@ func prepareAssignment(cfg config, payload assignmentPayload) (localMaterial, er
 			TransitListenPort: transitListenPort,
 		},
 	}
+	counterOffset := resumedCounterOffset(existing, err == nil)
 	state := assignmentState{
 		AssignmentID:      payload.AssignmentID,
 		Role:              payload.Role,
@@ -2041,12 +2042,28 @@ func prepareAssignment(cfg config, payload assignmentPayload) (localMaterial, er
 		ClientPrivateKey:  clientPrivateKey,
 		TransitPrivateKey: transitPrivateKey,
 		Material:          material,
+		CounterOffset:     counterOffset,
 		CreatedAt:         time.Now().UTC().Format(time.RFC3339),
 	}
 	if err := writeAssignmentState(cfg, state); err != nil {
 		return localMaterial{}, err
 	}
 	return material, nil
+}
+
+func reusablePreparedAssignment(state assignmentState, role string) bool {
+	return state.Material.AssignmentID != "" && state.RevokedAt == "" && state.TransitPrivateKey != "" &&
+		(role != "Ingress" || state.ClientPrivateKey != "")
+}
+
+func resumedCounterOffset(state assignmentState, exists bool) assignmentCounterSnapshot {
+	if !exists {
+		return assignmentCounterSnapshot{}
+	}
+	if state.CounterCheckpoint != nil {
+		return *state.CounterCheckpoint
+	}
+	return state.CounterOffset
 }
 
 func commitAssignment(cfg config, payload assignmentPayload) (assignmentState, error) {

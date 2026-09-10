@@ -214,6 +214,39 @@ func TestDecodeProbePayloadDefaults(t *testing.T) {
 	}
 }
 
+func TestRevokedAssignmentIsPreparedAgainWithoutResettingCounters(t *testing.T) {
+	checkpoint := assignmentCounterSnapshot{
+		ForwardedToDestinationBytes:   42,
+		ForwardedFromDestinationBytes: 84,
+	}
+	state := assignmentState{
+		ClientPrivateKey:  "cleared",
+		TransitPrivateKey: "cleared",
+		RevokedAt:         "2026-09-10T12:00:00Z",
+		Material:          localMaterial{AssignmentID: "assignment-1"},
+		CounterCheckpoint: &checkpoint,
+	}
+
+	if reusablePreparedAssignment(state, "Ingress") {
+		t.Fatal("revoked assignment must generate fresh gate key material")
+	}
+	resumed := resumedCounterOffset(state, true)
+	if resumed.ForwardedToDestinationBytes != 42 || resumed.ForwardedFromDestinationBytes != 84 {
+		t.Fatalf("unexpected resumed counter offset: %#v", resumed)
+	}
+}
+
+func TestActivePreparedAssignmentCanBeReused(t *testing.T) {
+	state := assignmentState{
+		ClientPrivateKey:  "client-secret",
+		TransitPrivateKey: "transit-secret",
+		Material:          localMaterial{AssignmentID: "assignment-1"},
+	}
+	if !reusablePreparedAssignment(state, "Ingress") {
+		t.Fatal("active prepared ingress assignment should be reusable")
+	}
+}
+
 func TestBlockedProbeLaneDoesNotBlockControlJobs(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		response.Header().Set("content-type", "application/json")

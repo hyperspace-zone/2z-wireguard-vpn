@@ -81,6 +81,13 @@ export async function upsertGateAssignment(
       SET desired_state = EXCLUDED.desired_state,
           gate_id = EXCLUDED.gate_id,
           plan_id = EXCLUDED.plan_id,
+          generation = CASE
+            WHEN gate_assignments.desired_state <> EXCLUDED.desired_state
+              OR gate_assignments.gate_id <> EXCLUDED.gate_id
+              OR gate_assignments.plan_id <> EXCLUDED.plan_id
+            THEN gate_assignments.generation + 1
+            ELSE gate_assignments.generation
+          END,
           updated_at = now()
       RETURNING id
     `,

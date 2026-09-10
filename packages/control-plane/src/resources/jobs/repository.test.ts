@@ -51,6 +51,7 @@ test("apply assignment job insert is idempotent across active and succeeded jobs
   assert.ok(insert);
   assert.match(insert.sql, /phase IN \('queued', 'leased', 'running', 'retryable_failed'\)/);
   assert.match(insert.sql, /jobs\.phase = 'succeeded'/);
+  assert.match(insert.sql, /gate_assignments\.plan_id::text/);
   assert.match(insert.sql, /JOIN gate_assignment_status/);
   assert.match(insert.sql, /gate_assignment_status\.phase IN \('queued', 'leased', 'applying', 'prepared', 'applied'\)/);
 });
@@ -77,4 +78,5 @@ test("revoke assignment job insert is idempotent after a succeeded revoke", asyn
   assert.ok(insert);
   assert.match(insert.sql, /phase IN \('queued', 'leased', 'running', 'retryable_failed'\)/);
   assert.match(insert.sql, /phase = 'succeeded'/);
+  assert.match(insert.sql, /jobs\.created_at >= gate_assignments\.updated_at/);
 });

@@ -54,7 +54,9 @@ let googleRedirectAfter = null;
 let createdSessionPollCount = 0;
 const sessions = [];
 const adminTrafficRequests = [];
+const adminQuotaUpdates = [];
 const adminConfigId = "90386aa8-73e5-4fe0-82c2-8b442e3ad47d";
+let adminConfigTrafficLimitBytes = "50000000000";
 const depositWalletPublicKey = "6TQxgf6T4DRqk2r6WwCSw8uFsAdWbym3G8Yt19cZX7wt";
 const depositSignature = "3nRbdPZB7sbmMRacYiepTbAXvDi15JdSoV3eXsUi1UJVTeeFceEyNcnEqFMRGSMq3mKiu5G2ansgpvfDsBCiRo4y";
 const gates = [
@@ -167,8 +169,8 @@ try {
           firstTrafficAt: new Date(Date.now() - 7_200_000).toISOString(), lastTrafficAt: new Date().toISOString(),
           paymentStatus: "confirmed", paymentAmountLamports: "100000000", paymentFeeLamports: "5000",
           paymentTransactionSignature: depositSignature, paymentConfirmedAt: new Date().toISOString(),
-          trafficLimitBytes: "50000000000", trafficUsedBytes: "1200000000",
-          trafficRemainingBytes: "48800000000", trafficLimitReachedAt: null,
+          trafficLimitBytes: adminConfigTrafficLimitBytes, trafficUsedBytes: "1200000000",
+          trafficRemainingBytes: (BigInt(adminConfigTrafficLimitBytes) - 1_200_000_000n).toString(), trafficLimitReachedAt: null,
           createdAt: new Date(Date.now() - 7_200_000).toISOString(), updatedAt: new Date().toISOString(), hiddenAt: null,
           lastRatedAt: null
         }],
@@ -195,6 +197,19 @@ try {
           symbol: "SOL", decimals: 9, explorerTransactionBaseUrl: "https://orbmarkets.io/tx/",
           configPriceBaseUnits: "100000000", configTrafficLimitBytes: "50000000000"
         }
+      });
+    }
+    if (path === `/v1/admin/billing/configs/${adminConfigId}/traffic-quota` && method === "PATCH") {
+      const payload = request.postDataJSON();
+      adminQuotaUpdates.push(payload);
+      adminConfigTrafficLimitBytes = (BigInt(payload.includedGb) * 1_000_000_000n).toString();
+      return json(route, {
+        status: "updated",
+        sessionId: adminConfigId,
+        includedBytes: adminConfigTrafficLimitBytes,
+        consumedBytes: "1200000000",
+        remainingBytes: (BigInt(adminConfigTrafficLimitBytes) - 1_200_000_000n).toString(),
+        reactivation: "not_needed"
       });
     }
     if (path === "/v1/admin/billing/traffic") {
@@ -333,6 +348,16 @@ try {
   }
   await page.getByText(testEmail, { exact: true }).first().waitFor();
   await page.getByText("Staging route", { exact: true }).first().waitFor();
+  await page.getByText("48.80 GB left", { exact: true }).waitFor();
+  await page.getByRole("button", { name: "Change quota", exact: true }).click();
+  await capture(page, "network-admin-quota-edit");
+  await page.locator("[data-admin-quota-form] input[name=includedGb]").fill("500");
+  await page.locator("[data-admin-quota-form]").getByRole("button", { name: "Save", exact: true }).click();
+  await page.getByText("Quota updated to 500 GB.", { exact: true }).waitFor();
+  await page.getByText("498.80 GB left", { exact: true }).waitFor();
+  if (adminQuotaUpdates.length !== 1 || adminQuotaUpdates[0]?.includedGb !== "500") {
+    throw new Error(`unexpected admin quota update: ${JSON.stringify(adminQuotaUpdates)}`);
+  }
   await page.locator("#admin-traffic-config").selectOption(adminConfigId);
   await page.getByRole("button", { name: "7d", exact: true }).click();
   await page.waitForFunction(() => document.querySelector("#refresh-admin-traffic")?.textContent === "Refresh");

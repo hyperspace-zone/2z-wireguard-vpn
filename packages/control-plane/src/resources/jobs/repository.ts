@@ -228,11 +228,17 @@ export async function insertApplyAssignmentJob(
       AND NOT EXISTS (
         SELECT 1
         FROM jobs
+        JOIN gate_assignments
+          ON gate_assignments.id = jobs.assignment_id
         JOIN gate_assignment_status
           ON gate_assignment_status.assignment_id = jobs.assignment_id
         WHERE jobs.assignment_id = $3
           AND jobs.type = 'apply_assignment'
           AND jobs.payload->>'operation' = $6
+          AND COALESCE(
+            jobs.payload->'plan'->>'planId',
+            jobs.payload->'networkPlan'->>'planId'
+          ) = gate_assignments.plan_id::text
           AND jobs.phase = 'succeeded'
           AND gate_assignment_status.phase IN ('queued', 'leased', 'applying', 'prepared', 'applied')
       )
@@ -274,9 +280,12 @@ export async function insertRevokeAssignmentJob(
       AND NOT EXISTS (
         SELECT 1
         FROM jobs
-        WHERE assignment_id = $3
-          AND type = 'revoke_assignment'
-          AND phase = 'succeeded'
+        JOIN gate_assignments
+          ON gate_assignments.id = jobs.assignment_id
+        WHERE jobs.assignment_id = $3
+          AND jobs.type = 'revoke_assignment'
+          AND jobs.phase = 'succeeded'
+          AND jobs.created_at >= gate_assignments.updated_at
       )
     `,
     [

@@ -158,6 +158,11 @@ states, finalized deposits, aggregate raw egress traffic, and per-config traffic
 charts. It must show the current finalized treasury balance and must not expose
 the disabled legacy USD plan or promotional-credit controls. Validate both the
 global and per-config 24-hour, 7-day, and 30-day ranges after deployment.
+For a metered config, verify that the Quota column shows used, total, and
+remaining traffic. Change a test config from 50 GB to 500 GB and confirm that
+the updated allowance survives a page reload and creates a
+`session_traffic_quota_adjusted` audit event. Do not test quota editing against
+a customer production config.
 
 ```bash
 curl -fsS https://app.staging.hyperspace.zone/api/health
