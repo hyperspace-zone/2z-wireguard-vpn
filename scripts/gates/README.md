@@ -76,11 +76,13 @@ SHA in a fresh heartbeat. The local helper automatically restores the previous
 artifact if any of those checks fail.
 
 The managed binary also reports `doublezero-recovery:v1`. Its recovery
-guard only reconnects a gate whose current DoubleZero device is confirmed
-`drained` for two minutes. One attempt is followed by live BGP/route
-verification and a six-hour cooldown; the state is persisted across service
-restarts. This is part of the post-rollout heartbeat verification and must not
-be replaced with an SSH loop that copies an untested binary directly.
+guard reconnects a gate when its current DoubleZero device is confirmed
+`drained`, or when an assigned tunnel remains exactly `BGP Session Failed`,
+for two minutes. One attempt is followed by live BGP/route verification and a
+six-hour cooldown; the state is persisted across service restarts. Pending
+sessions, missing current-device identity, and unlisted states remain manual.
+This is part of the post-rollout heartbeat verification and must not be
+replaced with an SSH loop that copies an untested binary directly.
 
 Inventory entries may set `resourceTier` to `standard` or `hub`. `standard`
 sets `nf_conntrack_max=65536`. `hub` sets `262144` and is rejected on hosts with

@@ -1437,18 +1437,22 @@ artifact; rollback is retried up to three times. Release metadata and
 labels in Telegram, so a failed rollout cannot remain invisible for weeks.
 
 The gate-agent also protects an enabled gate from remaining attached to an
-administratively `drained` DoubleZero device. It reads the current device from
-`doublezero status`, confirms the on-chain device status with
-`doublezero device get --json`, and requires the drained condition to persist
-for at least two minutes. It then performs exactly one asynchronous
+administratively `drained` DoubleZero device or remaining in the exact
+`BGP Session Failed` state while a current device is still assigned. It reads
+the current device from `doublezero status`, confirms the on-chain device
+status with `doublezero device get --json`, and requires either eligible
+condition to persist for at least two minutes. It then performs exactly one asynchronous
 `doublezero disconnect ibrl` / `doublezero connect ibrl` cycle while heartbeats
 continue, and verifies both `BGP Session Up` and installed BGP routes. The
 result, timestamps, previous/new device, and six-hour retry cooldown are
 persisted in `/var/lib/hyperspace-gate/doublezero-recovery.json` and reported in
 every heartbeat. Each new completion is also copied to the central audit log as
-`gate_doublezero_recovery_completed`. Healthy devices, transient observations,
-unknown device state, and ordinary non-drained BGP failures are never
-disconnected automatically.
+`gate_doublezero_recovery_completed`. A persistent `BGP Session Failed` may be
+recovered even when the device lookup is temporarily unknown: this covers a
+stale GRE/BGP attachment whose reconnect can select a healthy device. Healthy
+sessions, `Pending BGP Session`, missing current-device identity, transient
+observations, and all other unlisted states are never disconnected
+automatically.
 
 `HyperspaceEnabledGateDoubleZeroNotReady` is critical. Its Telegram text says
 whether guarded recovery already ran and failed, is running, or was not

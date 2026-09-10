@@ -75,7 +75,7 @@ tests:
               recovery_next_eligible_at: "2026-08-19T16:00:00Z"
             exp_annotations:
               summary: Enabled Hyperspace gate DoubleZero connectivity is unavailable
-              description: Gate gate-na-mia-71 is enabled but DoubleZero is not ready. Current device=laconic-mia-sw01, device status=drained, recovery state=failed, reason=automatic_reconnect_failed_cooldown. The gate-agent already attempted 'doublezero disconnect ibrl' followed by 'doublezero connect ibrl' at 2026-08-19T10:00:00Z, but BGP and routes were not restored. Do not loop the command before 2026-08-19T16:00:00Z; inspect gate-agent/doublezerod logs and escalate to DoubleZero if the device remains drained.
+              description: Gate gate-na-mia-71 is enabled but DoubleZero is not ready. Current device=laconic-mia-sw01, device status=drained, recovery state=failed, reason=automatic_reconnect_failed_cooldown. The gate-agent already attempted 'doublezero disconnect ibrl' followed by 'doublezero connect ibrl' at 2026-08-19T10:00:00Z, but BGP and routes were not restored. Do not loop the command before 2026-08-19T16:00:00Z; inspect gate-agent/doublezerod logs and escalate to DoubleZero if BGP remains down or the device remains drained.
 
   - name: stalled gate agent deployment is critical and carries gate access
     interval: 15s

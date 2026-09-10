@@ -611,7 +611,7 @@ groups:
             'doublezero disconnect ibrl' followed by 'doublezero connect ibrl' at
             {{ $labels.recovery_attempted_at }}, but BGP and routes were not restored. Do not loop the
             command before {{ $labels.recovery_next_eligible_at }}; inspect gate-agent/doublezerod logs
-            and escalate to DoubleZero if the device remains drained.{{ else if eq $labels.recovery_state "in_progress" }}The
+            and escalate to DoubleZero if BGP remains down or the device remains drained.{{ else if eq $labels.recovery_state "in_progress" }}The
             gate-agent is currently executing the guarded disconnect/connect recovery; inspect its logs
             if this alert does not resolve.{{ else }}Automatic recovery has not completed successfully.
             Operator action: inspect the current device and gate-agent logs, then run
