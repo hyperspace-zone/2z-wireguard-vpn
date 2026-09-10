@@ -149,6 +149,10 @@ interface Session {
     code?: string;
     message?: string;
   };
+  trafficLimitBytes?: string | null;
+  trafficUsedBytes?: string | null;
+  trafficRemainingBytes?: string | null;
+  trafficLimitReachedAt?: string | null;
   createdAt: string;
 }
 
@@ -190,6 +194,7 @@ interface BillingSummary {
   walletSpendableBaseUnits: string | null;
   walletRentReserveBaseUnits: string | null;
   configPriceBaseUnits: string;
+  configTrafficLimitBytes: string;
 }
 
 interface BillingDepositDestination {
@@ -294,6 +299,10 @@ interface AdminBillingConfig {
   paymentFeeLamports?: string | null;
   paymentTransactionSignature?: string | null;
   paymentConfirmedAt?: string | null;
+  trafficLimitBytes?: string | null;
+  trafficUsedBytes?: string | null;
+  trafficRemainingBytes?: string | null;
+  trafficLimitReachedAt?: string | null;
   createdAt: string;
   updatedAt: string;
   hiddenAt?: string | null;
@@ -315,6 +324,7 @@ interface AdminConfigPayment {
   createdAt: string;
   submittedAt?: string | null;
   confirmedAt?: string | null;
+  trafficLimitBytes?: string | null;
 }
 
 interface AdminDeposit {
@@ -333,6 +343,7 @@ interface AdminBillingAsset {
   decimals: number;
   explorerTransactionBaseUrl: string;
   configPriceBaseUnits: string;
+  configTrafficLimitBytes: string;
 }
 
 interface AdminTrafficPoint {
@@ -919,6 +930,13 @@ function accountPanel(billing: BillingSummary | null): string {
         ` : '<p class="empty-marker">Deposit wallet is being prepared</p>'}
       </div>
     </div>
+    ${nativeSolBilling && billing ? `
+      <div class="billing-terms">
+        <div><small>VPN config</small><strong>${escapeHtml(configPriceText())}</strong></div>
+        <div><small>Included traffic</small><strong>${escapeHtml(configTrafficLimitText())}</strong></div>
+        <p>The allowance is measured across both traffic directions. The config is disabled at the limit; no debt or overage charge is created.</p>
+      </div>
+    ` : ""}
     ${depositHistoryPanel(billing?.deposits ?? [], nativeSolBilling)}
     ${nativeSolBilling ? "" : withdrawalPanel(billing)}
     ${nativeSolBilling ? "" : billingUsagePanel(billing?.usage ?? [], billing?.currency ?? "USD")}
@@ -1102,13 +1120,16 @@ function adminConfigRow(config: AdminBillingConfig, asset: AdminBillingAsset): s
   const payment = config.paymentStatus
     ? `<span class="status-badge ${adminStatusClass(config.paymentStatus)}">${escapeHtml(config.paymentStatus)}</span>${config.paymentAmountLamports ? `<small>${escapeHtml(formatTokenBaseUnits(config.paymentAmountLamports, asset.decimals))} ${escapeHtml(asset.symbol)}</small>` : ""}`
     : '<span class="status-badge neutral">no payment</span><small>No config payment record</small>';
+  const allowance = config.trafficLimitBytes && config.trafficUsedBytes
+    ? `<small class="${config.trafficLimitReachedAt ? "amount-debit" : ""}">${escapeHtml(formatByteCount(safeBigInt(config.trafficUsedBytes)))} / ${escapeHtml(formatByteCount(safeBigInt(config.trafficLimitBytes)))}</small>`
+    : "";
   return `<tr data-admin-config-row="${escapeHtml(config.sessionId)}">
     <td><strong>${escapeHtml(config.label?.trim() || config.sessionId.slice(0, 8))}</strong><small class="mono">${escapeHtml(config.sessionId)}</small><small>${escapeHtml(config.mode)}</small></td>
     <td>${escapeHtml(config.customerEmail)}</td>
     <td>${escapeHtml(config.ingressGateName || "n/a")} → ${escapeHtml(config.egressGateName || "n/a")}</td>
     <td><span class="status-badge ${adminStatusClass(config.phase)}">${escapeHtml(config.phase)}</span><small>${escapeHtml(formatDurationSeconds(config.activeSeconds))}</small></td>
     <td>${payment}</td>
-    <td><strong>${escapeHtml(formatByteCount(safeBigInt(config.payloadBytes)))}</strong><small>out ${escapeHtml(formatByteCount(safeBigInt(config.bytesToDestination)))} · in ${escapeHtml(formatByteCount(safeBigInt(config.bytesFromDestination)))}</small>${safeBigInt(config.droppedBytes) > 0n ? `<small class="amount-debit">dropped ${escapeHtml(formatByteCount(safeBigInt(config.droppedBytes)))}</small>` : ""}</td>
+    <td><strong>${escapeHtml(formatByteCount(safeBigInt(config.payloadBytes)))}</strong><small>out ${escapeHtml(formatByteCount(safeBigInt(config.bytesToDestination)))} · in ${escapeHtml(formatByteCount(safeBigInt(config.bytesFromDestination)))}</small>${allowance}${safeBigInt(config.droppedBytes) > 0n ? `<small class="amount-debit">dropped ${escapeHtml(formatByteCount(safeBigInt(config.droppedBytes)))}</small>` : ""}</td>
     <td>${config.lastTrafficAt ? escapeHtml(relativeTime(config.lastTrafficAt)) : "No traffic"}</td>
     <td>${escapeHtml(relativeTime(config.createdAt))}</td>
   </tr>`;
@@ -2210,7 +2231,10 @@ function createConfigConfirmationPanel(gates: Gate[]): string {
           <small>One-time config price</small>
           <strong>${escapeHtml(paymentAmount)}</strong>
         </div>
-        <p>The payment is sent from your Hyperspace Solana wallet when you confirm. A Solana network fee is added.</p>
+        <div class="config-payment-copy">
+          <p>Includes ${escapeHtml(configTrafficLimitText())} of aggregate traffic across both directions. The config is automatically disabled when the allowance is exhausted. No debt or overage charge is created.</p>
+          <p>The payment is sent from your Hyperspace Solana wallet when you confirm. A Solana network fee is added.</p>
+        </div>
       </div>
       ${createConfigPaymentError ? `
         <div class="config-payment-error" role="alert">
@@ -2597,7 +2621,7 @@ function vpnConfigsPanel(sessions: Session[]): string {
   return `
     <div class="table-scroll">
       <table class="vpn-configs-table">
-        <thead><tr><th class="created-column">Created</th><th class="mode-column">Mode</th><th>Config</th><th class="source-column">Source IP</th><th class="target-column">Target IP</th><th class="ingress-column">Ingress gate</th><th class="egress-column">Egress gate</th><th>Status</th><th class="actions-column">Actions</th></tr></thead>
+        <thead><tr><th class="created-column">Created</th><th class="mode-column">Mode</th><th>Config</th><th class="source-column">Source IP</th><th class="target-column">Target IP</th><th class="ingress-column">Ingress gate</th><th class="egress-column">Egress gate</th><th>Traffic</th><th>Status</th><th class="actions-column">Actions</th></tr></thead>
         <tbody>
           ${sessions
             .map(
@@ -2610,6 +2634,7 @@ function vpnConfigsPanel(sessions: Session[]): string {
 			                  <td class="target-column">${targetIpCell(session)}</td>
 			                  <td class="ingress-column">${gateNameCell(session.selectedPath?.ingressGateName)}</td>
 			                  <td class="egress-column">${gateNameCell(session.selectedPath?.egressGateName)}</td>
+			                  <td>${trafficQuotaCell(session)}</td>
 			                  <td class="status-column">${sessionStatusCell(session)}</td>
 			                  <td class="actions-column"><div class="action-buttons">${vpnConfigActions(session)}</div></td>
 		                </tr>
@@ -2654,6 +2679,14 @@ function vpnConfigActions(session: Session): string {
 }
 
 function sessionStatusCell(session: Session): string {
+  if (session.trafficLimitReachedAt) {
+    return `
+      <div class="status-cell status-error">
+        <strong>Traffic limit reached</strong>
+        <small>config disabled</small>
+      </div>
+    `;
+  }
   const label = phaseLabel(session.phase);
   if (session.phase === "failed") {
     const message = session.lastError?.message || session.lastError?.code || "Provisioning failed";
@@ -2673,6 +2706,21 @@ function sessionStatusCell(session: Session): string {
     `;
   }
   return `<span class="status-cell"><strong>${escapeHtml(label)}</strong></span>`;
+}
+
+function trafficQuotaCell(session: Session): string {
+  if (!session.trafficLimitBytes || !session.trafficUsedBytes) {
+    return '<span class="muted">Not metered</span>';
+  }
+  const used = parseIntegerBigInt(session.trafficUsedBytes);
+  const limit = parseIntegerBigInt(session.trafficLimitBytes);
+  const remaining = parseIntegerBigInt(session.trafficRemainingBytes ?? "0");
+  return `
+    <div class="status-cell ${session.trafficLimitReachedAt ? "status-error" : ""}">
+      <strong>${escapeHtml(formatByteCount(used))} / ${escapeHtml(formatByteCount(limit))}</strong>
+      <small>${escapeHtml(formatByteCount(remaining))} remaining</small>
+    </div>
+  `;
 }
 
 function phaseLabel(phase: string): string {
@@ -3212,7 +3260,7 @@ async function createSession(): Promise<void> {
   } catch (error) {
     createConfigSubmitting = false;
     if (error instanceof ApiRequestError && error.code === "insufficient_solana_funds") {
-      createConfigPaymentError = "Insufficient spendable SOL for 0.0001 SOL, the network fee, and the Solana account rent reserve. Top up your wallet on Billing, then retry Confirm.";
+      createConfigPaymentError = `Insufficient spendable SOL for ${configPriceText()}, the network fee, and the Solana account rent reserve. Top up your wallet on Billing, then retry Confirm.`;
     } else if (error instanceof ApiRequestError && error.code.startsWith("config_payment_")) {
       createConfigPaymentError = error.message;
     }
@@ -4246,9 +4294,13 @@ function billingBalanceText(billing: BillingSummary | null): string {
 }
 
 function configPriceText(): string {
-  const baseUnits = latestBilling?.configPriceBaseUnits || "100000";
+  const baseUnits = latestBilling?.configPriceBaseUnits || "100000000";
   const decimals = latestBilling?.deposit?.tokenDecimals ?? 9;
   return `${formatTokenBaseUnits(baseUnits, decimals)} SOL`;
+}
+
+function configTrafficLimitText(): string {
+  return formatByteCount(parseIntegerBigInt(latestBilling?.configTrafficLimitBytes || "50000000000"));
 }
 
 function formatDurationSeconds(seconds: number): string {
@@ -4264,6 +4316,15 @@ function formatByteCount(bytes: bigint): string {
   if (value < 1_000_000) return `${(value / 1_000).toFixed(1)} KB`;
   if (value < 1_000_000_000) return `${(value / 1_000_000).toFixed(1)} MB`;
   return `${(value / 1_000_000_000).toFixed(2)} GB`;
+}
+
+function parseIntegerBigInt(value: string): bigint {
+  try {
+    const parsed = BigInt(value);
+    return parsed >= 0n ? parsed : 0n;
+  } catch {
+    return 0n;
+  }
 }
 
 function shortWallet(publicKey: string): string {

@@ -89,6 +89,10 @@ export {
   renderBillingNotification,
   type BillingEmailSender
 } from "./application/billing/billing-notifications.scenario.js";
+export {
+  enforceSessionTrafficQuotas,
+  type TrafficQuotaEnforcementResult
+} from "./application/billing/traffic-quota.scenario.js";
 export { issueClientConfigDownloadToken } from "./application/artifacts/issue-download-token.scenario.js";
 export { drainGate } from "./application/operator/drain-gate.scenario.js";
 export { forceReconcile } from "./application/operator/force-reconcile.scenario.js";

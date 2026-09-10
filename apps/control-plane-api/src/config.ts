@@ -71,7 +71,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ControlPlaneAp
       enforcePositiveBalance: readBoolean(env, "BILLING_ENFORCE_POSITIVE_BALANCE", false),
       requiredMinBalanceMinor: readNonNegativeInteger(env, "BILLING_REQUIRED_MIN_BALANCE_MINOR", 0),
       solanaAssetKind: nativeSolBilling ? "native" : "spl",
-      configPriceLamports: readNonNegativeInteger(env, "SOLANA_CONFIG_PRICE_LAMPORTS", 100_000),
+      configPriceLamports: readNonNegativeInteger(env, "SOLANA_CONFIG_PRICE_LAMPORTS", 100_000_000),
+      configTrafficLimitBytes: readPositiveInteger(env, "SOLANA_CONFIG_TRAFFIC_LIMIT_BYTES", 50_000_000_000),
       configPaymentTreasuryAddress: env.SOLANA_REVENUE_TREASURY_ADDRESS ?? "",
       configPaymentEnabled: readBoolean(env, "SOLANA_CONFIG_PAYMENT_ENABLED", false)
     },

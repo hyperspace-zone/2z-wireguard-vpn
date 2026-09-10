@@ -11,6 +11,10 @@ interface SessionRow {
   sourceCidr: string | null;
   selectedPath: Record<string, unknown> | null;
   lastError: { code?: string; message?: string } | null;
+  trafficLimitBytes: string | null;
+  trafficUsedBytes: string | null;
+  trafficRemainingBytes: string | null;
+  trafficLimitReachedAt: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -44,10 +48,19 @@ function sessionSelectSql(tail: string): string {
       sessions.source_cidr::text AS "sourceCidr",
       session_status.selected_path AS "selectedPath",
       session_status.last_error AS "lastError",
+      session_traffic_entitlements.included_bytes::text AS "trafficLimitBytes",
+      session_traffic_entitlements.consumed_bytes::text AS "trafficUsedBytes",
+      GREATEST(
+        session_traffic_entitlements.included_bytes - session_traffic_entitlements.consumed_bytes,
+        0
+      )::text AS "trafficRemainingBytes",
+      session_traffic_entitlements.exhausted_at AS "trafficLimitReachedAt",
       sessions.created_at AS "createdAt",
       sessions.updated_at AS "updatedAt"
     FROM sessions
     JOIN session_status ON session_status.session_id = sessions.id
+    LEFT JOIN session_traffic_entitlements
+      ON session_traffic_entitlements.session_id = sessions.id
     ${tail}
   `;
 }
@@ -63,6 +76,10 @@ function mapSessionRow(row: SessionRow): SessionSummary {
     ...(row.sourceCidr ? { sourceCidr: row.sourceCidr } : {}),
     ...(row.selectedPath ? { selectedPath: row.selectedPath } : {}),
     ...(row.lastError ? { lastError: row.lastError } : {}),
+    trafficLimitBytes: row.trafficLimitBytes,
+    trafficUsedBytes: row.trafficUsedBytes,
+    trafficRemainingBytes: row.trafficRemainingBytes,
+    trafficLimitReachedAt: row.trafficLimitReachedAt,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt
   };

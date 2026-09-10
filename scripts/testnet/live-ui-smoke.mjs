@@ -201,7 +201,8 @@ try {
   }
   await page.getByRole("button", { name: "Review config" }).click();
   await expectText(page, "Step 2");
-  await expectText(page, "Pay 0.0001 SOL and create");
+  await expectText(page, "Pay 0.1 SOL and create");
+  await expectText(page, "Includes 50.00 GB of aggregate traffic across both directions");
   if (excludedCountry) {
     await expectText(page, `Avoid countries: ${excludedCountry}`);
   }
@@ -213,7 +214,7 @@ try {
   const accessToken = await page.evaluate(() => localStorage.getItem("hyperspaceAccessToken"));
   assert(accessToken, "browser did not store access token");
   const authedApi = makeApiClient(apiBase, accessToken);
-  await page.getByRole("button", { name: "Pay 0.0001 SOL and create" }).click();
+  await page.getByRole("button", { name: "Pay 0.1 SOL and create" }).click();
   await page.waitForURL(`${webBase}/create-config`, { timeout: 30000 });
   await page.getByRole("img", { name: "WireGuard configuration QR code" }).waitFor({ timeout: 300000 });
   assert(page.url() === `${webBase}/create-config`, "config flow redirected before the user acknowledged the result");

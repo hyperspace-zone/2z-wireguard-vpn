@@ -157,7 +157,7 @@ ledger entries or VPN sessions into production.
 12. Configure and initialize the production treasury, then set
     `SOLANA_CONFIG_PAYMENT_ENABLED=true` and restart only the API.
 13. Run one production canary using the dedicated production E2E funder:
-    deposit, finalized balance, `0.0001 SOL` config payment, active config,
+    deposit, finalized balance, `0.1 SOL` config payment, 50 GB allowance, active config,
     download/QR, route check and revoke.
 14. Remove the silence only after Prometheus and Alertmanager have naturally
     returned healthy.

@@ -34,7 +34,7 @@ const server = createServer(async (request, response) => {
     if (path === "/api/v1/public/benchmarks/gate-matrix") return json(matrix);
     if (path === "/api/v1/public/auth/me") return json({ user: { id: "ui-test-user", accountId: "ui-test-account", email: "test@example.invalid", createdAt: date }, capabilities: [] });
     if (path === "/api/v1/public/auth/email/verify") return json({ accessToken: "ui-fixture-only" });
-    if (path === "/api/v1/public/billing") return json({ configPriceBaseUnits: "100000", asset: { symbol: "SOL", decimals: 9 }, balanceMinor: 0, configPayments: [], deposits: [], payments: [], withdrawals: [], plans: [], wallet: null });
+    if (path === "/api/v1/public/billing") return json({ configPriceBaseUnits: "100000000", configTrafficLimitBytes: "50000000000", asset: { symbol: "SOL", decimals: 9 }, balanceMinor: 0, configPayments: [], deposits: [], payments: [], withdrawals: [], plans: [], wallet: null });
     if (path === "/api/v1/public/sessions") {
       if (request.method === "POST") { let body = ""; for await (const chunk of request) body += chunk; postedSession = JSON.parse(body); if (acceptSession) return json({ session: { id: "26df9140-2f08-4c64-b270-429e4d74fb97", phase: "requested" } }, 201); return json({ error: "insufficient_solana_funds", message: "Synthetic payment failure; no funds used." }, 402); }
       return json({ sessions: [] });

@@ -135,34 +135,54 @@ async function recordGateAssignmentCounter(
         FROM target
         ON CONFLICT (gate_id, assignment_id, boot_id, generation, sampled_at) DO NOTHING
         RETURNING *
+      ),
+      usage_inserted AS (
+        INSERT INTO gate_assignment_usage_deltas (
+          sample_id, gate_id, assignment_id, boot_id, generation, role, window_start, window_end,
+          wireguard_client_receive_bytes, wireguard_client_transmit_bytes,
+          wireguard_transit_receive_bytes, wireguard_transit_transmit_bytes,
+          forwarded_to_destination_packets, forwarded_to_destination_bytes,
+          forwarded_from_destination_packets, forwarded_from_destination_bytes,
+          dropped_to_destination_packets, dropped_to_destination_bytes,
+          dropped_from_destination_packets, dropped_from_destination_bytes
+        )
+        SELECT
+          inserted.id, inserted.gate_id, inserted.assignment_id, inserted.boot_id, inserted.generation,
+          inserted.role, COALESCE(previous.sampled_at, inserted.sampled_at), inserted.sampled_at,
+          GREATEST(inserted.wireguard_client_receive_bytes - COALESCE(previous.wireguard_client_receive_bytes, inserted.wireguard_client_receive_bytes), 0),
+          GREATEST(inserted.wireguard_client_transmit_bytes - COALESCE(previous.wireguard_client_transmit_bytes, inserted.wireguard_client_transmit_bytes), 0),
+          GREATEST(inserted.wireguard_transit_receive_bytes - COALESCE(previous.wireguard_transit_receive_bytes, inserted.wireguard_transit_receive_bytes), 0),
+          GREATEST(inserted.wireguard_transit_transmit_bytes - COALESCE(previous.wireguard_transit_transmit_bytes, inserted.wireguard_transit_transmit_bytes), 0),
+          GREATEST(inserted.forwarded_to_destination_packets - COALESCE(previous.forwarded_to_destination_packets, inserted.forwarded_to_destination_packets), 0),
+          GREATEST(inserted.forwarded_to_destination_bytes - COALESCE(previous.forwarded_to_destination_bytes, inserted.forwarded_to_destination_bytes), 0),
+          GREATEST(inserted.forwarded_from_destination_packets - COALESCE(previous.forwarded_from_destination_packets, inserted.forwarded_from_destination_packets), 0),
+          GREATEST(inserted.forwarded_from_destination_bytes - COALESCE(previous.forwarded_from_destination_bytes, inserted.forwarded_from_destination_bytes), 0),
+          GREATEST(inserted.dropped_to_destination_packets - COALESCE(previous.dropped_to_destination_packets, inserted.dropped_to_destination_packets), 0),
+          GREATEST(inserted.dropped_to_destination_bytes - COALESCE(previous.dropped_to_destination_bytes, inserted.dropped_to_destination_bytes), 0),
+          GREATEST(inserted.dropped_from_destination_packets - COALESCE(previous.dropped_from_destination_packets, inserted.dropped_from_destination_packets), 0),
+          GREATEST(inserted.dropped_from_destination_bytes - COALESCE(previous.dropped_from_destination_bytes, inserted.dropped_from_destination_bytes), 0)
+        FROM inserted
+        LEFT JOIN previous ON true
+        ON CONFLICT (sample_id) DO NOTHING
+        RETURNING assignment_id, role, forwarded_to_destination_bytes, forwarded_from_destination_bytes
+      ),
+      session_usage AS (
+        SELECT
+          gate_assignments.session_id,
+          SUM(
+            usage_inserted.forwarded_to_destination_bytes
+            + usage_inserted.forwarded_from_destination_bytes
+          ) AS payload_bytes
+        FROM usage_inserted
+        JOIN gate_assignments ON gate_assignments.id = usage_inserted.assignment_id
+        WHERE usage_inserted.role = 'Egress'
+        GROUP BY gate_assignments.session_id
       )
-      INSERT INTO gate_assignment_usage_deltas (
-        sample_id, gate_id, assignment_id, boot_id, generation, role, window_start, window_end,
-        wireguard_client_receive_bytes, wireguard_client_transmit_bytes,
-        wireguard_transit_receive_bytes, wireguard_transit_transmit_bytes,
-        forwarded_to_destination_packets, forwarded_to_destination_bytes,
-        forwarded_from_destination_packets, forwarded_from_destination_bytes,
-        dropped_to_destination_packets, dropped_to_destination_bytes,
-        dropped_from_destination_packets, dropped_from_destination_bytes
-      )
-      SELECT
-        inserted.id, inserted.gate_id, inserted.assignment_id, inserted.boot_id, inserted.generation,
-        inserted.role, COALESCE(previous.sampled_at, inserted.sampled_at), inserted.sampled_at,
-        GREATEST(inserted.wireguard_client_receive_bytes - COALESCE(previous.wireguard_client_receive_bytes, inserted.wireguard_client_receive_bytes), 0),
-        GREATEST(inserted.wireguard_client_transmit_bytes - COALESCE(previous.wireguard_client_transmit_bytes, inserted.wireguard_client_transmit_bytes), 0),
-        GREATEST(inserted.wireguard_transit_receive_bytes - COALESCE(previous.wireguard_transit_receive_bytes, inserted.wireguard_transit_receive_bytes), 0),
-        GREATEST(inserted.wireguard_transit_transmit_bytes - COALESCE(previous.wireguard_transit_transmit_bytes, inserted.wireguard_transit_transmit_bytes), 0),
-        GREATEST(inserted.forwarded_to_destination_packets - COALESCE(previous.forwarded_to_destination_packets, inserted.forwarded_to_destination_packets), 0),
-        GREATEST(inserted.forwarded_to_destination_bytes - COALESCE(previous.forwarded_to_destination_bytes, inserted.forwarded_to_destination_bytes), 0),
-        GREATEST(inserted.forwarded_from_destination_packets - COALESCE(previous.forwarded_from_destination_packets, inserted.forwarded_from_destination_packets), 0),
-        GREATEST(inserted.forwarded_from_destination_bytes - COALESCE(previous.forwarded_from_destination_bytes, inserted.forwarded_from_destination_bytes), 0),
-        GREATEST(inserted.dropped_to_destination_packets - COALESCE(previous.dropped_to_destination_packets, inserted.dropped_to_destination_packets), 0),
-        GREATEST(inserted.dropped_to_destination_bytes - COALESCE(previous.dropped_to_destination_bytes, inserted.dropped_to_destination_bytes), 0),
-        GREATEST(inserted.dropped_from_destination_packets - COALESCE(previous.dropped_from_destination_packets, inserted.dropped_from_destination_packets), 0),
-        GREATEST(inserted.dropped_from_destination_bytes - COALESCE(previous.dropped_from_destination_bytes, inserted.dropped_from_destination_bytes), 0)
-      FROM inserted
-      LEFT JOIN previous ON true
-      ON CONFLICT (sample_id) DO NOTHING
+      UPDATE session_traffic_entitlements
+      SET consumed_bytes = session_traffic_entitlements.consumed_bytes + session_usage.payload_bytes,
+          updated_at = now()
+      FROM session_usage
+      WHERE session_traffic_entitlements.session_id = session_usage.session_id
     `,
     [gateId, counter.assignmentId, bootId, counter.generation, counter.role, counter.sampledAt, ...values]
   );

@@ -10,6 +10,7 @@ export interface SolanaConfigPaymentRow {
   sourceWalletAddress: string;
   treasuryAddress: string;
   amountLamports: string;
+  trafficLimitBytes: string | null;
   feeLamports: string | null;
   status: SolanaConfigPaymentStatus;
   transactionSignature: string | null;
@@ -32,6 +33,7 @@ const paymentColumns = `
   source_wallet_address AS "sourceWalletAddress",
   treasury_address AS "treasuryAddress",
   amount_lamports::text AS "amountLamports",
+  traffic_limit_bytes::text AS "trafficLimitBytes",
   fee_lamports::text AS "feeLamports",
   status,
   transaction_signature AS "transactionSignature",
@@ -56,17 +58,27 @@ export async function ensureSolanaConfigPayment(
     sourceWalletAddress: string;
     treasuryAddress: string;
     amountLamports: bigint;
+    trafficLimitBytes: bigint;
   }
 ): Promise<SolanaConfigPaymentRow> {
   await db.query(
     `
       INSERT INTO solana_config_payments (
-        id, account_id, session_id, source_wallet_address, treasury_address, amount_lamports
+        id, account_id, session_id, source_wallet_address, treasury_address, amount_lamports,
+        traffic_limit_bytes
       )
-      VALUES ($1::uuid, $2, $3, $4, $5, $6)
+      VALUES ($1::uuid, $2, $3, $4, $5, $6, $7)
       ON CONFLICT (id) DO NOTHING
     `,
-    [input.id, input.accountId, input.sessionId, input.sourceWalletAddress, input.treasuryAddress, input.amountLamports.toString()]
+    [
+      input.id,
+      input.accountId,
+      input.sessionId,
+      input.sourceWalletAddress,
+      input.treasuryAddress,
+      input.amountLamports.toString(),
+      input.trafficLimitBytes.toString()
+    ]
   );
   const payment = await readSolanaConfigPayment(db, input.id);
   if (!payment || payment.accountId !== input.accountId) {
@@ -75,7 +87,8 @@ export async function ensureSolanaConfigPayment(
   if (
     payment.sourceWalletAddress !== input.sourceWalletAddress ||
     payment.treasuryAddress !== input.treasuryAddress ||
-    payment.amountLamports !== input.amountLamports.toString()
+    payment.amountLamports !== input.amountLamports.toString() ||
+    payment.trafficLimitBytes !== input.trafficLimitBytes.toString()
   ) {
     throw new Error("config payment request parameters do not match the original request");
   }

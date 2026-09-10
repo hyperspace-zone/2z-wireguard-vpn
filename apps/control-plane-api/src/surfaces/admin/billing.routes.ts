@@ -57,7 +57,8 @@ export function registerAdminBillingRoutes(
         symbol: deps.billing.solanaTokenSymbol,
         decimals: deps.billing.solanaTokenDecimals,
         explorerTransactionBaseUrl: deps.billing.solanaExplorerTransactionBaseUrl,
-        configPriceBaseUnits: String(deps.billing.configPriceLamports ?? 0)
+        configPriceBaseUnits: String(deps.billing.configPriceLamports ?? 0),
+        configTrafficLimitBytes: String(deps.billing.configTrafficLimitBytes ?? 0)
       }
     });
   });

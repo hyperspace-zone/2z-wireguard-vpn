@@ -79,14 +79,17 @@ SOLANA_EXPLORER_TX_BASE_URL=https://orbmarkets.io/tx/
 SOLANA_DIRECT_DEPOSIT_SCAN_INTERVAL_SECONDS=30
 SOLANA_DIRECT_DEPOSIT_SCAN_BATCH_SIZE=25
 SOLANA_CONFIG_PAYMENT_ENABLED=true
-SOLANA_CONFIG_PRICE_LAMPORTS=100000
+SOLANA_CONFIG_PRICE_LAMPORTS=100000000
+SOLANA_CONFIG_TRAFFIC_LIMIT_BYTES=50000000000
 SOLANA_REVENUE_TREASURY_ADDRESS=<public-revenue-treasury-address>
 ```
 
 ## Config issuance payment
 
-Creating a VPN config costs `100000` lamports (`0.0001 SOL`) as a one-time
-issuance payment. Confirm uses a browser-generated UUID as an idempotency key.
+Creating a VPN config costs `100000000` lamports (`0.1 SOL`) as a one-time
+issuance payment and includes `50000000000` bytes (50 decimal GB) of aggregate
+traffic in both directions. Confirm uses a browser-generated UUID as an
+idempotency key.
 The API creates the session in `payment_pending`, decrypts the random
 account-scoped custodial key, and builds a native SOL transfer from that wallet
 to `SOLANA_REVENUE_TREASURY_ADDRESS`. It calculates the current network fee via
@@ -97,6 +100,13 @@ session becomes `requested` only after the transaction is `finalized`. Retrying
 Confirm reuses the same payment UUID and cannot charge a second time; submitted
 transactions are recovered or rebroadcast until their blockhash expires. An
 insufficient balance returns HTTP 402 and leaves no schedulable session.
+
+The allowance is snapshotted with the payment and attached to the session only
+after payment finalization. Egress counter deltas increment a durable entitlement
+counter idempotently, independently of history retention. At the limit, the
+worker requests config revocation and queues an email. The account never incurs
+debt or an overage charge. Existing configs created before this policy have no
+entitlement row and remain unaffected.
 
 Only the treasury public address belongs in API configuration. The treasury
 private key is an offline recovery/operations secret and must not be copied to

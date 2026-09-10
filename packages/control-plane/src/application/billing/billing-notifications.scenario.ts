@@ -57,6 +57,10 @@ export function renderBillingNotification(
   } else if (notification.notificationType === "billing_withdrawal_confirmed") {
     subject = "Hyperspace withdrawal completed";
     body = `Your unused paid balance was sent. Solana transaction: ${readString(payload.transactionSignature)}`;
+  } else if (notification.notificationType === "traffic_quota_exhausted") {
+    const included = formatTrafficBytes(readString(payload.includedBytes));
+    subject = "Hyperspace VPN config traffic limit reached";
+    body = `Your VPN config reached its ${included} traffic allowance and has been disabled. No debt or overage charge was created.${configText}`;
   }
   const footer = "\n\nQuestions or test-credit requests: gatekeepers@hyperspace.zone";
   const text = body + footer;
@@ -65,6 +69,23 @@ export function renderBillingNotification(
     text,
     html: `<p>${escapeHtml(body).replace(/\n/g, "<br>")}</p><p>Questions or test-credit requests: <a href="mailto:gatekeepers@hyperspace.zone">gatekeepers@hyperspace.zone</a></p>`
   };
+}
+
+function formatTrafficBytes(value: string): string {
+  try {
+    const bytes = BigInt(value);
+    if (bytes >= 1_000_000_000n) return `${formatDecimal(bytes, 1_000_000_000n)} GB`;
+  } catch {
+    // Fall through to the configured commercial allowance.
+  }
+  return "50 GB";
+}
+
+function formatDecimal(value: bigint, divisor: bigint): string {
+  const whole = value / divisor;
+  const remainder = value % divisor;
+  if (remainder === 0n) return whole.toString();
+  return `${whole}.${(remainder * 10n / divisor).toString()}`;
 }
 
 function readNumber(value: unknown): number {

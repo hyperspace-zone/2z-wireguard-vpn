@@ -15,7 +15,8 @@ const billing: BillingConfig = {
   solanaExplorerTransactionBaseUrl: "https://orbmarkets.io/tx/",
   usageMarkupBps: 1500,
   solanaAssetKind: "native",
-  configPriceLamports: 100_000,
+  configPriceLamports: 100_000_000,
+  configTrafficLimitBytes: 50_000_000_000,
   configPaymentEnabled: true
 };
 
@@ -51,7 +52,8 @@ test("billing admin overview contains config payments, deposits and asset metada
     symbol: "SOL",
     decimals: 9,
     explorerTransactionBaseUrl: "https://orbmarkets.io/tx/",
-    configPriceBaseUnits: "100000"
+    configPriceBaseUnits: "100000000",
+    configTrafficLimitBytes: "50000000000"
   });
   await app.close();
 });

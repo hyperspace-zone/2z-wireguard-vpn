@@ -38,6 +38,7 @@ export interface BillingConfig {
   usageMarkupBps: number;
   solanaAssetKind?: "spl" | "native";
   configPriceLamports?: number;
+  configTrafficLimitBytes?: number;
   configPaymentTreasuryAddress?: string;
   configPaymentEnabled?: boolean;
   fetchImpl?: typeof fetch;
@@ -61,6 +62,7 @@ export interface BillingSummary {
   walletSpendableBaseUnits: string | null;
   walletRentReserveBaseUnits: string | null;
   configPriceBaseUnits: string;
+  configTrafficLimitBytes: string;
 }
 
 export interface BillingDepositDestination {
@@ -155,7 +157,8 @@ export async function readAccountBillingSummary(
     walletBalanceBaseUnits: nativeBalance?.toString() ?? null,
     walletSpendableBaseUnits: nativeSpendable?.toString() ?? null,
     walletRentReserveBaseUnits: nativeRentReserve?.toString() ?? null,
-    configPriceBaseUnits: String(config?.configPriceLamports ?? 0)
+    configPriceBaseUnits: String(config?.configPriceLamports ?? 0),
+    configTrafficLimitBytes: String(config?.configTrafficLimitBytes ?? 0)
   };
 }
 

@@ -61,6 +61,10 @@ export const sessionSummarySchema = {
         message: { type: "string" }
       }
     },
+    trafficLimitBytes: { type: ["string", "null"] },
+    trafficUsedBytes: { type: ["string", "null"] },
+    trafficRemainingBytes: { type: ["string", "null"] },
+    trafficLimitReachedAt: { type: ["string", "null"], format: "date-time" },
     createdAt: { type: "string", format: "date-time" },
     updatedAt: { type: "string", format: "date-time" }
   }

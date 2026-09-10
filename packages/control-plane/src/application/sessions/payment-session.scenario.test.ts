@@ -14,8 +14,13 @@ test("paid session activation uses the session condition transition timestamp", 
       return fn({
         async query<Row extends object>(sql: string) {
           calls.push(sql);
-          if (/SELECT session_status\.phase/.test(sql)) {
-            return { rows: [{ phase: "payment_pending" } as Row], rowCount: 1 };
+          if (/SELECT\s+session_status\.phase/.test(sql)) {
+            return { rows: [{
+              phase: "payment_pending",
+              paymentStatus: "confirmed",
+              paymentTransactionSignature: "signature-1",
+              trafficLimitBytes: "50000000000"
+            } as Row], rowCount: 1 };
           }
           return { rows: [], rowCount: 1 };
         }
@@ -35,4 +40,5 @@ test("paid session activation uses the session condition transition timestamp", 
   const conditionUpdate = calls.find((sql) => /UPDATE session_conditions/.test(sql));
   assert.match(conditionUpdate ?? "", /last_transition_at = now\(\)/);
   assert.doesNotMatch(conditionUpdate ?? "", /updated_at/);
+  assert(calls.some((sql) => /INSERT INTO session_traffic_entitlements/.test(sql)));
 });

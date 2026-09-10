@@ -23,3 +23,24 @@ test("grace email names affected configs, deadline, support address, and escapes
   assert.doesNotMatch(message.html, /London <prod>/);
   assert.match(message.html, /London &lt;prod&gt;/);
 });
+
+test("traffic quota email explains the hard limit without debt", () => {
+  const message = renderBillingNotification({
+    id: "notification-2",
+    accountId: "account-2",
+    notificationType: "traffic_quota_exhausted",
+    recipientEmail: "traffic-alert-unit@vutcenoi.resend.app",
+    payload: {
+      includedBytes: "50000000000",
+      consumedBytes: "50000000042",
+      configs: [{ id: "session-2", label: "primary route" }]
+    },
+    attemptCount: 0
+  });
+
+  assert.match(message.subject, /traffic limit reached/i);
+  assert.match(message.text, /50 GB/);
+  assert.match(message.text, /disabled/);
+  assert.match(message.text, /No debt or overage charge/);
+  assert.match(message.text, /primary route/);
+});

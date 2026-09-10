@@ -165,15 +165,18 @@ try {
           activeSeconds: 7200, bytesToDestination: "800000000", bytesFromDestination: "400000000",
           droppedBytes: "0", payloadBytes: "1200000000", chargeMinor: 0,
           firstTrafficAt: new Date(Date.now() - 7_200_000).toISOString(), lastTrafficAt: new Date().toISOString(),
-          paymentStatus: "confirmed", paymentAmountLamports: "100000", paymentFeeLamports: "5000",
+          paymentStatus: "confirmed", paymentAmountLamports: "100000000", paymentFeeLamports: "5000",
           paymentTransactionSignature: depositSignature, paymentConfirmedAt: new Date().toISOString(),
+          trafficLimitBytes: "50000000000", trafficUsedBytes: "1200000000",
+          trafficRemainingBytes: "48800000000", trafficLimitReachedAt: null,
           createdAt: new Date(Date.now() - 7_200_000).toISOString(), updatedAt: new Date().toISOString(), hiddenAt: null,
           lastRatedAt: null
         }],
         payments: [{
           paymentId: "00000000-0000-4000-8000-000000000901", sessionId: adminConfigId,
           accountId: "account-1", customerEmail: testEmail, sessionLabel: "Staging route",
-          status: "confirmed", amountLamports: "100000", feeLamports: "5000",
+          status: "confirmed", amountLamports: "100000000", feeLamports: "5000",
+          trafficLimitBytes: "50000000000",
           transactionSignature: depositSignature, failureCode: null, failureReason: null,
           createdAt: new Date().toISOString(), submittedAt: new Date().toISOString(), confirmedAt: new Date().toISOString()
         }],
@@ -190,7 +193,7 @@ try {
         },
         asset: {
           symbol: "SOL", decimals: 9, explorerTransactionBaseUrl: "https://orbmarkets.io/tx/",
-          configPriceBaseUnits: "100000"
+          configPriceBaseUnits: "100000000", configTrafficLimitBytes: "50000000000"
         }
       });
     }
@@ -235,7 +238,8 @@ try {
         walletBalanceBaseUnits: "2500000",
         walletSpendableBaseUnits: "1609120",
         walletRentReserveBaseUnits: "890880",
-        configPriceBaseUnits: "100000"
+        configPriceBaseUnits: "100000000",
+        configTrafficLimitBytes: "50000000000"
       });
     }
     if (path === "/v1/public/sessions" && method === "GET") {
@@ -251,13 +255,15 @@ try {
       if (createdSessionAttempts.length === 1) {
         return json(route, {
           error: "insufficient_solana_funds",
-          message: "Insufficient SOL for the 0.0001 SOL config payment and Solana network fee. Top up on Billing and try again."
+          message: "Insufficient SOL for the config payment and Solana network fee. Top up on Billing and try again."
         }, 402);
       }
       const session = {
         id: "session-1", mode: createdSessionPayload.mode, desiredState: "Active", phase: "provisioning",
         destinationCidrs: ["1.1.1.1/32"], sourceCidr: null, label: "Smoke config",
         selectedPath: { ingressGateName: createdSessionPayload.ingressGateName, egressGateName: createdSessionPayload.egressGateName },
+        trafficLimitBytes: "50000000000", trafficUsedBytes: "0", trafficRemainingBytes: "50000000000",
+        trafficLimitReachedAt: null,
         createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
       };
       sessions.splice(0, sessions.length, session);
@@ -373,12 +379,13 @@ try {
   await page.locator("select[name=egressGateName]").selectOption("gate-na-sjc-01");
   await page.getByRole("button", { name: "Review config" }).click();
   await page.getByText("Full tunnel", { exact: true }).first().waitFor();
-  await page.getByText("0.0001 SOL", { exact: true }).waitFor();
+  await page.getByText("0.1 SOL", { exact: true }).waitFor();
+  await page.getByText(/Includes 50\.00 GB of aggregate traffic/).waitFor();
   await capture(page, "simple-config-review");
-  await page.getByRole("button", { name: "Pay 0.0001 SOL and create" }).click();
-  await page.getByText("Insufficient spendable SOL for 0.0001 SOL, the network fee, and the Solana account rent reserve. Top up your wallet on Billing, then retry Confirm.", { exact: true }).waitFor();
+  await page.getByRole("button", { name: "Pay 0.1 SOL and create" }).click();
+  await page.getByText("Insufficient spendable SOL for 0.1 SOL, the network fee, and the Solana account rent reserve. Top up your wallet on Billing, then retry Confirm.", { exact: true }).waitFor();
   await page.getByRole("link", { name: "Open Billing" }).waitFor();
-  await page.getByRole("button", { name: "Pay 0.0001 SOL and create" }).click();
+  await page.getByRole("button", { name: "Pay 0.1 SOL and create" }).click();
 
   await page.waitForURL(`${baseUrl}/create-config`);
   await page.getByText("Preparing WireGuard config", { exact: true }).waitFor();
@@ -400,6 +407,8 @@ try {
   }
   await page.getByRole("button", { name: "OK" }).click();
   await page.waitForURL(`${baseUrl}/`);
+  await page.getByText("0.0 KB / 50.00 GB", { exact: true }).waitFor();
+  await page.getByText("50.00 GB remaining", { exact: true }).waitFor();
 
   await page.getByRole("button", { name: "QR" }).click();
   await page.getByRole("dialog", { name: "WireGuard configuration QR code" }).waitFor();

@@ -104,6 +104,7 @@ export function createApp(input: CreateControlPlaneApiAppInput): FastifyInstance
         rpcUrl: config.billing.solanaRpcUrl,
         treasuryAddress: config.billing.configPaymentTreasuryAddress,
         amountLamports: config.billing.configPriceLamports,
+        trafficLimitBytes: config.billing.configTrafficLimitBytes ?? 50_000_000_000,
         custodialEncryptionKey: config.walletAuth.custodialEncryptionKey
       })
       : null;

@@ -142,6 +142,10 @@ export interface AdminBillingConfigRow {
   paymentFeeLamports: string | null;
   paymentTransactionSignature: string | null;
   paymentConfirmedAt: string | null;
+  trafficLimitBytes: string | null;
+  trafficUsedBytes: string | null;
+  trafficRemainingBytes: string | null;
+  trafficLimitReachedAt: string | null;
   createdAt: string;
   updatedAt: string;
   hiddenAt: string | null;
@@ -163,6 +167,7 @@ export interface AdminSolanaConfigPaymentRow {
   createdAt: string;
   submittedAt: string | null;
   confirmedAt: string | null;
+  trafficLimitBytes: string | null;
 }
 
 export interface AdminSolanaDepositRow {
@@ -742,6 +747,13 @@ export async function listAdminBillingConfigs(db: Queryable, limit = 500): Promi
         solana_config_payments.fee_lamports::text AS "paymentFeeLamports",
         solana_config_payments.transaction_signature AS "paymentTransactionSignature",
         solana_config_payments.confirmed_at AS "paymentConfirmedAt",
+        session_traffic_entitlements.included_bytes::text AS "trafficLimitBytes",
+        session_traffic_entitlements.consumed_bytes::text AS "trafficUsedBytes",
+        GREATEST(
+          session_traffic_entitlements.included_bytes - session_traffic_entitlements.consumed_bytes,
+          0
+        )::text AS "trafficRemainingBytes",
+        session_traffic_entitlements.exhausted_at AS "trafficLimitReachedAt",
         sessions.created_at AS "createdAt",
         sessions.updated_at AS "updatedAt",
         sessions.hidden_at AS "hiddenAt",
@@ -756,6 +768,8 @@ export async function listAdminBillingConfigs(db: Queryable, limit = 500): Promi
       LEFT JOIN usage_by_session ON usage_by_session.session_id = sessions.id
       LEFT JOIN rating_by_session ON rating_by_session.session_id = sessions.id
       LEFT JOIN solana_config_payments ON solana_config_payments.session_id = sessions.id
+      LEFT JOIN session_traffic_entitlements
+        ON session_traffic_entitlements.session_id = sessions.id
       LEFT JOIN gate_assignments ingress_assignment
         ON ingress_assignment.session_id = sessions.id AND ingress_assignment.role = 'Ingress'
       LEFT JOIN gates ingress_gate ON ingress_gate.id = ingress_assignment.gate_id
@@ -793,7 +807,8 @@ export async function listAdminSolanaConfigPayments(
         solana_config_payments.failure_reason AS "failureReason",
         solana_config_payments.created_at AS "createdAt",
         solana_config_payments.submitted_at AS "submittedAt",
-        solana_config_payments.confirmed_at AS "confirmedAt"
+        solana_config_payments.confirmed_at AS "confirmedAt",
+        solana_config_payments.traffic_limit_bytes::text AS "trafficLimitBytes"
       FROM solana_config_payments
       LEFT JOIN sessions ON sessions.id = solana_config_payments.session_id
       JOIN LATERAL (

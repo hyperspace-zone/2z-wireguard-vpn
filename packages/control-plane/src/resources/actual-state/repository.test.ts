@@ -120,5 +120,8 @@ test("assignment counter persistence is idempotent and derives interval deltas",
   assert.match(counterQuery.text, /ON CONFLICT \(gate_id, assignment_id, boot_id, generation, sampled_at\) DO NOTHING/);
   assert.match(counterQuery.text, /INSERT INTO gate_assignment_usage_deltas/);
   assert.match(counterQuery.text, /GREATEST\(inserted\.forwarded_to_destination_bytes/);
+  assert.match(counterQuery.text, /UPDATE session_traffic_entitlements/);
+  assert.match(counterQuery.text, /usage_inserted\.role = 'Egress'/);
+  assert.match(counterQuery.text, /consumed_bytes = session_traffic_entitlements\.consumed_bytes \+ session_usage\.payload_bytes/);
   assert.equal(counterQuery.values.length, 18);
 });

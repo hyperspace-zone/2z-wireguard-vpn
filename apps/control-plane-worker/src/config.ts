@@ -30,6 +30,11 @@ export interface ControlPlaneWorkerConfig extends ReconcileLoopRuntimeConfig, Be
     settlementLagSeconds: number;
     batchSize: number;
   };
+  trafficQuotas: {
+    enabled: boolean;
+    intervalSeconds: number;
+    batchSize: number;
+  };
   billingNotifications: {
     provider: "disabled" | "resend";
     resendApiKey: string;
@@ -97,7 +102,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ControlPlaneWo
       solanaExplorerTransactionBaseUrl: env.SOLANA_EXPLORER_TX_BASE_URL ?? "https://orbmarkets.io/tx/",
       usageMarkupBps: Number(env.BILLING_USAGE_MARKUP_BPS ?? 1500),
       solanaAssetKind: nativeSolBilling ? "native" : "spl",
-      configPriceLamports: Number(env.SOLANA_CONFIG_PRICE_LAMPORTS ?? 100_000),
+      configPriceLamports: Number(env.SOLANA_CONFIG_PRICE_LAMPORTS ?? 100_000_000),
+      configTrafficLimitBytes: Number(env.SOLANA_CONFIG_TRAFFIC_LIMIT_BYTES ?? 50_000_000_000),
       configPaymentTreasuryAddress: env.SOLANA_REVENUE_TREASURY_ADDRESS ?? "",
       configPaymentEnabled: env.SOLANA_CONFIG_PAYMENT_ENABLED === "true"
     },
@@ -112,6 +118,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ControlPlaneWo
       intervalSeconds: Number(env.RETAIL_BILLING_INTERVAL_SECONDS ?? 300),
       settlementLagSeconds: Number(env.RETAIL_BILLING_SETTLEMENT_LAG_SECONDS ?? 120),
       batchSize: Number(env.RETAIL_BILLING_BATCH_SIZE ?? 250)
+    },
+    trafficQuotas: {
+      enabled: env.SOLANA_CONFIG_TRAFFIC_QUOTA_ENFORCEMENT_ENABLED !== "false",
+      intervalSeconds: Number(env.SOLANA_CONFIG_TRAFFIC_QUOTA_ENFORCEMENT_INTERVAL_SECONDS ?? 30),
+      batchSize: Number(env.SOLANA_CONFIG_TRAFFIC_QUOTA_ENFORCEMENT_BATCH_SIZE ?? 100)
     },
     billingNotifications: {
       provider: env.EMAIL_PROVIDER === "resend" ? "resend" : "disabled",

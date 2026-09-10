@@ -61,9 +61,16 @@ merged into organizations.
 The active Milestone 3 settlement asset is native SOL. Each account has a
 random custodial Solana wallet, and its finalized on-chain lamport balance is
 the source of truth presented to the customer. Issuing a VPN config performs an
-idempotent `0.0001 SOL` transfer from that wallet to the platform revenue
-treasury; the account also pays the current Solana transaction fee. The config
-does not enter reconciliation until the transfer is finalized.
+idempotent `0.1 SOL` transfer from that wallet to the platform revenue treasury;
+the account also pays the current Solana transaction fee. A confirmed purchase
+includes 50 decimal GB of aggregate traffic in both directions. The config does
+not enter reconciliation until the transfer is finalized.
+
+The commercial native-SOL flow is prepaid and cannot create debt. Each new
+payment snapshots its traffic allowance. Egress usage deltas update a durable,
+idempotent per-session counter. Reaching the allowance requests revocation and
+queues a customer email. Existing configs without an allowance remain
+grandfathered.
 
 The existing versioned usage ledger and DoubleZero wholesale reconciliation
 remain available for shadow rating. Legacy SPL/USDC deposits, sweeps, and

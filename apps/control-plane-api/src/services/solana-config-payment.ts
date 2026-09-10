@@ -52,6 +52,7 @@ export function createSolanaConfigPaymentService(input: {
   archivalRpcUrl?: string;
   treasuryAddress: string;
   amountLamports: number;
+  trafficLimitBytes: number;
   custodialEncryptionKey: Buffer;
 }): SolanaConfigPaymentService {
   const connection = new Connection(input.rpcUrl, "confirmed");
@@ -71,7 +72,8 @@ export function createSolanaConfigPaymentService(input: {
         sessionId: request.sessionId,
         sourceWalletAddress: keyRecord.wallet.publicKey,
         treasuryAddress: treasury.toBase58(),
-        amountLamports
+        amountLamports,
+        trafficLimitBytes: BigInt(input.trafficLimitBytes)
       });
       const recovered = await recoverSubmittedPayment(connection, archivalConnection, input.db, payment);
       if (recovered) return recovered;

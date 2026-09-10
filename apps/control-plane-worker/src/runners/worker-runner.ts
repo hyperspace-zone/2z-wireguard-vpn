@@ -13,6 +13,7 @@ import { createSolanaWithdrawalLoop } from "../loops/solana-withdrawal-loop.js";
 import { createSolanaRevenueSweepLoop } from "../loops/solana-revenue-sweep-loop.js";
 import { createHeliusUsageLoop } from "../loops/helius-usage-loop.js";
 import { createTradingProbeSchedulerLoop } from "../loops/trading-probe-scheduler-loop.js";
+import { createTrafficQuotaLoop } from "../loops/traffic-quota-loop.js";
 import { createReconcileRunner } from "./reconcile-runner.js";
 import { reconcileGateAgentDeployments } from "@hyperspace-zone/control-plane";
 import { log, sleep } from "../support/runtime.js";
@@ -29,6 +30,7 @@ interface WorkerRunnerTasks {
   gateAgentDeployments(): Promise<void>;
   benchmarkScheduler(): Promise<void>;
   tradingProbeScheduler?: () => Promise<void>;
+  trafficQuotas?: () => Promise<{ exhausted: number; revocationsRequested: number }>;
   snapshot(): Promise<boolean>;
 }
 
@@ -62,9 +64,11 @@ export function createWorkerRunner(input: {
     db: input.db,
     config: input.config
   });
+  const trafficQuotaLoop = createTrafficQuotaLoop(input.db, input.config);
   const tasks: WorkerRunnerTasks = input.tasks ? {
     ...input.tasks,
-    tradingProbeScheduler: input.tasks.tradingProbeScheduler ?? (async () => undefined)
+    tradingProbeScheduler: input.tasks.tradingProbeScheduler ?? (async () => undefined),
+    trafficQuotas: input.tasks.trafficQuotas ?? (async () => ({ exhausted: 0, revocationsRequested: 0 }))
   } : {
     reconcile: () => reconcileRunner.runOnce(),
     retry: () => retryLoop.runOnce(),
@@ -72,6 +76,7 @@ export function createWorkerRunner(input: {
     gateAgentDeployments: async () => { await reconcileGateAgentDeployments(input.db); },
     benchmarkScheduler: () => benchmarkSchedulerLoop.runOnce(),
     tradingProbeScheduler: () => tradingProbeSchedulerLoop.runOnce(),
+    trafficQuotas: () => trafficQuotaLoop.runOnce(),
     snapshot: () => collectControlPlaneSnapshotMetrics({ ...input, db: input.metricsDb ?? input.db })
   };
   let stopping = false;
@@ -106,6 +111,17 @@ export function createWorkerRunner(input: {
           input.metrics.counter("retail_billing_posted_minor_total", settlement.postedMinor, {
             help: "Total posted retail billing minor units.",
             labels: { mode: settlement.mode, currency: input.config.billing.currency }
+          });
+        }
+      }
+      if (trafficQuotaLoop.due()) {
+        const quota = await runMeasuredLoop("traffic-quotas", input, tasks.trafficQuotas ?? (() => trafficQuotaLoop.runOnce()));
+        if (quota) {
+          input.metrics.counter("traffic_quota_exhausted_total", quota.exhausted, {
+            help: "Total paid VPN configs whose traffic allowance was exhausted."
+          });
+          input.metrics.counter("traffic_quota_revocations_total", quota.revocationsRequested, {
+            help: "Total VPN config revocations requested after traffic allowance exhaustion."
           });
         }
       }
@@ -178,6 +194,9 @@ export function createWorkerRunner(input: {
       input.metrics.gauge("retail_billing_enabled", input.config.retailBilling.enabled ? 1 : 0, {
         help: "Whether Hyperspace retail billing settlement is enabled.",
         labels: { mode: input.config.retailBilling.mode }
+      });
+      input.metrics.gauge("traffic_quota_enforcement_enabled", input.config.trafficQuotas.enabled ? 1 : 0, {
+        help: "Whether paid VPN config traffic allowances are enforced."
       });
       input.metrics.gauge("solana_revenue_sweeps_enabled", input.config.solanaRevenueSweeps.enabled ? 1 : 0, {
         help: "Whether spent paid balance is swept to the configured Solana revenue treasury."

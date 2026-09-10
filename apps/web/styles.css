@@ -1504,6 +1504,31 @@ small {
   line-height: 1.35;
 }
 
+.billing-terms {
+  align-items: center;
+  background: #f6f8fa;
+  border: 1px solid #d8dee8;
+  display: grid;
+  gap: 16px;
+  grid-template-columns: minmax(130px, 0.5fr) minmax(130px, 0.5fr) minmax(280px, 2fr);
+  margin-top: 14px;
+  padding: 14px;
+}
+
+.billing-terms div {
+  display: grid;
+  gap: 3px;
+}
+
+.billing-terms small {
+  color: #57606a;
+}
+
+.billing-terms p {
+  color: #57606a;
+  margin: 0;
+}
+
 .balance-value {
   font-size: 24px;
 }
@@ -1903,6 +1928,10 @@ small {
   gap: 3px;
 }
 
+.config-payment-panel .config-payment-copy {
+  gap: 7px;
+}
+
 .config-payment-panel strong {
   font-size: 20px;
 }
@@ -2205,6 +2234,7 @@ small {
   .topbar,
   .grid,
   .account-grid,
+  .billing-terms,
   .admin-metric-strip,
   .gate-select-row,
   .optional-config-grid,
