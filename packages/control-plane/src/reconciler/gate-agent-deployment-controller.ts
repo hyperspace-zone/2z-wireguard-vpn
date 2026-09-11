@@ -29,17 +29,38 @@ export async function reconcileGateAgentDeployments(
     );
     const selfTestPassed = row.observedCapabilities.includes("agent-artifact-self-test:passed");
     const doubleZeroRecoverySelfTestPassed = row.observedCapabilities.includes("doublezero-recovery:v1");
+    const assignmentRehydratePassed = row.observedCapabilities.includes("assignment-rehydrate:passed");
     const heartbeatAfterStage = Boolean(
       row.lastSeenAt
       && (!row.stagedAt || new Date(row.lastSeenAt).getTime() >= new Date(row.stagedAt).getTime())
     );
     const releaseFailureCode = readReleaseFailureCode(row.observedCapabilities, row.targetArtifactSha256);
+    const assignmentRehydrateFailureCount = readAssignmentRehydrateFailureCount(row.observedCapabilities);
+
+    if (
+      ["staging", "verifying"].includes(row.phase)
+      && targetObserved
+      && heartbeatAfterStage
+      && row.agentConnected
+      && assignmentRehydrateFailureCount !== null
+    ) {
+      const message = `Gate-agent startup failed to restore ${assignmentRehydrateFailureCount} persisted assignment(s)`;
+      if (row.previousArtifactSha256) {
+        const rollback = await requestDeploymentRollback(db, row.id, "system", "assignment_rehydrate_failed");
+        if (rollback === "queued") result.rollbackRequested += 1;
+      } else {
+        await markDeploymentFailed(db, row.id, "assignment_rehydrate_failed", message);
+        result.failed += 1;
+      }
+      continue;
+    }
 
     if (
       ["staging", "verifying"].includes(row.phase)
       && targetObserved
       && selfTestPassed
       && doubleZeroRecoverySelfTestPassed
+      && assignmentRehydratePassed
       && heartbeatAfterStage
       && row.agentConnected
     ) {
@@ -107,4 +128,14 @@ export function readReleaseFailureCode(capabilities: string[], targetArtifactSha
   if (!capability) return null;
   const code = capability.slice("agent-release-failure:".length, -suffix.length);
   return /^[a-z0-9_]{1,64}$/.test(code) ? code : null;
+}
+
+export function readAssignmentRehydrateFailureCount(capabilities: string[]): number | null {
+  const prefix = "assignment-rehydrate:failed:";
+  const capability = capabilities.find((value) => value.startsWith(prefix));
+  if (!capability) return null;
+  const count = capability.slice(prefix.length);
+  if (!/^[1-9][0-9]*$/.test(count)) return null;
+  const parsed = Number(count);
+  return Number.isSafeInteger(parsed) ? parsed : null;
 }

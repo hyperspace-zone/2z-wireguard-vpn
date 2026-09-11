@@ -629,6 +629,57 @@ func TestReleaseFailureCapabilityReportsValidatedLocalRollbackCause(t *testing.T
 	}
 }
 
+func TestRehydrateAssignmentsRestoresActiveAndSkipsRevokedState(t *testing.T) {
+	cfg := config{StateDir: t.TempDir()}
+	active := assignmentState{
+		AssignmentID:      "active-assignment",
+		Role:              "Ingress",
+		CommittedAt:       "2026-09-11T08:00:00Z",
+		ClientPrivateKey:  "active-client-private-key",
+		TransitPrivateKey: "active-transit-private-key",
+		NetworkPlan:       &networkPlan{},
+	}
+	revoked := assignmentState{
+		AssignmentID: "revoked-assignment",
+		Role:         "Ingress",
+		CommittedAt:  "2026-09-10T08:00:00Z",
+		RevokedAt:    "2026-09-10T09:00:00Z",
+		NetworkPlan:  &networkPlan{},
+	}
+	if err := writeAssignmentState(cfg, active); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeAssignmentState(cfg, revoked); err != nil {
+		t.Fatal(err)
+	}
+
+	committed := []string{}
+	result := rehydrateAssignmentsWith(
+		cfg,
+		func(assignmentState) bool { return false },
+		func(_ config, payload assignmentPayload) (assignmentState, error) {
+			committed = append(committed, payload.AssignmentID)
+			return assignmentState{}, nil
+		},
+	)
+
+	if result.Rehydrated != 1 || result.Failed != 0 {
+		t.Fatalf("rehydrate result = %#v, want one restored assignment and no failures", result)
+	}
+	if len(committed) != 1 || committed[0] != active.AssignmentID {
+		t.Fatalf("committed assignments = %#v, want only %q", committed, active.AssignmentID)
+	}
+}
+
+func TestAssignmentRehydrateCapabilityReportsStartupOutcome(t *testing.T) {
+	if got, want := assignmentRehydrateCapability(rehydrateResult{}), "assignment-rehydrate:passed"; got != want {
+		t.Fatalf("assignmentRehydrateCapability() = %q, want %q", got, want)
+	}
+	if got, want := assignmentRehydrateCapability(rehydrateResult{Rehydrated: 2, Failed: 3}), "assignment-rehydrate:failed:3"; got != want {
+		t.Fatalf("assignmentRehydrateCapability() = %q, want %q", got, want)
+	}
+}
+
 func TestSameBuildTimestampAcceptsEquivalentPostgresSerialization(t *testing.T) {
 	if !sameBuildTimestamp("2026-08-19T09:49:29Z", "2026-08-19T09:49:29.000Z") {
 		t.Fatal("equivalent RFC3339 timestamps were rejected")

@@ -389,10 +389,12 @@ export async function requestDeploymentRollback(
           rollback_requested_at = now(),
           rollback_attempt_count = 1,
           verification_deadline_at = now() + interval '5 minutes',
+          failure_code = NULLIF($2, ''),
+          failure_message = NULLIF($3, ''),
           updated_at = now()
       WHERE id = $1
     `,
-    [deploymentId]
+    [deploymentId, reason, `Automatic rollback requested: ${reason}`]
   );
   await insertRollbackJob(db, {
     gateId: row.rows[0].gateId,

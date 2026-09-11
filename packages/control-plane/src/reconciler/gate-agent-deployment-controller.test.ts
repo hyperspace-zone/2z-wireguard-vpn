@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { Queryable } from "../db/queryable.js";
-import { readReleaseFailureCode, reconcileGateAgentDeployments } from "./gate-agent-deployment-controller.js";
+import {
+  readAssignmentRehydrateFailureCount,
+  readReleaseFailureCode,
+  reconcileGateAgentDeployments
+} from "./gate-agent-deployment-controller.js";
 
 const targetSha = "a".repeat(64);
 const previousSha = "b".repeat(64);
@@ -10,7 +14,7 @@ test("deployment is verified only after the exact artifact reports a fresh succe
   const calls: Array<{ sql: string; params: readonly unknown[] }> = [];
   const db = deploymentDb(calls, deploymentRow({
     observedArtifactSha256: targetSha,
-    observedCapabilities: ["agent-artifact-self-test:passed", "doublezero-recovery:v1"],
+    observedCapabilities: ["agent-artifact-self-test:passed", "doublezero-recovery:v1", "assignment-rehydrate:passed"],
     lastSeenAt: "2026-08-19T10:01:00Z",
     agentConnected: true
   }));
@@ -50,6 +54,52 @@ test("matching SHA without the DoubleZero recovery safety capability is not acce
 
   assert.deepEqual(result, { verified: 0, rollbackRequested: 0, rolledBack: 0, failed: 0 });
   assert.equal(calls.length, 1);
+});
+
+test("matching SHA without successful assignment rehydration is not accepted", async () => {
+  const calls: Array<{ sql: string; params: readonly unknown[] }> = [];
+  const db = deploymentDb(calls, deploymentRow({
+    observedArtifactSha256: targetSha,
+    observedCapabilities: ["agent-artifact-self-test:passed", "doublezero-recovery:v1"],
+    lastSeenAt: "2026-08-19T10:01:00Z",
+    agentConnected: true
+  }));
+
+  const result = await reconcileGateAgentDeployments(db, new Date("2026-08-19T10:02:00Z"));
+
+  assert.deepEqual(result, { verified: 0, rollbackRequested: 0, rolledBack: 0, failed: 0 });
+  assert.equal(calls.length, 1);
+});
+
+test("assignment rehydration failure immediately requests rollback", async () => {
+  const calls: Array<{ sql: string; params: readonly unknown[] }> = [];
+  const db: Queryable = {
+    async query<Row extends object>(sql: string, params: readonly unknown[] = []) {
+      calls.push({ sql, params });
+      if (/ORDER BY deployments\.requested_at/.test(sql)) {
+        return { rows: [deploymentRow({
+          observedArtifactSha256: targetSha,
+          observedCapabilities: [
+            "agent-artifact-self-test:passed",
+            "doublezero-recovery:v1",
+            "assignment-rehydrate:failed:2"
+          ],
+          lastSeenAt: "2026-08-19T10:01:00Z",
+          agentConnected: true
+        })] as Row[], rowCount: 1 };
+      }
+      if (/SELECT\s+gate_id AS "gateId"/.test(sql)) {
+        return { rows: [{ gateId: "gate-id", previousArtifactSha256: previousSha, phase: "verifying" }] as Row[], rowCount: 1 };
+      }
+      return { rows: [] as Row[], rowCount: 1 };
+    }
+  };
+
+  const result = await reconcileGateAgentDeployments(db, new Date("2026-08-19T10:02:00Z"));
+
+  assert.equal(result.rollbackRequested, 1);
+  assert.ok(calls.some((call) => /SET phase = 'rollback_requested'/.test(call.sql)
+    && call.params[1] === "assignment_rehydrate_failed"));
 });
 
 test("verification timeout queues rollback to the previously observed immutable artifact", async () => {
@@ -105,6 +155,13 @@ test("release failure capability must match the exact deployment artifact", () =
     readReleaseFailureCode([`agent-release-failure:service_start_failed:${previousSha}`], targetSha),
     null
   );
+});
+
+test("assignment rehydration failure capability reports a validated count", () => {
+  assert.equal(readAssignmentRehydrateFailureCount(["assignment-rehydrate:failed:7"]), 7);
+  assert.equal(readAssignmentRehydrateFailureCount(["assignment-rehydrate:passed"]), null);
+  assert.equal(readAssignmentRehydrateFailureCount(["assignment-rehydrate:failed:0"]), null);
+  assert.equal(readAssignmentRehydrateFailureCount(["assignment-rehydrate:failed:not-a-number"]), null);
 });
 
 function deploymentDb(
