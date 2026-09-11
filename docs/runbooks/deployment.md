@@ -1430,7 +1430,12 @@ requesting any remaining gate. A gate is temporarily excluded from new session
 scheduling while its deployment is active. Success requires all of the
 following from the specific host: the exact registered SHA-256, a heartbeat
 newer than activation, a connected lease, and the startup nftables self-test
-capability. A verification timeout requests rollback to the previous immutable
+capability. It also requires `assignment-rehydrate:passed`: on every startup the
+agent skips revoked assignment history and restores every active committed
+assignment whose WireGuard interfaces or nftables state are absent, using the
+persisted network plan and key material. A reported rehydration failure requests
+rollback immediately instead of waiting for the verification timeout. A
+verification timeout requests rollback to the previous immutable
 artifact; rollback is retried up to three times. Release metadata and
 `requestedAt`, `stagedAt`, `installedAt`, `verifiedAt`, `rolledBackAt`, and
 `failedAt` remain queryable from `/v1/admin/gate-agent/deployments`.
@@ -1438,6 +1443,10 @@ artifact; rollback is retried up to three times. Release metadata and
 `HyperspaceGateAgentDeploymentStalled` and
 `HyperspaceGateAgentDeploymentFailed` are critical. They include gate access
 labels in Telegram, so a failed rollout cannot remain invisible for weeks.
+`HyperspaceGateAssignmentRehydrateFailed` is independently critical for enabled
+gates, including after a host reboot outside a rollout; it reports how many
+active persisted assignments failed to return. Revoked assignment records are
+retained for accounting/audit but never treated as restoration candidates.
 
 The gate-agent also protects an enabled gate from remaining attached to an
 administratively `drained` DoubleZero device or remaining in the exact

@@ -8,6 +8,7 @@ import {
   collectAssignmentUsageMetrics,
   collectJobMetrics,
   collectGateAgentDeploymentMetrics,
+  gateAssignmentRehydrateStatus,
   gateAgentDeploymentFailureClass,
   gateAlertProbeHost
 } from "./control-plane-snapshot.js";
@@ -87,6 +88,13 @@ test("gate alert probe host supports IP-address probe URLs", () => {
 test("gate alert probe host falls back to public IPv4 when probe URL is missing or invalid", () => {
   assert.equal(gateAlertProbeHost(null, "203.0.113.20"), "203.0.113.20");
   assert.equal(gateAlertProbeHost("not-a-url", "203.0.113.20"), "203.0.113.20");
+});
+
+test("gate assignment rehydration capability exposes only conclusive startup outcomes", () => {
+  assert.deepEqual(gateAssignmentRehydrateStatus(["assignment-rehydrate:passed"]), { ok: true, failedCount: 0 });
+  assert.deepEqual(gateAssignmentRehydrateStatus(["assignment-rehydrate:failed:7"]), { ok: false, failedCount: 7 });
+  assert.equal(gateAssignmentRehydrateStatus(["assignment-rehydrate:enabled"]), null);
+  assert.equal(gateAssignmentRehydrateStatus(["assignment-rehydrate:failed:invalid"]), null);
 });
 
 test("benchmark snapshot uses one route query and derives aggregate metrics in memory", async () => {
@@ -187,6 +195,7 @@ test("gate-agent deployment failures distinguish installation from host validati
   assert.equal(gateAgentDeploymentFailureClass("service_start_failed"), "installation");
   assert.equal(gateAgentDeploymentFailureClass("agent_release_self_test_failed"), "validation");
   assert.equal(gateAgentDeploymentFailureClass("post_install_self_test_failed"), "validation");
+  assert.equal(gateAgentDeploymentFailureClass("assignment_rehydrate_failed"), "validation");
   assert.equal(gateAgentDeploymentFailureClass("rollback_timeout"), "other");
 });
 

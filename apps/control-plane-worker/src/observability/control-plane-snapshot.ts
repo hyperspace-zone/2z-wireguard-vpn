@@ -420,6 +420,7 @@ async function collectGateMetrics(db: Database, metrics: RuntimeMetrics): Promis
     doublezeroRecoveryLastStage: string;
     doublezeroRecoveryAttemptedAt: string;
     doublezeroRecoveryNextEligibleAt: string;
+    observedCapabilities: string[];
     lastSeenAgeSeconds: number | null;
     leaseSecondsUntilExpiry: number | null;
   }>(`
@@ -458,6 +459,7 @@ async function collectGateMetrics(db: Database, metrics: RuntimeMetrics): Promis
       COALESCE(NULLIF(BTRIM(gate_status.doublezero_status->>'recoveryLastStage'), ''), 'none') AS "doublezeroRecoveryLastStage",
       COALESCE(NULLIF(BTRIM(gate_status.doublezero_status->>'recoveryAttemptedAt'), ''), 'never') AS "doublezeroRecoveryAttemptedAt",
       COALESCE(NULLIF(BTRIM(gate_status.doublezero_status->>'recoveryNextEligibleAt'), ''), 'not_set') AS "doublezeroRecoveryNextEligibleAt",
+      COALESCE(gate_status.observed_capabilities, '{}'::text[]) AS "observedCapabilities",
       EXTRACT(EPOCH FROM now() - gate_status.last_seen_at)::float AS "lastSeenAgeSeconds",
       EXTRACT(EPOCH FROM gate_leases.lease_expires_at - now())::float AS "leaseSecondsUntilExpiry"
     FROM gates
@@ -473,6 +475,7 @@ async function collectGateMetrics(db: Database, metrics: RuntimeMetrics): Promis
     "control_plane_gate_ready",
     "control_plane_gate_schedulable",
     "control_plane_gate_doublezero_ready",
+    "control_plane_gate_assignment_rehydrate_ok",
     "control_plane_gate_last_seen_age_seconds",
     "control_plane_gate_lease_seconds_until_expiry"
   ]);
@@ -509,6 +512,16 @@ async function collectGateMetrics(db: Database, metrics: RuntimeMetrics): Promis
         recovery_next_eligible_at: gate.doublezeroRecoveryNextEligibleAt
       }
     });
+    const assignmentRehydrate = gateAssignmentRehydrateStatus(gate.observedCapabilities);
+    if (assignmentRehydrate) {
+      metrics.gauge("control_plane_gate_assignment_rehydrate_ok", assignmentRehydrate.ok ? 1 : 0, {
+        help: "Whether the latest gate-agent startup restored every active persisted WireGuard assignment.",
+        labels: {
+          ...labels,
+          failed_count: assignmentRehydrate.failedCount
+        }
+      });
+    }
     metrics.gauge("control_plane_gate_last_seen_age_seconds", gate.lastSeenAgeSeconds ?? 1_000_000_000, {
       help: "Age of the last gate-agent heartbeat in seconds. Missing heartbeat is represented as a large value.",
       labels
@@ -518,6 +531,21 @@ async function collectGateMetrics(db: Database, metrics: RuntimeMetrics): Promis
       labels
     });
   }
+}
+
+export function gateAssignmentRehydrateStatus(
+  capabilities: string[] | null | undefined
+): { ok: boolean; failedCount: number } | null {
+  if (capabilities?.includes("assignment-rehydrate:passed")) {
+    return { ok: true, failedCount: 0 };
+  }
+  const prefix = "assignment-rehydrate:failed:";
+  const failure = capabilities?.find((value) => value.startsWith(prefix));
+  if (!failure) return null;
+  const count = failure.slice(prefix.length);
+  if (!/^[1-9][0-9]*$/.test(count)) return null;
+  const parsed = Number(count);
+  return Number.isSafeInteger(parsed) ? { ok: false, failedCount: parsed } : null;
 }
 
 export function gateAlertProbeHost(probeUrl: string | null | undefined, publicIpv4: string): string {
@@ -682,6 +710,7 @@ export function gateAgentDeploymentFailureClass(failureCode: string | null): "in
     "agent_release_metadata_mismatch",
     "agent_release_self_test_failed",
     "post_install_self_test_failed",
+    "assignment_rehydrate_failed",
     "control_plane_confirmation_failed",
     "verification_timeout"
   ].includes(failureCode || "")) return "validation";

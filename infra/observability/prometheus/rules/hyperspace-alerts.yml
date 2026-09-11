@@ -618,6 +618,21 @@ groups:
             'doublezero disconnect ibrl' and 'doublezero connect ibrl' manually only if the automatic
             safety guard did not run.{{ end }}
 
+      - alert: HyperspaceGateAssignmentRehydrateFailed
+        expr: hyperspace_control_plane_gate_assignment_rehydrate_ok{enabled="true"} == 0
+        for: 30s
+        keep_firing_for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: Hyperspace gate failed to restore active WireGuard assignments
+          description: >-
+            Gate {{ $labels.gate }} failed to restore {{ $labels.failed_count }} active persisted
+            WireGuard assignment(s) after gate-agent startup. During a managed rollout this result
+            automatically requests rollback to the previous immutable agent artifact. After a host
+            reboot, inspect gate-agent logs and the persisted assignment state before issuing new
+            configs; already issued configs may be unavailable until restoration succeeds.
+
       - alert: HyperspaceGateNodeExporterDown
         expr: up{job="hyperspace-gate-node"} == 0
         for: 5m

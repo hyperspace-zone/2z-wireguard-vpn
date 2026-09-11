@@ -190,7 +190,7 @@ func main() {
 	controlClient := newControlPlaneClient()
 	probeClient := newControlPlaneClient()
 	startPeriodicTask("heartbeat", cfg.HeartbeatInterval, func() error {
-		return sendHeartbeat(telemetryClient, cfg, probeManager, doubleZeroRecovery)
+		return sendHeartbeat(telemetryClient, cfg, probeManager, doubleZeroRecovery, rehydrate)
 	})
 	startPeriodicTask("actual_state", cfg.ActualStateInterval, func() error {
 		return sendActualState(telemetryClient, cfg)
@@ -2335,6 +2335,7 @@ func sendHeartbeat(
 	cfg config,
 	probeManager *probeServerManager,
 	doubleZeroRecovery *doubleZeroRecoveryManager,
+	rehydrate rehydrateResult,
 ) error {
 	doubleZero := doubleZeroStatus()
 	doubleZeroRecovery.Observe(doubleZero)
@@ -2361,6 +2362,7 @@ func sendHeartbeat(
 		"agent-artifact-self-test:passed",
 		"control-plane-agent-rollout:v1",
 		"doublezero-recovery:v1",
+		assignmentRehydrateCapability(rehydrate),
 	}
 	if failure := releaseFailureCapability(); failure != "" {
 		capabilities = append(capabilities, failure)
@@ -3319,6 +3321,17 @@ func revokeAssignment(cfg config, payload assignmentPayload) error {
 }
 
 func rehydrateAssignments(cfg config) rehydrateResult {
+	return rehydrateAssignmentsWith(cfg, assignmentKernelStatePresent, commitAssignment)
+}
+
+type assignmentKernelStateChecker func(assignmentState) bool
+type assignmentCommitter func(config, assignmentPayload) (assignmentState, error)
+
+func rehydrateAssignmentsWith(
+	cfg config,
+	kernelStatePresent assignmentKernelStateChecker,
+	commit assignmentCommitter,
+) rehydrateResult {
 	result := rehydrateResult{}
 	root := filepath.Join(cfg.StateDir, "assignments")
 	entries, err := os.ReadDir(root)
@@ -3330,13 +3343,13 @@ func rehydrateAssignments(cfg config) rehydrateResult {
 			continue
 		}
 		state, err := readAssignmentState(cfg, entry.Name())
-		if err != nil || state.CommittedAt == "" || state.NetworkPlan == nil {
+		if err != nil || state.CommittedAt == "" || state.RevokedAt != "" || state.NetworkPlan == nil {
 			continue
 		}
-		if assignmentKernelStatePresent(state) {
+		if kernelStatePresent(state) {
 			continue
 		}
-		_, err = commitAssignment(cfg, assignmentPayload{
+		_, err = commit(cfg, assignmentPayload{
 			AssignmentID: state.AssignmentID,
 			Operation:    "commit",
 			Role:         state.Role,
@@ -3358,6 +3371,13 @@ func rehydrateAssignments(cfg config) rehydrateResult {
 		})
 	}
 	return result
+}
+
+func assignmentRehydrateCapability(result rehydrateResult) string {
+	if result.Failed > 0 {
+		return "assignment-rehydrate:failed:" + strconv.Itoa(result.Failed)
+	}
+	return "assignment-rehydrate:passed"
 }
 
 func derivedAssignmentState(assignmentID string, role string) assignmentState {
@@ -3534,7 +3554,7 @@ func actualManagedHandles(cfg config) []string {
 			continue
 		}
 		state, err := readAssignmentState(cfg, entry.Name())
-		if err != nil || state.Handle == "" || state.CommittedAt == "" || !assignmentKernelStatePresent(state) {
+		if err != nil || state.Handle == "" || state.CommittedAt == "" || state.RevokedAt != "" || !assignmentKernelStatePresent(state) {
 			continue
 		}
 		handles = append(handles, state.Handle)
@@ -3543,7 +3563,7 @@ func actualManagedHandles(cfg config) []string {
 }
 
 func assignmentKernelStatePresent(state assignmentState) bool {
-	if state.CommittedAt == "" || state.Material.Interfaces.Transit == "" {
+	if state.CommittedAt == "" || state.RevokedAt != "" || state.Material.Interfaces.Transit == "" {
 		return false
 	}
 	interfaces := []string{state.Material.Interfaces.Transit}

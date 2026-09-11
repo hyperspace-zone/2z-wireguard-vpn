@@ -84,6 +84,13 @@ sessions, missing current-device identity, and unlisted states remain manual.
 This is part of the post-rollout heartbeat verification and must not be
 replaced with an SSH loop that copies an untested binary directly.
 
+Startup also reports exactly one of `assignment-rehydrate:passed` or
+`assignment-rehydrate:failed:<count>`. Active committed assignments are rebuilt
+from their persisted network plans after a reboot; revoked history is skipped.
+The control plane will not mark a managed deployment successful without the
+passed capability and immediately requests rollback when the candidate reports
+a failure.
+
 Inventory entries may set `resourceTier` to `standard` or `hub`. `standard`
 sets `nf_conntrack_max=65536`. `hub` sets `262144` and is rejected on hosts with
 less than 2 GiB RAM. Promote a gate to `hub` only after resizing the VM and a
