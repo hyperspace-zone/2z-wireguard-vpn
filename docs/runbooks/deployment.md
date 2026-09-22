@@ -2282,10 +2282,12 @@ minutes outside Prometheus and Alertmanager and checks:
 - the separate meta bot token and access to the operator's private chat;
 - local Alertmanager readiness and Telegram notification-failure counters;
 - the primary cluster Telegram token and access to every configured receiver;
-- one peer observability readiness endpoint, forming a ring across all active
-  environments. After the testnet retirement on 2026-09-07 the live ring is
-  production → staging → production. Never leave a retired observability host
-  in the peer file: its expected shutdown would otherwise become a meta-alert.
+- peer observability readiness endpoints for other active environments. Since
+  staging was temporarily retired on 2026-09-22, production is the only live
+  environment and its peer file is intentionally empty. Recreate the
+  production ↔ staging checks only after the replacement staging observability
+  endpoint is healthy. Never leave a retired observability host in the peer
+  file: its expected shutdown would otherwise become a meta-alert.
 
 Two identical failed runs create an incident; two healthy runs resolve it. The
 monitor sends transitions directly to the operator through a separate Telegram
