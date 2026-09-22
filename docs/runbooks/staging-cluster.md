@@ -1,5 +1,12 @@
 # Staging Cluster
 
+> **Temporarily retired (2026-09-22).** The four staging service VMs were
+> terminated and there is currently no live staging environment. The topology
+> and commands below are retained only as a rebuild specification. Do not treat
+> the former IP addresses as owned infrastructure, and do not target them from
+> deployment automation. See
+> [staging-retirement-2026-09-22.md](staging-retirement-2026-09-22.md).
+
 The staging environment runs an isolated Hyperspace control plane over
 DoubleZero `mainnet-beta`. It is intended for Milestone 3 billing, authentication,
 config lifecycle, and release acceptance without changing production data or
@@ -27,17 +34,16 @@ must not be committed.
 
 ## Staging Gates
 
-| Gate | Public IPv4 | Production state | Staging state |
-| --- | --- | --- | --- |
-| `gate-ap-hkg-31` | `185.132.125.145` | `Maintenance` | `Enabled` |
-| `gate-eu-mad-01` | `194.62.98.129` | `Maintenance` | `Enabled` |
-| `gate-na-chi-02` | `152.44.43.130` | `Maintenance` | `Enabled` |
+There are no staging gates while the environment is retired.
 
-Each gate has an independent staging agent token and reports only to
-`control-plane.staging.hyperspace.zone`. Do not set the same gate to `Enabled`
-in two control planes. A transfer is complete only when production reports
-`Maintenance` and `schedulable=false`, while staging reports `Enabled`,
-`ready=true`, and `schedulable=true`.
+- `gate-eu-mad-01` and `gate-na-chi-02` were transferred to production and
+  must not be terminated as part of staging cleanup.
+- `gate-ap-hkg-31` was retired with the former is*hosting fleet.
+- The retired staging control-plane catalog contains no public gates.
+
+When staging is rebuilt, provision dedicated staging gates or explicitly move
+selected gates out of production using the transfer procedure. Never set the
+same physical gate to `Enabled` in two control planes.
 
 Browser probes use an explicit CORS allowlist containing both production and
 staging app origins. Deploy it with repeated options:
