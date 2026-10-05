@@ -1,4 +1,5 @@
 import Fastify, { type FastifyInstance, type FastifyRequest } from "fastify";
+import { randomUUID } from "node:crypto";
 import {
   readSolanaNativeBalance,
   type BillingConfig,
@@ -15,6 +16,8 @@ import {
 import { createHttpAuth } from "./http/auth.js";
 import { registerOpenApiRoute } from "./http/openapi.js";
 import { registerPublicRateLimits, type PublicRateLimitConfig } from "./http/rate-limit.js";
+import { registerAuthAudit } from "./http/auth-audit.js";
+import type { EmailAuthProtectionConfig } from "./services/email-auth-protection.js";
 import { registerAdminAuditRoutes } from "./surfaces/admin/audit.routes.js";
 import { registerAdminBillingRoutes } from "./surfaces/admin/billing.routes.js";
 import { registerAdminGatesRoutes } from "./surfaces/admin/gates.routes.js";
@@ -43,6 +46,8 @@ import {
 } from "./services/solana-config-payment.js";
 
 export interface ControlPlaneApiRuntimeConfig {
+  trustedProxyCidrs: string[];
+  emailAuthProtection: EmailAuthProtectionConfig;
   authSessionTtlSeconds: number;
   downloadTokenTtlSeconds: number;
   adminToken?: string;
@@ -112,6 +117,10 @@ export function createApp(input: CreateControlPlaneApiAppInput): FastifyInstance
   health.setComponent("configuration", { state: "ready", message: "Runtime configuration loaded." });
 
   const app = Fastify({
+    trustProxy: config.trustedProxyCidrs,
+    requestIdHeader: false,
+    genReqId: () => randomUUID(),
+    disableRequestLogging: true,
     logger: {
       serializers: {
         req: serializeRequestForLog
@@ -123,6 +132,7 @@ export function createApp(input: CreateControlPlaneApiAppInput): FastifyInstance
   });
 
   registerRuntimeMetricsHooks(app, metrics);
+  registerAuthAudit(app, config.emailAuth.otpHashSecret, metrics);
   registerPublicRateLimits(app, config.publicRateLimit, metrics);
   registerOpenApiRoute(app);
   registerHealthRoutes(app, { db, health });
@@ -130,6 +140,8 @@ export function createApp(input: CreateControlPlaneApiAppInput): FastifyInstance
     db,
     authSessionTtlSeconds: config.authSessionTtlSeconds,
     emailAuth: config.emailAuth,
+    protection: config.emailAuthProtection,
+    metrics,
     googleOAuth: config.googleOAuth,
     requireUser: auth.requireUser,
     hasBillingAdminAccess: auth.hasBillingAdminAccess
@@ -197,18 +209,19 @@ export function createApp(input: CreateControlPlaneApiAppInput): FastifyInstance
   return app;
 }
 
-function serializeRequestForLog(request: FastifyRequest): Record<string, unknown> {
+export function serializeRequestForLog(request: FastifyRequest): Record<string, unknown> {
   return {
     method: request.method,
     url: requestPathForLog(request.url),
     host: request.hostname,
     remoteAddress: request.ip,
+    peerAddress: request.raw.socket.remoteAddress,
     remotePort: request.raw.socket.remotePort
   };
 }
 
 export function requestPathForLog(url: string | undefined): string {
-  return url?.split("?", 1)[0] || "/";
+  return (url?.split("?", 1)[0] || "/").replace(/(\/artifacts\/download\/)[^/]+/, "$1[redacted]");
 }
 
 function registerRuntimeMetricsHooks(app: FastifyInstance, metrics: RuntimeMetrics): void {
@@ -219,7 +232,10 @@ function registerRuntimeMetricsHooks(app: FastifyInstance, metrics: RuntimeMetri
   app.addHook("onResponse", async (request, reply) => {
     const start = startedAt.get(request);
     const durationSeconds = start ? Number(process.hrtime.bigint() - start) / 1_000_000_000 : 0;
-    const route = request.routeOptions.url ?? request.url.split("?")[0] ?? "unknown";
+    const route = request.routeOptions.url ?? "unmatched";
+    if (!request.url.startsWith("/v1/public/auth/")) {
+      request.log.info({ req: request, status: reply.statusCode, responseTime: durationSeconds * 1000 }, "request completed");
+    }
     const labels = {
       method: request.method,
       route,

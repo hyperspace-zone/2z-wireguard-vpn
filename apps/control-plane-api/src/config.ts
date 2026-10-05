@@ -1,4 +1,6 @@
 import { defaultSessionAbuseControlConfig } from "@hyperspace-zone/control-plane";
+import { defaultEmailSendBudgetConfig } from "@hyperspace-zone/control-plane";
+import { readFileSync } from "node:fs";
 import { parseAes256GcmKey } from "@hyperspace-zone/shared";
 import type { ControlPlaneApiRuntimeConfig } from "./app.js";
 import { defaultPublicRateLimitConfig } from "./http/rate-limit.js";
@@ -19,7 +21,24 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ControlPlaneAp
 
   const artifactEncryptionKeyRaw = env.ARTIFACT_ENCRYPTION_KEY;
   const nativeSolBilling = env.SOLANA_ASSET_KIND === "native";
+  const turnstileEnabled = readBoolean(env, "TURNSTILE_ENABLED", false);
+  const turnstileSecret = turnstileEnabled && env.TURNSTILE_SECRET_KEY_FILE ? readFileSync(env.TURNSTILE_SECRET_KEY_FILE, "utf8").trim() : env.TURNSTILE_SECRET_KEY ?? "";
+  const turnstileHosts = (env.TURNSTILE_HOSTNAMES ?? "").split(",").map(value => value.trim()).filter(Boolean);
+  if (turnstileEnabled && (!env.TURNSTILE_SITE_KEY || !turnstileSecret || !turnstileHosts.length)) throw new Error("Turnstile requires site key, secret and exact hostname allowlist");
+  if (env.EMAIL_PROVIDER === "resend" && !env.RESEND_API_KEY) throw new Error("Resend email delivery requires an API key");
   return {
+    trustedProxyCidrs: (env.TRUSTED_PROXY_CIDRS ?? "127.0.0.1,::1").split(",").map(value => value.trim()).filter(Boolean),
+    emailAuthProtection: {
+      turnstile: { enabled: turnstileEnabled, siteKey: env.TURNSTILE_SITE_KEY ?? "", secretKey: turnstileSecret, hostnames: turnstileHosts,
+        timeoutMs: readPositiveInteger(env, "TURNSTILE_TIMEOUT_MS", 5000) },
+      otpIpMax: readPositiveInteger(env, "EMAIL_OTP_IP_MAX", 5),
+      otpIpWindowSeconds: readPositiveInteger(env, "EMAIL_OTP_IP_WINDOW_SECONDS", 900),
+      budget: { dailyMax: readPositiveInteger(env, "EMAIL_OTP_DAILY_MAX", defaultEmailSendBudgetConfig.dailyMax),
+        intervalMs: readPositiveInteger(env, "EMAIL_OTP_SEND_INTERVAL_MS", defaultEmailSendBudgetConfig.intervalMs),
+        cooldownSeconds: readPositiveInteger(env, "EMAIL_OTP_COOLDOWN_SECONDS", defaultEmailSendBudgetConfig.cooldownSeconds),
+        emailMax: readPositiveInteger(env, "EMAIL_OTP_EMAIL_MAX", defaultEmailSendBudgetConfig.emailMax),
+        emailWindowSeconds: readPositiveInteger(env, "EMAIL_OTP_EMAIL_WINDOW_SECONDS", defaultEmailSendBudgetConfig.emailWindowSeconds) }
+    },
     databaseUrl,
     benchmarkDatabaseMaxConnections: readPositiveInteger(env, "BENCHMARK_DATABASE_MAX_CONNECTIONS", 2),
     benchmarkDatabaseStatementTimeoutMs: readPositiveInteger(env, "BENCHMARK_DATABASE_STATEMENT_TIMEOUT_MS", 8_000),
@@ -37,7 +56,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ControlPlaneAp
       from: env.EMAIL_FROM ?? "Hyperspace <no-reply@hyperspace.zone>",
       replyTo: env.EMAIL_REPLY_TO ?? "support@hyperspace.zone",
       otpHashSecret: env.EMAIL_OTP_HASH_SECRET ?? env.ADMIN_TOKEN ?? env.RESEND_API_KEY ?? env.DATABASE_URL ?? "hyperspace-dev-email-otp",
-      otpTtlSeconds: readPositiveInteger(env, "EMAIL_OTP_TTL_SECONDS", 10 * 60),
+      otpTtlSeconds: Math.min(1800, readPositiveInteger(env, "EMAIL_OTP_TTL_SECONDS", 10 * 60)),
       exposeCodes: readBoolean(env, "EMAIL_OTP_EXPOSE_CODES", false)
     },
     googleOAuth: env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET && env.GOOGLE_OAUTH_REDIRECT_URL

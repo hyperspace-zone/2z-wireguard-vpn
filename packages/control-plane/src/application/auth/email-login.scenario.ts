@@ -20,6 +20,7 @@ export interface EmailSender {
     email: string;
     code: string;
     expiresAt: string;
+    idempotencyKey?: string;
   }): Promise<void>;
 }
 
@@ -29,6 +30,7 @@ export interface RequestEmailLoginCodeInput {
   hashSecret: string;
   sender: EmailSender;
   exposeCode?: boolean;
+  requestInfo?: { sourceIp: string; requestId: string; turnstileVerified: boolean };
 }
 
 export type RequestEmailLoginCodeResult =
@@ -38,7 +40,8 @@ export type RequestEmailLoginCodeResult =
     expiresAt: string;
     devCode?: string;
   }
-  | "invalid_email";
+  | "invalid_email"
+  | "too_many_attempts";
 
 export interface VerifyEmailLoginCodeInput {
   email: string;
@@ -65,16 +68,37 @@ export async function requestEmailLoginCode(
   }
 
   const code = generateNumericOtp();
-  const expiresAt = new Date(Date.now() + input.codeTtlSeconds * 1000).toISOString();
   const codeHash = hashEmailOtp(input.hashSecret, email, code);
-  const challenge = await insertEmailLoginChallenge(db, {
-    email,
-    codeHash,
-    expiresAt,
-    metadata: { flow: "self-service-email-login" }
+  const challenge = await db.transaction(async client => {
+    await lockIdentityEmail(client, email);
+    const previous = await findLatestEmailLoginChallengeForUpdate(client, email);
+    const active = previous && Date.parse(previous.expiresAt) > Date.now() ? previous : null;
+    if (active && active.attemptCount >= 5) return "too_many_attempts" as const;
+    // Resending must not reset the guess counter or extend the guessing window.
+    return insertEmailLoginChallenge(client, {
+      email, codeHash, attemptCount: active?.attemptCount ?? 0,
+      expiresAt: active ? new Date(active.expiresAt).toISOString() : new Date(Date.now() + input.codeTtlSeconds * 1000).toISOString(),
+      metadata: { flow: "self-service-email-login", delivery_status: "pending", ...(input.requestInfo ? {
+        source_ip: input.requestInfo.sourceIp, request_id: input.requestInfo.requestId, turnstile_verified: input.requestInfo.turnstileVerified
+      } : {}) }
+    });
   });
-
-  await input.sender.sendLoginCode({ email, code, expiresAt: challenge.expiresAt });
+  if (challenge === "too_many_attempts") return challenge;
+  try {
+    await input.sender.sendLoginCode({ email, code, expiresAt: challenge.expiresAt, idempotencyKey: challenge.id });
+    await db.query("UPDATE email_login_challenges SET metadata = metadata || '{\"delivery_status\":\"sent\"}'::jsonb WHERE id = $1", [challenge.id]);
+  } catch (error) {
+    // Preserve evidence but make an undelivered OTP unusable. Do not invalidate an earlier working code.
+    await db.transaction(async client => {
+      await lockIdentityEmail(client, email);
+      const attempts = await client.query<{ count: number }>("UPDATE email_login_challenges SET consumed_at = now(), metadata = metadata || '{\"delivery_status\":\"failed\"}'::jsonb WHERE id = $1 RETURNING attempt_count AS count", [challenge.id]);
+      const previous = await findLatestEmailLoginChallengeForUpdate(client, email);
+      if (previous && (attempts.rows[0]?.count ?? 0) > previous.attemptCount) {
+        await client.query("UPDATE email_login_challenges SET attempt_count = GREATEST(attempt_count, $2) WHERE id = $1", [previous.id, attempts.rows[0]!.count]);
+      }
+    });
+    throw error;
+  }
 
   return {
     status: "sent",
@@ -96,6 +120,7 @@ export async function verifyEmailLoginCode(
   const maxAttempts = input.maxAttempts ?? 5;
 
   return db.transaction(async (client) => {
+    await lockIdentityEmail(client, email);
     const challenge = await findLatestEmailLoginChallengeForUpdate(client, email);
     if (!challenge) {
       return "invalid_code";
@@ -114,7 +139,9 @@ export async function verifyEmailLoginCode(
     }
 
     await consumeEmailLoginChallenge(client, challenge.id);
-    await lockIdentityEmail(client, email);
+    // Consume other valid codes from this window to prevent fallback/replay after success.
+    await client.query(`UPDATE email_login_challenges SET consumed_at = now() WHERE email = $1 AND consumed_at IS NULL
+      AND created_at >= now() - interval '30 minutes' AND expires_at > now()`, [email]);
     const user = await findOrCreateEmailUser(client, email);
     await upsertIdentity(client, {
       accountId: user.accountId,

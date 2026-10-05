@@ -255,15 +255,16 @@ export async function insertEmailLoginChallenge(
     codeHash: string;
     expiresAt: string;
     metadata?: Record<string, unknown>;
+    attemptCount?: number;
   }
 ): Promise<{ id: string; createdAt: string; expiresAt: string }> {
   const result = await db.query<{ id: string; createdAt: string; expiresAt: string }>(
     `
-      INSERT INTO email_login_challenges (email, code_hash, expires_at, metadata)
-      VALUES ($1, $2, $3::timestamptz, $4::jsonb)
+      INSERT INTO email_login_challenges (email, code_hash, expires_at, metadata, attempt_count)
+      VALUES ($1, $2, $3::timestamptz, $4::jsonb, $5)
       RETURNING id, created_at AS "createdAt", expires_at AS "expiresAt"
     `,
-    [input.email, input.codeHash, input.expiresAt, JSON.stringify(input.metadata ?? {})]
+    [input.email, input.codeHash, input.expiresAt, JSON.stringify(input.metadata ?? {}), input.attemptCount ?? 0]
   );
   return mustRow(result);
 }

@@ -1,7 +1,8 @@
-import { createHash } from "node:crypto";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { RuntimeMetrics } from "@hyperspace-zone/shared";
-import { detectClientIpv4, headerValue } from "./request.js";
+import { clientRateLimitIdentity } from "./request.js";
+import { WindowLimiter } from "./window-limiter.js";
+import { setAuthOutcome } from "./auth-audit.js";
 
 export interface PublicRateLimitConfig {
   enabled: boolean;
@@ -16,11 +17,6 @@ export interface PublicRateLimitConfig {
 }
 
 type PublicRateLimitCategory = "read" | "auth" | "mutation" | "download";
-
-interface RateLimitBucket {
-  count: number;
-  resetAtMs: number;
-}
 
 interface RateLimitRule {
   windowSeconds: number;
@@ -48,7 +44,7 @@ export function registerPublicRateLimits(
     return;
   }
 
-  const buckets = new Map<string, RateLimitBucket>();
+  const buckets = new WindowLimiter();
   app.addHook("onRequest", async (request, reply) => {
     const category = classifyPublicRequest(request);
     if (!category) {
@@ -61,26 +57,16 @@ export function registerPublicRateLimits(
     }
 
     const now = Date.now();
-    const key = `${category}:${clientIdentity(request)}`;
-    const existing = buckets.get(key);
-    const bucket = existing && existing.resetAtMs > now
-      ? existing
-      : { count: 0, resetAtMs: now + rule.windowSeconds * 1000 };
-
-    bucket.count += 1;
-    buckets.set(key, bucket);
-    if (buckets.size > 10_000) {
-      cleanupExpiredBuckets(buckets, now);
-    }
-
-    const remaining = Math.max(0, rule.max - bucket.count);
-    setRateLimitHeaders(reply, rule, remaining, bucket.resetAtMs);
-    if (bucket.count > rule.max) {
+    const key = `${category}:${clientRateLimitIdentity(request)}`;
+    const bucket = buckets.consume(key, rule.max, rule.windowSeconds * 1000, now);
+    setRateLimitHeaders(reply, rule, bucket.remaining, bucket.resetAt);
+    if (!bucket.allowed) {
+      setAuthOutcome(request, "ip_rate_limited");
       metrics?.counter("public_rate_limit_rejections_total", 1, {
         help: "Total public API requests rejected by in-process rate limiting.",
         labels: { category }
       });
-      return sendRateLimitExceeded(reply, rule, bucket.resetAtMs);
+      return sendRateLimitExceeded(reply, rule, bucket.resetAt);
     }
   });
 }
@@ -90,7 +76,7 @@ function classifyPublicRequest(request: FastifyRequest): PublicRateLimitCategory
   if (!path.startsWith("/v1/public/")) {
     return null;
   }
-  if (path === "/v1/public/auth/login" || path === "/v1/public/auth/register") {
+  if (path.startsWith("/v1/public/auth/") && request.method !== "GET" && request.method !== "HEAD") {
     return "auth";
   }
   if (path.startsWith("/v1/public/artifacts/download/")) {
@@ -115,16 +101,6 @@ function ruleForCategory(config: PublicRateLimitConfig, category: PublicRateLimi
   return { windowSeconds: config.readWindowSeconds, max: config.readMax };
 }
 
-function clientIdentity(request: FastifyRequest): string {
-  const clientIp = detectClientIpv4(request) || request.ip || "unknown";
-  const authorization = headerValue(request, "authorization");
-  if (!authorization) {
-    return clientIp;
-  }
-  const tokenHash = createHash("sha256").update(authorization).digest("hex").slice(0, 16);
-  return `${clientIp}:${tokenHash}`;
-}
-
 function setRateLimitHeaders(
   reply: FastifyReply,
   rule: RateLimitRule,
@@ -146,12 +122,4 @@ function sendRateLimitExceeded(reply: FastifyReply, rule: RateLimitRule, resetAt
       error: "rate_limited",
       message: `Too many requests. Retry after ${retryAfterSeconds} seconds.`
     });
-}
-
-function cleanupExpiredBuckets(buckets: Map<string, RateLimitBucket>, now: number): void {
-  for (const [key, bucket] of buckets) {
-    if (bucket.resetAtMs <= now) {
-      buckets.delete(key);
-    }
-  }
 }

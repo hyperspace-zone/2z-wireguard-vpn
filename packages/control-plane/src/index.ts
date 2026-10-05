@@ -16,6 +16,8 @@ export {
   type VerifyEmailLoginCodeInput,
   type VerifyEmailLoginCodeResult
 } from "./application/auth/email-login.scenario.js";
+export { reserveEmailSend, pauseEmailSending, readEmailSendBudget, cleanEmailSendLimits, defaultEmailSendBudgetConfig,
+  type EmailSendBudgetConfig } from "./application/auth/email-send-budget.js";
 export {
   completeGoogleOAuth,
   createGoogleOAuthStart,

@@ -103,6 +103,10 @@ try {
     const auth = request.headers().authorization || "";
     const okAuth = authenticated || auth === "Bearer test-token";
 
+    if (path === "/v1/public/auth/security") {
+      return json(route, { turnstileEnabled: false, turnstileSiteKey: "" });
+    }
+
     if (path === "/v1/public/gates") {
       return json(route, { gates });
     }

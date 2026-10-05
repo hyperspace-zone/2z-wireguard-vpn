@@ -1,4 +1,5 @@
 import { isIP } from "node:net";
+import ipaddr from "ipaddr.js";
 import type { FastifyRequest } from "fastify";
 
 export function bearerToken(request: FastifyRequest): string {
@@ -18,18 +19,20 @@ export function headerValue(request: FastifyRequest, name: string): string {
 }
 
 export function detectClientIpv4(request: FastifyRequest): string {
-  const candidates = [
-    ...headerValue(request, "x-forwarded-for").split(","),
-    headerValue(request, "x-real-ip"),
-    request.ip
-  ];
-  for (const candidate of candidates) {
-    const ip = normalizeIpv4(candidate);
-    if (ip) {
-      return ip;
-    }
-  }
-  return "";
+  // Fastify resolves the chain using the explicit trusted-proxy allowlist.
+  // Never read arbitrary client-supplied forwarding headers here.
+  return normalizeIpv4(request.ip);
+}
+
+export function clientIpForSecurity(request: FastifyRequest): string {
+  const value = request.ip.replace(/^::ffff:/, "");
+  return ipaddr.isValid(value) ? ipaddr.process(value).toString() : "unknown";
+}
+
+export function clientRateLimitIdentity(request: FastifyRequest): string {
+  const ip = clientIpForSecurity(request);
+  if (isIP(ip) !== 6) return ip;
+  return `${ipaddr.parse(ip).toByteArray().slice(0, 8).map(byte => byte.toString(16).padStart(2, "0")).join("")}/64`;
 }
 
 export function normalizeIpv4(value: string): string {

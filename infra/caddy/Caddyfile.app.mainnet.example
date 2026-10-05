@@ -1,0 +1,50 @@
+{
+  email ops@hyperspace.zone
+  log {
+    format filter {
+      wrap json
+      fields {
+        request>headers delete
+        resp_headers delete
+        request>uri regexp "[?].*$" ""
+      }
+    }
+  }
+}
+
+app.hyperspace.zone {
+  # Caddy 2.6-compatible: retain auth access metadata only, never headers/query values.
+  @non_auth not path /api/v1/public/auth/*
+  skip_log @non_auth
+  log {
+    output file /var/log/caddy/auth-access.json {
+      roll_size 10MiB
+      roll_keep 10
+      roll_keep_for 168h
+    }
+    format filter {
+      wrap json
+      fields {
+        request>headers delete
+        resp_headers delete
+        request>uri regexp "[?].*$" ""
+      }
+    }
+  }
+  handle /api/* {
+    uri strip_prefix /api
+    reverse_proxy https://control-plane.hyperspace.zone {
+      header_up Host control-plane.hyperspace.zone
+      # DNS-only origin: discard any client-supplied forwarding chain.
+      header_up X-Forwarded-For {remote_host}
+      header_up -X-Real-IP
+      header_up -CF-Connecting-IP
+    }
+  }
+  handle {
+    root * /var/www/hyperspace-web
+    header Cache-Control "no-store, max-age=0"
+    try_files {path} /index.html
+    file_server
+  }
+}

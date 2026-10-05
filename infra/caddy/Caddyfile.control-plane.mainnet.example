@@ -1,0 +1,39 @@
+{
+  email ops@hyperspace.zone
+  log {
+    format filter {
+      wrap json
+      fields {
+        request>headers delete
+        resp_headers delete
+        request>uri regexp "[?].*$" ""
+      }
+    }
+  }
+}
+
+control-plane.hyperspace.zone {
+  @non_auth not path /v1/public/auth/*
+  skip_log @non_auth
+  log {
+    output file /var/log/caddy/auth-access.json {
+      roll_size 10MiB
+      roll_keep 10
+      roll_keep_for 168h
+    }
+    format filter {
+      wrap json
+      fields {
+        request>headers delete
+        resp_headers delete
+        request>uri regexp "[?].*$" ""
+      }
+    }
+  }
+  reverse_proxy 127.0.0.1:8080 {
+    # Only the actual web server may supply the first client IP.
+    trusted_proxies 84.32.83.69 10.179.228.36
+    header_up -X-Real-IP
+    header_up -CF-Connecting-IP
+  }
+}

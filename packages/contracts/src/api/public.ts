@@ -18,9 +18,10 @@ export const publicRegisterRequestSchema = {
   additionalProperties: false,
   required: ["email", "password"],
   properties: {
-    email: { type: "string", format: "email" },
-    password: { type: "string", minLength: 12 },
-    displayName: { type: "string" }
+    email: { type: "string", format: "email", maxLength: 254 },
+    password: { type: "string", minLength: 12, maxLength: 1024 },
+    displayName: { type: "string", maxLength: 120 },
+    turnstileToken: { type: "string", maxLength: 2048 }
   }
 } as const;
 
@@ -29,8 +30,8 @@ export const publicLoginRequestSchema = {
   additionalProperties: false,
   required: ["email", "password"],
   properties: {
-    email: { type: "string", format: "email" },
-    password: { type: "string", minLength: 1 }
+    email: { type: "string", format: "email", maxLength: 254 },
+    password: { type: "string", minLength: 1, maxLength: 1024 }
   }
 } as const;
 
@@ -79,8 +80,14 @@ export const publicRequestEmailLoginCodeRequestSchema = {
   additionalProperties: false,
   required: ["email"],
   properties: {
-    email: { type: "string", format: "email" }
+    email: { type: "string", format: "email", maxLength: 254 },
+    turnstileToken: { type: "string", maxLength: 2048 }
   }
+} as const;
+
+export const publicAuthSecurityResponseSchema = {
+  type: "object", additionalProperties: false, required: ["turnstileEnabled", "turnstileSiteKey"],
+  properties: { turnstileEnabled: { type: "boolean" }, turnstileSiteKey: { type: "string" } }
 } as const;
 
 export const publicRequestEmailLoginCodeResponseSchema = {
@@ -100,7 +107,7 @@ export const publicVerifyEmailLoginCodeRequestSchema = {
   additionalProperties: false,
   required: ["email", "code"],
   properties: {
-    email: { type: "string", format: "email" },
+    email: { type: "string", format: "email", maxLength: 254 },
     code: { type: "string", minLength: 6, maxLength: 6 }
   }
 } as const;

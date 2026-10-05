@@ -1,4 +1,5 @@
 import { benchmarkRequestTimeoutMs, shouldLoadBenchmarkMatrix } from "./benchmark-isolation.js";
+import { disposeAuthSecurity, mountAuthSecurity } from "./auth-security.js";
 import { isTradingPath, startTradingApp } from "./trading.js";
 import { isTradingPairsPath, startTradingPairsApp } from "./trading-pairs.js";
 import { tradingRouteIntent } from "./trading-route-intent.js";
@@ -525,6 +526,7 @@ async function refresh(options: { skipAutoMeasure?: boolean } = {}): Promise<voi
 }
 
 function render(state: { gates?: Gate[]; sessions?: Session[]; me?: Me | null; benchmarkMatrix?: BenchmarkMatrix | null; billing?: BillingSummary | null } = {}): void {
+  disposeAuthSecurity();
   const gates = state.gates ?? [];
   const sessions = state.sessions ?? [];
   const me = state.me ?? null;
@@ -550,6 +552,8 @@ function render(state: { gates?: Gate[]; sessions?: Session[]; me?: Me | null; b
     </main>
   `;
   bindHandlers();
+  const securityCheck = document.getElementById("auth-security-check");
+  if (securityCheck && !emailOtpBusy) void mountAuthSecurity(securityCheck);
   syncSessionAutoRefresh(view, me, sessions);
 }
 
@@ -868,6 +872,7 @@ function loginView(): string {
           <p>Use an email code or Google account to manage issued WireGuard configs.</p>
         </div>
         <label>Email <input name="email" type="email" autocomplete="email" required value="${escapeHtml(emailOtpPendingEmail)}" /></label>
+        <div id="auth-security-check" data-action="email_otp" aria-live="polite">Loading security check…</div>
         <button type="submit" ${emailOtpBusy ? "disabled" : ""}>${emailOtpBusy ? "Sending..." : "Send code"}</button>
       </form>
       ${emailOtpPendingEmail ? `
@@ -898,7 +903,8 @@ function registerView(): string {
         </div>
         <label>Email <input name="email" type="email" autocomplete="email" required /></label>
         <label>Password <input name="password" type="password" autocomplete="new-password" minlength="12" required /></label>
-        <button type="submit">Register</button>
+        <div id="auth-security-check" data-action="register" aria-live="polite">Loading security check…</div>
+        <button type="submit" ${emailOtpBusy ? "disabled" : ""}>${emailOtpBusy ? "Sending..." : "Register"}</button>
         <p class="auth-switch">Already have an account? <a href="/login" data-view="login">Log in</a></p>
       </form>
     </section>
@@ -3119,30 +3125,35 @@ function bindHandlers(): void {
 }
 
 async function registerWithPassword(form: FormData): Promise<void> {
+  if (emailOtpBusy) return;
+  emailOtpBusy = true;
   const email = String(form.get("email") ?? "").trim();
+  render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
   try {
     const response = await api("/v1/public/auth/register", {
       method: "POST",
       body: {
         email,
-        password: String(form.get("password") ?? "")
+        password: String(form.get("password") ?? ""),
+        turnstileToken: String(form.get("turnstileToken") ?? "")
       }
     });
     emailOtpPendingEmail = response.email || email;
     currentView = "login";
     window.history.replaceState({}, "", viewPath("login"));
     log(response.devCode ? `Account created. Test verification code: ${response.devCode}` : "Account created. Check your email to verify it.");
-    render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
   } catch (error) {
     if (error instanceof Error && error.message === "email_already_registered") {
       emailOtpPendingEmail = email;
       currentView = "login";
       window.history.replaceState({}, "", viewPath("login"));
       log("This email already has an account. Use Google, an email code, or your password to log in.");
-      render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
       return;
     }
     log(error instanceof Error ? error.message : "Could not create account.");
+  } finally {
+    emailOtpBusy = false;
+    render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
   }
 }
 
@@ -3162,7 +3173,8 @@ async function submitPasswordLogin(form: FormData): Promise<void> {
   } catch (error) {
     if (error instanceof Error && error.message === "email_not_verified") {
       emailOtpPendingEmail = email;
-      await sendEmailCode(email);
+      log("Please verify your email: complete the security check, then select Send code.");
+      render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
       return;
     }
     log(error instanceof Error ? error.message : "Could not log in.");
@@ -3176,10 +3188,10 @@ async function requestEmailCode(form: FormData): Promise<void> {
   emailOtpBusy = true;
   emailOtpPendingEmail = String(form.get("email") ?? "").trim();
   render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
-  await sendEmailCode(emailOtpPendingEmail, true);
+  await sendEmailCode(emailOtpPendingEmail, true, String(form.get("turnstileToken") ?? ""));
 }
 
-async function sendEmailCode(email: string, alreadyBusy = false): Promise<void> {
+async function sendEmailCode(email: string, alreadyBusy = false, turnstileToken = ""): Promise<void> {
   if (!alreadyBusy) {
     emailOtpBusy = true;
     emailOtpPendingEmail = email;
@@ -3188,7 +3200,7 @@ async function sendEmailCode(email: string, alreadyBusy = false): Promise<void> 
   try {
     const response = await api("/v1/public/auth/email/request-code", {
       method: "POST",
-      body: { email }
+      body: { email, turnstileToken }
     });
     emailOtpPendingEmail = response.email || emailOtpPendingEmail;
     log(response.devCode ? `Email code sent. Test code: ${response.devCode}` : "Email code sent.");

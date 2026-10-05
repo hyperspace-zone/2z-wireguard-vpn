@@ -3,6 +3,7 @@ import {
   errorResponseSchema,
   publicAuthMeResponseSchema,
   publicAuthResponseSchema,
+  publicAuthSecurityResponseSchema,
   publicGoogleOAuthStartResponseSchema,
   publicLoginRequestSchema,
   publicRegisterRequestSchema,
@@ -17,18 +18,24 @@ import {
   registerUser,
   requestEmailLoginCode,
   verifyEmailLoginCode,
-  type EmailSender,
+  pauseEmailSending,
   type GoogleOAuthConfig
 } from "@hyperspace-zone/control-plane";
 import type { Database } from "@hyperspace-zone/db";
+import type { RuntimeMetrics } from "@hyperspace-zone/shared";
 import type { PublicAuthUser } from "../../http/auth.js";
 import { sendApplicationError, type ApplicationErrorCode } from "../../http/errors.js";
-import { asRecord, readQuery, readString } from "../../http/request.js";
+import { asRecord, clientIpForSecurity, readQuery, readString } from "../../http/request.js";
+import { setAuthOutcome } from "../../http/auth-audit.js";
+import { createEmailAuthProtection, type EmailAuthProtectionConfig } from "../../services/email-auth-protection.js";
+import { createEmailSender, EmailDeliveryError } from "../../services/email-sender.js";
 
 export function registerPublicAuthRoutes(
   app: FastifyInstance,
   deps: {
     db: Database;
+    protection: EmailAuthProtectionConfig;
+    metrics?: RuntimeMetrics;
     authSessionTtlSeconds: number;
     emailAuth: {
       provider: "console" | "resend";
@@ -44,19 +51,48 @@ export function registerPublicAuthRoutes(
     hasBillingAdminAccess: (user: PublicAuthUser) => Promise<boolean>;
   }
 ): void {
-  const emailSender = createEmailSender(deps.emailAuth);
+  const emailSender = createEmailSender(deps.emailAuth, deps.metrics);
+  const protection = createEmailAuthProtection(app, deps.db, deps.protection, deps.emailAuth.otpHashSecret, deps.metrics);
+  app.get("/v1/public/auth/security", { schema: { response: { 200: publicAuthSecurityResponseSchema } } }, async (_request, reply) => reply.header("cache-control", "no-store").send({
+    turnstileEnabled: deps.protection.turnstile.enabled,
+    turnstileSiteKey: deps.protection.turnstile.enabled ? deps.protection.turnstile.siteKey : ""
+  }));
+
+  async function sendCode(request: FastifyRequest, reply: FastifyReply, email: string, status = 200): Promise<FastifyReply> {
+    try {
+      const result = await requestEmailLoginCode(deps.db, {
+        email, codeTtlSeconds: deps.emailAuth.otpTtlSeconds, hashSecret: deps.emailAuth.otpHashSecret,
+        sender: emailSender, exposeCode: deps.emailAuth.exposeCodes,
+        requestInfo: { sourceIp: clientIpForSecurity(request), requestId: request.id, turnstileVerified: deps.protection.turnstile.enabled }
+      });
+      if (typeof result === "string") { setAuthOutcome(request, result); return sendApplicationError(reply, result); }
+      setAuthOutcome(request, "code_sent");
+      return reply.code(status).send(result);
+    } catch (error) {
+      const failure = error instanceof EmailDeliveryError ? error : new EmailDeliveryError("provider_unavailable", 30);
+      await pauseEmailSending(deps.db, failure.retryAfter).catch(() => { app.log.warn({ event: "email_backoff_persist_failed" }); });
+      setAuthOutcome(request, failure.reason);
+      return reply.code(503).header("retry-after", String(failure.retryAfter)).header("cache-control", "no-store")
+        .send({ error: "email_delivery_unavailable", message: "Could not send email. Try again later or use Google." });
+    }
+  }
 
   app.post("/v1/public/auth/register", {
+    bodyLimit: 16_384,
     schema: {
       body: publicRegisterRequestSchema,
       response: {
         201: publicRequestEmailLoginCodeResponseSchema,
         400: errorResponseSchema,
-        409: errorResponseSchema
+        409: errorResponseSchema,
+        403: errorResponseSchema,
+        429: errorResponseSchema,
+        503: errorResponseSchema
       }
     }
   }, async (request, reply) => {
     const body = asRecord(request.body);
+    if (!await protection.admit(request, reply, "register")) return;
     const result = await registerUser(deps.db, {
       email: readString(body, "email"),
       password: readString(body, "password"),
@@ -72,20 +108,11 @@ export function registerPublicAuthRoutes(
       return sendApplicationError(reply, result);
     }
 
-    const challenge = await requestEmailLoginCode(deps.db, {
-      email: result.email,
-      codeTtlSeconds: deps.emailAuth.otpTtlSeconds,
-      hashSecret: deps.emailAuth.otpHashSecret,
-      sender: emailSender,
-      exposeCode: deps.emailAuth.exposeCodes
-    });
-    if (challenge === "invalid_email") {
-      return sendApplicationError(reply, "invalid_email");
-    }
-    return reply.code(201).send(challenge);
+    return sendCode(request, reply, result.email, 201);
   });
 
   app.post("/v1/public/auth/login", {
+    bodyLimit: 16_384,
     schema: {
       body: publicLoginRequestSchema,
       response: {
@@ -116,34 +143,31 @@ export function registerPublicAuthRoutes(
   });
 
   app.post("/v1/public/auth/email/request-code", {
+    bodyLimit: 16_384,
     schema: {
       body: publicRequestEmailLoginCodeRequestSchema,
       response: {
         200: publicRequestEmailLoginCodeResponseSchema,
-        400: errorResponseSchema
+        400: errorResponseSchema,
+        403: errorResponseSchema,
+        429: errorResponseSchema,
+        503: errorResponseSchema
       }
     }
   }, async (request, reply) => {
     const body = asRecord(request.body);
-    const result = await requestEmailLoginCode(deps.db, {
-      email: readString(body, "email"),
-      codeTtlSeconds: deps.emailAuth.otpTtlSeconds,
-      hashSecret: deps.emailAuth.otpHashSecret,
-      sender: emailSender,
-      exposeCode: deps.emailAuth.exposeCodes
-    });
-    if (result === "invalid_email") {
-      return sendApplicationError(reply, "invalid_email");
-    }
-    return reply.send(result);
+    if (!await protection.admit(request, reply, "email_otp")) return;
+    return sendCode(request, reply, readString(body, "email"));
   });
 
   app.post("/v1/public/auth/email/verify-code", {
+    bodyLimit: 16_384,
     schema: {
       body: publicVerifyEmailLoginCodeRequestSchema,
       response: {
         200: publicAuthResponseSchema,
-        400: errorResponseSchema
+        400: errorResponseSchema,
+        429: errorResponseSchema
       }
     }
   }, async (request, reply) => {
@@ -155,6 +179,7 @@ export function registerPublicAuthRoutes(
       authSessionTtlSeconds: deps.authSessionTtlSeconds
     });
     if (typeof result === "string") {
+      setAuthOutcome(request, result);
       return sendApplicationError(reply, emailCodeError(result));
     }
     return reply.send(result);
@@ -245,56 +270,5 @@ function googleOAuthError(error: string): ApplicationErrorCode {
       return "oauth_email_not_verified";
     default:
       return "oauth_exchange_failed";
-  }
-}
-
-function createEmailSender(config: {
-  provider: "console" | "resend";
-  resendApiKey: string;
-  from: string;
-  replyTo: string;
-}): EmailSender {
-  if (config.provider === "resend" && config.resendApiKey) {
-    return new ResendEmailSender(config);
-  }
-  return {
-    async sendLoginCode(input) {
-      console.log(JSON.stringify({ event: "email_login_code", email: input.email, code: input.code, expiresAt: input.expiresAt }));
-    }
-  };
-}
-
-class ResendEmailSender implements EmailSender {
-  constructor(private readonly config: {
-    resendApiKey: string;
-    from: string;
-    replyTo: string;
-  }) {}
-
-  async sendLoginCode(input: { email: string; code: string; expiresAt: string }): Promise<void> {
-    const response = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        authorization: `Bearer ${this.config.resendApiKey}`,
-        "content-type": "application/json"
-      },
-      body: JSON.stringify({
-        from: this.config.from,
-        to: [input.email],
-        reply_to: this.config.replyTo,
-        subject: "Your Hyperspace sign-in code",
-        text: [
-          `Your Hyperspace sign-in code is ${input.code}.`,
-          "",
-          `It expires at ${input.expiresAt}.`,
-          "",
-          "If you did not request this code, you can ignore this email."
-        ].join("\n")
-      })
-    });
-    if (!response.ok) {
-      const body = await response.text().catch(() => "");
-      throw new Error(`resend_delivery_failed:${response.status}:${body.slice(0, 200)}`);
-    }
   }
 }
