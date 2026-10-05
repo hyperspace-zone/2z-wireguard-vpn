@@ -987,7 +987,10 @@ groups:
           description: Gate {{ $labels.gate }} reported route-liveness socket read or write errors.
 
       - alert: HyperspaceAssignmentCountersStale
-        expr: hyperspace_control_plane_assignment_counter_age_seconds{active="true"} > 300
+        expr: |
+          hyperspace_control_plane_assignment_counter_age_seconds{active="true"} > 300
+          and on(gate)
+          hyperspace_control_plane_gate_agent_connected{enabled="true"}
         for: 5m
         labels:
           severity: warning

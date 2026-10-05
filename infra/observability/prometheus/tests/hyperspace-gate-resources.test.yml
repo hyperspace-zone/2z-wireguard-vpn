@@ -99,6 +99,30 @@ tests:
               summary: Hyperspace gate failed to restore active WireGuard assignments
               description: Gate gate-eu-ams-21 failed to restore 2 active persisted WireGuard assignment(s) after gate-agent startup. During a managed rollout this result automatically requests rollback to the previous immutable agent artifact. After a host reboot, inspect gate-agent logs and the persisted assignment state before issuing new configs; already issued configs may be unavailable until restoration succeeds.
 
+  - name: stale assignment counters alert only for enabled gates
+    interval: 1m
+    input_series:
+      - series: 'hyperspace_control_plane_assignment_counter_age_seconds{active="true",assignment_id="assignment-enabled",gate="gate-eu-ams-21"}'
+        values: '600x8'
+      - series: 'hyperspace_control_plane_gate_agent_connected{enabled="true",gate="gate-eu-ams-21"}'
+        values: '1x8'
+      - series: 'hyperspace_control_plane_assignment_counter_age_seconds{active="true",assignment_id="assignment-disabled",gate="gate-eu-lon-01"}'
+        values: '600x8'
+      - series: 'hyperspace_control_plane_gate_agent_connected{enabled="false",gate="gate-eu-lon-01"}'
+        values: '0x8'
+    alert_rule_test:
+      - eval_time: 7m
+        alertname: HyperspaceAssignmentCountersStale
+        exp_alerts:
+          - exp_labels:
+              active: "true"
+              assignment_id: assignment-enabled
+              gate: gate-eu-ams-21
+              severity: warning
+            exp_annotations:
+              summary: Active gate assignment counters are stale
+              description: Assignment assignment-enabled on gate gate-eu-ams-21 has not persisted a counter sample for more than 5 minutes.
+
   - name: stalled gate agent deployment is critical and carries gate access
     interval: 15s
     input_series:
