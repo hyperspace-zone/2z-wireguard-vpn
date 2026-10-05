@@ -1,8 +1,25 @@
 import type { EmailSender } from "@hyperspace-zone/control-plane";
 import type { RuntimeMetrics } from "@hyperspace-zone/shared";
 
+const providerCodes = ["rate_limit_exceeded", "daily_quota_exceeded", "monthly_quota_exceeded", "validation_error", "restricted_api_key", "suspended_api_key", "invalid_api_key", "application_error", "service_unavailable"] as const;
+type ProviderErrorCode = typeof providerCodes[number] | "unknown";
 export class EmailDeliveryError extends Error {
-  constructor(readonly reason: "provider_rate_limit" | "provider_rejected" | "provider_unavailable", readonly retryAfter: number) { super(reason); }
+  constructor(readonly reason: "provider_rate_limit" | "provider_rejected" | "provider_unavailable", readonly retryAfter: number, readonly providerCode: ProviderErrorCode = "unknown") { super(reason); }
+}
+// Never persist an arbitrary provider body/message. Only known error names leave this parser.
+async function providerErrorCode(response: Response): Promise<ProviderErrorCode> {
+  const reader = response.body?.getReader(); if (!reader) return "unknown";
+  let bytes = 0, text = ""; const decoder = new TextDecoder();
+  try {
+    while (true) {
+      const chunk = await reader.read(); if (chunk.done) break;
+      bytes += chunk.value.length; if (bytes > 4096) { await reader.cancel(); return "unknown"; }
+      text += decoder.decode(chunk.value, { stream: true });
+    }
+    text += decoder.decode(); const name = JSON.parse(text).name;
+    return providerCodes.includes(name) ? name as ProviderErrorCode : "unknown";
+  } catch { return "unknown"; }
+  finally { reader.releaseLock(); }
 }
 export function createEmailSender(config: { provider: "console" | "resend"; resendApiKey: string; from: string; replyTo: string },
   metrics?: RuntimeMetrics, http: typeof fetch = fetch): EmailSender {
@@ -23,9 +40,10 @@ export function createEmailSender(config: { provider: "console" | "resend"; rese
         });
         if (!response.ok) {
           const retry = Number(response.headers.get("retry-after"));
-          await response.body?.cancel(); // Do not include provider response bodies/emails in errors.
+          const code = await providerErrorCode(response);
+          metrics?.counter("email_auth_provider_errors_total", 1, { labels: { code, http_status: String(response.status) } });
           throw new EmailDeliveryError(response.status === 429 ? "provider_rate_limit" : response.status >= 500 ? "provider_unavailable" : "provider_rejected",
-            Number.isFinite(retry) && retry > 0 ? Math.min(300, Math.ceil(retry)) : response.status >= 400 && response.status < 500 && response.status !== 429 ? 300 : 30);
+            code === "daily_quota_exceeded" || code === "monthly_quota_exceeded" ? 300 : Number.isFinite(retry) && retry > 0 ? Math.min(300, Math.ceil(retry)) : response.status >= 400 && response.status < 500 && response.status !== 429 ? 300 : 30, code);
         }
         await response.body?.cancel();
         metrics?.counter("email_auth_delivery_total", 1, { labels: { outcome: "sent" } });

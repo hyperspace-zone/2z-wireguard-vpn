@@ -27,3 +27,19 @@ test("console provider neither sends nor logs credentials", async () => {
   let called = false; const http = (async () => { called = true; return new Response(); }) as typeof fetch;
   await createEmailSender({ ...config, provider: "console" }, undefined, http).sendLoginCode(input); assert.equal(called, false);
 });
+test("429 distinguishes request rate, daily quota and monthly quota without logging response contents", async () => {
+  for (const code of ["rate_limit_exceeded", "daily_quota_exceeded", "monthly_quota_exceeded"] as const) {
+    const http = (async () => new Response(JSON.stringify({ name: code, message: "private-email-secret" }), { status: 429 })) as typeof fetch;
+    await assert.rejects(createEmailSender(config, undefined, http).sendLoginCode(input), error => {
+      assert.ok(error instanceof EmailDeliveryError); assert.equal(error.providerCode, code);
+      assert.equal(error.retryAfter, code === "rate_limit_exceeded" ? 30 : 300); assert.doesNotMatch(error.message, /private-email-secret/); return true;
+    });
+  }
+});
+test("unknown, malformed and oversized provider error names cannot leak into logs or metric labels", async () => {
+  for (const body of [JSON.stringify({ name: "private-token", message: "private-email" }), "not-json", "x".repeat(4097), "null"]) {
+    await assert.rejects(createEmailSender(config, undefined, (async () => new Response(body, { status: 429 })) as typeof fetch).sendLoginCode(input), error => {
+      assert.ok(error instanceof EmailDeliveryError); assert.equal(error.providerCode, "unknown"); return true;
+    });
+  }
+});

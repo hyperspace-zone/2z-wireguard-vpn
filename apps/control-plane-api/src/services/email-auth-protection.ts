@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { Database } from "@hyperspace-zone/db";
-import { reserveEmailSend, readEmailSendBudget, cleanEmailSendLimits, type EmailSendBudgetConfig } from "@hyperspace-zone/control-plane";
+import { reserveEmailSend, readEmailSendBudget, readEmailDeliveryState, cleanEmailSendLimits, type EmailSendBudgetConfig } from "@hyperspace-zone/control-plane";
 import type { RuntimeMetrics } from "@hyperspace-zone/shared";
 import { asRecord, clientIpForSecurity, clientRateLimitIdentity, readString } from "../http/request.js";
 import { emailAuditHash, setAuthOutcome } from "../http/auth-audit.js";
@@ -34,6 +34,8 @@ export function createEmailAuthProtection(app: FastifyInstance, db: Database, co
     refreshing = true;
     try {
       const budget = await readEmailSendBudget(db);
+      const delivery = await readEmailDeliveryState(db);
+      metrics?.gauge("email_auth_delivery_unavailable", delivery.failed ? 1 : 0);
       metrics?.gauge("email_auth_budget_used", budget.used);
       metrics?.gauge("email_auth_budget_limit", config.budget.dailyMax);
       metrics?.gauge("email_auth_budget_remaining", Math.max(0, config.budget.dailyMax - budget.used));

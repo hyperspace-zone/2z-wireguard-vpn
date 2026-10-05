@@ -7,6 +7,7 @@ import { createDatabase, type Database } from "@hyperspace-zone/db";
 import { reserveEmailSend, readEmailSendBudget, pauseEmailSending, requestEmailLoginCode, verifyEmailLoginCode } from "@hyperspace-zone/control-plane";
 import { registerPublicAuthRoutes } from "../surfaces/public/auth.routes.js";
 import { loadConfig } from "../config.js";
+import { createRuntimeMetrics } from "@hyperspace-zone/shared";
 
 // Opt-in. All writes are confined to a random disposable schema; no production rows,
 // no real Cloudflare validation and no actual emails are used by this suite.
@@ -21,6 +22,7 @@ test("email auth PostgreSQL and HTTP integration", { skip: process.env.EMAIL_AUT
     db = createDatabase({ connectionString: url.toString(), applicationName: "hs-email-antispam-tests", maxConnections: 5 });
     const database = db;
     await database.query(await readFile(new URL("../../../../packages/db/migrations/0052_email_auth_send_limits.sql", import.meta.url), "utf8"));
+    await database.query(await readFile(new URL("../../../../packages/db/migrations/0053_email_auth_delivery_state.sql", import.meta.url), "utf8"));
     const tables = ["accounts", "users", "identities", "auth_sessions", "password_credentials", "audit_events", "email_login_challenges"];
     for (const table of tables) await database.query(`CREATE TABLE ${schema}.${table} (LIKE public.${table} INCLUDING ALL)`);
     const clear = () => database.query(`TRUNCATE ${["email_auth_send_limits", ...tables].map(table => `${schema}.${table}`).join(",")}`);
@@ -126,7 +128,7 @@ test("email auth PostgreSQL and HTTP integration", { skip: process.env.EMAIL_AUT
       await clear(); let sends = 0;
       t.mock.method(globalThis, "fetch", async (address: unknown) => {
         if (String(address).includes("siteverify")) return new Response(JSON.stringify({ success: true, hostname: "app.hyperspace.zone", action: "email_otp" }));
-        sends++; return new Response("private-provider-error-body", { status: 429, headers: { "retry-after": "60" } });
+        sends++; return new Response(JSON.stringify({ name: "daily_quota_exceeded", message: "private-provider-error-body" }), { status: 429, headers: { "retry-after": "60" } });
       });
       const config = loadConfig({ DATABASE_URL: url.toString(), EMAIL_PROVIDER: "resend", RESEND_API_KEY: "unit-secret", TURNSTILE_ENABLED: "true", TURNSTILE_SITE_KEY: "unit-site", TURNSTILE_SECRET_KEY: "unit-secret", TURNSTILE_HOSTNAMES: "app.hyperspace.zone" });
       const app = Fastify(); registerPublicAuthRoutes(app, { db: database, protection: config.emailAuthProtection, emailAuth: config.emailAuth,
@@ -134,11 +136,18 @@ test("email auth PostgreSQL and HTTP integration", { skip: process.env.EMAIL_AUT
       try {
         const failed = await app.inject({ method: "POST", url: "/v1/public/auth/email/request-code", payload: { email: "failed-test@example.com", turnstileToken: "valid-token" } });
         assert.equal(failed.statusCode, 503, failed.body); assert.doesNotMatch(failed.body, /private-provider-error-body|unit-secret/);
+        assert.match(failed.json().message, /daily quota is exhausted/); assert.equal(failed.headers["retry-after"], "300");
         assert.equal((await database.query("SELECT consumed_at IS NOT NULL AS consumed, metadata->>'delivery_status' AS state FROM email_login_challenges")).rows[0]!.state, "failed");
         assert.equal((await database.query("SELECT consumed_at IS NOT NULL AS consumed FROM email_login_challenges")).rows[0]!.consumed, true);
         assert.equal((await readEmailSendBudget(database)).used, 1);
         assert.equal((await app.inject({ method: "POST", url: "/v1/public/auth/email/request-code", payload: { email: "next-test@example.com", turnstileToken: "another-token" } })).statusCode, 503);
         assert.equal(sends, 1);
+        assert.equal((await database.query("SELECT last_delivery_status, last_provider_error FROM email_auth_send_limits WHERE key = 'global'")).rows[0]!.last_provider_error, "daily_quota_exceeded");
+        const metrics = createRuntimeMetrics({ service: "email-restart-test" }); const restarted = Fastify();
+        registerPublicAuthRoutes(restarted, { db: database, protection: config.emailAuthProtection, emailAuth: config.emailAuth, metrics,
+          authSessionTtlSeconds: 3600, googleOAuth: null, requireUser: async () => null, hasBillingAdminAccess: async () => false });
+        try { await restarted.ready(); assert.match(metrics.renderPrometheus(), /hyperspace_email_auth_delivery_unavailable\{[^\n]+\} 1/); }
+        finally { await restarted.close(); metrics.stop(); }
       } finally { await app.close(); t.mock.restoreAll(); }
     });
   } finally {

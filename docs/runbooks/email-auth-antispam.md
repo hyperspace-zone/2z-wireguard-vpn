@@ -78,7 +78,9 @@ Caddy 2.6 (`skip_log`; в новых версиях директива пере�
    при использовании ≥80% бюджета. `BudgetExhausted`, `DeliveryUnavailable`,
    `TurnstileValidationUnavailable` — critical после 5 минут. Delivery alert означает,
    что последняя попытка не удалась и последующая успешная отправка не подтвердила
-   восстановление; это не непрерывный probe провайдера. Budget snapshot stale — warning.
+   восстановление; это не непрерывный probe провайдера. Последний исход сохраняется
+   в quota state: перезапуск API сам по себе не объявляет доставку восстановленной.
+   Budget snapshot stale — warning.
    `HyperspaceEmailAuthLimiterUnavailable` — critical при отказе durable quota storage;
    `HyperspaceAuthAuditCapacityExceeded` — warning при переполнении audit-buckets.
    Все service alerts наследуют host/IP control-plane и показывают Service access
@@ -102,12 +104,20 @@ Runtime-копия на control-plane: `/etc/hyperspace/turnstile-production-sec
 
 Параметры перечислены в `infra/systemd/control-plane-api.env.example`. В production:
 `TURNSTILE_ENABLED=true`, site key, secret file и exact hostname обязательны.
-Неполная конфигурация не позволяет API запуститься. Миграция `0052` обязательна
+Неполная конфигурация не позволяет API запуститься. Миграции `0052`/`0053` обязательны
 перед rollout; API не продолжает отправку без durable quota storage.
 
 Resend: проверить verified sending domain, доступ ключа к нему, дневную/месячную
 квоту и аккаунтный RPS-limit. Отдельный API key для OTP удобен для ротации, но не
 создаёт отдельную квоту аккаунта. Платный тариф/новый сервис для этих мер не обязателен.
+HTTP 429 сам по себе не доказывает исчерпание квоты: sender различает allowlisted
+`rate_limit_exceeded`, `daily_quota_exceeded` и `monthly_quota_exceeded`.
+Безопасное имя ошибки попадает в audit reason и `email_auth_provider_errors_total`;
+произвольные response body/message никогда не записываются. Квотные ошибки дают
+backoff 300 секунд, не автоматический resend. Send-only ключ может не иметь доступа
+даже к `/usage`; в таком случае лимиты проверяются владельцем аккаунта в dashboard.
+Результат отправки/ошибка показываются прямо на форме входа или регистрации,
+а не только в скрытом event-log. При 503 интерфейс не утверждает, что письмо отправлено.
 
 ## Проверка и безопасный rollout
 

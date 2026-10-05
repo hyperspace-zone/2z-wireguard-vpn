@@ -36,6 +36,14 @@ export async function pauseEmailSending(db: Queryable, seconds: number): Promise
   await db.query("UPDATE email_auth_send_limits SET blocked_until = GREATEST(COALESCE(blocked_until, now()), now() + $1 * interval '1 second') WHERE key = 'global'", [seconds]);
 }
 
+export async function recordEmailDeliveryState(db: Queryable, status: "sent" | "failed", providerError: string | null): Promise<void> {
+  await db.query("UPDATE email_auth_send_limits SET last_delivery_status = $1, last_provider_error = $2, last_delivery_at = now() WHERE key = 'global'", [status, providerError]);
+}
+export async function readEmailDeliveryState(db: Queryable): Promise<{ failed: boolean }> {
+  const result = await db.query<{ status: string }>("SELECT last_delivery_status AS status FROM email_auth_send_limits WHERE key = 'global'");
+  return { failed: result.rows[0]?.status === "failed" };
+}
+
 export async function readEmailSendBudget(db: Queryable): Promise<{ used: number; blockedUntil: number }> {
   const result = await db.query<LimitRow>(`SELECT window_start::text AS "windowStart", send_count AS "sendCount", blocked_until::text AS "blockedUntil" FROM email_auth_send_limits WHERE key = 'global'`);
   const row = result.rows[0], day = Math.floor(Date.now() / 86_400_000) * 86_400_000;

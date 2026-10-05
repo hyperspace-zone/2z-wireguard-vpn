@@ -37,6 +37,8 @@ try {
   await page.locator("#complete-check").click(); assert.equal(await send.isEnabled(), true);
   await send.click(); await page.locator("#complete-check").waitFor();
   assert.equal(sent, 1); assert.equal(await send.isDisabled(), true, "Rejected requests require a fresh single-use token");
+  assert.equal(await page.locator("#auth-notice").innerText(), "Retry after 60 seconds.");
+  assert.equal(await page.locator("#auth-notice").getAttribute("role"), "alert");
   assert.equal(await page.locator("#google-login").isEnabled(), true);
   await page.goto(`${base}/register`); await page.locator("#complete-check").waitFor();
   const register = page.locator('#register-form button[type="submit"]'); assert.equal(await register.isDisabled(), true);
@@ -44,6 +46,7 @@ try {
   await page.locator('#register-form input[name="password"]').fill("unit-password-long-enough");
   await page.locator("#complete-check").click(); await register.click();
   await page.waitForURL("**/login"); assert.equal(registered, 1);
+  assert.match(await page.locator("#auth-notice").innerText(), /Account created/);
   await page.locator("#complete-check").waitFor();
   await page.evaluate(() => window.widgetOptions.callback("old-token"));
   assert.equal(await page.locator('#email-code-request-form button[type="submit"]').isEnabled(), true);

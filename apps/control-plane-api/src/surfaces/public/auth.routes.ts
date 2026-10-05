@@ -19,6 +19,7 @@ import {
   requestEmailLoginCode,
   verifyEmailLoginCode,
   pauseEmailSending,
+  recordEmailDeliveryState,
   type GoogleOAuthConfig
 } from "@hyperspace-zone/control-plane";
 import type { Database } from "@hyperspace-zone/db";
@@ -66,14 +67,19 @@ export function registerPublicAuthRoutes(
         requestInfo: { sourceIp: clientIpForSecurity(request), requestId: request.id, turnstileVerified: deps.protection.turnstile.enabled }
       });
       if (typeof result === "string") { setAuthOutcome(request, result); return sendApplicationError(reply, result); }
+      await recordEmailDeliveryState(deps.db, "sent", null);
       setAuthOutcome(request, "code_sent");
       return reply.code(status).send(result);
     } catch (error) {
       const failure = error instanceof EmailDeliveryError ? error : new EmailDeliveryError("provider_unavailable", 30);
       await pauseEmailSending(deps.db, failure.retryAfter).catch(() => { app.log.warn({ event: "email_backoff_persist_failed" }); });
-      setAuthOutcome(request, failure.reason);
+      await recordEmailDeliveryState(deps.db, "failed", failure.providerCode).catch(() => { app.log.warn({ event: "email_delivery_state_persist_failed" }); });
+      setAuthOutcome(request, failure.providerCode === "unknown" ? failure.reason : `provider_${failure.providerCode}`);
+      const message = failure.providerCode === "daily_quota_exceeded" ? "Email service daily quota is exhausted. Try after midnight UTC or use Google."
+        : failure.providerCode === "monthly_quota_exceeded" ? "Email service monthly quota is exhausted. Please use Google or contact support."
+        : "Could not send email. Try again later or use Google.";
       return reply.code(503).header("retry-after", String(failure.retryAfter)).header("cache-control", "no-store")
-        .send({ error: "email_delivery_unavailable", message: "Could not send email. Try again later or use Google." });
+        .send({ error: "email_delivery_unavailable", message });
     }
   }
 

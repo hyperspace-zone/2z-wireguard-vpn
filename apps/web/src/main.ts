@@ -415,6 +415,8 @@ let benchmarkCityFilter = "";
 let sessionValidationErrors: SessionValidationErrors = {};
 let emailOtpPendingEmail = "";
 let emailOtpBusy = false;
+let emailOtpNotice = "";
+let emailOtpNoticeIsError = false;
 let googleLoginBusy = false;
 let withdrawalBusy = false;
 let gateCatalogLoadError = false;
@@ -874,6 +876,7 @@ function loginView(): string {
         <label>Email <input name="email" type="email" autocomplete="email" required value="${escapeHtml(emailOtpPendingEmail)}" /></label>
         <div id="auth-security-check" data-action="email_otp" aria-live="polite">Loading security check…</div>
         <button type="submit" ${emailOtpBusy ? "disabled" : ""}>${emailOtpBusy ? "Sending..." : "Send code"}</button>
+        ${emailOtpNotice ? `<p id="auth-notice" class="${emailOtpNoticeIsError ? "bad" : "ok"}" role="${emailOtpNoticeIsError ? "alert" : "status"}">${escapeHtml(emailOtpNotice)}</p>` : ""}
       </form>
       ${emailOtpPendingEmail ? `
         <form id="email-code-verify-form" class="auth-form auth-subform">
@@ -905,6 +908,7 @@ function registerView(): string {
         <label>Password <input name="password" type="password" autocomplete="new-password" minlength="12" required /></label>
         <div id="auth-security-check" data-action="register" aria-live="polite">Loading security check…</div>
         <button type="submit" ${emailOtpBusy ? "disabled" : ""}>${emailOtpBusy ? "Sending..." : "Register"}</button>
+        ${emailOtpNotice ? `<p id="auth-notice" class="${emailOtpNoticeIsError ? "bad" : "ok"}" role="${emailOtpNoticeIsError ? "alert" : "status"}">${escapeHtml(emailOtpNotice)}</p>` : ""}
         <p class="auth-switch">Already have an account? <a href="/login" data-view="login">Log in</a></p>
       </form>
     </section>
@@ -3127,6 +3131,8 @@ function bindHandlers(): void {
 async function registerWithPassword(form: FormData): Promise<void> {
   if (emailOtpBusy) return;
   emailOtpBusy = true;
+  emailOtpNotice = "";
+  emailOtpNoticeIsError = false;
   const email = String(form.get("email") ?? "").trim();
   render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
   try {
@@ -3141,16 +3147,20 @@ async function registerWithPassword(form: FormData): Promise<void> {
     emailOtpPendingEmail = response.email || email;
     currentView = "login";
     window.history.replaceState({}, "", viewPath("login"));
-    log(response.devCode ? `Account created. Test verification code: ${response.devCode}` : "Account created. Check your email to verify it.");
+    emailOtpNotice = response.devCode ? `Account created. Test verification code: ${response.devCode}` : "Account created. Check your email to verify it.";
+    log(emailOtpNotice);
   } catch (error) {
     if (error instanceof Error && error.message === "email_already_registered") {
       emailOtpPendingEmail = email;
       currentView = "login";
       window.history.replaceState({}, "", viewPath("login"));
-      log("This email already has an account. Use Google, an email code, or your password to log in.");
+      emailOtpNotice = "This email already has an account. Use Google, an email code, or your password to log in.";
+      log(emailOtpNotice);
       return;
     }
-    log(error instanceof Error ? error.message : "Could not create account.");
+    emailOtpNotice = error instanceof Error ? error.message : "Could not create account.";
+    emailOtpNoticeIsError = true;
+    log(emailOtpNotice);
   } finally {
     emailOtpBusy = false;
     render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
@@ -3187,6 +3197,8 @@ async function requestEmailCode(form: FormData): Promise<void> {
   }
   emailOtpBusy = true;
   emailOtpPendingEmail = String(form.get("email") ?? "").trim();
+  emailOtpNotice = "";
+  emailOtpNoticeIsError = false;
   render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
   await sendEmailCode(emailOtpPendingEmail, true, String(form.get("turnstileToken") ?? ""));
 }
@@ -3203,9 +3215,13 @@ async function sendEmailCode(email: string, alreadyBusy = false, turnstileToken 
       body: { email, turnstileToken }
     });
     emailOtpPendingEmail = response.email || emailOtpPendingEmail;
-    log(response.devCode ? `Email code sent. Test code: ${response.devCode}` : "Email code sent.");
+    emailOtpNotice = response.devCode ? `Email code sent. Test code: ${response.devCode}` : "Email code sent. Check your inbox and spam folder.";
+    emailOtpNoticeIsError = false;
+    log(emailOtpNotice);
   } catch (error) {
-    log(error instanceof Error ? error.message : "Could not send email code.");
+    emailOtpNotice = error instanceof Error ? error.message : "Could not send email code.";
+    emailOtpNoticeIsError = true;
+    log(emailOtpNotice);
   } finally {
     emailOtpBusy = false;
     render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
@@ -3228,10 +3244,13 @@ async function verifyEmailCode(form: FormData): Promise<void> {
     });
     completeAuth(response);
     emailOtpPendingEmail = "";
+    emailOtpNotice = "";
     log("Signed in with email code.");
     await refresh();
   } catch (error) {
-    log(error instanceof Error ? error.message : "Could not verify email code.");
+    emailOtpNotice = error instanceof Error ? error.message : "Could not verify email code.";
+    emailOtpNoticeIsError = true;
+    log(emailOtpNotice);
   } finally {
     emailOtpBusy = false;
     render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
