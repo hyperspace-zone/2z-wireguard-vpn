@@ -1,0 +1,286 @@
+{
+  "rule_files": [
+    "../rules/hyperspace-alerts.yml"
+  ],
+  "evaluation_interval": "15s",
+  "tests": [
+    {
+      "name": "80 percent warns without blocking sign-in",
+      "interval": "15s",
+      "input_series": [
+        {
+          "series": "hyperspace_email_auth_budget_used{cluster=\"mainnet\",role=\"control-plane-api\",service_host=\"control-plane.hyperspace.zone\",service_ipv4=\"5.199.161.13\",job=\"hyperspace-control-plane-api\",instance=\"control-plane.hyperspace.zone\"}",
+          "values": "80x48"
+        },
+        {
+          "series": "hyperspace_email_auth_budget_limit{cluster=\"mainnet\",role=\"control-plane-api\",service_host=\"control-plane.hyperspace.zone\",service_ipv4=\"5.199.161.13\",job=\"hyperspace-control-plane-api\",instance=\"control-plane.hyperspace.zone\"}",
+          "values": "100x48"
+        },
+        {
+          "series": "hyperspace_email_auth_budget_remaining{cluster=\"mainnet\",role=\"control-plane-api\",service_host=\"control-plane.hyperspace.zone\",service_ipv4=\"5.199.161.13\",job=\"hyperspace-control-plane-api\",instance=\"control-plane.hyperspace.zone\"}",
+          "values": "20x48"
+        }
+      ],
+      "alert_rule_test": [
+        {
+          "eval_time": "6m",
+          "alertname": "HyperspaceEmailAuthBudgetLow",
+          "exp_alerts": [
+            {
+              "exp_labels": {
+                "cluster": "mainnet",
+                "role": "control-plane-api",
+                "service_host": "control-plane.hyperspace.zone",
+                "service_ipv4": "5.199.161.13",
+                "job": "hyperspace-control-plane-api",
+                "instance": "control-plane.hyperspace.zone",
+                "severity": "warning"
+              },
+              "exp_annotations": {
+                "summary": "Email OTP daily budget is nearly exhausted",
+                "description": "At least 80% of the UTC daily OTP budget on control-plane.hyperspace.zone is used. Check verified send attempts and provider quota before increasing EMAIL_OTP_DAILY_MAX."
+              }
+            }
+          ]
+        },
+        {
+          "eval_time": "6m",
+          "alertname": "HyperspaceEmailAuthBudgetExhausted",
+          "exp_alerts": []
+        }
+      ]
+    },
+    {
+      "name": "exhausted budget is critical and not duplicated as low",
+      "interval": "15s",
+      "input_series": [
+        {
+          "series": "hyperspace_email_auth_budget_used{cluster=\"mainnet\",role=\"control-plane-api\",service_host=\"control-plane.hyperspace.zone\",service_ipv4=\"5.199.161.13\",job=\"hyperspace-control-plane-api\",instance=\"control-plane.hyperspace.zone\"}",
+          "values": "100x48"
+        },
+        {
+          "series": "hyperspace_email_auth_budget_limit{cluster=\"mainnet\",role=\"control-plane-api\",service_host=\"control-plane.hyperspace.zone\",service_ipv4=\"5.199.161.13\",job=\"hyperspace-control-plane-api\",instance=\"control-plane.hyperspace.zone\"}",
+          "values": "100x48"
+        },
+        {
+          "series": "hyperspace_email_auth_budget_remaining{cluster=\"mainnet\",role=\"control-plane-api\",service_host=\"control-plane.hyperspace.zone\",service_ipv4=\"5.199.161.13\",job=\"hyperspace-control-plane-api\",instance=\"control-plane.hyperspace.zone\"}",
+          "values": "0x48"
+        }
+      ],
+      "alert_rule_test": [
+        {
+          "eval_time": "6m",
+          "alertname": "HyperspaceEmailAuthBudgetLow",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "4m45s",
+          "alertname": "HyperspaceEmailAuthBudgetExhausted",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "6m",
+          "alertname": "HyperspaceEmailAuthBudgetExhausted",
+          "exp_alerts": [
+            {
+              "exp_labels": {
+                "cluster": "mainnet",
+                "role": "control-plane-api",
+                "service_host": "control-plane.hyperspace.zone",
+                "service_ipv4": "5.199.161.13",
+                "job": "hyperspace-control-plane-api",
+                "instance": "control-plane.hyperspace.zone",
+                "severity": "critical"
+              },
+              "exp_annotations": {
+                "summary": "Email OTP sign-in is blocked by the daily safety budget",
+                "description": "New email OTP requests on control-plane.hyperspace.zone are rejected until the next UTC day or an operator-approved budget adjustment. Existing sessions, code verification and Google sign-in are unaffected. Investigate abuse and Resend quota; do not blindly reset the durable budget."
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "email_auth_delivery_unavailable fires after five minutes and resolves after recovery",
+      "interval": "15s",
+      "input_series": [
+        {
+          "series": "hyperspace_email_auth_delivery_unavailable{cluster=\"mainnet\",role=\"control-plane-api\",service_host=\"control-plane.hyperspace.zone\",service_ipv4=\"5.199.161.13\",job=\"hyperspace-control-plane-api\",instance=\"control-plane.hyperspace.zone\"}",
+          "values": "1x28 0x20"
+        }
+      ],
+      "alert_rule_test": [
+        {
+          "eval_time": "4m45s",
+          "alertname": "HyperspaceEmailAuthDeliveryUnavailable",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "6m",
+          "alertname": "HyperspaceEmailAuthDeliveryUnavailable",
+          "exp_alerts": [
+            {
+              "exp_labels": {
+                "cluster": "mainnet",
+                "role": "control-plane-api",
+                "service_host": "control-plane.hyperspace.zone",
+                "service_ipv4": "5.199.161.13",
+                "job": "hyperspace-control-plane-api",
+                "instance": "control-plane.hyperspace.zone",
+                "severity": "critical"
+              },
+              "exp_annotations": {
+                "summary": "Email OTP delivery has failed and has not recovered",
+                "description": "The last admitted OTP send on control-plane.hyperspace.zone failed; no subsequent successful send confirmed recovery for five minutes. Check provider rate/quota, API key, domain verification and network access. Automatic provider backoff is applied. Google sign-in remains available."
+              }
+            }
+          ]
+        },
+        {
+          "eval_time": "8m",
+          "alertname": "HyperspaceEmailAuthDeliveryUnavailable",
+          "exp_alerts": []
+        }
+      ]
+    },
+    {
+      "name": "turnstile_verification_unavailable fires after five minutes and resolves after recovery",
+      "interval": "15s",
+      "input_series": [
+        {
+          "series": "hyperspace_turnstile_verification_unavailable{cluster=\"mainnet\",role=\"control-plane-api\",service_host=\"control-plane.hyperspace.zone\",service_ipv4=\"5.199.161.13\",job=\"hyperspace-control-plane-api\",instance=\"control-plane.hyperspace.zone\"}",
+          "values": "1x28 0x20"
+        }
+      ],
+      "alert_rule_test": [
+        {
+          "eval_time": "4m45s",
+          "alertname": "HyperspaceTurnstileValidationUnavailable",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "6m",
+          "alertname": "HyperspaceTurnstileValidationUnavailable",
+          "exp_alerts": [
+            {
+              "exp_labels": {
+                "cluster": "mainnet",
+                "role": "control-plane-api",
+                "service_host": "control-plane.hyperspace.zone",
+                "service_ipv4": "5.199.161.13",
+                "job": "hyperspace-control-plane-api",
+                "instance": "control-plane.hyperspace.zone",
+                "severity": "critical"
+              },
+              "exp_annotations": {
+                "summary": "Turnstile server-side verification is unavailable",
+                "description": "Turnstile validation requests from control-plane.hyperspace.zone have failed and no later validation confirmed recovery. OTP and registration fail closed; Google and password sign-in are unaffected. Check outbound HTTPS to challenges.cloudflare.com and the configured secret."
+              }
+            }
+          ]
+        },
+        {
+          "eval_time": "8m",
+          "alertname": "HyperspaceTurnstileValidationUnavailable",
+          "exp_alerts": []
+        }
+      ]
+    },
+    {
+      "name": "email_auth_limiter_unavailable fires after five minutes and resolves after recovery",
+      "interval": "15s",
+      "input_series": [
+        {
+          "series": "hyperspace_email_auth_limiter_unavailable{cluster=\"mainnet\",role=\"control-plane-api\",service_host=\"control-plane.hyperspace.zone\",service_ipv4=\"5.199.161.13\",job=\"hyperspace-control-plane-api\",instance=\"control-plane.hyperspace.zone\"}",
+          "values": "1x28 0x20"
+        }
+      ],
+      "alert_rule_test": [
+        {
+          "eval_time": "4m45s",
+          "alertname": "HyperspaceEmailAuthLimiterUnavailable",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "6m",
+          "alertname": "HyperspaceEmailAuthLimiterUnavailable",
+          "exp_alerts": [
+            {
+              "exp_labels": {
+                "cluster": "mainnet",
+                "role": "control-plane-api",
+                "service_host": "control-plane.hyperspace.zone",
+                "service_ipv4": "5.199.161.13",
+                "job": "hyperspace-control-plane-api",
+                "instance": "control-plane.hyperspace.zone",
+                "severity": "critical"
+              },
+              "exp_annotations": {
+                "summary": "Email OTP durable quota storage is unavailable",
+                "description": "Email send admission on control-plane.hyperspace.zone cannot access its durable quota state. OTP and registration fail closed. Check migration 0052, database availability and lock/statement timeouts; never bypass the safety limits."
+              }
+            }
+          ]
+        },
+        {
+          "eval_time": "8m",
+          "alertname": "HyperspaceEmailAuthLimiterUnavailable",
+          "exp_alerts": []
+        }
+      ]
+    },
+    {
+      "name": "multiple blocked reasons are aggregated into one service warning",
+      "interval": "15s",
+      "input_series": [
+        {
+          "series": "hyperspace_auth_security_requests_total{cluster=\"mainnet\",role=\"control-plane-api\",service_host=\"control-plane.hyperspace.zone\",service_ipv4=\"5.199.161.13\",job=\"hyperspace-control-plane-api\",instance=\"control-plane.hyperspace.zone\",reason=\"otp_ip_limit\",action=\"/v1/public/auth/email/request-code\"}",
+          "values": "0+30x48"
+        },
+        {
+          "series": "hyperspace_auth_security_requests_total{cluster=\"mainnet\",role=\"control-plane-api\",service_host=\"control-plane.hyperspace.zone\",service_ipv4=\"5.199.161.13\",job=\"hyperspace-control-plane-api\",instance=\"control-plane.hyperspace.zone\",reason=\"turnstile_rejected\",action=\"/v1/public/auth/register\"}",
+          "values": "0+30x48"
+        }
+      ],
+      "alert_rule_test": [
+        {
+          "eval_time": "10m",
+          "alertname": "HyperspaceEmailAuthAbuseBlocked",
+          "exp_alerts": [
+            {
+              "exp_labels": {
+                "cluster": "mainnet",
+                "role": "control-plane-api",
+                "service_host": "control-plane.hyperspace.zone",
+                "service_ipv4": "5.199.161.13",
+                "severity": "warning"
+              },
+              "exp_annotations": {
+                "summary": "Sustained auth abuse is being blocked",
+                "description": "Email/auth protection is rejecting more than one request per second. No OTP is written or sent for these rejected requests. Inspect restricted auth logs on control-plane.hyperspace.zone; this alert does not mean VPN routing is unavailable."
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "occasional rejected bot traffic does not page operators",
+      "interval": "15s",
+      "input_series": [
+        {
+          "series": "hyperspace_auth_security_requests_total{cluster=\"mainnet\",role=\"control-plane-api\",service_host=\"control-plane.hyperspace.zone\",service_ipv4=\"5.199.161.13\",job=\"hyperspace-control-plane-api\",instance=\"control-plane.hyperspace.zone\",reason=\"turnstile_rejected\",action=\"/v1/public/auth/email/request-code\"}",
+          "values": "0+1x48"
+        }
+      ],
+      "alert_rule_test": [
+        {
+          "eval_time": "10m",
+          "alertname": "HyperspaceEmailAuthAbuseBlocked",
+          "exp_alerts": []
+        }
+      ]
+    }
+  ]
+}

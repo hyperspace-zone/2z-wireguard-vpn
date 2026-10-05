@@ -1249,6 +1249,78 @@ groups:
           summary: Public API rate limiting is active
           description: Public API requests are being rejected by basic abuse-control rate limits.
 
+      - alert: HyperspaceEmailAuthAbuseBlocked
+        expr: sum by (cluster, role, service_host, service_ipv4) (rate(hyperspace_auth_security_requests_total{reason=~"ip_rate_limited|otp_ip_limit|turnstile_rejected|email_cooldown|email_limit"}[5m])) > 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Sustained auth abuse is being blocked
+          description: Email/auth protection is rejecting more than one request per second. No OTP is written or sent for these rejected requests. Inspect restricted auth logs on {{ $labels.service_host }}; this alert does not mean VPN routing is unavailable.
+
+      - alert: HyperspaceEmailAuthBudgetLow
+        expr: (hyperspace_email_auth_budget_used / hyperspace_email_auth_budget_limit >= 0.8) and on(instance) (hyperspace_email_auth_budget_remaining > 0)
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Email OTP daily budget is nearly exhausted
+          description: At least 80% of the UTC daily OTP budget on {{ $labels.service_host }} is used. Check verified send attempts and provider quota before increasing EMAIL_OTP_DAILY_MAX.
+
+      - alert: HyperspaceEmailAuthBudgetExhausted
+        expr: hyperspace_email_auth_budget_remaining == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: Email OTP sign-in is blocked by the daily safety budget
+          description: New email OTP requests on {{ $labels.service_host }} are rejected until the next UTC day or an operator-approved budget adjustment. Existing sessions, code verification and Google sign-in are unaffected. Investigate abuse and Resend quota; do not blindly reset the durable budget.
+
+      - alert: HyperspaceEmailAuthDeliveryUnavailable
+        expr: hyperspace_email_auth_delivery_unavailable == 1
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: Email OTP delivery has failed and has not recovered
+          description: The last admitted OTP send on {{ $labels.service_host }} failed; no subsequent successful send confirmed recovery for five minutes. Check provider rate/quota, API key, domain verification and network access. Automatic provider backoff is applied. Google sign-in remains available.
+
+      - alert: HyperspaceTurnstileValidationUnavailable
+        expr: hyperspace_turnstile_verification_unavailable == 1
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: Turnstile server-side verification is unavailable
+          description: Turnstile validation requests from {{ $labels.service_host }} have failed and no later validation confirmed recovery. OTP and registration fail closed; Google and password sign-in are unaffected. Check outbound HTTPS to challenges.cloudflare.com and the configured secret.
+
+      - alert: HyperspaceEmailAuthBudgetSnapshotStale
+        expr: time() - hyperspace_email_auth_budget_snapshot_timestamp_seconds > 300
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: Email OTP budget monitoring is stale
+          description: The durable OTP budget on {{ $labels.service_host }} has not been refreshed for five minutes. Check database access; never fall back to unrestricted email sending.
+
+      - alert: HyperspaceEmailAuthLimiterUnavailable
+        expr: hyperspace_email_auth_limiter_unavailable == 1
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: Email OTP durable quota storage is unavailable
+          description: Email send admission on {{ $labels.service_host }} cannot access its durable quota state. OTP and registration fail closed. Check migration 0052, database availability and lock/statement timeouts; never bypass the safety limits.
+
+      - alert: HyperspaceAuthAuditCapacityExceeded
+        expr: increase(hyperspace_auth_audit_overflow_total[5m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Auth security audit aggregation capacity exceeded
+          description: Auth traffic on {{ $labels.service_host }} exceeded the bounded per-IP audit capacity. Counters still record outcomes, but some individual audit entries are omitted. Preserve Caddy auth access logs and investigate rotating sources.
+
       - alert: HyperspaceBillingMeteringNeverSucceeded
         expr: |
           hyperspace_billing_metering_import_enabled == 1
