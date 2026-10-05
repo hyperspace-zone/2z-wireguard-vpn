@@ -57,6 +57,21 @@ database growth, WAL size, and backup age.
 `hsti*` interfaces: their policy and teardown counters are expected dataplane
 activity. Physical NIC and shared DoubleZero-interface drops remain alertable.
 
+`HyperspaceGateDoubleZeroSessionMissing` is critical after five minutes with a
+fresh agent, unavailable DoubleZero, no current device and manual recovery
+required. It carries the gate access labels and explicitly requests operator
+intervention; no automatic reconnect is performed for this condition. The
+general DoubleZero-not-ready alert excludes it to avoid duplicate pages. See
+[the operator runbook](../../docs/runbooks/doublezero-session-missing.md),
+including the confirmed administrative user deletions on 2026-09-23.
+
+Validate the dedicated alert and the existing resource rules before deployment:
+
+```bash
+promtool check rules infra/observability/prometheus/rules/hyperspace-alerts.yml
+promtool test rules infra/observability/prometheus/tests/hyperspace-doublezero-session.test.yml infra/observability/prometheus/tests/hyperspace-gate-resources.test.yml
+```
+
 The worker `/metrics` endpoint remains HTTP 200 while a business snapshot is
 incomplete. `hyperspace_control_plane_snapshot_ready` reports aggregate
 readiness, while `hyperspace_control_plane_snapshot_section_ready{section=...}`

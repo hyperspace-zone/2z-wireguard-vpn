@@ -1,0 +1,206 @@
+{
+  "rule_files": [
+    "../rules/hyperspace-alerts.yml"
+  ],
+  "evaluation_interval": "15s",
+  "tests": [
+    {
+      "name": "missing DoubleZero session alerts after five minutes with access labels and no generic duplicate",
+      "interval": "15s",
+      "input_series": [
+        {
+          "series": "hyperspace_control_plane_gate_doublezero_ready{job=\"hyperspace-control-plane-worker\",cluster=\"mainnet\",enabled=\"true\",gate=\"gate-na-sea-81\",probe_host=\"gate-na-sea-81.hyperspace.zone\",public_ipv4=\"45.77.214.182\",current_device=\"N/A\",current_device_status=\"unknown\",recovery_state=\"manual_required\",recovery_reason=\"doublezero_device_status_unknown\"}",
+          "values": "0x48"
+        },
+        {
+          "series": "hyperspace_control_plane_gate_agent_connected{cluster=\"mainnet\",enabled=\"true\",gate=\"gate-na-sea-81\"}",
+          "values": "1x48"
+        }
+      ],
+      "alert_rule_test": [
+        {
+          "eval_time": "4m45s",
+          "alertname": "HyperspaceGateDoubleZeroSessionMissing",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "5m15s",
+          "alertname": "HyperspaceGateDoubleZeroSessionMissing",
+          "exp_alerts": [
+            {
+              "exp_labels": {
+                "job": "hyperspace-control-plane-worker",
+                "cluster": "mainnet",
+                "enabled": "true",
+                "gate": "gate-na-sea-81",
+                "probe_host": "gate-na-sea-81.hyperspace.zone",
+                "public_ipv4": "45.77.214.182",
+                "current_device": "N/A",
+                "current_device_status": "unknown",
+                "recovery_state": "manual_required",
+                "recovery_reason": "doublezero_device_status_unknown",
+                "severity": "critical"
+              },
+              "exp_annotations": {
+                "summary": "Hyperspace gate DoubleZero session is missing; operator intervention required",
+                "description": "Gate gate-na-sea-81 has a fresh agent heartbeat but no current DoubleZero device and is not schedulable. Automatic reconnect is not performed for this condition. Operator action: check 'doublezero status', the access-pass and DZ Ledger user history. An on-chain user deletion or an operator disconnect can cause this condition; this alert alone does not identify who initiated it. If the access-pass is valid and reconnect is authorized, run 'doublezero connect ibrl', then verify BGP Session Up, doublezero0 routes and Schedulable=true. If the user was administratively deleted or is deleted again, contact DoubleZero rather than repeatedly reconnecting."
+              }
+            }
+          ]
+        },
+        {
+          "eval_time": "10m15s",
+          "alertname": "HyperspaceEnabledGateDoubleZeroNotReady",
+          "exp_alerts": []
+        }
+      ]
+    },
+    {
+      "name": "restored session resolves without keep-firing delay",
+      "interval": "15s",
+      "input_series": [
+        {
+          "series": "hyperspace_control_plane_gate_doublezero_ready{job=\"hyperspace-control-plane-worker\",cluster=\"mainnet\",enabled=\"true\",gate=\"gate-na-sea-81\",probe_host=\"gate-na-sea-81.hyperspace.zone\",public_ipv4=\"45.77.214.182\",current_device=\"N/A\",current_device_status=\"unknown\",recovery_state=\"manual_required\",recovery_reason=\"doublezero_device_status_unknown\"}",
+          "values": "0x24 1x24"
+        },
+        {
+          "series": "hyperspace_control_plane_gate_agent_connected{cluster=\"mainnet\",enabled=\"true\",gate=\"gate-na-sea-81\"}",
+          "values": "1x48"
+        }
+      ],
+      "alert_rule_test": [
+        {
+          "eval_time": "6m30s",
+          "alertname": "HyperspaceGateDoubleZeroSessionMissing",
+          "exp_alerts": []
+        }
+      ]
+    },
+    {
+      "name": "retired gates stale agents and known devices do not imply a missing session",
+      "interval": "15s",
+      "input_series": [
+        {
+          "series": "hyperspace_control_plane_gate_doublezero_ready{job=\"hyperspace-control-plane-worker\",cluster=\"mainnet\",enabled=\"false\",gate=\"retired\",probe_host=\"gate-na-sea-81.hyperspace.zone\",public_ipv4=\"45.77.214.182\",current_device=\"N/A\",current_device_status=\"unknown\",recovery_state=\"manual_required\",recovery_reason=\"doublezero_device_status_unknown\"}",
+          "values": "0x48"
+        },
+        {
+          "series": "hyperspace_control_plane_gate_agent_connected{cluster=\"mainnet\",enabled=\"false\",gate=\"retired\"}",
+          "values": "1x48"
+        },
+        {
+          "series": "hyperspace_control_plane_gate_doublezero_ready{job=\"hyperspace-control-plane-worker\",cluster=\"mainnet\",enabled=\"true\",gate=\"stale\",probe_host=\"gate-na-sea-81.hyperspace.zone\",public_ipv4=\"45.77.214.182\",current_device=\"N/A\",current_device_status=\"unknown\",recovery_state=\"manual_required\",recovery_reason=\"doublezero_device_status_unknown\"}",
+          "values": "0x48"
+        },
+        {
+          "series": "hyperspace_control_plane_gate_agent_connected{cluster=\"mainnet\",enabled=\"true\",gate=\"stale\"}",
+          "values": "0x48"
+        },
+        {
+          "series": "hyperspace_control_plane_gate_doublezero_ready{job=\"hyperspace-control-plane-worker\",cluster=\"mainnet\",enabled=\"true\",gate=\"known-device\",probe_host=\"gate-na-sea-81.hyperspace.zone\",public_ipv4=\"45.77.214.182\",current_device=\"dz100a-sea1-tsw\",current_device_status=\"unknown\",recovery_state=\"manual_required\",recovery_reason=\"doublezero_device_status_unknown\"}",
+          "values": "0x48"
+        },
+        {
+          "series": "hyperspace_control_plane_gate_agent_connected{cluster=\"mainnet\",enabled=\"true\",gate=\"known-device\"}",
+          "values": "1x48"
+        },
+        {
+          "series": "hyperspace_control_plane_gate_doublezero_ready{job=\"hyperspace-control-plane-worker\",cluster=\"mainnet\",enabled=\"true\",gate=\"in-progress\",probe_host=\"gate-na-sea-81.hyperspace.zone\",public_ipv4=\"45.77.214.182\",current_device=\"N/A\",current_device_status=\"unknown\",recovery_state=\"in_progress\",recovery_reason=\"doublezero_device_status_unknown\"}",
+          "values": "0x48"
+        },
+        {
+          "series": "hyperspace_control_plane_gate_agent_connected{cluster=\"mainnet\",enabled=\"true\",gate=\"in-progress\"}",
+          "values": "1x48"
+        }
+      ],
+      "alert_rule_test": [
+        {
+          "eval_time": "10m15s",
+          "alertname": "HyperspaceGateDoubleZeroSessionMissing",
+          "exp_alerts": []
+        }
+      ]
+    },
+    {
+      "name": "missing device representation 0 still requires operator action",
+      "interval": "15s",
+      "input_series": [
+        {
+          "series": "hyperspace_control_plane_gate_doublezero_ready{job=\"hyperspace-control-plane-worker\",cluster=\"mainnet\",enabled=\"true\",gate=\"gate-na-sea-81\",probe_host=\"gate-na-sea-81.hyperspace.zone\",public_ipv4=\"45.77.214.182\",current_device=\"unknown\",current_device_status=\"unknown\",recovery_state=\"manual_required\",recovery_reason=\"doublezero_current_device_unknown\"}",
+          "values": "0x24"
+        },
+        {
+          "series": "hyperspace_control_plane_gate_agent_connected{cluster=\"mainnet\",enabled=\"true\",gate=\"gate-na-sea-81\"}",
+          "values": "1x24"
+        }
+      ],
+      "alert_rule_test": [
+        {
+          "eval_time": "5m15s",
+          "alertname": "HyperspaceGateDoubleZeroSessionMissing",
+          "exp_alerts": [
+            {
+              "exp_labels": {
+                "job": "hyperspace-control-plane-worker",
+                "cluster": "mainnet",
+                "enabled": "true",
+                "gate": "gate-na-sea-81",
+                "probe_host": "gate-na-sea-81.hyperspace.zone",
+                "public_ipv4": "45.77.214.182",
+                "current_device": "unknown",
+                "current_device_status": "unknown",
+                "recovery_state": "manual_required",
+                "recovery_reason": "doublezero_current_device_unknown",
+                "severity": "critical"
+              },
+              "exp_annotations": {
+                "summary": "Hyperspace gate DoubleZero session is missing; operator intervention required",
+                "description": "Gate gate-na-sea-81 has a fresh agent heartbeat but no current DoubleZero device and is not schedulable. Automatic reconnect is not performed for this condition. Operator action: check 'doublezero status', the access-pass and DZ Ledger user history. An on-chain user deletion or an operator disconnect can cause this condition; this alert alone does not identify who initiated it. If the access-pass is valid and reconnect is authorized, run 'doublezero connect ibrl', then verify BGP Session Up, doublezero0 routes and Schedulable=true. If the user was administratively deleted or is deleted again, contact DoubleZero rather than repeatedly reconnecting."
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "missing device representation 1 still requires operator action",
+      "interval": "15s",
+      "input_series": [
+        {
+          "series": "hyperspace_control_plane_gate_doublezero_ready{job=\"hyperspace-control-plane-worker\",cluster=\"mainnet\",enabled=\"true\",gate=\"gate-na-sea-81\",probe_host=\"gate-na-sea-81.hyperspace.zone\",public_ipv4=\"45.77.214.182\",current_device=\"\",current_device_status=\"unknown\",recovery_state=\"manual_required\",recovery_reason=\"doublezero_current_device_unknown\"}",
+          "values": "0x24"
+        },
+        {
+          "series": "hyperspace_control_plane_gate_agent_connected{cluster=\"mainnet\",enabled=\"true\",gate=\"gate-na-sea-81\"}",
+          "values": "1x24"
+        }
+      ],
+      "alert_rule_test": [
+        {
+          "eval_time": "5m15s",
+          "alertname": "HyperspaceGateDoubleZeroSessionMissing",
+          "exp_alerts": [
+            {
+              "exp_labels": {
+                "job": "hyperspace-control-plane-worker",
+                "cluster": "mainnet",
+                "enabled": "true",
+                "gate": "gate-na-sea-81",
+                "probe_host": "gate-na-sea-81.hyperspace.zone",
+                "public_ipv4": "45.77.214.182",
+              "current_device_status": "unknown",
+                "recovery_state": "manual_required",
+                "recovery_reason": "doublezero_current_device_unknown",
+                "severity": "critical"
+              },
+              "exp_annotations": {
+                "summary": "Hyperspace gate DoubleZero session is missing; operator intervention required",
+                "description": "Gate gate-na-sea-81 has a fresh agent heartbeat but no current DoubleZero device and is not schedulable. Automatic reconnect is not performed for this condition. Operator action: check 'doublezero status', the access-pass and DZ Ledger user history. An on-chain user deletion or an operator disconnect can cause this condition; this alert alone does not identify who initiated it. If the access-pass is valid and reconnect is authorized, run 'doublezero connect ibrl', then verify BGP Session Up, doublezero0 routes and Schedulable=true. If the user was administratively deleted or is deleted again, contact DoubleZero rather than repeatedly reconnecting."
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

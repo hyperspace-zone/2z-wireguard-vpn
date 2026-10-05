@@ -595,6 +595,12 @@ groups:
           (hyperspace_control_plane_gate_doublezero_ready{enabled="true"} == 0)
           and on(gate)
             (hyperspace_control_plane_gate_agent_connected{enabled="true"} == 1)
+          unless on(cluster, gate)
+            (hyperspace_control_plane_gate_doublezero_ready{
+              enabled="true", current_device=~"N/A|unknown|",
+              recovery_state="manual_required",
+              recovery_reason=~"doublezero_current_device_unknown|doublezero_device_status_unknown"
+            } == 0)
         for: 10m
         labels:
           severity: critical
@@ -617,6 +623,30 @@ groups:
             Operator action: inspect the current device and gate-agent logs, then run
             'doublezero disconnect ibrl' and 'doublezero connect ibrl' manually only if the automatic
             safety guard did not run.{{ end }}
+
+      - alert: HyperspaceGateDoubleZeroSessionMissing
+        expr: |
+          (hyperspace_control_plane_gate_doublezero_ready{
+            enabled="true", current_device=~"N/A|unknown|",
+            recovery_state="manual_required",
+            recovery_reason=~"doublezero_current_device_unknown|doublezero_device_status_unknown"
+          } == 0)
+          and on(cluster, gate)
+            (hyperspace_control_plane_gate_agent_connected{enabled="true"} == 1)
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: Hyperspace gate DoubleZero session is missing; operator intervention required
+          description: >-
+            Gate {{ $labels.gate }} has a fresh agent heartbeat but no current DoubleZero device
+            and is not schedulable. Automatic reconnect is not performed for this condition.
+            Operator action: check 'doublezero status', the access-pass and DZ Ledger user history.
+            An on-chain user deletion or an operator disconnect can cause this condition;
+            this alert alone does not identify who initiated it. If the access-pass is valid
+            and reconnect is authorized, run 'doublezero connect ibrl', then verify BGP Session Up,
+            doublezero0 routes and Schedulable=true. If the user was administratively deleted
+            or is deleted again, contact DoubleZero rather than repeatedly reconnecting.
 
       - alert: HyperspaceGateAssignmentRehydrateFailed
         expr: hyperspace_control_plane_gate_assignment_rehydrate_ok{enabled="true"} == 0
