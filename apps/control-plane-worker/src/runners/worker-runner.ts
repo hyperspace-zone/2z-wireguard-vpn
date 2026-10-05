@@ -82,13 +82,13 @@ export function createWorkerRunner(input: {
   let stopping = false;
   let running: Promise<void> | null = null;
   let stopWork: Promise<void> | null = null;
-  let signalStop: () => void = () => undefined;
-  const stopSignal = new Promise<void>((resolve) => {
-    signalStop = resolve;
-  });
+  const stopController = new AbortController();
 
   async function waitForNextRun(milliseconds: number): Promise<void> {
-    await Promise.race([sleep(milliseconds), stopSignal]);
+    // Repeatedly racing a timer against one pending stop Promise retains its
+    // reactions until shutdown. Abortable timers remove their listener after
+    // every interval, keeping long-lived worker memory bounded.
+    await sleep(milliseconds, stopController.signal);
   }
 
   async function runOperations(): Promise<void> {
@@ -215,7 +215,7 @@ export function createWorkerRunner(input: {
         return stopWork;
       }
       stopping = true;
-      signalStop();
+      stopController.abort();
       log({ event: "worker_stopping", workerId: input.config.workerId });
       input.health.setComponent("worker-runner", { state: "stopped", message: "Worker runner is stopping." });
       stopWork = (async () => {
