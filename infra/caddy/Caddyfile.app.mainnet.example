@@ -6,10 +6,16 @@
       fields {
         request>headers delete
         resp_headers delete
-        request>uri regexp "[?].*$" ""
+        request>uri regexp "([?].*|/artifacts/download/[^/?]+)" "[redacted]"
       }
     }
   }
+}
+
+http://app.hyperspace.zone {
+  # Automatic HTTP redirects otherwise bypass the HTTPS auth-only log matcher.
+  skip_log
+  redir https://app.hyperspace.zone{uri} permanent
 }
 
 app.hyperspace.zone {

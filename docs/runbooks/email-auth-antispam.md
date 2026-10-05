@@ -34,6 +34,8 @@ Caddy 2.6 (`skip_log`; в новых версиях директива пере�
    агрегируются. Summary относится к IP/action/outcome, не к одному email.
    Отдельный счётчик `auth_audit_overflow_total` отмечает превышение ёмкости 2000
    одновременно активных audit-buckets. IP/email не используются в labels Prometheus.
+   HTTP→HTTPS redirects не пишут access-log. Глобальные Caddy error logs также
+   скрывают headers/query и download-token из пути `/artifacts/download/...`.
    Для реально созданных OTP `metadata` хранит `source_ip`, `request_id`,
    `turnstile_verified` и `delivery_status`. Старые записи без source_ip восстановить
    задним числом невозможно.
@@ -110,6 +112,8 @@ Resend: проверить verified sending domain, доступ ключа к �
 ## Проверка и безопасный rollout
 
 - Unit tests: `npm test -w @hyperspace-zone/control-plane-api`.
+- Caddy logging/proxy policy: `node --test scripts/security/caddy-auth-config.test.mjs`;
+  сами конфигурации дополнительно валидируются установленным Caddy до reload.
 - Browser integration: после web build `node scripts/security/email-auth-ui-smoke.mjs`.
   Cloudflare-виджет и API замоканы; это проверка UI, не доказательство реального CAPTCHA.
 - PostgreSQL integration: `EMAIL_AUTH_INTEGRATION_TEST=1 node --test

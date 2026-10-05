@@ -6,10 +6,15 @@
       fields {
         request>headers delete
         resp_headers delete
-        request>uri regexp "[?].*$" ""
+        request>uri regexp "([?].*|/artifacts/download/[^/?]+)" "[redacted]"
       }
     }
   }
+}
+
+http://control-plane.hyperspace.zone {
+  skip_log
+  redir https://control-plane.hyperspace.zone{uri} permanent
 }
 
 control-plane.hyperspace.zone {
