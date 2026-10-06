@@ -1,5 +1,6 @@
 import { benchmarkRequestTimeoutMs, shouldLoadBenchmarkMatrix } from "./benchmark-isolation.js";
 import { disposeAuthSecurity, mountAuthSecurity } from "./auth-security.js";
+import { emailCodeView } from "./email-code-view.js";
 import { isTradingPath, startTradingApp } from "./trading.js";
 import { isTradingPairsPath, startTradingPairsApp } from "./trading-pairs.js";
 import { tradingRouteIntent } from "./trading-route-intent.js";
@@ -414,6 +415,7 @@ let benchmarkOneWaySortDirection: SortDirection = "desc";
 let benchmarkCityFilter = "";
 let sessionValidationErrors: SessionValidationErrors = {};
 let emailOtpPendingEmail = "";
+let emailOtpCodeSent = false;
 let emailOtpBusy = false;
 let emailOtpNotice = "";
 let emailOtpNoticeIsError = false;
@@ -868,22 +870,12 @@ function tradingRoutePanel(): string {
 function loginView(): string {
   return `
     <section class="panel auth-panel">
-      <form id="email-code-request-form" class="auth-form">
-        <div>
-          <h2>Log in</h2>
-          <p>Use an email code or Google account to manage issued WireGuard configs.</p>
-        </div>
-        <label>Email <input name="email" type="email" autocomplete="email" required value="${escapeHtml(emailOtpPendingEmail)}" /></label>
-        <div id="auth-security-check" data-action="email_otp" aria-live="polite">Loading security check…</div>
-        <button type="submit" ${emailOtpBusy ? "disabled" : ""}>${emailOtpBusy ? "Sending..." : "Send code"}</button>
-        ${emailOtpNotice ? `<p id="auth-notice" class="${emailOtpNoticeIsError ? "bad" : "ok"}" role="${emailOtpNoticeIsError ? "alert" : "status"}">${escapeHtml(emailOtpNotice)}</p>` : ""}
-      </form>
-      ${emailOtpPendingEmail ? `
-        <form id="email-code-verify-form" class="auth-form auth-subform">
-          <label>Code <input name="code" inputmode="numeric" autocomplete="one-time-code" minlength="6" maxlength="6" required /></label>
-          <button type="submit" ${emailOtpBusy ? "disabled" : ""}>${emailOtpBusy ? "Checking..." : "Verify code"}</button>
-        </form>
-      ` : ""}
+      <div>
+        <h2>Log in</h2>
+        <p>Use an email code or Google account to manage issued WireGuard configs.</p>
+      </div>
+      ${emailCodeView({ email: emailOtpPendingEmail, codeSent: emailOtpCodeSent,
+        busy: emailOtpBusy, notice: emailOtpNotice, noticeIsError: emailOtpNoticeIsError })}
       <button id="google-login" class="secondary-button auth-provider-button" type="button" ${googleLoginBusy ? "disabled" : ""}>${googleLoginBusy ? "Opening Google..." : "Continue with Google"}</button>
       <div class="auth-divider"><span>or password</span></div>
       <form id="login-form" class="auth-form">
@@ -2799,6 +2791,7 @@ function bindHandlers(): void {
   });
   document.getElementById("logout")?.addEventListener("click", () => {
     token = "";
+    resetEmailOtp();
     currentView = "login";
     createConfigStep = "configure";
     resetCreatedConfigResult();
@@ -2843,6 +2836,19 @@ function bindHandlers(): void {
     const form = new FormData(event.target as HTMLFormElement);
     void requestEmailCode(form);
   });
+
+  for (const id of ["email-code-resend", "email-code-change-email"]) {
+    document.getElementById(id)?.addEventListener("click", () => {
+      if (emailOtpBusy) return;
+      // Only an explicit new email request needs a fresh, single-use CAPTCHA.
+      emailOtpCodeSent = false;
+      if (id === "email-code-change-email") emailOtpPendingEmail = "";
+      emailOtpNotice = "";
+      emailOtpNoticeIsError = false;
+      render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
+      document.querySelector<HTMLInputElement>('#email-code-request-form input[name="email"]')?.focus();
+    });
+  }
 
   document.getElementById("email-code-verify-form")?.addEventListener("submit", (event) => {
     event.preventDefault();
@@ -3131,6 +3137,7 @@ function bindHandlers(): void {
 async function registerWithPassword(form: FormData): Promise<void> {
   if (emailOtpBusy) return;
   emailOtpBusy = true;
+  emailOtpCodeSent = false;
   emailOtpNotice = "";
   emailOtpNoticeIsError = false;
   const email = String(form.get("email") ?? "").trim();
@@ -3145,6 +3152,7 @@ async function registerWithPassword(form: FormData): Promise<void> {
       }
     });
     emailOtpPendingEmail = response.email || email;
+    emailOtpCodeSent = true;
     currentView = "login";
     window.history.replaceState({}, "", viewPath("login"));
     emailOtpNotice = response.devCode ? `Account created. Test verification code: ${response.devCode}` : "Account created. Check your email to verify it.";
@@ -3183,6 +3191,7 @@ async function submitPasswordLogin(form: FormData): Promise<void> {
   } catch (error) {
     if (error instanceof Error && error.message === "email_not_verified") {
       emailOtpPendingEmail = email;
+      emailOtpCodeSent = false;
       log("Please verify your email: complete the security check, then select Send code.");
       render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
       return;
@@ -3215,6 +3224,7 @@ async function sendEmailCode(email: string, alreadyBusy = false, turnstileToken 
       body: { email, turnstileToken }
     });
     emailOtpPendingEmail = response.email || emailOtpPendingEmail;
+    emailOtpCodeSent = true;
     emailOtpNotice = response.devCode ? `Email code sent. Test code: ${response.devCode}` : "Email code sent. Check your inbox and spam folder.";
     emailOtpNoticeIsError = false;
     log(emailOtpNotice);
@@ -3229,7 +3239,7 @@ async function sendEmailCode(email: string, alreadyBusy = false, turnstileToken 
 }
 
 async function verifyEmailCode(form: FormData): Promise<void> {
-  if (emailOtpBusy) {
+  if (emailOtpBusy || !emailOtpCodeSent) {
     return;
   }
   emailOtpBusy = true;
@@ -3275,6 +3285,7 @@ async function startGoogleLogin(): Promise<void> {
 }
 
 function completeAuth(response: { accessToken: string }): void {
+  resetEmailOtp();
   token = response.accessToken;
   currentView = tradingRouteId ? "create-config" : "dashboard";
   createConfigStep = "configure";
@@ -3283,6 +3294,13 @@ function completeAuth(response: { accessToken: string }): void {
   tradingRouteSelection = null;
   localStorage.setItem("hyperspaceAccessToken", token);
   window.history.replaceState({}, "", tradingRouteId ? `/create-config?tradingRoute=${tradingRouteId}` : viewPath("dashboard"));
+}
+
+function resetEmailOtp(): void {
+  emailOtpPendingEmail = "";
+  emailOtpCodeSent = false;
+  emailOtpNotice = "";
+  emailOtpNoticeIsError = false;
 }
 
 async function createSession(): Promise<void> {
