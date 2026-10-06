@@ -27,6 +27,7 @@ env_file="/etc/hyperspace/control-plane-api.env"
 worker_env_file="/etc/hyperspace/control-plane-worker.env"
 service_user="hyperspace"
 api_health_url=""
+runtime_prepare="/usr/local/sbin/hyperspace-control-plane-prepare-runtime"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -44,9 +45,14 @@ done
   echo "--api-health-url must use HTTPS or loopback HTTP" >&2
   exit 2
 }
+repo_dir="$(readlink -f -- "$repo_dir")"
 [[ -f "$repo_dir/package.json" ]] || { echo "package.json not found in $repo_dir" >&2; exit 2; }
 [[ -f "$env_file" ]] || { echo "environment file not found: $env_file" >&2; exit 2; }
 [[ -f "$worker_env_file" ]] || { echo "worker environment file not found: $worker_env_file" >&2; exit 2; }
+[[ -x "$runtime_prepare" ]] || {
+  echo "runtime preparation helper not found or not executable: $runtime_prepare" >&2
+  exit 2
+}
 id "$service_user" >/dev/null 2>&1 || { echo "service user not found: $service_user" >&2; exit 2; }
 command -v jq >/dev/null || { echo "jq is required" >&2; exit 2; }
 
@@ -71,6 +77,11 @@ database_url="$(read_env_value "$env_file" DATABASE_URL)"
 run_as_service() {
   runuser -u "$service_user" -- env "DATABASE_URL=${database_url}" "$@"
 }
+
+echo "Repairing and validating control-plane runtime artifact permissions."
+"$runtime_prepare" \
+  --repo-dir "$repo_dir" \
+  --service-user "$service_user"
 
 echo "Applying control-plane database migrations before service restart."
 run_as_service npm --prefix "$repo_dir" run db:migrate

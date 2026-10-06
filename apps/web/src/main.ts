@@ -1,8 +1,7 @@
 import { benchmarkRequestTimeoutMs, shouldLoadBenchmarkMatrix } from "./benchmark-isolation.js";
+import { readRequestTimeoutMs, shouldLoadAdminBilling } from "./billing-isolation.js";
 import { disposeAuthSecurity, mountAuthSecurity } from "./auth-security.js";
 import { emailCodeView } from "./email-code-view.js";
-import { isTradingPath, startTradingApp } from "./trading.js";
-import { isTradingPairsPath, startTradingPairsApp } from "./trading-pairs.js";
 import { tradingRouteIntent } from "./trading-route-intent.js";
 import type { PublicTradingRouteResponse } from "@hyperspace-zone/contracts";
 
@@ -195,6 +194,7 @@ interface BillingSummary {
   walletBalanceBaseUnits: string | null;
   walletSpendableBaseUnits: string | null;
   walletRentReserveBaseUnits: string | null;
+  walletBalanceStatus?: "loading" | "available" | "unavailable" | "not_applicable";
   configPriceBaseUnits: string;
   configTrafficLimitBytes: string;
 }
@@ -264,6 +264,7 @@ interface AdminBillingCustomer {
 
 interface AdminBillingSummary {
   customers: AdminBillingCustomer[];
+  customerCount?: number;
   configs: AdminBillingConfig[];
   payments: AdminConfigPayment[];
   deposits: AdminDeposit[];
@@ -274,8 +275,8 @@ interface AdminBillingSummary {
 interface AdminTreasurySummary {
   address: string | null;
   balanceBaseUnits: string | null;
-  status: "available" | "unavailable" | "not_configured";
-  checkedAt: string;
+  status: "available" | "unavailable" | "not_configured" | "loading";
+  checkedAt: string | null;
 }
 
 interface AdminBillingConfig {
@@ -376,6 +377,10 @@ let latestBenchmarkMatrix: BenchmarkMatrix | null = null;
 let latestBilling: BillingSummary | null = null;
 let latestAdminBilling: AdminBillingSummary | null = null;
 let latestAdminTraffic: AdminTrafficSeries | null = null;
+let refreshGeneration = 0;
+let billingLoading = false;
+let adminBillingLoading = false;
+let adminBillingRequest = 0;
 let adminTrafficRange: AdminTrafficSeries["range"] = "24h";
 let adminTrafficSessionId = "";
 let adminConfigFilter = "active";
@@ -454,10 +459,12 @@ let tradingRouteSelection: PublicTradingRouteResponse | null = null;
 let tradingRouteError = "";
 if (tradingRouteId) sessionStorage.setItem("hyperspaceTradingRoute", JSON.stringify({ id: tradingRouteId, createdAt: Date.now() }));
 
-if (isTradingPairsPath(window.location.pathname)) {
-  startTradingPairsApp(appRoot);
-} else if (isTradingPath()) {
-  void startTradingApp(appRoot);
+if (/^\/trading\/(pairs|routes)(\/|$)/.test(window.location.pathname)) {
+  renderLoading();
+  void import("./trading-pairs.js").then(module => module.startTradingPairsApp(appRoot));
+} else if (window.location.pathname === "/trading" || window.location.pathname.startsWith("/trading/")) {
+  renderLoading();
+  void import("./trading.js").then(module => module.startTradingApp(appRoot));
 } else {
   renderLoading();
   window.addEventListener("popstate", () => {
@@ -466,11 +473,10 @@ if (isTradingPairsPath(window.location.pathname)) {
       createConfigStep = "configure";
     }
     render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
-    if (shouldLoadBenchmarkMatrix(currentView)) {
-      void refreshBenchmarkView();
-    }
+    refreshViewData();
   });
-  void refresh();
+  if (!token && currentView !== "benchmarks") render({ gates: [], sessions: [], me: null });
+  else void refresh();
 }
 
 function renderLoading(): void {
@@ -490,22 +496,21 @@ function renderLoading(): void {
 }
 
 async function refresh(options: { skipAutoMeasure?: boolean } = {}): Promise<void> {
+  const generation = ++refreshGeneration;
+  const requestToken = token;
+  billingLoading = Boolean(requestToken);
+  // Start the balance read in parallel, but never hold the dashboard behind it.
+  const billingPromise = requestToken ? getBilling().catch(() => null) : Promise.resolve(null);
   const loadBenchmarks = shouldLoadBenchmarkMatrix(currentView);
-  const [gateResult, sessions, me, benchmarkMatrix, billing] = await Promise.all([
+  const [gateResult, sessions, me, benchmarkMatrix] = await Promise.all([
     getGates()
       .then((gates) => ({ gates, error: null }))
       .catch((error: unknown) => ({ gates: null, error })),
     token ? getSessions().catch(() => [] as Session[]) : Promise.resolve([]),
     token ? getMe().catch(() => null) : Promise.resolve(null),
-    loadBenchmarks ? getBenchmarkMatrix().catch(() => null) : Promise.resolve(latestBenchmarkMatrix),
-    token ? getBilling().catch(() => null) : Promise.resolve(null)
+    loadBenchmarks ? getBenchmarkMatrix().catch(() => null) : Promise.resolve(latestBenchmarkMatrix)
   ]);
-  const [adminBilling, adminTraffic] = token && me?.billingAdmin
-    ? await Promise.all([
-      getAdminBilling().catch(() => null),
-      getAdminTraffic().catch(() => null)
-    ])
-    : [null, null];
+  if (generation !== refreshGeneration || requestToken !== token) return;
   const gates = gateResult.gates ?? benchmarkMatrix?.gates ?? latestGates;
   gateCatalogLoadError = gateResult.error !== null && gates.length === 0;
   if (gateCatalogLoadError) {
@@ -513,19 +518,53 @@ async function refresh(options: { skipAutoMeasure?: boolean } = {}): Promise<voi
   }
   latestGates = gates;
   latestSessions = sessions;
+  if (latestMe?.accountId !== me?.accountId || !me) {
+    latestBilling = null;
+    latestAdminBilling = null;
+    latestAdminTraffic = null;
+  }
   latestMe = me;
   latestBenchmarkMatrix = benchmarkMatrix;
-  latestBilling = billing;
-  latestAdminBilling = adminBilling;
-  latestAdminTraffic = adminTraffic;
   if (me && tradingRouteId && (currentView === "login" || currentView === "register")) {
     currentView = "create-config";
     window.history.replaceState({}, "", `/create-config?tradingRoute=${tradingRouteId}`);
   }
   if (currentView === "create-config" && tradingRouteId && !tradingRouteSelection) await loadTradingRouteSelection();
-  render({ gates: decorateGates(gates), sessions, me, benchmarkMatrix, billing });
+  render({ gates: decorateGates(gates), sessions, me, benchmarkMatrix });
+  void billingPromise.then((billing) => {
+    if (generation !== refreshGeneration || requestToken !== token || !latestMe) return;
+    applyBillingSummary(billing);
+    if (billing?.walletBalanceStatus === "loading") {
+      void api("/v1/public/billing/wallet-balance", { method: "GET" }).then(wallet => {
+        if (generation !== refreshGeneration || requestToken !== token || !latestMe) return;
+        applyBillingSummary({ ...billing, ...wallet });
+      }).catch(() => {
+        if (generation !== refreshGeneration || requestToken !== token || !latestMe) return;
+        applyBillingSummary({ ...billing, walletBalanceStatus: "unavailable" });
+      });
+    }
+  });
+  if (shouldLoadAdminBilling(currentView) && me?.billingAdmin) {
+    void refreshAdminBilling();
+    void refreshAdminTraffic();
+  }
   if (!options.skipAutoMeasure && me) {
     maybeMeasureGatesAutomatically();
+  }
+}
+
+function applyBillingSummary(billing: BillingSummary | null): void {
+  latestBilling = billing;
+  billingLoading = false;
+  // A balance response must not destroy an in-progress create-config form.
+  if (currentView === "billing" || (currentView === "create-config" && createConfigStep !== "configure")) {
+    render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
+  } else {
+    const balance = document.querySelector(".identity-balance");
+    const amount = billing ? billingBalanceText(billing) : "Unavailable";
+    const value = balance?.querySelector("strong");
+    if (value) value.textContent = amount;
+    balance?.setAttribute("aria-label", `Billing balance ${amount}`);
   }
 }
 
@@ -591,9 +630,18 @@ function navigateToView(view: AppView): void {
   }
   window.history.pushState({}, "", viewPath(view));
   render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
-  if (shouldLoadBenchmarkMatrix(view)) {
+  refreshViewData();
+}
+
+function refreshViewData(): void {
+  if (shouldLoadBenchmarkMatrix(currentView)) {
     void refreshBenchmarkView();
   }
+  if (shouldLoadAdminBilling(currentView) && latestMe?.billingAdmin) {
+    void refreshAdminBilling();
+    void refreshAdminTraffic();
+  }
+  if (currentView === "billing" && latestMe) void refresh({ skipAutoMeasure: true });
 }
 
 async function refreshBenchmarkView(): Promise<void> {
@@ -756,7 +804,7 @@ function appNav(view: AppView): string {
       <a href="/benchmarks" data-view="benchmarks" class="${view === "benchmarks" ? "active" : ""}">Benchmarks</a>
       <a href="/trading/cex">Trading latency</a>
       <a href="/billing" data-view="billing" class="${view === "billing" ? "active" : ""}">Billing</a>
-      ${latestAdminBilling ? `<a href="/admin/billing" data-view="admin-billing" class="${view === "admin-billing" ? "active" : ""}">Admin</a>` : ""}
+      ${latestMe?.billingAdmin ? `<a href="/admin/billing" data-view="admin-billing" class="${view === "admin-billing" ? "active" : ""}">Admin</a>` : ""}
     </nav>
   `;
 }
@@ -805,7 +853,7 @@ function billingView(billing: BillingSummary | null): string {
 }
 
 function headerBalance(billing: BillingSummary | null): string {
-  const amount = billingBalanceText(billing);
+  const amount = billing ? billingBalanceText(billing) : billingLoading ? "Loading…" : "Unavailable";
   return `
     <a class="identity-balance" href="/billing" data-view="billing" aria-label="Billing balance ${escapeHtml(amount)}">
       <small>Balance</small>
@@ -908,6 +956,7 @@ function registerView(): string {
 }
 
 function accountPanel(billing: BillingSummary | null): string {
+  if (!billing) return `<p role="status">${billingLoading ? "Billing is loading…" : "Billing is temporarily unavailable. Try Refresh deposits."}</p>`;
   const deposit = billing?.deposit ?? null;
   const nativeSolBilling = deposit?.tokenSymbol === "SOL" && deposit.tokenMint === "native";
   return `
@@ -915,7 +964,7 @@ function accountPanel(billing: BillingSummary | null): string {
       <div class="account-card">
         <h3>${nativeSolBilling ? "Spendable balance" : "Balance"}</h3>
         <strong class="balance-value">${escapeHtml(billingBalanceText(billing))}</strong>
-        <small>${nativeSolBilling && billing ? `Total ${escapeHtml(formatTokenBaseUnits(billing.walletBalanceBaseUnits ?? "0", deposit.tokenDecimals))} SOL · rent reserve ${escapeHtml(formatTokenBaseUnits(billing.walletRentReserveBaseUnits ?? "0", deposit.tokenDecimals))} SOL` : billing ? `${escapeHtml(billing.state.state)} · ${escapeHtml(billing.plan.displayName)} v${billing.plan.version}` : "Billing is loading"}</small>
+        <small>${nativeSolBilling && billing ? billing.walletBalanceStatus === "loading" ? "Fetching current Solana balance…" : billing.walletBalanceStatus === "unavailable" ? "Solana balance is temporarily unavailable" : `Total ${escapeHtml(formatTokenBaseUnits(billing.walletBalanceBaseUnits ?? "0", deposit.tokenDecimals))} SOL · rent reserve ${escapeHtml(formatTokenBaseUnits(billing.walletRentReserveBaseUnits ?? "0", deposit.tokenDecimals))} SOL` : billing ? `${escapeHtml(billing.state.state)} · ${escapeHtml(billing.plan.displayName)} v${billing.plan.version}` : "Billing is loading"}</small>
         ${billing && !nativeSolBilling ? `<small>Paid ${escapeHtml(formatMoneyMinor(billing.buckets.cashMinor, billing.currency))} · Credits ${escapeHtml(formatMoneyMinor(billing.buckets.promotionalMinor, billing.currency))}${billing.buckets.debtMinor ? ` · Debt ${escapeHtml(formatMoneyMinor(billing.buckets.debtMinor, billing.currency))}` : ""}</small>` : ""}
       </div>
       <div class="account-card deposit-card">
@@ -1010,7 +1059,7 @@ function billingUsagePanel(usage: BillingUsageSummary[], currency: string): stri
 }
 
 function adminBillingView(summary: AdminBillingSummary | null): string {
-  if (!summary) return `<section class="panel primary-panel"><h2>Admin</h2><p>Billing administrator access is required.</p></section>`;
+  if (!summary) return `<section class="panel primary-panel"><h2>Admin</h2><p role="status">${latestMe?.billingAdmin ? adminBillingLoading ? "Loading admin billing…" : "Admin billing is unavailable. Retry to load it." : "Billing administrator access is required."}</p>${latestMe?.billingAdmin ? '<button id="refresh-billing" type="button">Retry</button>' : ""}</section>`;
   const activeConfigs = summary.configs.filter(adminConfigIsActive);
   const visibleConfigs = filterAdminConfigs(summary.configs);
   const confirmedPayments = summary.payments.filter((payment) => payment.status === "confirmed");
@@ -1019,7 +1068,7 @@ function adminBillingView(summary: AdminBillingSummary | null): string {
   const totalDeposits = summary.deposits.reduce((total, deposit) => total + safeBigInt(deposit.amountBaseUnits), 0n);
   const treasuryBalance = summary.treasury.status === "available" && summary.treasury.balanceBaseUnits !== null
     ? `${formatTokenBaseUnits(summary.treasury.balanceBaseUnits, summary.asset.decimals)} ${summary.asset.symbol}`
-    : summary.treasury.status === "not_configured" ? "Not configured" : "Unavailable";
+    : summary.treasury.status === "not_configured" ? "Not configured" : summary.treasury.status === "loading" ? "Loading…" : "Unavailable";
   const treasuryAddress = summary.treasury.address || "";
   const configOptions = summary.configs.map((config) => {
     const label = config.label?.trim() || config.sessionId.slice(0, 8);
@@ -1030,7 +1079,7 @@ function adminBillingView(summary: AdminBillingSummary | null): string {
     <section class="panel primary-panel">
       <div class="panel-heading"><h2>Network admin</h2><small>All customer accounts</small></div>
       <div class="admin-metric-strip">
-        <div><small>Customers</small><strong>${summary.customers.length}</strong></div>
+        <div><small>Customers</small><strong>${summary.customerCount ?? summary.customers.length}</strong></div>
         <div><small>Active configs</small><strong>${activeConfigs.length}</strong></div>
         <div title="${escapeHtml(treasuryAddress)}"><small>Treasury balance</small><strong>${escapeHtml(treasuryBalance)}</strong>${treasuryAddress ? `<small class="mono">${escapeHtml(shortWallet(treasuryAddress))}</small>` : ""}</div>
         <div><small>Confirmed config revenue</small><strong>${escapeHtml(formatTokenBaseUnits(confirmedRevenue.toString(), summary.asset.decimals))} ${escapeHtml(summary.asset.symbol)}</strong></div>
@@ -2798,9 +2847,15 @@ function bindHandlers(): void {
     resetSessionDraft();
     latestMe = null;
     latestSessions = [];
+    latestBilling = null;
+    billingLoading = false;
+    adminBillingLoading = false;
+    adminBillingRequest += 1;
+    refreshGeneration += 1;
     latestAdminBilling = null;
     latestAdminTraffic = null;
     gateLatencyInProgressIds.clear();
+    adminTrafficLoading = false;
     gateLatencyMeasurementInFlight = false;
     automaticGateLatencyMeasurementStarted = false;
     stopSessionAutoRefresh();
@@ -3433,17 +3488,56 @@ async function cancelWithdrawal(withdrawalId: string): Promise<void> {
   }
 }
 
+async function refreshAdminBilling(): Promise<void> {
+  if (adminBillingLoading || !latestMe?.billingAdmin || !token) return;
+  const request = ++adminBillingRequest;
+  const requestToken = token;
+  adminBillingLoading = true;
+  if (currentView === "admin-billing") render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
+  try {
+    const summary = await getAdminBilling(true);
+    if (request === adminBillingRequest && requestToken === token) {
+      latestAdminBilling = summary;
+      if (summary.treasury.status === "loading") {
+        void api("/v1/admin/billing/treasury", { method: "GET" }).then(treasury => {
+          if (request !== adminBillingRequest || requestToken !== token || !latestAdminBilling) return;
+          latestAdminBilling = { ...latestAdminBilling, treasury };
+          if (currentView === "admin-billing") render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
+        }).catch(() => {
+          if (request !== adminBillingRequest || requestToken !== token || !latestAdminBilling) return;
+          latestAdminBilling = { ...latestAdminBilling, treasury: { ...summary.treasury, status: "unavailable" } };
+          if (currentView === "admin-billing") render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
+        });
+      }
+    }
+  } catch {
+    if (request === adminBillingRequest && requestToken === token) log("Admin billing is temporarily unavailable.");
+  } finally {
+    if (request === adminBillingRequest && requestToken === token) {
+      adminBillingLoading = false;
+      if (currentView === "admin-billing") render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
+    }
+  }
+}
+
 async function refreshAdminTraffic(): Promise<void> {
+  if (!latestMe?.billingAdmin || !token) return;
   if (adminTrafficLoading) return;
+  const requestToken = token;
+  const requestRange = adminTrafficRange;
+  const requestSessionId = adminTrafficSessionId;
   adminTrafficLoading = true;
   render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
   try {
-    latestAdminTraffic = await getAdminTraffic();
+    const traffic = await getAdminTraffic();
+    if (requestToken === token && requestRange === adminTrafficRange && requestSessionId === adminTrafficSessionId) latestAdminTraffic = traffic;
   } catch (error) {
     log(error instanceof Error ? error.message : "Could not load traffic counters.");
   } finally {
-    adminTrafficLoading = false;
-    render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
+    if (requestToken === token) {
+      adminTrafficLoading = false;
+      if (currentView === "admin-billing") render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
+    }
   }
 }
 
@@ -3736,11 +3830,11 @@ async function getSessions(): Promise<Session[]> {
 }
 
 async function getBilling(): Promise<BillingSummary> {
-  return api("/v1/public/billing", { method: "GET" });
+  return api("/v1/public/billing?walletBalance=deferred", { method: "GET" });
 }
 
-async function getAdminBilling(): Promise<AdminBillingSummary> {
-  return api("/v1/admin/billing/customers", { method: "GET" });
+async function getAdminBilling(deferred = false): Promise<AdminBillingSummary> {
+  return api(`/v1/admin/billing/customers?customers=count${deferred ? "&treasury=deferred" : ""}`, { method: "GET" });
 }
 
 async function getAdminTraffic(): Promise<AdminTrafficSeries> {
@@ -3837,10 +3931,13 @@ async function api(path: string, options: { method: string; body?: unknown; sign
   }
   const init: RequestInit = {
     method: options.method,
-    headers
+    headers,
+    cache: "no-store"
   };
   if (options.signal) {
     init.signal = options.signal;
+  } else if (options.method === "GET") {
+    init.signal = AbortSignal.timeout(readRequestTimeoutMs);
   }
   if (options.body !== undefined) {
     headers.set("content-type", "application/json");
@@ -4416,6 +4513,9 @@ function formatMoneyMinor(amountMinor: number, currency: string): string {
 }
 
 function billingBalanceText(billing: BillingSummary | null): string {
+  if (!billing) return "Unavailable";
+  if (billing.walletBalanceStatus === "loading") return "Loading…";
+  if (billing.walletBalanceStatus === "unavailable") return "Unavailable";
   if (billing?.deposit?.tokenSymbol === "SOL" && billing.walletSpendableBaseUnits !== null) {
     return `${formatTokenBaseUnits(billing.walletSpendableBaseUnits, billing.deposit.tokenDecimals)} SOL`;
   }
@@ -4423,6 +4523,7 @@ function billingBalanceText(billing: BillingSummary | null): string {
 }
 
 function configPriceText(): string {
+  if (!latestBilling) return "Loading…";
   const baseUnits = latestBilling?.configPriceBaseUnits || "100000000";
   const decimals = latestBilling?.deposit?.tokenDecimals ?? 9;
   return `${formatTokenBaseUnits(baseUnits, decimals)} SOL`;

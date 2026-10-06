@@ -147,7 +147,7 @@ export function createApp(input: CreateControlPlaneApiAppInput): FastifyInstance
     hasBillingAdminAccess: auth.hasBillingAdminAccess
   });
   registerPublicBenchmarkRoutes(app, { db: benchmarkDb });
-  registerPublicTradingRoutes(app, { db: benchmarkDb, backgroundRefresh: Boolean(input.benchmarkDb) });
+  registerPublicTradingRoutes(app, { db: benchmarkDb, pageDb: db, backgroundRefresh: Boolean(input.benchmarkDb) });
   registerPublicGatesRoutes(app, { db });
   registerPublicNetworkRoutes(app, { requireUser: auth.requireUser });
   registerPublicBillingRoutes(app, {
@@ -229,12 +229,21 @@ function registerRuntimeMetricsHooks(app: FastifyInstance, metrics: RuntimeMetri
   app.addHook("onRequest", async (request) => {
     startedAt.set(request, process.hrtime.bigint());
   });
+  app.addHook("onSend", async (request, reply, payload) => {
+    const start = startedAt.get(request);
+    if (start) {
+      const stages = reply.getHeader("Server-Timing");
+      reply.header("Server-Timing", `${stages ? `${stages}, ` : ""}app;dur=${(Number(process.hrtime.bigint() - start) / 1_000_000).toFixed(2)}`);
+    }
+    return payload;
+  });
   app.addHook("onResponse", async (request, reply) => {
     const start = startedAt.get(request);
     const durationSeconds = start ? Number(process.hrtime.bigint() - start) / 1_000_000_000 : 0;
     const route = request.routeOptions.url ?? "unmatched";
     if (!request.url.startsWith("/v1/public/auth/")) {
-      request.log.info({ req: request, status: reply.statusCode, responseTime: durationSeconds * 1000 }, "request completed");
+      request.log.info({ req: request, status: reply.statusCode, responseTime: durationSeconds * 1000,
+        serverTiming: reply.getHeader("Server-Timing") }, "request completed");
     }
     const labels = {
       method: request.method,
@@ -247,6 +256,7 @@ function registerRuntimeMetricsHooks(app: FastifyInstance, metrics: RuntimeMetri
     });
     metrics.histogram("api_http_request_duration_seconds", durationSeconds, {
       help: "API HTTP request duration in seconds.",
+      buckets: [0.005, 0.01, 0.025, 0.03, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10],
       labels: {
         method: request.method,
         route

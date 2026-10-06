@@ -435,7 +435,8 @@ export async function findActiveAuthSessionUserByTokenHash(
 
 export async function markAuthSessionSeen(db: Queryable, tokenHash: string): Promise<void> {
   await db.query(
-    "UPDATE auth_sessions SET last_seen_at = now() WHERE token_hash = $1",
+    `UPDATE auth_sessions SET last_seen_at = now() WHERE token_hash = $1
+      AND (last_seen_at IS NULL OR last_seen_at < now() - interval '1 minute')`,
     [tokenHash]
   );
 }

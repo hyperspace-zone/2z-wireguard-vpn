@@ -328,7 +328,7 @@ export async function recordTradingProbeJobReport(
   });
 }
 
-export async function readPublicTradingLatency(db: Queryable): Promise<PublicTradingLatencyResponse> {
+export async function readPublicTradingLatency(db: Queryable, category?: string, targetKey?: string): Promise<PublicTradingLatencyResponse> {
   const [nodes, targets, measurements] = await Promise.all([
     db.query<PublicTradingLatencyResponse["nodes"][number]>(
       `
@@ -357,9 +357,9 @@ export async function readPublicTradingLatency(db: Queryable): Promise<PublicTra
                protocol, COALESCE(metadata->>'measurement', protocol) AS measurement,
                sort_order AS "sortOrder"
         FROM trading_probe_targets
-        WHERE enabled = true
+        WHERE enabled = true AND ($1::text IS NULL OR category = $1)
         ORDER BY sort_order, target_key
-      `
+      `, [category ?? null]
     ),
     db.query<PublicTradingLatencyResponse["measurements"][number]>(
       `
@@ -374,8 +374,15 @@ export async function readPublicTradingLatency(db: Queryable): Promise<PublicTra
                sample_count AS "sampleCount", failure_count AS "failureCount",
                error_code AS "errorCode"
         FROM trading_latency_latest
+        WHERE ($1::text IS NULL OR target_id IN (
+          SELECT id FROM trading_probe_targets WHERE enabled = true AND category = $1
+        ))
+          AND ($2::text IS NULL OR target_id = (
+            SELECT id FROM trading_probe_targets WHERE enabled = true AND ($1::text IS NULL OR category = $1)
+            ORDER BY (target_key = $2) DESC, sort_order, target_key LIMIT 1
+          ))
         ORDER BY target_id, total_p50_ms NULLS LAST
-      `
+      `, [category ?? null, targetKey ?? null]
     )
   ]);
   return {

@@ -8,6 +8,7 @@ import {
 import { findCustodialWallet } from "../../resources/wallets/repository.js";
 import { availableBillingBalance } from "./prepaid-billing.scenario.js";
 import {
+  ensurePrepaidBillingState,
   readBillingAccountState,
   readBillingBuckets,
   readCurrentBillingPlan,
@@ -61,6 +62,7 @@ export interface BillingSummary {
   walletBalanceBaseUnits: string | null;
   walletSpendableBaseUnits: string | null;
   walletRentReserveBaseUnits: string | null;
+  walletBalanceStatus?: "loading" | "available" | "unavailable" | "not_applicable";
   configPriceBaseUnits: string;
   configTrafficLimitBytes: string;
 }
@@ -90,22 +92,23 @@ export interface BillingDeposit {
 export async function readAccountBillingSummary(
   db: TransactionalQueryable,
   accountId: string,
-  config?: BillingConfig
+  config?: BillingConfig,
+  options: { includeNativeBalance?: boolean } = {}
 ): Promise<BillingSummary> {
-  await ensureBillingAccount(db, accountId);
+  await Promise.all([ensureBillingAccount(db, accountId), ensurePrepaidBillingState(db, accountId)]);
   const [balance, ledger, wallet, receipts, buckets, state, plan, usage, withdrawals] = await Promise.all([
-    readBillingBalance(db, accountId),
+    readBillingBalance(db, accountId, true),
     listLedgerEntries(db, accountId),
     findCustodialWallet(db, accountId),
     listSolanaPaymentReceipts(db, accountId),
-    readBillingBuckets(db, accountId),
-    readBillingAccountState(db, accountId),
-    readCurrentBillingPlan(db, accountId),
+    readBillingBuckets(db, accountId, false, true),
+    readBillingAccountState(db, accountId, false, true),
+    readCurrentBillingPlan(db, accountId, true),
     listAccountUsageSummaries(db, accountId),
     listWithdrawalRequests(db, accountId)
   ]);
   const nativeSolBilling = config?.solanaAssetKind === "native";
-  const [nativeBalance, nativeRentReserve] = nativeSolBilling && wallet && config
+  const [nativeBalance, nativeRentReserve] = options.includeNativeBalance !== false && nativeSolBilling && wallet && config
     ? await Promise.all([
       safeReadNativeBalance(wallet.publicKey, config),
       safeReadNativeRentReserve(config)
@@ -157,8 +160,27 @@ export async function readAccountBillingSummary(
     walletBalanceBaseUnits: nativeBalance?.toString() ?? null,
     walletSpendableBaseUnits: nativeSpendable?.toString() ?? null,
     walletRentReserveBaseUnits: nativeRentReserve?.toString() ?? null,
+    walletBalanceStatus: !nativeSolBilling ? "not_applicable" : options.includeNativeBalance === false ? "loading"
+      : nativeSpendable !== null ? "available" : "unavailable",
     configPriceBaseUnits: String(config?.configPriceLamports ?? 0),
     configTrafficLimitBytes: String(config?.configTrafficLimitBytes ?? 0)
+  };
+}
+
+// Display-only read. Payments and withdrawals continue to perform their own
+// fresh authorization checks; no private balances are cached here.
+export async function readAccountNativeWalletBalance(db: TransactionalQueryable, accountId: string, config: BillingConfig) {
+  const wallet = config.solanaAssetKind === "native" ? await findCustodialWallet(db, accountId) : null;
+  const [balance, rent] = wallet ? await Promise.all([
+    safeReadNativeBalance(wallet.publicKey, config), safeReadNativeRentReserve(config)
+  ]) : [null, null];
+  const spendable = balance !== null && rent !== null ? balance > rent ? balance - rent : 0n : null;
+  return {
+    walletBalanceBaseUnits: balance?.toString() ?? null,
+    walletSpendableBaseUnits: spendable?.toString() ?? null,
+    walletRentReserveBaseUnits: rent?.toString() ?? null,
+    walletBalanceStatus: config.solanaAssetKind !== "native" ? "not_applicable" : spendable !== null ? "available" : "unavailable",
+    walletBalanceCheckedAt: new Date().toISOString()
   };
 }
 

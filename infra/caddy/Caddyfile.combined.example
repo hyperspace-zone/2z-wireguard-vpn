@@ -23,18 +23,28 @@
 
 https://${APP_HOST} {
 	tls ${TLS_FULLCHAIN} ${TLS_PRIVKEY}
+	encode zstd gzip
 
 	handle /api/* {
+		header Cache-Control "no-store, max-age=0"
 		uri strip_prefix /api
 		reverse_proxy 127.0.0.1:8080
 	}
 
 	handle /v1/* {
+		header Cache-Control "no-store, max-age=0"
 		reverse_proxy 127.0.0.1:8080
 	}
 
 	handle /health {
 		reverse_proxy 127.0.0.1:8080
+	}
+
+	handle /assets/* {
+		root * /var/www/hyperspace-web
+		@existing_asset file {path}
+		header @existing_asset Cache-Control "public, max-age=31536000, immutable"
+		file_server
 	}
 
 	handle {

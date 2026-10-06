@@ -19,6 +19,7 @@ import {
   listAdminSolanaConfigPayments,
   listAdminSolanaDeposits,
   listBillingCustomers,
+  countBillingCustomers,
   decimalGigabyteBytes,
   maxAdminTrafficQuotaGb,
   readAdminTrafficSeries,
@@ -27,6 +28,8 @@ import {
 import type { Database } from "@hyperspace-zone/db";
 import type { AdminAuthContext } from "../../http/auth.js";
 import { asRecord, readQuery, readString } from "../../http/request.js";
+import { createAsyncReadCache } from "../../http/async-read-cache.js";
+import { createReadTiming } from "../../http/read-timing.js";
 
 export function registerAdminBillingRoutes(
   app: FastifyInstance,
@@ -40,18 +43,44 @@ export function registerAdminBillingRoutes(
     } | null;
   }
 ): void {
+  const configCache = createAsyncReadCache<Awaited<ReturnType<typeof listAdminBillingConfigs>>>(15_000);
+  const trafficCache = createAsyncReadCache<Awaited<ReturnType<typeof readAdminTrafficSeries>>>(15_000);
+  // Prime the same bounded display cache/query decoder before accepting page
+  // reads. Its normal TTL/invalidation still apply; no balance is preloaded.
+  app.addHook("onReady", async () => {
+    try { await configCache.get("configs", () => listAdminBillingConfigs(deps.db)); }
+    catch { app.log.warn("Admin config warmup unavailable; inventory will load on demand"); }
+  });
+  // Check authorization on every request. Keep balances live and invalidate
+  // history caches after successful billing/session mutations on any surface.
+  app.addHook("onResponse", async (request, reply) => {
+    const route = request.routeOptions.url ?? "";
+    if (!["GET", "HEAD", "OPTIONS"].includes(request.method) && reply.statusCode < 400
+      && /^\/v1\/(admin\/billing|public\/(billing|sessions))(\/|$)/.test(route)) {
+      configCache.clear();
+      trafficCache.clear();
+    }
+  });
   app.get("/v1/admin/billing/customers", async (request, reply) => {
-    const admin = await deps.requireAdmin(request, reply);
+    const measure = createReadTiming(reply);
+    const admin = await measure("auth", () => deps.requireAdmin(request, reply));
     if (!admin) return;
-    const [customers, configs, payments, deposits, treasury] = await Promise.all([
-      listBillingCustomers(deps.db),
-      listAdminBillingConfigs(deps.db),
-      listAdminSolanaConfigPayments(deps.db),
-      listAdminSolanaDeposits(deps.db),
-      readTreasurySummary(deps.treasury)
+    // The overview displays only the customer count, not personal balances.
+    // Preserve the full inventory for existing API clients without this option.
+    const countOnly = readQuery(request, "customers") === "count";
+    const [customerData, configs, payments, deposits, treasury] = await Promise.all([
+      measure("customers", async () => countOnly ? countBillingCustomers(deps.db) : listBillingCustomers(deps.db)),
+      measure("configs", () => configCache.get("configs", () => listAdminBillingConfigs(deps.db))),
+      measure("payments", () => listAdminSolanaConfigPayments(deps.db)),
+      measure("deposits", () => listAdminSolanaDeposits(deps.db)),
+      measure("treasury", async () =>
+      readQuery(request, "treasury") === "deferred" && deps.treasury
+        ? Promise.resolve({ address: deps.treasury.address, balanceBaseUnits: null, status: "loading", checkedAt: null })
+        : readTreasurySummary(deps.treasury))
     ]);
     return reply.send({
-      customers,
+      customers: Array.isArray(customerData) ? customerData : [],
+      ...(typeof customerData === "number" ? { customerCount: customerData } : {}),
       configs,
       payments,
       deposits,
@@ -66,6 +95,12 @@ export function registerAdminBillingRoutes(
     });
   });
 
+  app.get("/v1/admin/billing/treasury", async (request, reply) => {
+    const admin = await deps.requireAdmin(request, reply);
+    if (!admin) return;
+    return reply.send(await readTreasurySummary(deps.treasury));
+  });
+
   app.get("/v1/admin/billing/traffic", async (request, reply) => {
     const admin = await deps.requireAdmin(request, reply);
     if (!admin) return;
@@ -76,11 +111,11 @@ export function registerAdminBillingRoutes(
     }
     const now = new Date();
     const from = new Date(now.getTime() - range.durationMs).toISOString();
-    const points = await readAdminTrafficSeries(deps.db, {
+    const points = await trafficCache.get(`${range.name}:${sessionId || "all"}`, () => readAdminTrafficSeries(deps.db, {
       from,
       bucketSeconds: range.bucketSeconds,
       ...(sessionId ? { sessionId } : {})
-    });
+    }));
     return reply.send({
       range: range.name,
       sessionId: sessionId || null,

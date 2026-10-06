@@ -1,3 +1,5 @@
+import { loadMapAssets } from "./map-assets.js";
+
 interface TradingNode {
   id: string;
   name: string;
@@ -110,6 +112,7 @@ const sectionAliases: Record<string, string> = {
 };
 
 let refreshTimer: number | null = null;
+let requestGeneration = 0;
 let activeTradingMap: LeafletMapInstance | null = null;
 let savedMapView: { latitude: number; longitude: number; zoom: number } | null = null;
 
@@ -132,17 +135,22 @@ export async function startTradingApp(root: HTMLElement): Promise<void> {
 
 async function renderTrading(root: HTMLElement): Promise<void> {
   stopRefresh();
+  const generation = ++requestGeneration;
   try {
-    const response = await fetch("/api/v1/public/trading/latency", {
+    const params = new URLSearchParams({ category: currentRoute().section,
+      target: new URLSearchParams(window.location.search).get("target") || "default" });
+    const response = await fetch(`/api/v1/public/trading/latency?${params}`, {
       headers: { accept: "application/json" },
       signal: AbortSignal.timeout(10_000)
     });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const payload = await response.json() as TradingPayload;
+    if (generation !== requestGeneration) return;
     destroyTradingMap();
     root.innerHTML = tradingView(payload);
     bindTradingHandlers(root, payload);
   } catch (error) {
+    if (generation !== requestGeneration) return;
     destroyTradingMap();
     root.innerHTML = tradingUnavailable(error instanceof Error ? error.message : "unavailable");
   }
@@ -311,8 +319,8 @@ function bindTradingHandlers(root: HTMLElement, payload: TradingPayload): void {
     url.searchParams.set("target", select.value);
     window.history.replaceState({}, "", url);
     destroyTradingMap();
-    root.innerHTML = tradingView(payload);
-    bindTradingHandlers(root, payload);
+    root.innerHTML = tradingLoading();
+    void renderTrading(root);
   });
 }
 
@@ -321,8 +329,14 @@ function initializeTradingMap(root: HTMLElement, payload: TradingPayload): void 
   if (route.view !== "map") return;
   const mapElement = root.querySelector<HTMLElement>("#trading-map");
   const leaflet = window.L;
-  if (!mapElement || !leaflet) {
-    if (mapElement) mapElement.textContent = "Interactive map library is unavailable.";
+  if (!mapElement) return;
+  if (!leaflet) {
+    mapElement.textContent = "Loading interactive map…";
+    void loadMapAssets().then(() => {
+      if (mapElement !== root.querySelector("#trading-map") || activeTradingMap) return;
+      mapElement.textContent = "";
+      initializeTradingMap(root, payload);
+    }).catch(() => { if (mapElement.isConnected) mapElement.textContent = "Interactive map library is unavailable."; });
     return;
   }
   const targets = payload.targets.filter((target) => target.category === route.section || sectionAliases[route.section] === target.category);

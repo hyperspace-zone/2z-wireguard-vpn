@@ -39,6 +39,7 @@ export {
 export {
   accountHasSufficientBalance,
   readAccountBillingSummary,
+  readAccountNativeWalletBalance,
   type BillingConfig,
   type BillingSummary
 } from "./application/billing/public-billing.scenario.js";
@@ -181,6 +182,7 @@ export {
   assignBillingPlan,
   createBillingPlanVersion,
   grantUserRoleByEmail,
+  countBillingCustomers,
   listBillingCustomers,
   listAdminBillingConfigs,
   listAdminSolanaConfigPayments,

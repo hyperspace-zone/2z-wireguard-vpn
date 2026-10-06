@@ -2,13 +2,23 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { Queryable } from "../../db/queryable.js";
 import {
+  countBillingCustomers,
   listAdminBillingConfigs,
   listAdminSolanaConfigPayments,
   listAdminSolanaDeposits,
   readAdminTrafficSeries
 } from "./prepaid-repository.js";
 
-test("admin config inventory uses raw egress counters and native SOL payments", async () => {
+test("overview customer count is distinct active accounts without joining personal balances", async () => {
+  let query = "";
+  const db = { async query(text: string) { query = text; return { rows: [{ count: 3054 }] }; } } as unknown as Queryable;
+  assert.equal(await countBillingCustomers(db), 3054);
+  assert.match(query, /COUNT\(DISTINCT account_id\)/);
+  assert.match(query, /disabled_at IS NULL/);
+  assert.doesNotMatch(query, /billing_balance|sessions|LIMIT/);
+});
+
+test("admin config inventory uses exact incremental egress totals and native SOL payments", async () => {
   const queries: Array<{ text: string; values: unknown[] | undefined }> = [];
   const db = {
     async query(text: string, values?: unknown[]) {
@@ -21,8 +31,11 @@ test("admin config inventory uses raw egress counters and native SOL payments", 
   await listAdminSolanaConfigPayments(db, 30);
   await listAdminSolanaDeposits(db, 35);
 
-  assert.match(queries[0]?.text ?? "", /gate_assignment_usage_deltas/);
+  assert.match(queries[0]?.text ?? "", /gate_assignment_usage_totals/);
+  assert.doesNotMatch(queries[0]?.text ?? "", /gate_assignment_usage_deltas/);
   assert.match(queries[0]?.text ?? "", /gate_assignments\.role = 'Egress'/);
+  assert.match(queries[0]?.text ?? "", /visible_sessions AS MATERIALIZED/);
+  assert.match(queries[0]?.text ?? "", /session_gate_assignments AS MATERIALIZED/);
   assert.match(queries[0]?.text ?? "", /solana_config_payments\.status AS "paymentStatus"/);
   assert.deepEqual(queries[0]?.values, [25]);
   assert.match(queries[1]?.text ?? "", /FROM solana_config_payments/);

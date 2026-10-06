@@ -12,9 +12,9 @@ test("public stale snapshots preserve observations but cannot authorize a route"
   const db = { query: async (sql: string) => {
     if (fail) throw new Error("outage");
     if (sql.includes("FROM trading_probe_nodes")) return { rows: latency.nodes };
-    if (sql.includes("FROM trading_probe_targets")) return { rows: latency.targets };
     if (sql.includes("FROM trading_latency_latest")) return { rows: latency.measurements };
-    if (sql.includes("WITH recent_latest")) return { rows: matrix.routes.map(row => ({ ...row, publicMetric: row.public, doublezeroMetric: row.doublezero })) };
+    if (sql.includes("FROM trading_probe_targets")) return { rows: latency.targets };
+    if (sql.includes("recent_latest AS MATERIALIZED")) return { rows: matrix.routes.map(row => ({ ...row, publicMetric: row.public, doublezeroMetric: row.doublezero })) };
     return { rows: matrix.gates };
   } } as Queryable;
   try {

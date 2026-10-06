@@ -352,10 +352,16 @@ export async function listLatestGateBenchmarkRoutes(db: Queryable): Promise<Gate
     doublezeroMetric: GateBenchmarkMetric | null;
   }>(
     `
-      WITH recent_latest AS MATERIALIZED (
+      WITH recent_results AS MATERIALIZED (
         -- Read the small recent time range through the measured-route index.
         -- Most routes avoid random lookups across the full historical index.
         SELECT DISTINCT ON (source_gate_id, target_gate_id, transport)
+          * FROM gate_benchmark_results
+        WHERE measured_at >= now() - interval '15 minutes'
+        ORDER BY source_gate_id, target_gate_id, transport, measured_at DESC
+      ), recent_latest AS MATERIALIZED (
+        -- Build JSON only for the winning samples, not for every historical row.
+        SELECT
           source_gate_id, target_gate_id, transport,
           jsonb_strip_nulls(jsonb_build_object(
             'transport', transport,
@@ -379,9 +385,7 @@ export async function listLatestGateBenchmarkRoutes(db: Queryable): Promise<Gate
             'errorMessage', error_message,
             'measuredAt', measured_at
           )) AS metric
-        FROM gate_benchmark_results
-        WHERE measured_at >= now() - interval '15 minutes'
-        ORDER BY source_gate_id, target_gate_id, transport, measured_at DESC
+        FROM recent_results
       ), directed_pairs AS (
         SELECT
           source.id AS source_gate_id,

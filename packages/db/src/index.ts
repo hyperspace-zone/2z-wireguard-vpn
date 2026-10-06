@@ -10,6 +10,7 @@ export interface DatabaseRuntimeConfig {
   connectionString: string;
   applicationName: string;
   maxConnections?: number;
+  minConnections?: number;
   statementTimeoutMs?: number;
 }
 
@@ -30,6 +31,7 @@ export function createDatabase(config: DatabaseRuntimeConfig): Database {
     connectionString: config.connectionString,
     application_name: config.applicationName,
     ...(config.maxConnections ? { max: config.maxConnections } : {}),
+    ...(config.minConnections ? { min: config.minConnections } : {}),
     ...(config.statementTimeoutMs ? { statement_timeout: config.statementTimeoutMs } : {})
   });
 

@@ -22,6 +22,72 @@ const billing: BillingConfig = {
 
 const treasuryAddress = "DWAg34bbga73yiCh1ic9KLAv3B7FDk62GmUcamXF2Ds8";
 
+test("optional inventory warmup failure does not prevent startup or bypass access checks", async () => {
+  const db = { async query() { throw new Error("private database failure"); } } as unknown as Database;
+  const app = Fastify();
+  registerAdminBillingRoutes(app, { db, billing, requireAdmin: async (_request, reply) => {
+    reply.code(403).send({ error: "forbidden" }); return null;
+  } });
+  await app.ready();
+  const response = await app.inject("/v1/admin/billing/customers");
+  assert.equal(response.statusCode, 403);
+  assert.doesNotMatch(response.body, /private database/);
+  await app.close();
+});
+
+test("overview counts all customer accounts without reading personal balances and keeps authorization live", async () => {
+  let countReads = 0;
+  let balanceReads = 0;
+  const db = { async query(sql: string) {
+    if (sql.includes("COUNT(DISTINCT account_id)")) { countReads++; return { rows: [{ count: 3054 }] }; }
+    if (sql.includes("WITH recent_accounts")) balanceReads++;
+    return { rows: [] };
+  } } as unknown as Database;
+  const app = Fastify();
+  registerAdminBillingRoutes(app, { db, billing, requireAdmin: async (request, reply) => {
+    if (request.headers["x-fixture-admin"] === "yes") return { kind: "admin", id: "fixture" };
+    reply.code(403).send({ error: "forbidden" }); return null;
+  } });
+  const url = "/v1/admin/billing/customers?customers=count&treasury=deferred";
+  assert.equal((await app.inject(url)).statusCode, 403);
+  assert.equal(countReads, 0);
+  for (let i = 0; i < 2; i++) {
+    const response = await app.inject({ url, headers: { "x-fixture-admin": "yes" } });
+    assert.equal(response.statusCode, 200);
+    assert.equal(response.json().customerCount, 3054);
+    assert.deepEqual(response.json().customers, []);
+    assert.match(String(response.headers["server-timing"]), /customers;dur=/);
+  }
+  assert.equal(countReads, 2, "customer count is read fresh");
+  assert.equal(balanceReads, 0);
+  await app.inject({ url: "/v1/admin/billing/customers", headers: { "x-fixture-admin": "yes" } });
+  assert.equal(balanceReads, 1, "legacy inventory still includes personal balances");
+  await app.close();
+});
+
+test("deferred admin inventory does not await treasury RPC; treasury remains live and authorized", async () => {
+  let calls = 0;
+  const app = Fastify();
+  registerAdminBillingRoutes(app, { db: emptyDatabase(), billing,
+    treasury: { address: treasuryAddress, readBalance: async () => { calls++; return 123n; } },
+    requireAdmin: async (request, reply) => {
+      if (request.headers["x-fixture-admin"] === "yes") return { kind: "admin", id: "fixture" };
+      reply.code(403).send({ error: "forbidden" }); return null;
+    }
+  });
+  const headers = { "x-fixture-admin": "yes" };
+  assert.equal((await app.inject({ url: "/v1/admin/billing/customers?treasury=deferred", headers })).json().treasury.status, "loading");
+  assert.equal(calls, 0);
+  assert.equal((await app.inject("/v1/admin/billing/treasury")).statusCode, 403);
+  assert.equal(calls, 0);
+  for (let i = 0; i < 2; i++) {
+    const response = await app.inject({ url: "/v1/admin/billing/treasury", headers });
+    assert.equal(response.json().balanceBaseUnits, "123");
+  }
+  assert.equal(calls, 2, "treasury display balances are not cached");
+  await app.close();
+});
+
 test("billing admin overview contains config payments, deposits and asset metadata", async () => {
   const db = emptyDatabase();
   const app = Fastify();
@@ -165,6 +231,58 @@ function emptyDatabase(): Database {
     }
   } as unknown as Database;
 }
+
+test("admin counters are shared, authorization stays live, and writes invalidate", async () => {
+  let configReads = 0;
+  let customerReads = 0;
+  const db = {
+    async query(sql: string) {
+      if (sql.includes("WITH usage_by_session")) configReads++;
+      if (sql.includes("FROM accounts")) customerReads++;
+      return { rows: [] };
+    }
+  } as unknown as Database;
+  const app = Fastify();
+  registerAdminBillingRoutes(app, {
+    db, billing,
+    requireAdmin: async (request, reply) => {
+      if (request.headers["x-fixture-admin"] === "yes") return { kind: "admin", id: "fixture" };
+      reply.code(403).send({ error: "forbidden" });
+      return null;
+    }
+  });
+  app.patch("/v1/admin/billing/fixture-write", async () => ({ ok: true }));
+  app.post("/v1/public/sessions/:id/revoke", async () => ({ ok: true }));
+  const request = { method: "GET" as const, url: "/v1/admin/billing/customers", headers: { "x-fixture-admin": "yes" } };
+  await Promise.all([app.inject(request), app.inject(request)]);
+  assert.equal(configReads, 1);
+  assert.equal(customerReads, 2, "balances are not cached");
+  const denied = await app.inject({ method: "GET", url: request.url });
+  assert.equal(denied.statusCode, 403);
+  assert.equal(configReads, 1);
+  await app.inject({ method: "PATCH", url: "/v1/admin/billing/fixture-write" });
+  await app.inject(request);
+  assert.equal(configReads, 2);
+  await app.inject({ method: "POST", url: "/v1/public/sessions/fixture/revoke" });
+  await app.inject(request);
+  assert.equal(configReads, 3);
+  await app.close();
+});
+
+test("traffic caches are scoped by both range and config filter", async () => {
+  let reads = 0;
+  const db = { async query(sql: string) { if (sql.includes("FROM gate_assignment_usage_deltas")) reads++; return { rows: [] }; } } as unknown as Database;
+  const app = Fastify();
+  registerAdminBillingRoutes(app, { db, billing, requireAdmin: async () => ({ kind: "admin", id: "fixture" }) });
+  for (const url of [
+    "/v1/admin/billing/traffic?range=24h",
+    "/v1/admin/billing/traffic?range=24h",
+    "/v1/admin/billing/traffic?range=7d",
+    "/v1/admin/billing/traffic?range=24h&sessionId=90386aa8-73e5-4fe0-82c2-8b442e3ad47d"
+  ]) assert.equal((await app.inject({ method: "GET", url })).statusCode, 200);
+  assert.equal(reads, 3);
+  await app.close();
+});
 
 function meteredDatabase(sessionId: string): Database {
   const client = {

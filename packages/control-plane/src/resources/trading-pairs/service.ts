@@ -4,11 +4,13 @@ import type { Queryable } from "../../db/queryable.js";
 import { readPublicTradingLatency } from "../trading-probes/service.js";
 import { readPublicGateBenchmarkMatrix } from "../../read-models/public-benchmarks.query.js";
 import { SnapshotCache } from "./snapshot-cache.js";
+import { createSnapshotBuilder } from "./snapshot-builder.js";
 
 type Target = PublicTradingLatencyResponse["targets"][number];
 type Measurement = PublicTradingLatencyResponse["measurements"][number];
 export type TradingPairsSnapshot = Omit<PublicTradingPairsResponse, "total" | "offset" | "limit">;
 const caches = new WeakMap<Queryable, SnapshotCache<TradingPairsSnapshot>>();
+const builders = new WeakMap<Queryable, ReturnType<typeof createSnapshotBuilder>>();
 
 export function tradingMeasurementState(node: { fresh: boolean }, target: Target, measurement: Measurement | undefined, now: number): "fresh" | "stale" | "unavailable" {
   if (!node.fresh) return "stale";
@@ -34,7 +36,18 @@ export function buildTradingPairsSnapshot(latency: PublicTradingLatencyResponse,
     return true;
   }).sort((a, b) => (a.venueKey ?? a.key).localeCompare(b.venueKey ?? b.key));
   const measurements = new Map(latency.measurements.filter(row => row.networkProfile === "direct").map(row => [`${row.nodeId}:${row.targetId}`, row]));
+  const measurementTimes = new Map(latency.measurements.map(row => [row, time(row.measuredAt)]));
+  const measurementStates = new Map(nodes.flatMap(node => venues.map(venue => {
+    const key = `${node.id}:${venue.id}`;
+    return [key, tradingMeasurementState(node, venue, measurements.get(key), now)] as const;
+  })));
   const routes = new Map(matrix.routes.map(route => [`${route.sourceGateId}:${route.targetGateId}`, route]));
+  const usableBackbones = new Set(matrix.routes.filter(route => {
+    const backbone = route.doublezero;
+    return backbone && route.doublezeroApplicability?.status !== "not_applicable" && backbone.status === "succeeded"
+      && isRecent(backbone.measuredAt, 15 * 60_000, now) && finiteNonnegative(backbone.rttMs?.p50)
+      && backbone.sourceInterface === "doublezero0" && backbone.lossPercent === 0;
+  }));
   const rows: TradingPairRow[] = [];
   for (const source of nodes) {
     for (let a = 0; a < venues.length; a += 1) for (let b = a + 1; b < venues.length; b += 1) {
@@ -42,7 +55,7 @@ export function buildTradingPairsSnapshot(latency: PublicTradingLatencyResponse,
       const venueB = venues[b]!;
       const directA = measurements.get(`${source.id}:${venueA.id}`);
       const directB = measurements.get(`${source.id}:${venueB.id}`);
-      const states = [tradingMeasurementState(source, venueA, directA, now), tradingMeasurementState(source, venueB, directB, now)];
+      const states = [measurementStates.get(`${source.id}:${venueA.id}`)!, measurementStates.get(`${source.id}:${venueB.id}`)!];
       const pairKey = `${venueA.venueKey}:${venueB.venueKey}`;
       const base: TradingPairRow = {
         id: routeId(source.id, "none", venueA, venueB), pairKey, sourceNodeId: source.id,
@@ -63,11 +76,11 @@ export function buildTradingPairsSnapshot(latency: PublicTradingLatencyResponse,
         if (!egress.gateId || egress.gateId === source.gateId || !egress.schedulable) continue;
         const route = routes.get(`${source.gateId}:${egress.gateId}`);
         const backbone = route?.doublezero;
-        if (!backbone || route?.doublezeroApplicability?.status === "not_applicable" || backbone.status !== "succeeded" || !isRecent(backbone.measuredAt, 15 * 60_000, now) || !finiteNonnegative(backbone.rttMs?.p50) || backbone.sourceInterface !== "doublezero0" || backbone.lossPercent !== 0) continue;
+        if (!backbone || !route || !usableBackbones.has(route)) continue;
         const exitA = measurements.get(`${egress.id}:${venueA.id}`);
         const exitB = measurements.get(`${egress.id}:${venueB.id}`);
-        if (!exitA || !exitB || tradingMeasurementState(egress, venueA, exitA, now) !== "fresh" || tradingMeasurementState(egress, venueB, exitB, now) !== "fresh") continue;
-        const times = [directA, directB, exitA, exitB].map(row => time(row.measuredAt));
+        if (!exitA || !exitB || measurementStates.get(`${egress.id}:${venueA.id}`) !== "fresh" || measurementStates.get(`${egress.id}:${venueB.id}`) !== "fresh") continue;
+        const times = [directA, directB, exitA, exitB].map(row => measurementTimes.get(row)!);
         if (Math.max(...times) - Math.min(...times) > Math.max(venueA.intervalSeconds ?? 30, venueB.intervalSeconds ?? 30) * 1000) continue;
         const backboneRttMs = backbone.rttMs!.p50!;
         const estimatedA = backboneRttMs + exitA.tcpMs!;
@@ -85,7 +98,7 @@ export function buildTradingPairsSnapshot(latency: PublicTradingLatencyResponse,
           reason: "TCP connection estimate: DoubleZero gate RTT + egress-to-venue TCP RTT. Not a tunnel A/B measurement or execution latency.",
           measuredAt: new Date(Math.min(...times)).toISOString(), backboneMeasuredAt: new Date(time(backbone.measuredAt)).toISOString(),
           directIndexMs, estimatedIndexMs, savedMs, savedPercent: savedMs / directIndexMs * 100,
-          backboneRttMs, backboneLossPercent: backbone.lossPercent,
+          backboneRttMs, backboneLossPercent: backbone.lossPercent!,
           ...(publicRtt !== undefined ? { publicBackboneRttMs: publicRtt, backboneSavedMs: publicRtt - backboneRttMs } : {}),
           legA: { ...base.legA, estimatedMs: estimatedA, savedMs: savedA, egressTcpMs: exitA.tcpMs!, ...(exitA.totalP50Ms !== undefined ? { egressApiP50Ms: exitA.totalP50Ms } : {}) },
           legB: { ...base.legB, estimatedMs: estimatedB, savedMs: savedB, egressTcpMs: exitB.tcpMs!, ...(exitB.totalP50Ms !== undefined ? { egressApiP50Ms: exitB.totalP50Ms } : {}) },
@@ -124,7 +137,8 @@ function snapshotCache(db: Queryable): SnapshotCache<TradingPairsSnapshot> {
   if (!cache) {
     cache = new SnapshotCache(async () => {
       const [latency, matrix] = await Promise.all([readPublicTradingLatency(db), readPublicGateBenchmarkMatrix(db)]);
-      return buildTradingPairsSnapshot(latency, matrix);
+      const builder = builders.get(db);
+      return builder ? builder.build(latency, matrix) : buildTradingPairsSnapshot(latency, matrix);
     });
     caches.set(db, cache);
   }
@@ -132,6 +146,8 @@ function snapshotCache(db: Queryable): SnapshotCache<TradingPairsSnapshot> {
 }
 
 export function startTradingPairsRefresh(db: Queryable, onError: (error: unknown) => void): () => Promise<void> {
+  const builder = createSnapshotBuilder();
+  builders.set(db, builder);
   let stopped = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let active: Promise<void>;
@@ -140,7 +156,7 @@ export function startTradingPairsRefresh(db: Queryable, onError: (error: unknown
     finally { if (!stopped) { timer = setTimeout(() => { active = tick(); }, 10_000); timer.unref(); } }
   };
   active = tick();
-  return async () => { stopped = true; clearTimeout(timer); await active; };
+  return async () => { stopped = true; clearTimeout(timer); await active; builders.delete(db); await builder.close(); };
 }
 
 export function filterTradingPairs(snapshot: TradingPairsSnapshot, query: TradingPairsQuery): PublicTradingPairsResponse {

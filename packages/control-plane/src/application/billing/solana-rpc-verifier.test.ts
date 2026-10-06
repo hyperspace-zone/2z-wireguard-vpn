@@ -16,6 +16,24 @@ const treasury = "Treasury11111111111111111111111111111111111";
 const mint = "Mint111111111111111111111111111111111111111";
 const reference = "hs_reference_123";
 
+test("interactive balance RPC is bounded and does not run background retries", async () => {
+  let calls = 0;
+  const fetchImpl: typeof fetch = async (_url, init) => {
+    calls++;
+    return new Promise<Response>((_resolve, reject) => {
+      init?.signal?.addEventListener("abort", () => reject(new Error("timeout")), { once: true });
+    });
+  };
+  // Keep the test alive; AbortSignal.timeout intentionally uses an unref timer.
+  const keepAlive = setInterval(() => {}, 100);
+  try {
+    await assert.rejects(readSolanaNativeBalance(treasury, {
+      rpcUrl: "https://rpc.invalid", fetchImpl, timeoutMs: 20
+    }), /failed after transient network errors/);
+    assert.equal(calls, 1);
+  } finally { clearInterval(keepAlive); }
+});
+
 test("historical transaction verification stays on the history RPC and rate limiter", async () => {
   const historyRpc = "https://mainnet.helius-rpc.com/?api-key=fixture";
   const calls: Array<{ url: string; method: string; params: unknown[] }> = [];

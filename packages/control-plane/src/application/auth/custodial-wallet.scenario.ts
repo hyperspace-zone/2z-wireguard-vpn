@@ -22,6 +22,10 @@ export async function ensureCustodialSolanaWallet(
   accountId: string,
   encryptionKey: Buffer
 ): Promise<PublicSolanaWallet> {
+  // Existing wallets need one read, not BEGIN/read/COMMIT on every page load.
+  // The transaction below still rechecks after this optimistic lookup.
+  const existing = await findCustodialWallet(db, accountId);
+  if (existing) return toPublicWallet(existing);
   return db.transaction(async (client) => {
     const existing = await findCustodialWallet(client, accountId);
     if (existing) {

@@ -23,15 +23,14 @@ export async function ensureBillingAccount(db: Queryable, accountId: string, cur
     `
       INSERT INTO billing_accounts (account_id, currency)
       VALUES ($1, $2)
-      ON CONFLICT (account_id) DO UPDATE
-      SET updated_at = now()
+      ON CONFLICT (account_id) DO NOTHING
     `,
     [accountId, currency]
   );
 }
 
-export async function readBillingBalance(db: Queryable, accountId: string): Promise<BillingBalanceRow> {
-  await ensureBillingAccount(db, accountId);
+export async function readBillingBalance(db: Queryable, accountId: string, accountEnsured = false): Promise<BillingBalanceRow> {
+  if (!accountEnsured) await ensureBillingAccount(db, accountId);
   const result = await db.query<BillingBalanceRow>(
     `
       SELECT

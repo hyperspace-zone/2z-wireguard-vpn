@@ -184,7 +184,9 @@ export const publicBillingSummaryResponseSchema = {
     balanceMinor: { type: "number" },
     currency: { type: "string" },
     ledger: { type: "array", items: publicBillingLedgerEntrySchema },
-    deposit: { anyOf: [publicBillingDepositDestinationSchema, { type: "null" }] },
+    // Equivalent nullable-object contract without runtime anyOf validation.
+    // anyOf lazily compiled a validator on the first successful Billing read.
+    deposit: { ...publicBillingDepositDestinationSchema, type: ["object", "null"] },
     deposits: { type: "array", items: publicBillingDepositSchema },
     availableBalanceMinor: { type: "number" },
     withdrawableBalanceMinor: { type: "number" },
@@ -250,6 +252,7 @@ export const publicBillingSummaryResponseSchema = {
     walletBalanceBaseUnits: { type: ["string", "null"] },
     walletSpendableBaseUnits: { type: ["string", "null"] },
     walletRentReserveBaseUnits: { type: ["string", "null"] },
+    walletBalanceStatus: { type: "string", enum: ["loading", "available", "unavailable", "not_applicable"] },
     configPriceBaseUnits: { type: "string" },
     configTrafficLimitBytes: { type: "string" }
   }

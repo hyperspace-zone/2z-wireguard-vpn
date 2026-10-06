@@ -1,4 +1,5 @@
 import type { PublicTradingPairsResponse, TradingPairRow, TradingPairNode, PublicTradingLatencyResponse } from "@hyperspace-zone/contracts";
+import { loadAsset } from "./map-assets.js";
 
 type Venue = PublicTradingLatencyResponse["targets"][number];
 type Measurement = PublicTradingLatencyResponse["measurements"][number];
@@ -40,6 +41,7 @@ export function pairConfigUrl(id: string): string {
 }
 
 export function startTradingPairsApp(root: HTMLElement): void {
+  void loadAsset("pairs.css", "style").catch(() => { /* Data remains usable if styling fails. */ });
   document.title = "Pair Routes · Hyperspace";
   if (window.location.pathname.startsWith("/trading/routes")) window.history.replaceState({}, "", `/trading/pairs${window.location.search}`);
   root.innerHTML = `${navigation()}<main class="pairs-shell"><p class="pairs-notice">Loading venue routes…</p></main>`;

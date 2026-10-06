@@ -3,7 +3,7 @@ import { publicTradingLatencyResponseSchema, publicTradingPairsResponseSchema, p
 import { readPublicTradingLatency, readTradingPairsSnapshot, filterTradingPairs, resolveTradingRoute, startTradingPairsRefresh } from "@hyperspace-zone/control-plane";
 import type { Database } from "@hyperspace-zone/db";
 
-export function registerPublicTradingRoutes(app: FastifyInstance, deps: { db: Database; backgroundRefresh?: boolean }): void {
+export function registerPublicTradingRoutes(app: FastifyInstance, deps: { db: Database; pageDb?: Database; backgroundRefresh?: boolean }): void {
   if (deps.backgroundRefresh) {
     let stop: (() => Promise<void>) | undefined;
     app.addHook("onReady", async () => { stop = startTradingPairsRefresh(deps.db, err => app.log.warn({ err }, "Trading snapshot background refresh failed")); });
@@ -36,6 +36,16 @@ export function registerPublicTradingRoutes(app: FastifyInstance, deps: { db: Da
     }
   });
   app.get("/v1/public/trading/latency", {
-    schema: { response: { 200: publicTradingLatencyResponseSchema } }
-  }, async () => readPublicTradingLatency(deps.db));
+    schema: { querystring: { type: "object", additionalProperties: false, properties: {
+      category: { type: "string", minLength: 1, maxLength: 64, pattern: "^[a-z0-9-]+$" },
+      target: { type: "string", minLength: 1, maxLength: 128, pattern: "^[a-z0-9-]+$" }
+    } }, response: { 200: publicTradingLatencyResponseSchema } }
+  }, async request => {
+    const query = request.query as { category?: string; target?: string };
+    // Bounded selected-endpoint reads must not queue behind full background
+    // Pair Routes/matrix reads in the small benchmark pool. Legacy full reads
+    // and fresh route revalidation still use that isolated bounded pool.
+    const database = query.category && query.target ? deps.pageDb ?? deps.db : deps.db;
+    return readPublicTradingLatency(database, query.category, query.target);
+  });
 }

@@ -225,8 +225,8 @@ export async function ensurePrepaidBillingState(db: Queryable, accountId: string
   );
 }
 
-export async function readBillingBuckets(db: Queryable, accountId: string, forUpdate = false): Promise<BillingBucketsRow> {
-  await ensurePrepaidBillingState(db, accountId);
+export async function readBillingBuckets(db: Queryable, accountId: string, forUpdate = false, stateEnsured = false): Promise<BillingBucketsRow> {
+  if (!stateEnsured) await ensurePrepaidBillingState(db, accountId);
   const result = await db.query<BillingBucketsRow>(
     `
       SELECT
@@ -246,9 +246,10 @@ export async function readBillingBuckets(db: Queryable, accountId: string, forUp
 export async function readBillingAccountState(
   db: Queryable,
   accountId: string,
-  forUpdate = false
+  forUpdate = false,
+  stateEnsured = false
 ): Promise<BillingAccountStateRow> {
-  await ensurePrepaidBillingState(db, accountId);
+  if (!stateEnsured) await ensurePrepaidBillingState(db, accountId);
   const result = await db.query<BillingAccountStateRow>(
     `
       SELECT
@@ -267,8 +268,8 @@ export async function readBillingAccountState(
   return mustRow(result);
 }
 
-export async function readCurrentBillingPlan(db: Queryable, accountId: string): Promise<BillingPlanVersionRow> {
-  await ensurePrepaidBillingState(db, accountId);
+export async function readCurrentBillingPlan(db: Queryable, accountId: string, stateEnsured = false): Promise<BillingPlanVersionRow> {
+  if (!stateEnsured) await ensurePrepaidBillingState(db, accountId);
   const result = await db.query<BillingPlanVersionRow>(
     `
       SELECT
@@ -625,9 +626,22 @@ export async function userHasRole(db: Queryable, userId: string, role: string): 
   return result.rows[0]?.allowed === true;
 }
 
+export async function countBillingCustomers(db: Queryable): Promise<number> {
+  const result = await db.query<{ count: number }>(
+    `SELECT COUNT(DISTINCT account_id)::int AS count FROM users WHERE disabled_at IS NULL`
+  );
+  return result.rows[0]?.count ?? 0;
+}
+
 export async function listBillingCustomers(db: Queryable, limit = 200): Promise<BillingCustomerRow[]> {
   const result = await db.query<BillingCustomerRow>(
     `
+      WITH recent_accounts AS MATERIALIZED (
+        SELECT accounts.* FROM accounts
+        WHERE EXISTS (SELECT 1 FROM users WHERE users.account_id = accounts.id AND users.disabled_at IS NULL)
+        ORDER BY accounts.created_at DESC
+        LIMIT $1
+      )
       SELECT
         accounts.id AS "accountId",
         users.email::text,
@@ -648,7 +662,7 @@ export async function listBillingCustomers(db: Queryable, limit = 200): Promise<
         COALESCE(billing_plan_versions.version, 1) AS "planVersion",
         billing_account_states.suspension_due_at AS "suspensionDueAt",
         billing_account_states.last_settled_at AS "lastSettledAt"
-      FROM accounts
+      FROM recent_accounts accounts
       JOIN LATERAL (
         SELECT email
         FROM users
@@ -666,6 +680,8 @@ export async function listBillingCustomers(db: Queryable, limit = 200): Promise<
       LEFT JOIN session_status ON session_status.session_id = sessions.id
       GROUP BY
         accounts.id,
+        accounts.display_name,
+        accounts.created_at,
         users.email,
         billing_account_states.state,
         billing_balance_buckets.cash_minor,
@@ -690,19 +706,17 @@ export async function listAdminBillingConfigs(db: Queryable, limit = 500): Promi
       WITH usage_by_session AS (
         SELECT
           gate_assignments.session_id,
-          COALESCE(SUM(gate_assignment_usage_deltas.forwarded_to_destination_bytes), 0)::text AS "bytesToDestination",
-          COALESCE(SUM(gate_assignment_usage_deltas.forwarded_from_destination_bytes), 0)::text AS "bytesFromDestination",
+          COALESCE(SUM(gate_assignment_usage_totals.bytes_to_destination), 0)::text AS "bytesToDestination",
+          COALESCE(SUM(gate_assignment_usage_totals.bytes_from_destination), 0)::text AS "bytesFromDestination",
           COALESCE(SUM(
-            gate_assignment_usage_deltas.dropped_to_destination_bytes
-            + gate_assignment_usage_deltas.dropped_from_destination_bytes
+            gate_assignment_usage_totals.dropped_bytes
           ), 0)::text AS "droppedBytes",
-          MIN(gate_assignment_usage_deltas.window_start) AS "firstTrafficAt",
-          MAX(gate_assignment_usage_deltas.window_end) AS "lastTrafficAt"
-        FROM gate_assignment_usage_deltas
+          MIN(gate_assignment_usage_totals.first_traffic_at) AS "firstTrafficAt",
+          MAX(gate_assignment_usage_totals.last_traffic_at) AS "lastTrafficAt"
+        FROM gate_assignment_usage_totals
         JOIN gate_assignments
-          ON gate_assignments.id = gate_assignment_usage_deltas.assignment_id
+          ON gate_assignments.id = gate_assignment_usage_totals.assignment_id
         WHERE gate_assignments.role = 'Egress'
-          AND gate_assignment_usage_deltas.role = 'Egress'
         GROUP BY gate_assignments.session_id
       ), rating_by_session AS (
         SELECT
@@ -711,27 +725,47 @@ export async function listAdminBillingConfigs(db: Queryable, limit = 500): Promi
           MAX(window_end) AS "lastRatedAt"
         FROM retail_usage_ratings
         GROUP BY session_id
+      ), visible_sessions AS MATERIALIZED (
+        SELECT sessions.*,
+          users.email::text AS customer_email,
+          session_status.phase AS display_phase,
+          session_status.selected_path AS display_selected_path,
+          session_status.updated_at AS display_status_updated_at
+        FROM sessions
+        JOIN session_status ON session_status.session_id = sessions.id
+        JOIN LATERAL (
+          SELECT email FROM users
+          WHERE users.account_id = sessions.account_id AND users.disabled_at IS NULL
+          ORDER BY users.created_at LIMIT 1
+        ) users ON true
+        WHERE sessions.account_id IS NOT NULL
+      ), session_gate_assignments AS MATERIALIZED (
+        SELECT gate_assignments.*, gates.name AS gate_name,
+          gate_assignment_status.applied_at, gate_assignment_status.revoked_at
+        FROM gate_assignments
+        LEFT JOIN gates ON gates.id = gate_assignments.gate_id
+        LEFT JOIN gate_assignment_status ON gate_assignment_status.assignment_id = gate_assignments.id
       )
       SELECT
         sessions.id AS "sessionId",
         sessions.account_id AS "accountId",
-        users.email::text AS "customerEmail",
+        sessions.customer_email AS "customerEmail",
         sessions.label,
         sessions.mode::text,
-        session_status.phase::text,
+        sessions.display_phase::text AS phase,
         sessions.desired_state::text AS "desiredState",
-        COALESCE(session_status.selected_path->>'ingressGateName', ingress_gate.name) AS "ingressGateName",
-        COALESCE(session_status.selected_path->>'egressGateName', egress_gate.name) AS "egressGateName",
+        COALESCE(sessions.display_selected_path->>'ingressGateName', ingress_assignment.gate_name) AS "ingressGateName",
+        COALESCE(sessions.display_selected_path->>'egressGateName', egress_assignment.gate_name) AS "egressGateName",
         CASE
-          WHEN egress_assignment_status.applied_at IS NULL THEN 0
+          WHEN egress_assignment.applied_at IS NULL THEN 0
           ELSE GREATEST(EXTRACT(EPOCH FROM (
             COALESCE(
-              egress_assignment_status.revoked_at,
+              egress_assignment.revoked_at,
               CASE
-                WHEN session_status.phase IN ('active', 'degraded', 'revoking') THEN now()
-                ELSE session_status.updated_at
+                WHEN sessions.display_phase IN ('active', 'degraded', 'revoking') THEN now()
+                ELSE sessions.display_status_updated_at
               END
-            ) - egress_assignment_status.applied_at
+            ) - egress_assignment.applied_at
           )), 0)::int
         END AS "activeSeconds",
         COALESCE(usage_by_session."bytesToDestination", '0') AS "bytesToDestination",
@@ -758,27 +792,16 @@ export async function listAdminBillingConfigs(db: Queryable, limit = 500): Promi
         sessions.updated_at AS "updatedAt",
         sessions.hidden_at AS "hiddenAt",
         rating_by_session."lastRatedAt"
-      FROM sessions
-      JOIN session_status ON session_status.session_id = sessions.id
-      JOIN LATERAL (
-        SELECT email FROM users
-        WHERE users.account_id = sessions.account_id AND users.disabled_at IS NULL
-        ORDER BY users.created_at LIMIT 1
-      ) users ON true
+      FROM visible_sessions sessions
       LEFT JOIN usage_by_session ON usage_by_session.session_id = sessions.id
       LEFT JOIN rating_by_session ON rating_by_session.session_id = sessions.id
       LEFT JOIN solana_config_payments ON solana_config_payments.session_id = sessions.id
       LEFT JOIN session_traffic_entitlements
         ON session_traffic_entitlements.session_id = sessions.id
-      LEFT JOIN gate_assignments ingress_assignment
+      LEFT JOIN session_gate_assignments ingress_assignment
         ON ingress_assignment.session_id = sessions.id AND ingress_assignment.role = 'Ingress'
-      LEFT JOIN gates ingress_gate ON ingress_gate.id = ingress_assignment.gate_id
-      LEFT JOIN gate_assignments egress_assignment
+      LEFT JOIN session_gate_assignments egress_assignment
         ON egress_assignment.session_id = sessions.id AND egress_assignment.role = 'Egress'
-      LEFT JOIN gates egress_gate ON egress_gate.id = egress_assignment.gate_id
-      LEFT JOIN gate_assignment_status egress_assignment_status
-        ON egress_assignment_status.assignment_id = egress_assignment.id
-      WHERE sessions.account_id IS NOT NULL
       ORDER BY sessions.created_at DESC
       LIMIT $1
     `,
