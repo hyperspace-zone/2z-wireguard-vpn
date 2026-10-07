@@ -18,6 +18,7 @@ import {
 import { recordGateBenchmarkJobReport } from "../benchmarks/service.js";
 import { resolveReportedJobTransition, type JobReportStatus } from "./transitions.js";
 import { markDeploymentJobReported } from "../gate-agent-deployments/repository.js";
+import { measurementStore } from "../../measurements/context.js";
 
 export interface GateJobReport {
   status: JobReportStatus;
@@ -50,7 +51,8 @@ export async function recordGateJobReport(
       retryDelaySeconds: transition.retryDelaySeconds,
       actualStateHash: report.actualStateHash,
       errorCode: report.errorCode,
-      resultSummary: persistedResultSummary
+      resultSummary: measurementStore(db) && row.type === "probe" && row.payload.kind === "gate_benchmark_v1"
+        ? { kind: "gate_benchmark_v1", delivery: "outbox" } : persistedResultSummary
     });
 
     if (row.assignmentId) {

@@ -1074,6 +1074,21 @@ are validated together.
 
 ## Database
 
+Production now uses two PostgreSQL instances on the existing DB host: core on
+5432 and disposable probes queues/catalog on 5433. Measurement values/history
+are stored on a separate MongoDB host; follow
+[Mongo measurement storage](mongodb-measurements.md) for TLS, TTL, outbox,
+dependency-complete artifact packaging and rollback. Mongo must not become a
+core startup, billing or reconciliation dependency. Follow
+[PostgreSQL core/probes isolation](postgresql-core-probes-isolation.md) for the
+fixed probes filesystem, credentials, independent worker, migration/cutover and
+verified core backup/restore. Do not run core migrations against the probes DB.
+After deploying API/worker builds, restart core with the usual
+`restart-after-migrations` helper; then independently run
+`scripts/control-plane/restart-probes-after-migrations`. A probes migration
+failure is a measurement-service problem and must not block core deployment.
+Copy `packages/db/probes-migrations` as well as the normal runtime migrations.
+
 Install PostgreSQL as a native package. Keep PostgreSQL private to the
 control-plane host or a private network; do not expose it on the public
 Internet.
@@ -2974,3 +2989,13 @@ Related runbooks:
 - [Gate Benchmarking](gate-benchmarking.md)
 - [Long-Running Measurement Matrix](long-running-measurement-matrix.md)
 - [API Automation](api-automation.md)
+- [Core/probes PostgreSQL isolation](postgresql-core-probes-isolation.md)
+- [MongoDB measurement storage, delivery, retention and rollback](mongodb-measurements.md)
+
+## Публичные measurement snapshots
+
+Для Mongo-backed benchmarks/trading включить фиксированные bounded снимки и
+отдельный traffic budget; Cloudflare proxy требует правильной цепочки client IP.
+Runbook: [public-measurement-performance.md](public-measurement-performance.md).
+Установить дополнительные Prometheus rules `hyperspace-public-measurements.yml`.
+Origin guard включать только после успешной проверки Cloudflare proxy, не до неё.

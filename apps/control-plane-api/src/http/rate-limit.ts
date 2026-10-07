@@ -14,9 +14,13 @@ export interface PublicRateLimitConfig {
   mutationMax: number;
   downloadWindowSeconds: number;
   downloadMax: number;
+  measurementsWindowSeconds?: number;
+  measurementsMax?: number;
+  measurementsGlobalMax?: number;
+  measurementsMaxInFlight?: number;
 }
 
-type PublicRateLimitCategory = "read" | "auth" | "mutation" | "download";
+type PublicRateLimitCategory = "read" | "auth" | "mutation" | "download" | "measurements";
 
 interface RateLimitRule {
   windowSeconds: number;
@@ -32,7 +36,11 @@ export const defaultPublicRateLimitConfig: PublicRateLimitConfig = {
   mutationWindowSeconds: 60,
   mutationMax: 60,
   downloadWindowSeconds: 60,
-  downloadMax: 30
+  downloadMax: 30,
+  measurementsWindowSeconds: 60,
+  measurementsMax: 120,
+  measurementsGlobalMax: 600,
+  measurementsMaxInFlight: 8
 };
 
 export function registerPublicRateLimits(
@@ -45,6 +53,14 @@ export function registerPublicRateLimits(
   }
 
   const buckets = new WindowLimiter();
+  const global = new WindowLimiter(1);
+  const active = new WeakSet<FastifyRequest>();
+  let inFlight = 0;
+  const release = (request: FastifyRequest) => {
+    if (active.delete(request)) inFlight--;
+  };
+  app.addHook("onResponse", async request => release(request));
+  app.addHook("onTimeout", async request => release(request));
   app.addHook("onRequest", async (request, reply) => {
     const category = classifyPublicRequest(request);
     if (!category) {
@@ -68,6 +84,21 @@ export function registerPublicRateLimits(
       });
       return sendRateLimitExceeded(reply, rule, bucket.resetAt);
     }
+    if (category === "measurements") {
+      const budget = global.consume("measurements", config.measurementsGlobalMax ?? 600, rule.windowSeconds * 1000, now);
+      if (!budget.allowed || inFlight >= (config.measurementsMaxInFlight ?? 8)) {
+        metrics?.counter("public_measurement_load_shed_total", 1, {
+          help: "Public display requests rejected without queueing or querying databases.",
+          labels: { reason: !budget.allowed ? "global_budget" : "concurrency" }
+        });
+        return reply.code(503).header("Cache-Control", "no-store").header("Retry-After", !budget.allowed
+          ? String(Math.max(1, Math.ceil((budget.resetAt - now) / 1000))) : "1")
+          .send({ error: "measurements_busy", message: "Public measurements are busy. Please retry shortly." });
+      }
+      inFlight++;
+      active.add(request);
+      reply.raw.once("close", () => release(request));
+    }
   });
 }
 
@@ -85,10 +116,12 @@ function classifyPublicRequest(request: FastifyRequest): PublicRateLimitCategory
   if (request.method !== "GET" && request.method !== "HEAD") {
     return "mutation";
   }
+  if (["/v1/public/benchmarks/gate-matrix", "/v1/public/trading/latency", "/v1/public/trading/pairs"].includes(path)) return "measurements";
   return "read";
 }
 
 function ruleForCategory(config: PublicRateLimitConfig, category: PublicRateLimitCategory): RateLimitRule {
+  if (category === "measurements") return { windowSeconds: config.measurementsWindowSeconds ?? 60, max: config.measurementsMax ?? 120 };
   if (category === "auth") {
     return { windowSeconds: config.authWindowSeconds, max: config.authMax };
   }
@@ -117,6 +150,7 @@ function sendRateLimitExceeded(reply: FastifyReply, rule: RateLimitRule, resetAt
   setRateLimitHeaders(reply, rule, 0, resetAtMs);
   return reply
     .code(429)
+    .header("Cache-Control", "no-store")
     .header("retry-after", String(retryAfterSeconds))
     .send({
       error: "rate_limited",

@@ -66,3 +66,43 @@ test("auth limiter does not block gate polling or non-auth public reads", async 
     assert.equal((await app.inject({ method: "POST", url: "/v1/gate/heartbeat" })).statusCode, 200);
   } finally { await app.close(); }
 });
+
+test("public measurement limits have separate IP/global budgets and cannot block operational routes", async () => {
+  const app = Fastify(); registerPublicRateLimits(app, testConfig({ measurementsMax: 2, measurementsGlobalMax: 3 }));
+  app.get("/v1/public/benchmarks/gate-matrix", async () => ({ ok: true }));
+  app.get("/v1/public/trading/latency", async () => ({ ok: true }));
+  app.get("/v1/public/billing", async () => ({ ok: true }));
+  app.get("/v1/public/trading/routes/:id", async () => ({ ok: true }));
+  app.post("/v1/gate/heartbeat", async () => ({ ok: true }));
+  app.post("/v1/trading-probe/jobs/claim", async () => ({ ok: true }));
+  try {
+    for (let i = 0; i < 3; i++) {
+      const r = await app.inject({ url: i % 2 ? "/v1/public/trading/latency" : "/v1/public/benchmarks/gate-matrix", remoteAddress: "198.51.100.1" });
+      assert.equal(r.statusCode, i < 2 ? 200 : 429);
+    }
+    assert.equal((await app.inject({ url: "/v1/public/trading/latency", remoteAddress: "198.51.100.2" })).statusCode, 200);
+    const overload = await app.inject({ url: "/v1/public/trading/latency", remoteAddress: "198.51.100.3" });
+    assert.equal(overload.statusCode, 503); assert.equal(overload.headers["cache-control"], "no-store");
+    assert.equal((await app.inject("/v1/public/billing")).statusCode, 200);
+    assert.equal((await app.inject("/v1/public/trading/routes/validate-before-purchase")).statusCode, 200);
+    for (const url of ["/v1/gate/heartbeat", "/v1/trading-probe/jobs/claim"]) assert.equal((await app.inject({ method: "POST", url })).statusCode, 200);
+  } finally { await app.close(); }
+});
+
+test("measurement concurrency has no waiting queue and slots release after success and failure", async () => {
+  const app = Fastify(); registerPublicRateLimits(app, testConfig({ measurementsMaxInFlight: 1 }));
+  let release!: () => void, entered!: () => void;
+  const inside = new Promise<void>(r => { entered = r; });
+  const blocked = new Promise<void>(r => { release = r; });
+  let first = true;
+  app.get("/v1/public/trading/latency", async () => { if (first) { first = false; entered(); await blocked; throw new Error("test failure"); } return { ok: true }; });
+  app.get("/health", async () => ({ ok: true }));
+  try {
+    const pending = app.inject("/v1/public/trading/latency");
+    await inside;
+    assert.equal((await app.inject("/v1/public/trading/latency")).statusCode, 503);
+    assert.equal((await app.inject("/health")).statusCode, 200);
+    release(); assert.equal((await pending).statusCode, 500);
+    assert.equal((await app.inject("/v1/public/trading/latency")).statusCode, 200);
+  } finally { release(); await app.close(); }
+});

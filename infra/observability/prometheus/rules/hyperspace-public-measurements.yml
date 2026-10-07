@@ -1,0 +1,19 @@
+groups:
+  - name: hyperspace-public-measurements
+    rules:
+      - alert: HyperspacePublicMeasurementSnapshotStale
+        expr: time() - hyperspace_public_measurement_snapshot_updated_at_seconds > 60
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: Hyperspace public measurement snapshot cannot refresh
+          description: 'Public {{ $labels.snapshot }} display snapshot has not refreshed for over 60 seconds. Dashboards may be stale or return 503; operational VPN and billing do not use this display cache.'
+      - alert: HyperspacePublicMeasurementLoadShedding
+        expr: sum by (cluster, service_host, service_ipv4) (increase(hyperspace_public_measurement_load_shed_total[5m])) > 20
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: Hyperspace is limiting public measurement traffic
+          description: 'The bounded public benchmarks/trading budget is rejecting requests. Review source IPs and Cloudflare protection; do not raise operational gate or billing limits.'

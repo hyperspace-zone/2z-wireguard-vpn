@@ -1,0 +1,3 @@
+# Keep the allocated probes filesystem file non-sparse, even if an operator
+# runs fstrim -a. Only our validated backing file, never all loop devices.
+ACTION=="add|change", KERNEL=="loop*", ATTR{loop/backing_file}=="/var/lib/hyperspace/probes-postgresql.ext4", ATTR{queue/discard_max_bytes}="0"

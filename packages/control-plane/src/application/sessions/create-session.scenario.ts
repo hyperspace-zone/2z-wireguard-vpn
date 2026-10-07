@@ -1,4 +1,4 @@
-import type { TransactionalQueryable } from "../../db/queryable.js";
+import type { Queryable, TransactionalQueryable } from "../../db/queryable.js";
 import {
   mergeSessionAbuseControlConfig,
   validateSessionAbusePolicy,
@@ -28,7 +28,7 @@ export async function createSession(
   actor: PublicSessionActor,
   body: Record<string, unknown>,
   abuseControls: Partial<SessionAbuseControlConfig> = {},
-  options: { initialPhase?: "payment_pending" | "requested" } = {}
+  options: { initialPhase?: "payment_pending" | "requested"; tradingDb?: Queryable } = {}
 ): Promise<CreateSessionSuccess | CreateSessionFailure> {
   const parsed = parseSessionCreateBody(body);
   if ("error" in parsed) {
@@ -46,7 +46,15 @@ export async function createSession(
       const existing = await findSessionIdByCreateRequest(db, actor.accountId, parsed.createRequestId);
       if (existing) return { status: "created", sessionId: existing };
     }
-    const preset = typeof body.tradingRouteId === "string" ? await resolveTradingRoute(db, body.tradingRouteId, true) : null;
+    // No cross-database transaction: validate an optional measurement preset
+    // before beginning any core write or payment. Ordinary VPN creation does
+    // not query probes at all.
+    let preset = null;
+    try {
+      preset = typeof body.tradingRouteId === "string" ? await resolveTradingRoute(options.tradingDb ?? db, body.tradingRouteId, true) : null;
+    } catch {
+      return { status: "invalid", error: "route_policy_not_satisfied", message: "Trading measurements are unavailable. Retry later or create a VPN config without a trading preset. No payment has been taken." };
+    }
     if (!preset || parsed.mode !== "FullTunnel" || parsed.destinationCidrs.length !== 1 || parsed.destinationCidrs[0] !== "0.0.0.0/0"
       || parsed.spec.ingressGateName !== preset.route.ingressGateName || parsed.spec.egressGateName !== preset.route.egressGateName
       || (parsed.spec.ingressGateId !== undefined && parsed.spec.ingressGateId !== preset.source.gateId)

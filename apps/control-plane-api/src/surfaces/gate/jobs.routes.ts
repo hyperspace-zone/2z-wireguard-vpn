@@ -14,6 +14,7 @@ export function registerGateJobRoutes(
   app: FastifyInstance,
   deps: {
     db: Database;
+    probesDb?: Database;
     requireGate: (request: FastifyRequest, reply: FastifyReply) => Promise<GateAuthContext | null>;
   }
 ): void {
@@ -31,7 +32,8 @@ export function registerGateJobRoutes(
     }
 
     const lane = readString(asRecord(request.body), "lane") as GateJobLane | "";
-    return reply.send({ job: await claimGateJob(deps.db, gate, lane || undefined) });
+    const database = lane === "probe" ? deps.probesDb ?? deps.db : deps.db;
+    return reply.send({ job: await claimGateJob(database, gate, lane || (deps.probesDb ? "control" : undefined)) });
   });
 
   app.post("/v1/gate/jobs/:jobId/report", {
@@ -50,12 +52,18 @@ export function registerGateJobRoutes(
       return sendApplicationError(reply, "invalid_job_status");
     }
 
-    const updated = await recordGateJobReport(deps.db, gate.id, readParam(request, "jobId"), {
+    const report = {
       status,
       actualStateHash: readString(body, "actualStateHash"),
       errorCode: readString(body, "errorCode"),
       resultSummary: asRecord(body.resultSummary ?? {})
-    });
+    };
+    // Existing agents do not include lane in reports. Resolve core first; a
+    // successful apply/revoke report never waits for or touches probes.
+    let updated = await recordGateJobReport(deps.db, gate.id, readParam(request, "jobId"), report);
+    if (!updated && deps.probesDb) {
+      updated = await recordGateJobReport(deps.probesDb, gate.id, readParam(request, "jobId"), report);
+    }
     if (!updated) {
       return sendApplicationError(reply, "job_not_found");
     }

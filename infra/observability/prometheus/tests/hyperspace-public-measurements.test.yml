@@ -1,0 +1,30 @@
+rule_files:
+  - ../rules/hyperspace-public-measurements.yml
+evaluation_interval: 1m
+tests:
+  - interval: 1m
+    input_series:
+      - series: 'hyperspace_public_measurement_snapshot_updated_at_seconds{cluster="mainnet",snapshot="benchmarks"}'
+        values: '0+0x10'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: HyperspacePublicMeasurementSnapshotStale
+        exp_alerts: []
+      - eval_time: 4m
+        alertname: HyperspacePublicMeasurementSnapshotStale
+        exp_alerts:
+          - exp_labels:
+              cluster: mainnet
+              snapshot: benchmarks
+              severity: warning
+            exp_annotations:
+              summary: Hyperspace public measurement snapshot cannot refresh
+              description: 'Public benchmarks display snapshot has not refreshed for over 60 seconds. Dashboards may be stale or return 503; operational VPN and billing do not use this display cache.'
+  - interval: 1m
+    input_series:
+      - series: 'hyperspace_public_measurement_snapshot_updated_at_seconds{cluster="mainnet",snapshot="trading"}'
+        values: '0+60x10'
+    alert_rule_test:
+      - eval_time: 8m
+        alertname: HyperspacePublicMeasurementSnapshotStale
+        exp_alerts: []

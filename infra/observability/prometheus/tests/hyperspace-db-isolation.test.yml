@@ -1,0 +1,86 @@
+rule_files:
+  - ../rules/hyperspace-db-isolation.yml
+evaluation_interval: 1m
+tests:
+  - interval: 1m
+    input_series:
+      - series: 'hyperspace_probes_worker_loop_ready{job="hyperspace-probes-worker",loop="mongo-delivery",cluster="mainnet"}'
+        values: '0+0x10'
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: HyperspaceMeasurementsMongoUnavailable
+        exp_alerts:
+          - exp_labels:
+              job: hyperspace-probes-worker
+              loop: mongo-delivery
+              cluster: mainnet
+              severity: warning
+              role: mongodb
+              service_host: 88.216.62.149
+              service_ipv4: 88.216.62.149
+            exp_annotations:
+              summary: MongoDB measurement delivery is unavailable
+              description: Measurement reports remain in the probes PostgreSQL delivery journal and will retry. Check MongoDB TLS/auth/service and network access. Core VPN and billing are independent.
+  - interval: 1m
+    input_series:
+      - series: 'hyperspace_measurements_delivery_oldest_age_seconds{cluster="mainnet"}'
+        values: '600+0x10'
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: HyperspaceMeasurementsDeliveryBacklog
+        exp_alerts:
+          - exp_labels:
+              cluster: mainnet
+              severity: warning
+            exp_annotations:
+              summary: Measurement delivery journal is accumulating reports
+              description: Check MongoDB availability and delivery throughput. The isolated probes PostgreSQL journal is growing; do not delete undelivered reports or financial data.
+  - interval: 1m
+    input_series:
+      - series: 'node_filesystem_avail_bytes{job="hyperspace-host-node",role="mongodb",mountpoint="/"}'
+        values: '3221225472+0x15'
+      - series: 'node_filesystem_size_bytes{job="hyperspace-host-node",role="mongodb",mountpoint="/"}'
+        values: '42949672960+0x15'
+    alert_rule_test:
+      - eval_time: 11m
+        alertname: HyperspaceMeasurementsMongoDiskCritical
+        exp_alerts:
+          - exp_labels:
+              job: hyperspace-host-node
+              role: mongodb
+              mountpoint: /
+              severity: critical
+            exp_annotations:
+              summary: MongoDB measurement host is running out of disk space
+              description: Less than 4 GiB or 15% free disk remains on the MongoDB host. Check TTL, indexes and log rotation; do not move financial data here.
+  - interval: 1m
+    input_series:
+      - series: 'up{job="hyperspace-probes-worker",cluster="mainnet",role="probes-worker",service_host="control-plane.hyperspace.zone"}'
+        values: '0+0x10'
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: HyperspaceProbesWorkerDown
+        exp_alerts:
+          - exp_labels:
+              job: hyperspace-probes-worker
+              cluster: mainnet
+              role: probes-worker
+              service_host: control-plane.hyperspace.zone
+              severity: warning
+            exp_annotations:
+              summary: Optional probes worker is unavailable
+              description: Benchmarks/trading measurements may be stale. Core VPN, billing and reconciliation run independently. Check probes-worker on control-plane.hyperspace.zone.
+  - interval: 1m
+    input_series:
+      - series: 'hyperspace_postgres_restore_check_last_success_timestamp_seconds{cluster="mainnet"}'
+        values: '-864000+0x40'
+    alert_rule_test:
+      - eval_time: 31m
+        alertname: HyperspacePostgreSQLRestoreCheckStale
+        exp_alerts:
+          - exp_labels:
+              cluster: mainnet
+              severity: critical
+            exp_annotations:
+              summary: Core backup has not passed a recent full restore drill
+              description: No successful core restore verification in 9 days. Check hyperspace-db-restore-check.service, latest backup checksum, NFS availability and free core disk space.

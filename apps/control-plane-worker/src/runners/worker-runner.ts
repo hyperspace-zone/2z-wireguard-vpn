@@ -77,7 +77,7 @@ export function createWorkerRunner(input: {
     benchmarkScheduler: () => benchmarkSchedulerLoop.runOnce(),
     tradingProbeScheduler: () => tradingProbeSchedulerLoop.runOnce(),
     trafficQuotas: () => trafficQuotaLoop.runOnce(),
-    snapshot: () => collectControlPlaneSnapshotMetrics({ ...input, db: input.metricsDb ?? input.db })
+    snapshot: () => collectControlPlaneSnapshotMetrics({ ...input, db: input.metricsDb ?? input.db, includeProbes: !input.config.probesSeparated })
   };
   let stopping = false;
   let running: Promise<void> | null = null;
@@ -204,8 +204,7 @@ export function createWorkerRunner(input: {
       input.health.setComponent("worker-runner", { state: "ready", message: "Worker runner loop started." });
       running = Promise.all([
         runOperations(),
-        runBenchmarkScheduler(),
-        runTradingProbeScheduler(),
+        ...(input.config.probesSeparated ? [] : [runBenchmarkScheduler(), runTradingProbeScheduler()]),
         runSnapshotCollector()
       ]).then(() => undefined);
       await running;

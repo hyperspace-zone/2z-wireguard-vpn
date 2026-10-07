@@ -241,3 +241,6 @@ export {
 } from "./resources/trading-probes/service.js";
 export { authenticatePublicAuthSession } from "./resources/users/service.js";
 export { scheduleGateBenchmarkProbes, scheduleGateNtpDiscoveryJobs } from "./resources/benchmarks/service.js";
+export { attachMeasurementStore, measurementStore } from "./measurements/context.js";
+export { MongoMeasurementStore, type MeasurementStore, type BenchmarkLatest, type TradingMeasurement } from "./measurements/mongo.js";
+export { deliverMeasurements } from "./measurements/delivery.js";

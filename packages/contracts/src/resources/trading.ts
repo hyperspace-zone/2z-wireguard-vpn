@@ -193,6 +193,8 @@ export const publicTradingLatencyResponseSchema = {
   additionalProperties: false,
   required: ["generatedAt", "nodes", "targets", "measurements"],
   properties: {
+    snapshotStatus: { enum: ["live", "refreshing", "stale"] },
+    snapshotAgeSeconds: { type: "integer", minimum: 0 },
     generatedAt: { type: "string", format: "date-time" },
     nodes: { type: "array", items: tradingLatencyPublicNodeSchema },
     targets: { type: "array", items: tradingLatencyPublicTargetSchema },

@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+set -euo pipefail
+[[ $EUID == 0 ]] || exit 2
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+image=/var/lib/hyperspace/probes-postgresql.ext4
+mount_dir=/var/lib/postgresql-probes
+[[ -f "$image" && $(stat -c '%s' "$image") == 17179869184 ]] || exit 2
+fallocate -l 16G "$image"
+[[ $(($(stat -c '%b' "$image") * 512)) -ge 17179869184 ]] || { echo 'Probes disk reservation failed'; exit 1; }
+[[ -f /etc/fstab.before-probes-reservation-20261006 ]] || cp -p /etc/fstab /etc/fstab.before-probes-reservation-20261006
+temporary="$(mktemp /etc/fstab.probes.XXXXXX)"
+trap 'test ! -e "$temporary" || unlink "$temporary"' EXIT
+awk -v image="$image" '$1==image && $4 !~ /X-fstrim.notrim/ {$4=$4 ",X-fstrim.notrim"} {print}' /etc/fstab >"$temporary"
+install -m 0644 "$temporary" /etc/fstab
+install -m 0644 "$repo_root/infra/postgres/probes-loopback.rules" /etc/udev/rules.d/70-hyperspace-probes-loopback.rules
+udevadm control --reload-rules
+loop_device="$(findmnt --noheadings --target "$mount_dir" --output SOURCE)"
+[[ "$loop_device" =~ ^/dev/loop[0-9]+$ ]] || exit 2
+udevadm trigger --action=change "/sys/class/block/${loop_device##*/}"
+udevadm settle
+[[ $(<"/sys/class/block/${loop_device##*/}/queue/discard_max_bytes") == 0 ]] || { echo 'Probes discard protection failed'; exit 1; }
+echo 'Probes 16 GiB allocated; filesystem trimming cannot punch holes in its reservation.'

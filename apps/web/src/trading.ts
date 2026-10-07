@@ -46,6 +46,8 @@ interface TradingMeasurement {
 }
 
 interface TradingPayload {
+  snapshotStatus?: "live" | "refreshing" | "stale";
+  snapshotAgeSeconds?: number;
   generatedAt: string;
   nodes: TradingNode[];
   targets: TradingTarget[];
@@ -195,7 +197,7 @@ function tradingView(payload: TradingPayload): string {
       </nav>
       <header class="trading-context-nav">
         <div>
-          <span class="trading-live-dot"></span>
+          ${payload.snapshotStatus === "stale" ? "" : '<span class="trading-live-dot"></span>'}
           <strong>${escapeHtml(label)}</strong>
         </div>
         <nav aria-label="Current section">
@@ -205,6 +207,7 @@ function tradingView(payload: TradingPayload): string {
         </nav>
         <small>Direct public-path measurements · updated ${escapeHtml(relativeTime(payload.generatedAt))}</small>
       </header>
+      ${payload.snapshotStatus === "stale" ? '<p role="status">Measurements could not refresh. Showing the last successful snapshot; timestamps have not been updated.</p>' : ""}
       ${route.view === "map" ? mapView(payload, targets, target) : route.view === "status" ? statusView(payload, targets) : aboutView(label, targets)}
     </main>
   `;

@@ -1,5 +1,7 @@
 import type { Database } from "@hyperspace-zone/db";
 import type { HealthRegistry, RuntimeMetrics } from "@hyperspace-zone/shared";
+import { measurementStore } from "@hyperspace-zone/control-plane";
+import { readMongoBenchmarkMetricRows, readMongoTradingTargetMetricRows } from "../probes/measurement-metrics.js";
 
 export interface ControlPlaneSnapshotSection {
   name: string;
@@ -11,9 +13,10 @@ export async function collectControlPlaneSnapshotMetrics(input: {
   metrics: RuntimeMetrics;
   health: HealthRegistry;
   sections?: readonly ControlPlaneSnapshotSection[];
+  includeProbes?: boolean;
 }): Promise<boolean> {
   const started = process.hrtime.bigint();
-  const sections = input.sections ?? defaultSnapshotSections(input.db, input.metrics);
+  const sections = input.sections ?? defaultSnapshotSections(input.db, input.metrics, input.includeProbes !== false);
   const failures: Array<{ section: string; message: string }> = [];
 
   for (const section of sections) {
@@ -80,20 +83,22 @@ export async function collectControlPlaneSnapshotMetrics(input: {
   );
 }
 
-function defaultSnapshotSections(db: Database, metrics: RuntimeMetrics): ControlPlaneSnapshotSection[] {
+function defaultSnapshotSections(db: Database, metrics: RuntimeMetrics, includeProbes: boolean): ControlPlaneSnapshotSection[] {
   return [
     { name: "gates", collect: () => collectGateMetrics(db, metrics) },
     { name: "sessions", collect: () => collectSessionMetrics(db, metrics) },
     { name: "assignment-usage", collect: () => collectAssignmentUsageMetrics(db, metrics) },
     { name: "jobs", collect: () => collectJobMetrics(db, metrics) },
     { name: "gate-agent-deployments", collect: () => collectGateAgentDeploymentMetrics(db, metrics) },
-    { name: "benchmarks", collect: () => collectBenchmarkMetrics(db, metrics) },
-    { name: "trading-probes", collect: () => collectTradingProbeMetrics(db, metrics) },
+    ...(includeProbes ? [
+      { name: "benchmarks", collect: () => collectBenchmarkMetrics(db, metrics) },
+      { name: "trading-probes", collect: () => collectTradingProbeMetrics(db, metrics) }
+    ] : []),
     { name: "billing", collect: () => collectBillingMetrics(db, metrics) }
   ];
 }
 
-async function collectTradingProbeMetrics(db: Database, metrics: RuntimeMetrics): Promise<void> {
+export async function collectTradingProbeMetrics(db: Database, metrics: RuntimeMetrics): Promise<void> {
   const nodes = await db.query<{
     node: string;
     city: string;
@@ -132,7 +137,7 @@ async function collectTradingProbeMetrics(db: Database, metrics: RuntimeMetrics)
     help: "Trading latency probe nodes by desired and heartbeat state.", labels: { state: "fresh" }
   });
 
-  const targets = await db.query<{
+  const targets = measurementStore(db) ? { rows: await readMongoTradingTargetMetricRows(db) } : await db.query<{
     target: string;
     category: string;
     reportingNodes: number;
@@ -718,7 +723,7 @@ export function gateAgentDeploymentFailureClass(failureCode: string | null): "in
 }
 
 export async function collectBenchmarkMetrics(db: Database, metrics: RuntimeMetrics): Promise<void> {
-  const routeResult = await db.query<{
+  const routeResult = measurementStore(db) ? { rows: await readMongoBenchmarkMetricRows(db) } : await db.query<{
     sourceGate: string;
     sourcePublicIpv4: string;
     sourceProbeUrl: string | null;

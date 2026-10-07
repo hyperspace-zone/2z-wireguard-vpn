@@ -12,6 +12,7 @@ export interface DatabaseRuntimeConfig {
   maxConnections?: number;
   minConnections?: number;
   statementTimeoutMs?: number;
+  connectionTimeoutMs?: number;
 }
 
 export type QueryParams = unknown[];
@@ -32,8 +33,12 @@ export function createDatabase(config: DatabaseRuntimeConfig): Database {
     application_name: config.applicationName,
     ...(config.maxConnections ? { max: config.maxConnections } : {}),
     ...(config.minConnections ? { min: config.minConnections } : {}),
+    connectionTimeoutMillis: config.connectionTimeoutMs ?? 5000,
     ...(config.statementTimeoutMs ? { statement_timeout: config.statementTimeoutMs } : {})
   });
+  // A disappearing optional database must not crash the API via an unhandled
+  // error from an idle pooled connection. Requests still fail normally.
+  pool.on("error", () => undefined);
 
   return {
     pool,
@@ -61,7 +66,8 @@ export function createDatabase(config: DatabaseRuntimeConfig): Database {
 
 export async function runMigrations(
   pool: Pool,
-  migrationsDir = defaultMigrationsDir()
+  migrationsDir = defaultMigrationsDir(),
+  selectedFiles?: readonly string[]
 ): Promise<string[]> {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS ${migrationsTableName} (
@@ -71,7 +77,7 @@ export async function runMigrations(
   `);
 
   const files = (await readdir(migrationsDir))
-    .filter((file) => file.endsWith(".sql"))
+    .filter((file) => file.endsWith(".sql") && (!selectedFiles || selectedFiles.includes(file)))
     .sort();
   const applied: string[] = [];
 

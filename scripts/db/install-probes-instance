@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+set -euo pipefail
+[[ $EUID == 0 ]] || { echo 'Run as root on the existing DB host'; exit 2; }
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+core_database="${HS_DB_NAME:-hyperspace}"
+private_address="${HS_DB_PRIVATE_IPV4:?Set the DB private IPv4}"
+control_address="${HS_CONTROL_PRIVATE_IPV4:?Set the control-plane private IPv4}"
+[[ "$private_address" =~ ^[0-9.]+$ && "$control_address" =~ ^[0-9.]+$ ]] || exit 2
+[[ "$core_database" =~ ^[a-zA-Z_][a-zA-Z0-9_]*$ ]] || exit 2
+image=/var/lib/hyperspace/probes-postgresql.ext4
+mount_dir=/var/lib/postgresql-probes
+install -d -m 0755 /var/lib/hyperspace "$mount_dir"
+if [[ ! -e "$image" ]]; then
+  available="$(df -PB1 /var/lib/hyperspace | awk 'NR==2 {print $4}')"
+  (( available > 32*1024*1024*1024 )) || { echo 'Need 32 GiB free before allocating the 16 GiB probes filesystem'; exit 1; }
+  fallocate -l 16G "$image"
+  chmod 0600 "$image"
+  # mkfs default discard punches holes in loopback files and silently undoes
+  # the root-space reservation. Never discard this fixed probes allocation.
+  mkfs.ext4 -q -m 1 -E nodiscard "$image"
+fi
+fallocate -l 16G "$image"
+if ! mountpoint -q "$mount_dir"; then mount -o loop,nosuid,nodev,noexec "$image" "$mount_dir"; fi
+if ! findmnt --fstab --target "$mount_dir" >/dev/null; then
+  printf '%s %s ext4 loop,nosuid,nodev,noexec,X-fstrim.notrim 0 0\n' "$image" "$mount_dir" >>/etc/fstab
+fi
+"$repo_root/scripts/db/protect-probes-volume"
+install -d -o postgres -g postgres -m 0700 "$mount_dir/log"
+if ! pg_lsclusters --no-header | awk '$1==16 && $2=="probes" {found=1} END {exit !found}'; then
+  pg_createcluster 16 probes --port=5433 --datadir="$mount_dir/16/probes" --logfile="$mount_dir/log/postgresql.log"
+fi
+install -o postgres -g postgres -m 0644 "$repo_root/infra/postgres/probes.conf" /etc/postgresql/16/probes/conf.d/hyperspace.conf
+printf "listen_addresses = '127.0.0.1,%s'\n" "$private_address" >>/etc/postgresql/16/probes/conf.d/hyperspace.conf
+install -o postgres -g postgres -m 0640 /dev/stdin /etc/postgresql/16/probes/pg_hba.conf <<EOF
+local all postgres peer
+local all all peer
+host hyperspace_probes hyperspace_probes 127.0.0.1/32 scram-sha-256
+host hyperspace_probes hyperspace_probes ${control_address}/32 scram-sha-256
+EOF
+install -d -m 0755 /etc/systemd/system/postgresql@16-probes.service.d
+install -m 0644 "$repo_root/infra/postgres/probes-isolation.conf" /etc/systemd/system/postgresql@16-probes.service.d/isolation.conf
+systemctl daemon-reload
+systemctl enable --now postgresql@16-probes.service
+catalog_hba="host ${core_database} hyperspace_catalog_reader ${control_address}/32 scram-sha-256"
+if ! grep -Fxq "$catalog_hba" /etc/postgresql/16/main/pg_hba.conf; then
+  printf '%s\n' "$catalog_hba" >>/etc/postgresql/16/main/pg_hba.conf
+  pg_ctlcluster 16 main reload
+fi
+install -d -m 0750 /etc/hyperspace
+credentials=/etc/hyperspace/probes-instance.env
+if [[ ! -e "$credentials" ]]; then
+  umask 077
+  probe_password="$(openssl rand -hex 32)"
+  catalog_password="$(openssl rand -hex 32)"
+  sudo -u postgres psql -X -v ON_ERROR_STOP=1 --port=5433 --dbname=postgres <<SQL
+CREATE ROLE hyperspace_probes LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE CONNECTION LIMIT 12 PASSWORD '${probe_password}';
+CREATE DATABASE hyperspace_probes OWNER hyperspace_probes;
+SQL
+  sudo -u postgres psql -X -v ON_ERROR_STOP=1 --port=5432 --dbname="$core_database" <<SQL
+CREATE ROLE hyperspace_catalog_reader LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE CONNECTION LIMIT 2 PASSWORD '${catalog_password}';
+ALTER ROLE hyperspace_catalog_reader SET default_transaction_read_only=on;
+ALTER ROLE hyperspace_catalog_reader SET statement_timeout='2s';
+GRANT CONNECT ON DATABASE ${core_database} TO hyperspace_catalog_reader;
+GRANT USAGE ON SCHEMA public TO hyperspace_catalog_reader;
+GRANT SELECT ON gates,gate_status,gate_conditions,gate_leases,trading_probe_nodes,trading_probe_auth_tokens,trading_probe_targets TO hyperspace_catalog_reader;
+GRANT SELECT(id,gate_id,phase) ON gate_agent_deployments TO hyperspace_catalog_reader;
+SQL
+  printf 'PROBES_DATABASE_URL=postgresql://hyperspace_probes:%s@%s:5433/hyperspace_probes\nPROBES_CATALOG_DATABASE_URL=postgresql://hyperspace_catalog_reader:%s@%s:5432/%s\n' "$probe_password" "$private_address" "$catalog_password" "$private_address" "$core_database" >"$credentials"
+fi
+echo 'Probes PostgreSQL is isolated on port 5433 with a fixed 16 GiB filesystem; core has not been restarted.'

@@ -309,6 +309,8 @@ export const publicGateBenchmarkMatrixResponseSchema = {
   additionalProperties: false,
   required: ["generatedAt", "gates", "routes"],
   properties: {
+    snapshotStatus: { enum: ["live", "refreshing", "stale"] },
+    snapshotAgeSeconds: { type: "integer", minimum: 0 },
     generatedAt: { type: "string", format: "date-time" },
     gates: { type: "array", items: gateSummarySchema },
     routes: { type: "array", items: gateBenchmarkRouteSchema }

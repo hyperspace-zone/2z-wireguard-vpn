@@ -1,6 +1,8 @@
 import type { BenchmarkTransport, GateBenchmarkMetric, GateBenchmarkRoute } from "@hyperspace-zone/contracts";
 import type { Queryable } from "../../db/queryable.js";
 import { freshGateLeaseSqlPredicate } from "../gate-leases/repository.js";
+import { enqueueMeasurement, markMeasurementScheduled, measurementStore } from "../../measurements/context.js";
+import { validDate } from "../../measurements/mongo.js";
 
 export interface ScheduleGateBenchmarkInput {
   intervalSeconds: number;
@@ -113,10 +115,10 @@ export async function insertDueGateBenchmarkProbeJobs(
       ),
       recent_pairs AS MATERIALIZED (
         SELECT DISTINCT
-          recent.source_gate_id,
-          recent.target_gate_id
-        FROM gate_benchmark_results recent
-        WHERE recent.measured_at > now() - ($1::int * interval '1 second')
+          recent.${measurementStore(db) ? "source_id" : "source_gate_id"} AS source_gate_id,
+          recent.${measurementStore(db) ? "target_id" : "target_gate_id"} AS target_gate_id
+        FROM ${measurementStore(db) ? "probe_measurement_schedule" : "gate_benchmark_results"} recent
+        WHERE ${measurementStore(db) ? "recent.kind='benchmark' AND recent.completed_at" : "recent.measured_at"} > now() - ($1::int * interval '1 second')
       ),
       due_pairs AS (
         SELECT directed_pairs.*
@@ -252,6 +254,22 @@ export async function insertGateBenchmarkReport(
   db: Queryable,
   input: GateBenchmarkReportInput
 ): Promise<void> {
+  if (measurementStore(db)) {
+    for (const result of input.results) {
+      const measuredAt = validDate(result.measuredAt ?? new Date().toISOString()).toISOString();
+      const { samples: _samples, reverseOneWayMs: _reverse, oneWayClockErrorMs, ...values } = result;
+      const metric: GateBenchmarkMetric = {
+        ...values, measuredAt,
+        ...(oneWayClockErrorMs === undefined ? {} : { oneWayDiagnostics: { clockErrorMs: oneWayClockErrorMs } }),
+        ...(result.errorMessage ? { errorMessage: result.errorMessage.slice(0, 512) } : {})
+      };
+      await enqueueMeasurement(db, `benchmark:${input.jobId}:${result.transport}`, "benchmark", {
+        sourceGateId: input.sourceGateId, targetGateId: input.targetGateId, metric
+      });
+    }
+    await markMeasurementScheduled(db, "benchmark", input.sourceGateId, input.targetGateId, "all");
+    return;
+  }
   for (const result of input.results) {
     await db.query(
       `
@@ -341,6 +359,31 @@ export async function insertGateBenchmarkReport(
 }
 
 export async function listLatestGateBenchmarkRoutes(db: Queryable): Promise<GateBenchmarkRoute[]> {
+  const store = measurementStore(db);
+  if (store) {
+    const gates = await db.query<{ id: string; name: string; metro: string | null }>(`SELECT gates.id,gates.name,
+        NULLIF(BTRIM(status.doublezero_status->>'metro'),'') AS metro
+        FROM gates LEFT JOIN gate_status status ON status.gate_id=gates.id
+        WHERE gates.desired_state='Enabled' ORDER BY gates.name`);
+    const latest = await store.benchmarks(gates.rows.map(gate => gate.id));
+    const indexed = new Map(latest.map(row => [`${row.sourceGateId}:${row.targetGateId}:${row.transport}`, row.recent[0]?.metric]));
+    const routes: GateBenchmarkRoute[] = [];
+    for (const source of gates.rows) for (const target of gates.rows) {
+      if (source.id === target.id) continue;
+      const route: GateBenchmarkRoute = { sourceGateId: source.id, sourceGateName: source.name, targetGateId: target.id, targetGateName: target.name };
+      const publicMetric = indexed.get(`${source.id}:${target.id}:public`);
+      const dz = indexed.get(`${source.id}:${target.id}:doublezero`);
+      if (publicMetric) route.public = publicMetric;
+      if (source.metro && target.metro && source.metro.toLowerCase() === target.metro.toLowerCase()) {
+        route.doublezeroApplicability = { status: "not_applicable", reason: "same_doublezero_metro", metro: source.metro };
+      } else if (dz) {
+        route.doublezero = dz;
+        if (publicMetric) route.delta = metricDelta(publicMetric, dz);
+      }
+      routes.push(route);
+    }
+    return routes;
+  }
   const result = await db.query<{
     sourceGateId: string;
     sourceGateName: string;

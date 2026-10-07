@@ -7,6 +7,7 @@ import type { TradingProbeSchedulerRuntimeConfig } from "./loops/trading-probe-s
 
 export interface ControlPlaneWorkerConfig extends ReconcileLoopRuntimeConfig, BenchmarkSchedulerRuntimeConfig, TradingProbeSchedulerRuntimeConfig {
   databaseUrl: string;
+  probesSeparated: boolean;
   pollMs: number;
   benchmarkSchedulerPollMs: number;
   tradingProbeSchedulerPollMs: number;
@@ -75,6 +76,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ControlPlaneWo
   const nativeSolBilling = env.SOLANA_ASSET_KIND === "native";
   const config: ControlPlaneWorkerConfig = {
     databaseUrl,
+    probesSeparated: env.PROBES_SEPARATED === "true",
     artifactEncryptionKey: parseAes256GcmKey(artifactEncryptionKeyRaw),
     pollMs: Number(env.WORKER_POLL_MS ?? 2000),
     benchmarkSchedulerPollMs: Number(env.BENCHMARK_SCHEDULER_POLL_MS ?? 15000),

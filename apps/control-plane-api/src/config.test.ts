@@ -60,3 +60,16 @@ test("benchmark reads use a small bounded database pool by default", () => {
   assert.equal(config.benchmarkDatabaseMaxConnections, 2);
   assert.equal(config.benchmarkDatabaseStatementTimeoutMs, 8_000);
 });
+
+test("public measurement budgets are independent, bounded and configurable", () => {
+  const defaults = loadConfig({ DATABASE_URL: "postgres://unit" });
+  assert.equal(defaults.publicRateLimit.measurementsMax, 120);
+  assert.equal(defaults.publicRateLimit.measurementsGlobalMax, 600);
+  assert.equal(defaults.publicRateLimit.measurementsMaxInFlight, 8);
+  const configured = loadConfig({ DATABASE_URL: "postgres://unit", PUBLIC_MEASUREMENTS_IP_MAX: "80",
+    PUBLIC_MEASUREMENTS_GLOBAL_MAX: "400", PUBLIC_MEASUREMENTS_MAX_IN_FLIGHT: "4" });
+  assert.equal(configured.publicRateLimit.measurementsMax, 80);
+  assert.equal(configured.publicRateLimit.measurementsGlobalMax, 400);
+  assert.equal(configured.publicRateLimit.measurementsMaxInFlight, 4);
+  assert.equal(configured.publicRateLimit.authMax, defaults.publicRateLimit.authMax);
+});

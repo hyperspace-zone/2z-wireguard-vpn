@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+set -euo pipefail
+database="${HS_DB_NAME:-hyperspace}"
+backup_dir="${HS_DB_BACKUP_DIR:-/var/backups/hyperspace}"
+state_dir="${HS_DB_RESTORE_CHECK_STATE_DIR:-/var/lib/hyperspace/db-restore-check}"
+restore_script="${HS_DB_RESTORE_SCRIPT:-/usr/local/sbin/hyperspace-pg-restore-core}"
+[[ "$database" =~ ^[a-zA-Z_][a-zA-Z0-9_]*$ ]] || exit 2
+dump="$(find "$backup_dir" -maxdepth 1 -type f -name "${database}-????????T??????Z.dump" -print | sort | tail -n 1)"
+[[ -n "$dump" ]] || { echo 'No managed backup for restore drill'; exit 1; }
+target="hs_core_restore_check_$(date -u +%Y%m%d%H%M%S)"
+"$restore_script" "$dump" "$target"
+psql -X -v ON_ERROR_STOP=1 --dbname="$target" <<'SQL'
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM pg_constraint WHERE connamespace='public'::regnamespace AND NOT convalidated) THEN
+    RAISE EXCEPTION 'Restored core contains unvalidated constraints';
+  END IF;
+END $$;
+SELECT entry_type, currency, count(*) AS entries, sum(amount_minor) AS total_minor
+FROM balance_ledger_entries GROUP BY entry_type, currency ORDER BY entry_type,currency;
+SQL
+# Exact newly created drill DB only, after successful restore. Failed restores
+# remain available for investigation and never replace the live database.
+[[ "$target" =~ ^hs_core_restore_check_[0-9]{14}$ ]] || exit 2
+dropdb "$target"
+install -d -m 0700 "$state_dir"
+printf '%s\n' "$(date +%s)" >"${state_dir}/last-success.tmp"
+mv "${state_dir}/last-success.tmp" "${state_dir}/last-success"
+echo 'Full core restore drill passed; temporary restored database removed.'

@@ -3,6 +3,33 @@ import test from "node:test";
 import type { Queryable, TransactionalQueryable } from "../../db/queryable.js";
 import { createSession } from "./create-session.scenario.js";
 
+test("ordinary VPN creation uses only a core transaction when probes is unavailable",async()=>{
+  const statements:string[]=[];
+  const core:TransactionalQueryable={
+    query:async<Row extends object>()=>{assert.fail("use the core transaction");return{rows:[] as Row[],rowCount:0};},
+    transaction:async<T>(fn:(client:Queryable)=>Promise<T>)=>fn({query:async<Row extends object>(sql:string)=>{
+      statements.push(sql);
+      if(/SELECT id\s+FROM accounts/.test(sql))return{rows:[{id:"account-1"} as Row],rowCount:1};
+      if(/COUNT\(\*\)::int AS count/.test(sql))return{rows:[{count:0} as Row],rowCount:1};
+      if(/INSERT INTO sessions\s*\(/.test(sql))return{rows:[{id:"session-1"} as Row],rowCount:1};
+      if(/INSERT INTO (session_status|session_conditions|audit_events)/.test(sql))return{rows:[] as Row[],rowCount:1};
+      assert.fail(`unexpected core statement: ${sql}`);
+    }})
+  };
+  const probes:Queryable={query:async<Row extends object>()=>{assert.fail("ordinary VPN must not query probes");return{rows:[] as Row[],rowCount:0};}};
+  const result=await createSession(core,{id:"user-1",accountId:"account-1"},{mode:"IpToIp",targetIp:"1.1.1.1",ingressGateName:"gate-a",egressGateName:"gate-b"},{},{tradingDb:probes});
+  assert.deepEqual(result,{status:"created",sessionId:"session-1"});
+  assert.ok(statements.some(sql=>/INSERT INTO sessions/.test(sql)));
+});
+
+test("an unavailable optional trading preset is rejected before a core write or payment",async()=>{
+  const core:TransactionalQueryable={query:async<Row extends object>()=>{assert.fail("no core writes/reads needed");return{rows:[] as Row[],rowCount:0};},transaction:async<T>():Promise<T>=>{assert.fail("must not begin a paid core transaction");}};
+  const probes:Queryable={query:async()=>{throw new Error("probes unavailable");}};
+  const result=await createSession(core,{id:"user-1",accountId:"account-1"},{mode:"FullTunnel",ingressGateName:"gate-a",egressGateName:"gate-b",tradingRouteId:"a".repeat(64)},{},{tradingDb:probes});
+  assert.equal(result.status,"invalid");
+  if(result.status==="invalid")assert.match(result.message??"",/No payment has been taken/);
+});
+
 test("createSession rejects when account active-session quota is reached", async () => {
   const calls: Array<{ sql: string; params: readonly unknown[] | undefined }> = [];
   const db: TransactionalQueryable = {

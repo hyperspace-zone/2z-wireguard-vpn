@@ -18,6 +18,13 @@ http://control-plane.hyperspace.zone {
 }
 
 control-plane.hyperspace.zone {
+  # Public dashboards go through the protected web origin. Keep gate agents,
+  # observability probes and operational API unchanged; block this bypass only.
+  @direct_measurements {
+    path /v1/public/benchmarks/gate-matrix /v1/public/trading/*
+    not remote_ip 84.32.83.69 10.179.228.36 127.0.0.1 ::1
+  }
+  respond @direct_measurements "Public measurements are available via app.hyperspace.zone" 403
   @non_auth not path /v1/public/auth/*
   skip_log @non_auth
   log {

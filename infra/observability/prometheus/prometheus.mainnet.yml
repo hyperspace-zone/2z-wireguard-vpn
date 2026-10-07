@@ -4,6 +4,8 @@ global:
 
 rule_files:
   - /etc/prometheus/rules/hyperspace-alerts.yml
+  - /etc/prometheus/rules/hyperspace-db-isolation.yml
+  - /etc/prometheus/rules/hyperspace-public-measurements.yml
 
 alerting:
   alertmanagers:
@@ -44,6 +46,14 @@ scrape_configs:
           role: postgresql
           service_host: db.hyperspace.zone
           service_ipv4: 84.32.51.45
+
+      - targets:
+          - 88.216.62.149:9100
+        labels:
+          cluster: mainnet
+          role: mongodb
+          service_host: 88.216.62.149
+          service_ipv4: 88.216.62.149
 
   - job_name: hyperspace-postgresql
     scheme: http
@@ -138,6 +148,18 @@ scrape_configs:
         labels:
           cluster: mainnet
           role: control-plane-worker
+          service_host: control-plane.hyperspace.zone
+          service_ipv4: 5.199.161.13
+
+  - job_name: hyperspace-probes-worker
+    scheme: http
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - 10.179.228.41:9092
+        labels:
+          cluster: mainnet
+          role: probes-worker
           service_host: control-plane.hyperspace.zone
           service_ipv4: 5.199.161.13
 

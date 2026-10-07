@@ -9,6 +9,7 @@ offsite_success_file="${HS_DB_OFFSITE_SUCCESS_FILE:-/var/lib/hyperspace/db-backu
 history_archive_enabled="${HS_DB_HISTORY_ARCHIVE_ENABLED:-0}"
 history_archive_mountpoint="${HS_DB_HISTORY_ARCHIVE_MOUNTPOINT:-/var/backups/hyperspace}"
 history_archive_state_dir="${HS_DB_HISTORY_ARCHIVE_STATE_DIR:-/var/lib/hyperspace/db-history-archive}"
+restore_check_file="${HS_DB_RESTORE_CHECK_STATE_DIR:-/var/lib/hyperspace/db-restore-check}/last-success"
 output="${metrics_dir}/hyperspace_postgres_health.prom"
 tmp="$(mktemp "${metrics_dir}/.hyperspace_postgres_health.XXXXXX")"
 trap 'test ! -e "$tmp" || unlink "$tmp"' EXIT
@@ -51,6 +52,11 @@ if [[ -n "$latest_backup" ]]; then
   backup_timestamp="${backup_timestamp%%.*}"
 fi
 now="$(date +%s)"
+restore_check_timestamp=0
+if [[ -r "$restore_check_file" ]]; then
+  read -r restore_check_timestamp <"$restore_check_file"
+  [[ "$restore_check_timestamp" =~ ^[0-9]+$ ]] || restore_check_timestamp=0
+fi
 offsite_timestamp=0
 if [[ "$offsite_enabled" == "1" && -r "$offsite_success_file" ]]; then
   read -r offsite_timestamp <"$offsite_success_file"
@@ -116,6 +122,9 @@ hyperspace_postgres_backup_last_success_timestamp_seconds ${backup_timestamp}
 # HELP hyperspace_postgres_backup_last_size_bytes Size of the newest custom-format dump.
 # TYPE hyperspace_postgres_backup_last_size_bytes gauge
 hyperspace_postgres_backup_last_size_bytes ${backup_size}
+# HELP hyperspace_postgres_restore_check_last_success_timestamp_seconds Unix timestamp of the latest successful full core restore drill.
+# TYPE hyperspace_postgres_restore_check_last_success_timestamp_seconds gauge
+hyperspace_postgres_restore_check_last_success_timestamp_seconds ${restore_check_timestamp}
 # HELP hyperspace_postgres_offsite_backup_configured Whether an offsite PostgreSQL backup target is configured.
 # TYPE hyperspace_postgres_offsite_backup_configured gauge
 hyperspace_postgres_offsite_backup_configured ${offsite_enabled}

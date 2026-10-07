@@ -1,0 +1,14 @@
+[Unit]
+Description=Hyperspace web origin HTTP(S) allowlist (Cloudflare and observability)
+After=network-pre.target
+Before=caddy.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStartPre=-/usr/sbin/nft delete table inet hyperspace_web_origin
+ExecStart=/usr/sbin/nft -f /etc/hyperspace/cloudflare-web-origin.nft
+ExecStop=/usr/sbin/nft delete table inet hyperspace_web_origin
+
+[Install]
+WantedBy=multi-user.target

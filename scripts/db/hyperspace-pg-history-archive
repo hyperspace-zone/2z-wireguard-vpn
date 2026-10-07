@@ -370,6 +370,9 @@ process_dataset_day() {
 }
 
 datasets=(gate_benchmarks job_attempts jobs trading_attempts trading_jobs trading_rollups assignment_deltas assignment_samples)
+if [[ "${HS_DB_HISTORY_ARCHIVE_PROFILE:-combined}" == "core" ]]; then
+  datasets=(job_attempts jobs assignment_deltas assignment_samples)
+fi
 database_size="$(sql_scalar "SELECT pg_database_size(current_database())")"
 [[ "$database_size" =~ ^[0-9]+$ ]] || {
   echo "cannot determine PostgreSQL database size" >&2

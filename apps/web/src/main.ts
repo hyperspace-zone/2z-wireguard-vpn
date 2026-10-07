@@ -94,6 +94,8 @@ interface BenchmarkRoute {
 }
 
 interface BenchmarkMatrix {
+  snapshotStatus?: "live" | "refreshing" | "stale";
+  snapshotAgeSeconds?: number;
   generatedAt: string;
   gates: Gate[];
   routes: BenchmarkRoute[];
@@ -869,6 +871,7 @@ function benchmarksView(state: { gates: Gate[]; benchmarkMatrix: BenchmarkMatrix
         <h2>Benchmarks</h2>
         <small>${benchmarkFreshness(state.benchmarkMatrix)}</small>
       </div>
+      ${state.benchmarkMatrix?.snapshotStatus === "stale" ? '<p role="status">Measurements could not refresh. Showing the last successful snapshot; timestamps have not been updated.</p>' : ""}
       ${benchmarkMatrixPanel(state.gates, state.benchmarkMatrix)}
     </section>
   `;

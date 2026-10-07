@@ -26,6 +26,7 @@ export function registerPublicSessionsRoutes(
   app: FastifyInstance,
   deps: {
     db: Database;
+    tradingDb?: Database;
     requireUser: (request: FastifyRequest, reply: FastifyReply) => Promise<PublicAuthUser | null>;
     billing: {
       enforcePositiveBalance: boolean;
@@ -101,7 +102,7 @@ export function registerPublicSessionsRoutes(
       user,
       body,
       deps.selfServiceAbuseControls,
-      { initialPhase: deps.billing.configPaymentEnabled ? "payment_pending" : "requested" }
+      { initialPhase: deps.billing.configPaymentEnabled ? "payment_pending" : "requested", ...(deps.tradingDb ? { tradingDb: deps.tradingDb } : {}) }
     );
     if (created.status === "invalid") {
       return sendApplicationError(

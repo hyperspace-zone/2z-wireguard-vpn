@@ -19,7 +19,18 @@ for (const role of ["app", "control-plane"]) {
 test("proxy policy rejects arbitrary forwarding headers and trusts only the web host", () => {
   const web = readFileSync(new URL("../../infra/caddy/Caddyfile.app.mainnet.example", import.meta.url), "utf8");
   const api = readFileSync(new URL("../../infra/caddy/Caddyfile.control-plane.mainnet.example", import.meta.url), "utf8");
-  assert.match(web, /header_up X-Forwarded-For \{remote_host\}/);
+  assert.match(web, /header_up X-Forwarded-For \{args\[0\]\}/);
+  assert.match(web, /@from_cloudflare remote_ip 173\.245\.48\.0\/20/);
+  assert.match(web, /handle @from_cloudflare \{\s*import hyperspace_api_proxy \{http\.request\.header\.CF-Connecting-IP\}/);
+  assert.match(web, /handle \{\s*import hyperspace_api_proxy \{remote_host\}/);
   assert.match(api, /trusted_proxies 84\.32\.83\.69 10\.179\.228\.36/);
   for (const config of [web, api]) { assert.match(config, /header_up -X-Real-IP/); assert.match(config, /header_up -CF-Connecting-IP/); }
+});
+test("only public display snapshots are cacheable and direct control-plane measurement bypass is blocked", () => {
+  const web = readFileSync(new URL("../../infra/caddy/Caddyfile.app.mainnet.example", import.meta.url), "utf8");
+  const api = readFileSync(new URL("../../infra/caddy/Caddyfile.control-plane.mainnet.example", import.meta.url), "utf8");
+  assert.match(web, /@private_api not path \/api\/v1\/public\/benchmarks\/gate-matrix \/api\/v1\/public\/trading\/latency/);
+  assert.match(web, /header @private_api Cache-Control "no-store, max-age=0"/);
+  assert.match(api, /respond @direct_measurements .* 403/);
+  assert.match(api, /not remote_ip 84\.32\.83\.69 10\.179\.228\.36 127\.0\.0\.1 ::1/);
 });

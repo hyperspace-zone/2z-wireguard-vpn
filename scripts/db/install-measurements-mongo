@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+set -euo pipefail
+[[ $EUID == 0 ]] || exit 2
+assets="${1:?Absolute staged repository assets path required}"
+[[ -f "$assets/infra/mongodb/measurements.conf" ]] || exit 2
+. /etc/os-release
+[[ "$VERSION_ID" == 24.04 ]] || { echo 'This provisioning targets Ubuntu 24.04 only'; exit 2; }
+kernel="$(uname -r | cut -d- -f1)"
+if [[ -f /proc/version_signature ]]; then kernel="$(awk '{print $NF}' /proc/version_signature)"; fi
+if dpkg --compare-versions "$kernel" ge 6.19 && dpkg --compare-versions "$kernel" lt 7.0.14; then
+  echo 'Unsafe Linux/TCMalloc combination: upgrade to Linux 7.0.14+ (check Ubuntu version_signature).'; exit 2
+fi
+[[ ! -e /etc/hyperspace/measurements-mongo.env ]] || { echo 'Existing credentials: refusing bootstrap'; exit 2; }
+export DEBIAN_FRONTEND=noninteractive
+apt-get install -y curl gnupg ufw openssl
+# MongoDB signs the 8.2 repository with the 8.0 release signing key.
+curl -fsSL https://pgp.mongodb.com/server-8.0.asc | gpg --batch --yes --dearmor -o /usr/share/keyrings/mongodb-server-8.0.gpg
+install -m 0644 "$assets/infra/mongodb/mongodb-org-8.2.list" /etc/apt/sources.list.d/mongodb-org-8.2.list
+apt-get update
+apt-get install -y mongodb-org
+systemctl stop mongod.service || true
+install -d -m 0750 -o root -g mongodb /etc/hyperspace/mongodb
+tls=/etc/hyperspace/mongodb
+openssl req -x509 -newkey rsa:3072 -nodes -days 730 -keyout "$tls/ca.key" -out "$tls/ca.crt" -subj '/CN=Hyperspace measurements CA'
+openssl req -newkey rsa:3072 -nodes -keyout "$tls/server.key" -out "$tls/server.csr" -subj '/CN=88.216.62.149' -addext 'subjectAltName=IP:88.216.62.149,IP:127.0.0.1,DNS:localhost'
+openssl x509 -req -in "$tls/server.csr" -CA "$tls/ca.crt" -CAkey "$tls/ca.key" -CAcreateserial -days 365 -copy_extensions copy -out "$tls/server.crt"
+# Certificate concatenation is a generated secret artifact, not source editing.
+openssl pkey -in "$tls/server.key" -out "$tls/server.pem"
+openssl x509 -in "$tls/server.crt" -outform PEM >> "$tls/server.pem"
+chown root:mongodb "$tls/server.pem" "$tls/ca.crt"
+chmod 0640 "$tls/server.pem"
+chmod 0600 "$tls/ca.key" "$tls/server.key"
+openssl rand -hex -out "$tls/admin-password" 32
+openssl rand -hex -out "$tls/app-password" 32
+chmod 0600 "$tls/"*-password
+install -m 0644 "$assets/infra/mongodb/measurements.conf" /etc/mongod.conf
+install -d /etc/systemd/system/mongod.service.d
+install -m 0644 "$assets/infra/mongodb/limits.conf" /etc/systemd/system/mongod.service.d/limits.conf
+install -m 0644 "$assets/infra/mongodb/logrotate" /etc/logrotate.d/hyperspace-mongodb
+# Preserve SSH access before enabling default-deny on this new, empty VM.
+ufw allow 22/tcp
+ufw allow from 5.199.161.13 to any port 27017 proto tcp
+ufw default deny incoming
+ufw --force enable
+systemctl daemon-reload
+systemctl enable --now mongod.service
+for attempt in {1..20}; do
+  if timeout 1 bash -c '</dev/tcp/127.0.0.1/27017' 2>/dev/null; then break; fi
+  sleep 1
+done
+mongosh --quiet --tls --tlsCAFile "$tls/ca.crt" --host 127.0.0.1 --file "$assets/scripts/db/bootstrap-measurements-mongo.js"
+systemctl is-active --quiet mongod.service
+echo 'Mongo ready: TLS required, password auth, 512 MiB cache, control-plane-only ingress.'

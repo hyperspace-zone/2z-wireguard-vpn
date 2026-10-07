@@ -35,6 +35,7 @@ export const operatorTokenAdminId = "00000000-0000-4000-8000-000000000001";
 
 export function createHttpAuth(input: {
   db: Database;
+  probesDb?: Database;
   adminToken: string | undefined;
   billingAdminEmails?: string[];
 }): HttpAuth {
@@ -84,7 +85,7 @@ export function createHttpAuth(input: {
       sendApplicationError(reply, "trading_probe_auth_required");
       return null;
     }
-    const node = await authenticateTradingProbeToken(input.db, { nodeName, nodeToken });
+    const node = await authenticateTradingProbeToken(input.probesDb ?? input.db, { nodeName, nodeToken });
     if (!node) {
       sendApplicationError(reply, "invalid_trading_probe_credentials");
       return null;

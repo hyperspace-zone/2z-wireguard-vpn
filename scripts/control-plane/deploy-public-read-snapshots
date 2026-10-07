@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# Scoped runtime upgrade. No database cleanup/migration, no gate rollout,
+# no financial/core worker restart. Back up the exact live tree before writes.
+set -euo pipefail
+[[ $(id -u) == 0 ]] || exit 2
+release="${1:?Absolute staged release required}"
+[[ "$release" == /opt/hyperspace-deploy/public-reads-* && -f "$release/apps/control-plane-api/dist/http/public-read-snapshot.js" ]] || exit 2
+node --input-type=module -e "await import('$release/packages/control-plane/dist/index.js')"
+live=/opt/2z-wireguard-vpn
+rollback="/opt/hyperspace-rollbacks/public-reads-$(date -u +%Y%m%dT%H%M%SZ)"
+[[ ! -e "$rollback" ]] || exit 2
+install -d -m 0700 "$rollback"
+cp -a "$live" "$rollback/runtime"
+changed=false
+on_exit() {
+  code=$?
+  if (( code != 0 )) && [[ "$changed" == true ]]; then
+    systemctl stop hyperspace-control-plane-api hyperspace-probes-worker || true
+    rsync -a "$rollback/runtime/" "$live/"
+    systemctl restart hyperspace-control-plane-api hyperspace-probes-worker
+    echo "Public snapshot upgrade failed; restored runtime $rollback." >&2
+  fi
+  exit "$code"
+}
+trap on_exit EXIT
+changed=true
+systemctl stop hyperspace-control-plane-api hyperspace-probes-worker
+for package in db contracts shared control-plane; do
+  rsync -a "$release/packages/$package/dist/" "$live/packages/$package/dist/"
+done
+for app in control-plane-api control-plane-worker; do
+  rsync -a "$release/apps/$app/dist/" "$live/apps/$app/dist/"
+done
+systemctl restart hyperspace-control-plane-api hyperspace-probes-worker
+port="$(awk -F= '/^PORT=/{print $2}' /etc/hyperspace/control-plane-api.env)"
+for path in health v1/public/benchmarks/gate-matrix v1/public/trading/latency; do
+  curl --fail --silent --show-error --retry 10 --retry-all-errors --retry-delay 1 --max-time 5 \
+    "http://127.0.0.1:${port:-8080}/$path" >/dev/null
+done
+systemctl is-active --quiet hyperspace-control-plane-api hyperspace-probes-worker hyperspace-control-plane-worker
+echo "Public snapshot runtime upgraded; rollback $rollback. Core worker not restarted."

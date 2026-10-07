@@ -7,6 +7,22 @@ import { createHealthRegistry, createRuntimeMetrics } from "@hyperspace-zone/sha
 import { loadConfig } from "../config.js";
 import { createWorkerRunner } from "./worker-runner.js";
 
+test("separated core worker never starts synthetic schedulers", async () => {
+  let coreCycles=0;
+  let probeCycles=0;
+  const db={close:async()=>undefined} as Database;
+  const config=loadConfig({DATABASE_URL:"postgres://core.invalid/hyperspace",ARTIFACT_ENCRYPTION_KEY:Buffer.alloc(32,7).toString("base64url"),PROBES_SEPARATED:"true",WORKER_POLL_MS:"10"});
+  const metrics=createRuntimeMetrics({service:"isolated-core-test"});
+  const runner=createWorkerRunner({db,config,metrics,health:createHealthRegistry("isolated-core-test"),tasks:{
+    reconcile:async()=>{coreCycles++;},retry:async()=>undefined,cleanup:async()=>undefined,gateAgentDeployments:async()=>undefined,
+    benchmarkScheduler:async()=>{probeCycles++;throw new Error("probes down");},
+    tradingProbeScheduler:async()=>{probeCycles++;throw new Error("probes down");},snapshot:async()=>true
+  }});
+  const running=runner.start();
+  try { await setImmediate(); assert.ok(coreCycles>0); assert.equal(probeCycles,0); }
+  finally {await runner.stop();await running;await metrics.stop();}
+});
+
 test("snapshot collection runs independently from a slow reconcile cycle", async () => {
   let releaseReconcile: () => void = () => undefined;
   const reconcileBlocked = new Promise<void>((resolve) => {

@@ -1,0 +1,19 @@
+[Unit]
+Description=Hyperspace full core backup restore drill (never overwrites production)
+After=postgresql@16-main.service
+Requires=postgresql@16-main.service
+RequiresMountsFor=/mnt/hyperspace-backup
+
+[Service]
+Type=oneshot
+User=postgres
+Group=postgres
+EnvironmentFile=/etc/hyperspace/db-backup.env
+ExecStart=/usr/local/sbin/hyperspace-pg-restore-check
+Nice=15
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+CPUQuota=50%
+TimeoutStartSec=2h
+NoNewPrivileges=true
+PrivateTmp=true

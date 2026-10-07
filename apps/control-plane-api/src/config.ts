@@ -7,6 +7,7 @@ import { defaultPublicRateLimitConfig } from "./http/rate-limit.js";
 
 export interface ControlPlaneApiProcessConfig extends ControlPlaneApiRuntimeConfig {
   databaseUrl: string;
+  probesDatabaseUrl?: string;
   benchmarkDatabaseMaxConnections: number;
   benchmarkDatabaseStatementTimeoutMs: number;
   host: string;
@@ -40,6 +41,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ControlPlaneAp
         emailWindowSeconds: readPositiveInteger(env, "EMAIL_OTP_EMAIL_WINDOW_SECONDS", defaultEmailSendBudgetConfig.emailWindowSeconds) }
     },
     databaseUrl,
+    ...(env.PROBES_DATABASE_URL ? { probesDatabaseUrl: env.PROBES_DATABASE_URL } : {}),
     benchmarkDatabaseMaxConnections: readPositiveInteger(env, "BENCHMARK_DATABASE_MAX_CONNECTIONS", 2),
     benchmarkDatabaseStatementTimeoutMs: readPositiveInteger(env, "BENCHMARK_DATABASE_STATEMENT_TIMEOUT_MS", 8_000),
     host: env.HOST ?? "127.0.0.1",
@@ -96,6 +98,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ControlPlaneAp
       configPaymentEnabled: readBoolean(env, "SOLANA_CONFIG_PAYMENT_ENABLED", false)
     },
     publicRateLimit: {
+      measurementsWindowSeconds: readPositiveInteger(env, "PUBLIC_MEASUREMENTS_WINDOW_SECONDS", 60),
+      measurementsMax: readPositiveInteger(env, "PUBLIC_MEASUREMENTS_IP_MAX", 120),
+      measurementsGlobalMax: readPositiveInteger(env, "PUBLIC_MEASUREMENTS_GLOBAL_MAX", 600),
+      measurementsMaxInFlight: readPositiveInteger(env, "PUBLIC_MEASUREMENTS_MAX_IN_FLIGHT", 8),
       enabled: readBoolean(env, "PUBLIC_RATE_LIMIT_ENABLED", defaultPublicRateLimitConfig.enabled),
       readWindowSeconds: readPositiveInteger(
         env,

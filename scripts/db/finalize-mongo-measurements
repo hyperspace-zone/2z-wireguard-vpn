@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+set -euo pipefail
+[[ $(id -u) == 0 && "${1:-}" == --mongo-cutover-verified ]] || {
+  echo 'Root and explicit --mongo-cutover-verified required after copy/fault-isolation checks'; exit 2;
+}
+script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+dump=/mnt/hyperspace-backup/postgresql/probes-before-mongo-20261007.dump
+sudo -u postgres sha256sum --check "$dump.sha256"
+sudo -u postgres pg_restore --list "$dump" >/dev/null
+# Mongo-mode writers never write these legacy tables. Do not stop core or
+# optional workers: the short, bounded transaction retains the delivery journal.
+sudo -u postgres psql -p 5433 -d hyperspace_probes -v ON_ERROR_STOP=1 -f "$script_dir/finalize-mongo-measurements.sql"
+sudo -u postgres psql -p 5433 -d hyperspace_probes -Atc 'SELECT pg_size_pretty(pg_database_size(current_database()));'
+echo 'Only legacy measurement tables cleared; jobs/catalog/outbox and operational PostgreSQL retained.'

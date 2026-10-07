@@ -3,6 +3,7 @@ set -euo pipefail
 
 backup_dir="${HS_DB_BACKUP_DIR:-/var/backups/hyperspace}"
 database="${HS_DB_NAME:-hyperspace}"
+backup_profile="${HS_DB_BACKUP_PROFILE:-combined}"
 keep_last="${HS_DB_BACKUP_KEEP_LAST:-3}"
 free_space_margin_percent="${HS_DB_BACKUP_FREE_SPACE_MARGIN_PERCENT:-25}"
 required_free_override="${HS_DB_BACKUP_REQUIRED_FREE_BYTES:-}"
@@ -19,6 +20,10 @@ globals_final="${backup_dir}/${database}-globals-${stamp}.sql"
 
 [[ "$keep_last" =~ ^[1-9][0-9]*$ ]] || {
   echo "HS_DB_BACKUP_KEEP_LAST must be a positive integer" >&2
+  exit 2
+}
+[[ "$backup_profile" == core || "$backup_profile" == combined ]] || {
+  echo "HS_DB_BACKUP_PROFILE must be core or combined" >&2
   exit 2
 }
 [[ "$free_space_margin_percent" =~ ^[0-9]+$ ]] || {
@@ -79,7 +84,7 @@ if [[ -d "$backup_dir" ]]; then
 else
   install -d -m 0700 "$backup_dir"
 fi
-trap 'test ! -e "$tmp" || unlink "$tmp"; test ! -e "$globals_tmp" || unlink "$globals_tmp"' EXIT
+trap 'test ! -e "$tmp" || unlink "$tmp"; test ! -e "$globals_tmp" || unlink "$globals_tmp"; test ! -e "${tmp}.sha256" || unlink "${tmp}.sha256"' EXIT
 
 managed_dumps=()
 refresh_managed_dumps() {
@@ -106,6 +111,7 @@ remove_managed_dump() {
   globals="$(globals_for_dump "$dump")"
   echo "pruning managed PostgreSQL backup: ${dump##*/}" >&2
   unlink "$dump"
+  if [[ -e "${dump}.sha256" ]]; then unlink "${dump}.sha256"; fi
   if [[ -e "$globals" ]]; then
     unlink "$globals"
   fi
@@ -174,10 +180,21 @@ prune_managed_backups "$keep_last"
 ensure_backup_capacity
 
 pg_dumpall --globals-only --file="$globals_tmp"
-pg_dump --format=custom --dbname="$database" --file="$tmp"
+dump_exclusions=()
+if [[ "$backup_profile" == "core" ]]; then
+  for table in gate_benchmark_results trading_probe_jobs trading_probe_job_attempts trading_latency_latest trading_latency_rollups trading_probe_leases trading_probe_node_status; do
+    dump_exclusions+=("--exclude-table-data=public.${table}")
+  done
+elif [[ "$backup_profile" != "combined" ]]; then
+  echo "HS_DB_BACKUP_PROFILE must be core or combined" >&2
+  exit 2
+fi
+pg_dump --format=custom --dbname="$database" "${dump_exclusions[@]}" --file="$tmp"
 pg_restore --list "$tmp" >/dev/null
+sha256sum "$tmp" | awk '{print $1}' >"${tmp}.sha256"
 mv "$globals_tmp" "$globals_final"
 mv "$tmp" "$final"
+mv "${tmp}.sha256" "${final}.sha256"
 
 # The new dump is now verified and atomically published. Keep exactly the most
 # recent configured number of managed backups and their matching globals.
@@ -189,7 +206,7 @@ if [[ "$offsite_mode" == "restic" ]]; then
     --host "$backup_host" \
     --tag hyperspace-postgresql \
     --tag "$database" \
-    "$final" "$globals_final"
+    "$final" "${final}.sha256" "$globals_final"
   restic check
   restic forget \
     --host "$backup_host" \
@@ -202,6 +219,7 @@ if [[ "$offsite_mode" == "restic" ]]; then
 elif [[ "$offsite_mode" == "filesystem" ]]; then
   sync -f "$final"
   sync -f "$globals_final"
+  sync -f "${final}.sha256"
 fi
 
 if [[ -n "$offsite_mode" ]]; then

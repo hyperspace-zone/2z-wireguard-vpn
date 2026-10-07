@@ -1,0 +1,11 @@
+[Unit]
+Description=Weekly Hyperspace core backup restore verification
+
+[Timer]
+OnCalendar=Sun *-*-* 04:30:00 UTC
+RandomizedDelaySec=15m
+Persistent=true
+Unit=hyperspace-db-restore-check.service
+
+[Install]
+WantedBy=timers.target

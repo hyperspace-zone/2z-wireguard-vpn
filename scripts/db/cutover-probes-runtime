@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+set -euo pipefail
+[[ $(id -u) == 0 ]] || exit 2
+release="${1:?An absolute staged runtime directory is required}"
+[[ "$release" == /opt/hyperspace-deploy/db-isolation-* && -f "$release/apps/control-plane-worker/dist/probes-main.js" ]] || exit 2
+live=/opt/2z-wireguard-vpn
+rollback="/opt/hyperspace-rollbacks/db-isolation-$(date -u +%Y%m%dT%H%M%SZ)"
+[[ ! -e "$rollback" ]] || { echo 'Rollback directory already exists; inspect before retry'; exit 2; }
+install -d -m 0700 /opt/hyperspace-rollbacks
+cp -a "$live" "$rollback"
+changed=false
+rollback_on_failure() {
+  result=$?
+  if (( result != 0 )) && [[ "$changed" == true ]]; then
+    systemctl stop hyperspace-probes-worker.service || true
+    rsync -a "$rollback/" "$live/"
+    for name in control-plane-api control-plane-worker; do
+      original="/etc/hyperspace/before-probes-isolation-20261006/${name}.env"
+      if [[ -e "$original" ]]; then install -m 0600 "$original" "/etc/hyperspace/${name}.env"; fi
+    done
+    systemctl restart hyperspace-control-plane-api hyperspace-control-plane-worker
+    echo 'Cutover failed; core runtime/env restored. Source DB data unchanged.' >&2
+  fi
+  exit "$result"
+}
+trap rollback_on_failure EXIT
+changed=true
+systemctl stop hyperspace-control-plane-api hyperspace-control-plane-worker
+# Freeze writers for final parent/attempt/latest copy; no core data is deleted.
+cd "$release"
+node --max-old-space-size=128 --env-file=/etc/hyperspace/control-plane-worker.env --env-file=/etc/hyperspace/probes-instance.env scripts/db/copy-probes-data.mjs --latest-only
+PROBES_OBSERVABILITY_HOST="${PROBES_OBSERVABILITY_HOST:-127.0.0.1}" node scripts/db/configure-probes-runtime.mjs
+for package in db contracts shared control-plane; do
+  rsync -a "$release/packages/$package/dist/" "$live/packages/$package/dist/"
+done
+for app in control-plane-api control-plane-worker; do
+  rsync -a "$release/apps/$app/dist/" "$live/apps/$app/dist/"
+done
+rsync -a "$release/packages/db/probes-migrations/" "$live/packages/db/probes-migrations/"
+install -m 0644 "$release/infra/systemd/hyperspace-probes-worker.service" /etc/systemd/system/hyperspace-probes-worker.service
+systemctl daemon-reload
+systemctl restart hyperspace-control-plane-api hyperspace-control-plane-worker
+systemctl enable --now hyperspace-probes-worker.service
+for service in hyperspace-control-plane-api hyperspace-control-plane-worker hyperspace-probes-worker; do systemctl is-active --quiet "$service"; done
+api_port="$(awk -F= '/^PORT=/{print $2}' /etc/hyperspace/control-plane-api.env)"
+curl --fail --silent --show-error --retry 10 --retry-connrefused --retry-delay 1 --max-time 10 "http://127.0.0.1:${api_port:-8080}/health" >/dev/null
+echo 'Core/probes runtime switched. Original DB data and runtime rollback preserved; validate before removing measurement data.'

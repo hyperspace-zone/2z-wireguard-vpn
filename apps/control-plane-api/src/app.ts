@@ -17,6 +17,7 @@ import { createHttpAuth } from "./http/auth.js";
 import { registerOpenApiRoute } from "./http/openapi.js";
 import { registerPublicRateLimits, type PublicRateLimitConfig } from "./http/rate-limit.js";
 import { registerAuthAudit } from "./http/auth-audit.js";
+import { CompletionLogPolicy } from "./http/completion-log-policy.js";
 import type { EmailAuthProtectionConfig } from "./services/email-auth-protection.js";
 import { registerAdminAuditRoutes } from "./surfaces/admin/audit.routes.js";
 import { registerAdminBillingRoutes } from "./surfaces/admin/billing.routes.js";
@@ -78,6 +79,7 @@ export interface ControlPlaneApiRuntimeConfig {
 export interface CreateControlPlaneApiAppInput {
   db: Database;
   benchmarkDb?: Database;
+  probesDb?: Database;
   config: ControlPlaneApiRuntimeConfig;
   health?: HealthRegistry;
   metrics?: RuntimeMetrics;
@@ -86,9 +88,10 @@ export interface CreateControlPlaneApiAppInput {
 
 export function createApp(input: CreateControlPlaneApiAppInput): FastifyInstance {
   const { db, config } = input;
-  const benchmarkDb = input.benchmarkDb ?? db;
+  const benchmarkDb = input.probesDb ?? input.benchmarkDb ?? db;
   const auth = createHttpAuth({
     db,
+    ...(input.probesDb ? { probesDb: input.probesDb } : {}),
     adminToken: config.adminToken,
     billingAdminEmails: config.billingAdminEmails
   });
@@ -146,8 +149,8 @@ export function createApp(input: CreateControlPlaneApiAppInput): FastifyInstance
     requireUser: auth.requireUser,
     hasBillingAdminAccess: auth.hasBillingAdminAccess
   });
-  registerPublicBenchmarkRoutes(app, { db: benchmarkDb });
-  registerPublicTradingRoutes(app, { db: benchmarkDb, pageDb: db, backgroundRefresh: Boolean(input.benchmarkDb) });
+  registerPublicBenchmarkRoutes(app, { db: benchmarkDb, backgroundRefresh: true, metrics });
+  registerPublicTradingRoutes(app, { db: benchmarkDb, pageDb: benchmarkDb, backgroundRefresh: Boolean(input.benchmarkDb || input.probesDb), metrics });
   registerPublicGatesRoutes(app, { db });
   registerPublicNetworkRoutes(app, { requireUser: auth.requireUser });
   registerPublicBillingRoutes(app, {
@@ -158,6 +161,7 @@ export function createApp(input: CreateControlPlaneApiAppInput): FastifyInstance
   });
   registerPublicSessionsRoutes(app, {
     db,
+    tradingDb: benchmarkDb,
     requireUser: auth.requireUser,
     billing: config.billing,
     configPaymentService,
@@ -193,14 +197,16 @@ export function createApp(input: CreateControlPlaneApiAppInput): FastifyInstance
       }
       : null
   });
+  // Enrollment/configuration is core-owned and backed up. Measurements and
+  // heartbeats are probes-owned; the catalog is copied asynchronously.
   registerAdminTradingProbeRoutes(app, { db, requireAdmin: auth.requireAdmin });
   registerAgentSessionRoutes(app);
   registerAgentEntitlementRoutes(app);
   registerGateActualStateRoutes(app, { db, requireGate: auth.requireGate });
   registerGateHeartbeatRoutes(app, { db, requireGate: auth.requireGate });
-  registerGateJobRoutes(app, { db, requireGate: auth.requireGate });
+  registerGateJobRoutes(app, { db, ...(input.probesDb ? { probesDb: input.probesDb } : {}), requireGate: auth.requireGate });
   registerTradingProbeAgentRoutes(app, {
-    db,
+    db: input.probesDb ?? db,
     requireTradingProbe: auth.requireTradingProbe
   });
   registerMetricsRoute(app, metrics);
@@ -226,6 +232,7 @@ export function requestPathForLog(url: string | undefined): string {
 
 function registerRuntimeMetricsHooks(app: FastifyInstance, metrics: RuntimeMetrics): void {
   const startedAt = new WeakMap<object, bigint>();
+  const completionLogs = new CompletionLogPolicy();
   app.addHook("onRequest", async (request) => {
     startedAt.set(request, process.hrtime.bigint());
   });
@@ -241,7 +248,7 @@ function registerRuntimeMetricsHooks(app: FastifyInstance, metrics: RuntimeMetri
     const start = startedAt.get(request);
     const durationSeconds = start ? Number(process.hrtime.bigint() - start) / 1_000_000_000 : 0;
     const route = request.routeOptions.url ?? "unmatched";
-    if (!request.url.startsWith("/v1/public/auth/")) {
+    if (completionLogs.allow(requestPathForLog(request.url), reply.statusCode)) {
       request.log.info({ req: request, status: reply.statusCode, responseTime: durationSeconds * 1000,
         serverTiming: reply.getHeader("Server-Timing") }, "request completed");
     }

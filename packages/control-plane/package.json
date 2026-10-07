@@ -19,7 +19,8 @@
   },
   "dependencies": {
     "@hyperspace-zone/contracts": "0.1.0",
-    "@hyperspace-zone/shared": "0.1.0"
+    "@hyperspace-zone/shared": "0.1.0",
+    "mongodb": "^6.21.0"
   },
   "devDependencies": {
     "typescript": "^5.9.0"

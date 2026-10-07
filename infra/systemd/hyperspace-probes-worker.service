@@ -1,0 +1,27 @@
+[Unit]
+Description=Hyperspace optional probes scheduler, retention and metrics
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=hyperspace
+Group=hyperspace
+WorkingDirectory=/opt/2z-wireguard-vpn/apps/control-plane-worker
+EnvironmentFile=/etc/hyperspace/probes-worker.env
+ExecStart=/usr/bin/node --max-old-space-size=96 /opt/2z-wireguard-vpn/apps/control-plane-worker/dist/probes-main.js
+Restart=always
+RestartSec=10
+MemoryHigh=160M
+MemoryMax=192M
+CPUQuota=30%
+CPUWeight=20
+TasksMax=64
+TimeoutStopSec=15
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

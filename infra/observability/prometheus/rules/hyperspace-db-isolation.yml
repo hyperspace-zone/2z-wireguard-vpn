@@ -1,0 +1,62 @@
+groups:
+  - name: hyperspace-db-isolation
+    rules:
+      - alert: HyperspaceMeasurementsMongoUnavailable
+        expr: hyperspace_probes_worker_loop_ready{loop="mongo-delivery"} == 0
+        for: 5m
+        labels:
+          severity: warning
+          role: mongodb
+          service_host: 88.216.62.149
+          service_ipv4: 88.216.62.149
+        annotations:
+          summary: MongoDB measurement delivery is unavailable
+          description: Measurement reports remain in the probes PostgreSQL delivery journal and will retry. Check MongoDB TLS/auth/service and network access. Core VPN and billing are independent.
+      - alert: HyperspaceMeasurementsDeliveryBacklog
+        expr: hyperspace_measurements_delivery_oldest_age_seconds > 300 or hyperspace_measurements_delivery_backlog > 10000
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Measurement delivery journal is accumulating reports
+          description: Check MongoDB availability and delivery throughput. The isolated probes PostgreSQL journal is growing; do not delete undelivered reports or financial data.
+      - alert: HyperspaceMeasurementsMongoDiskCritical
+        expr: node_filesystem_avail_bytes{job="hyperspace-host-node",role="mongodb",mountpoint="/"} < 4 * 1024 * 1024 * 1024 or node_filesystem_avail_bytes{job="hyperspace-host-node",role="mongodb",mountpoint="/"} / node_filesystem_size_bytes{job="hyperspace-host-node",role="mongodb",mountpoint="/"} < 0.15
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: MongoDB measurement host is running out of disk space
+          description: Less than 4 GiB or 15% free disk remains on the MongoDB host. Check TTL, indexes and log rotation; do not move financial data here.
+      - alert: HyperspaceProbesWorkerDown
+        expr: up{job="hyperspace-probes-worker"} == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Optional probes worker is unavailable
+          description: Benchmarks/trading measurements may be stale. Core VPN, billing and reconciliation run independently. Check probes-worker on {{ $labels.service_host }}.
+      - alert: HyperspaceProbesLoopUnhealthy
+        expr: hyperspace_probes_worker_loop_ready{job="hyperspace-probes-worker",loop!="mongo-delivery"} == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Optional probes loop cannot complete
+          description: Probes loop {{ $labels.loop }} has been failing for 5 minutes. Check PostgreSQL port 5433 and the probes worker; this is not a core worker outage.
+      - alert: HyperspaceProbesFilesystemPressure
+        expr: node_filesystem_avail_bytes{job="hyperspace-host-node",mountpoint="/var/lib/postgresql-probes"} / node_filesystem_size_bytes{job="hyperspace-host-node",mountpoint="/var/lib/postgresql-probes"} < 0.15
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Isolated probes filesystem is nearly full
+          description: Less than 15% remains on the bounded probes volume. Check retention; do not delete core/financial data. Core has a separate filesystem budget.
+      - alert: HyperspacePostgreSQLRestoreCheckStale
+        expr: time() - hyperspace_postgres_restore_check_last_success_timestamp_seconds > 9 * 86400
+        for: 30m
+        labels:
+          severity: critical
+        annotations:
+          summary: Core backup has not passed a recent full restore drill
+          description: No successful core restore verification in 9 days. Check hyperspace-db-restore-check.service, latest backup checksum, NFS availability and free core disk space.

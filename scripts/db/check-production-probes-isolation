@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+set -euo pipefail
+key="${HS_SSH_KEY:?SSH identity path required}"
+db="${HS_DB_HOST:?DB host required}"
+control="${HS_CONTROL_PLANE_HOST:?Control-plane host required}"
+ssh_options=(-i "$key" -o BatchMode=yes -o ConnectTimeout=10)
+restore_probes() { ssh "${ssh_options[@]}" "root@$db" 'systemctl start postgresql@16-probes' || true; }
+trap restore_probes EXIT
+ssh "${ssh_options[@]}" "root@$db" 'systemctl stop postgresql@16-probes; systemctl is-active --quiet postgresql@16-main'
+ssh "${ssh_options[@]}" "root@$control" 'set -eu; systemctl restart hyperspace-control-plane-api; curl -fsS --retry 10 --retry-connrefused --retry-delay 1 http://127.0.0.1:8080/health; for path in /v1/public/gates /v1/public/benchmarks/gate-matrix /v1/public/trading/latency; do result=$(curl --silent --show-error --max-time 8 -o /dev/null -w "%{http_code} %{time_total}" "http://127.0.0.1:8080${path}"); printf "\n%s HTTP/time %s\n" "$path" "$result"; case "$path:$result" in /v1/public/gates:200*|/v1/public/benchmarks/gate-matrix:503*|/v1/public/trading/latency:503*) ;; *) exit 1;; esac; done; curl -fsS http://127.0.0.1:9091/metrics | grep -E "^hyperspace_control_plane_snapshot_ready.* 1$"; systemctl is-active --quiet hyperspace-control-plane-api hyperspace-control-plane-worker'
+restore_probes
+trap - EXIT
+echo 'Probe PostgreSQL restarted; core stayed online during probes outage and API cold restart.'

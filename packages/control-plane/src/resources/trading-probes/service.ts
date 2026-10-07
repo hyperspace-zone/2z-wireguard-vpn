@@ -8,6 +8,8 @@ import type {
 import type { Queryable, TransactionalQueryable } from "../../db/queryable.js";
 import { sha256Hex } from "../../security/tokens.js";
 import type { AuthenticatedTradingProbeNode } from "../../security/trading-probe-auth.js";
+import { enqueueMeasurement, markMeasurementScheduled, measurementStore } from "../../measurements/context.js";
+import { validDate, type TradingMeasurement } from "../../measurements/mongo.js";
 
 export interface TradingProbeHeartbeat {
   bootId: string;
@@ -119,16 +121,17 @@ export async function scheduleTradingProbeJobs(db: Queryable, enabled: boolean):
       FROM trading_probe_nodes nodes
       JOIN trading_probe_leases leases ON leases.probe_node_id = nodes.id
       CROSS JOIN trading_probe_targets targets
-      LEFT JOIN trading_latency_latest latest
-        ON latest.probe_node_id = nodes.id
+      LEFT JOIN ${measurementStore(db) ? "probe_measurement_schedule" : "trading_latency_latest"} latest
+        ON latest.${measurementStore(db) ? "source_id" : "probe_node_id"} = nodes.id
        AND latest.target_id = targets.id
        AND latest.network_profile = 'direct'
+       ${measurementStore(db) ? "AND latest.kind='trading'" : ""}
       WHERE nodes.desired_state = 'Enabled'
         AND leases.lease_expires_at > now()
         AND targets.enabled = true
         AND (
-          latest.measured_at IS NULL
-          OR latest.measured_at < now() - make_interval(secs => targets.interval_seconds)
+          latest.${measurementStore(db) ? "completed_at" : "measured_at"} IS NULL
+          OR latest.${measurementStore(db) ? "completed_at" : "measured_at"} < now() - make_interval(secs => targets.interval_seconds)
           OR latest.target_revision <> targets.revision
         )
       ON CONFLICT (probe_node_id, target_id, network_profile)
@@ -241,13 +244,24 @@ export async function recordTradingProbeJobReport(
             result_summary = $5::jsonb
         WHERE job_id = $1 AND attempt_number = $2 AND completed_at IS NULL
       `,
-      [jobId, attemptNumber, status, result.errorCode ?? "", JSON.stringify(result)]
+      [jobId, attemptNumber, status, result.errorCode ?? "", JSON.stringify(measurementStore(db) ? { status, errorCode: result.errorCode } : result)]
     );
     if ((attempt.rowCount ?? 0) === 0) return false;
     await client.query(
       `UPDATE trading_probe_jobs SET phase = $2, lease_expires_at = NULL, updated_at = now() WHERE id = $1`,
       [jobId, status]
     );
+    if (measurementStore(db)) {
+      const resolved = result.resolvedIp ?? "";
+      const measurement: TradingMeasurement = {
+        ...result, nodeId: node.id, targetId: row.targetId, targetRevision: row.targetRevision,
+        networkProfile: row.networkProfile, measuredAt: validDate(result.measuredAt).toISOString(),
+        addressFamily: resolved.includes(":") ? "ipv6" : /^\d+\.\d+\.\d+\.\d+$/.test(resolved) ? "ipv4" : "unknown",
+        ...(result.errorMessage ? { errorMessage: result.errorMessage.slice(0, 512) } : {})
+      };
+      await enqueueMeasurement(client, `trading:${jobId}:${attemptNumber}`, "trading", measurement);
+      await markMeasurementScheduled(client, "trading", node.id, row.targetId, row.networkProfile, row.targetRevision);
+    } else {
     const metrics = metricValues(result);
     await client.query(
       `
@@ -320,6 +334,7 @@ export async function recordTradingProbeJobReport(
         result.errorCode ?? ""
       ]
     );
+    }
     await client.query(
       `UPDATE trading_probe_node_status SET last_report_at = now(), updated_at = now() WHERE probe_node_id = $1`,
       [node.id]
@@ -329,6 +344,7 @@ export async function recordTradingProbeJobReport(
 }
 
 export async function readPublicTradingLatency(db: Queryable, category?: string, targetKey?: string): Promise<PublicTradingLatencyResponse> {
+  const store = measurementStore(db);
   const [nodes, targets, measurements] = await Promise.all([
     db.query<PublicTradingLatencyResponse["nodes"][number]>(
       `
@@ -361,7 +377,7 @@ export async function readPublicTradingLatency(db: Queryable, category?: string,
         ORDER BY sort_order, target_key
       `, [category ?? null]
     ),
-    db.query<PublicTradingLatencyResponse["measurements"][number]>(
+    store ? Promise.resolve({ rows: [] as PublicTradingLatencyResponse["measurements"][number][] }) : db.query<PublicTradingLatencyResponse["measurements"][number]>(
       `
         SELECT probe_node_id AS "nodeId", target_id AS "targetId", target_revision AS "targetRevision",
                CASE WHEN resolved_ip LIKE '%:%' THEN 'ipv6'
@@ -385,11 +401,22 @@ export async function readPublicTradingLatency(db: Queryable, category?: string,
       `, [category ?? null, targetKey ?? null]
     )
   ]);
+  let values = measurements.rows;
+  if (store) {
+    const ids = new Set(targets.rows.map(target => target.id));
+    const nodeIds = new Set(nodes.rows.map(node => node.id));
+    let selected: string | undefined;
+    if (targetKey) selected = [...targets.rows].sort((a,b) => Number(b.key === targetKey)-Number(a.key === targetKey) || a.sortOrder-b.sortOrder || a.key.localeCompare(b.key))[0]?.id;
+    values = await store.trading({ nodeIds: [...nodeIds], targetIds: targetKey ? (selected ? [selected] : []) : [...ids] });
+    // Keep the catalog boundary defensive for alternate MeasurementStore implementations.
+    values = values.filter(value => nodeIds.has(value.nodeId) && ids.has(value.targetId) && (!targetKey || value.targetId === selected));
+    values.sort((a,b) => a.targetId.localeCompare(b.targetId) || (a.totalP50Ms ?? Infinity)-(b.totalP50Ms ?? Infinity));
+  }
   return {
     generatedAt: new Date().toISOString(),
     nodes: nodes.rows.map(stripUndefined),
     targets: targets.rows,
-    measurements: measurements.rows.map(stripUndefined)
+    measurements: values.map(stripUndefined)
   } as PublicTradingLatencyResponse;
 }
 

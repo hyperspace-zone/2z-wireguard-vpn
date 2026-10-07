@@ -1,9 +1,17 @@
 import type { FastifyInstance } from "fastify";
-import { publicTradingLatencyResponseSchema, publicTradingPairsResponseSchema, publicTradingPairsQuerySchema, publicTradingRouteResponseSchema, publicTradingUnavailableResponseSchema, type TradingPairsQuery } from "@hyperspace-zone/contracts";
+import { errorResponseSchema, publicTradingLatencyResponseSchema, publicTradingPairsResponseSchema, publicTradingPairsQuerySchema, publicTradingRouteResponseSchema, publicTradingUnavailableResponseSchema, type TradingPairsQuery } from "@hyperspace-zone/contracts";
 import { readPublicTradingLatency, readTradingPairsSnapshot, filterTradingPairs, resolveTradingRoute, startTradingPairsRefresh } from "@hyperspace-zone/control-plane";
 import type { Database } from "@hyperspace-zone/db";
+import type { RuntimeMetrics } from "@hyperspace-zone/shared";
+import { PublicReadSnapshot, publicSnapshotHeaders } from "../../http/public-read-snapshot.js";
+import { selectPublicTradingLatency } from "./trading-selection.js";
 
-export function registerPublicTradingRoutes(app: FastifyInstance, deps: { db: Database; pageDb?: Database; backgroundRefresh?: boolean }): void {
+export function registerPublicTradingRoutes(app: FastifyInstance, deps: { db: Database; pageDb?: Database; backgroundRefresh?: boolean; metrics?: RuntimeMetrics }): void {
+  const latency = new PublicReadSnapshot("trading", () => readPublicTradingLatency(deps.pageDb ?? deps.db), {
+    ...(deps.metrics ? { metrics: deps.metrics } : {}), onFailure: () => app.log.warn("Public trading snapshot refresh failed; preserving bounded last-good data")
+  });
+  if (deps.backgroundRefresh) app.addHook("onReady", async () => latency.start());
+  app.addHook("onClose", async () => latency.close());
   if (deps.backgroundRefresh) {
     let stop: (() => Promise<void>) | undefined;
     app.addHook("onReady", async () => { stop = startTradingPairsRefresh(deps.db, err => app.log.warn({ err }, "Trading snapshot background refresh failed")); });
@@ -39,13 +47,17 @@ export function registerPublicTradingRoutes(app: FastifyInstance, deps: { db: Da
     schema: { querystring: { type: "object", additionalProperties: false, properties: {
       category: { type: "string", minLength: 1, maxLength: 64, pattern: "^[a-z0-9-]+$" },
       target: { type: "string", minLength: 1, maxLength: 128, pattern: "^[a-z0-9-]+$" }
-    } }, response: { 200: publicTradingLatencyResponseSchema } }
-  }, async request => {
+    } }, response: { 200: publicTradingLatencyResponseSchema, 503: errorResponseSchema } }
+  }, async (request, reply) => {
     const query = request.query as { category?: string; target?: string };
-    // Bounded selected-endpoint reads must not queue behind full background
-    // Pair Routes/matrix reads in the small benchmark pool. Legacy full reads
-    // and fresh route revalidation still use that isolated bounded pool.
-    const database = query.category && query.target ? deps.pageDb ?? deps.db : deps.db;
-    return readPublicTradingLatency(database, query.category, query.target);
+    try {
+      const value = await latency.read();
+      const selected = selectPublicTradingLatency(value.data, query.category, query.target);
+      // Variant derives from the real catalog, not arbitrary URL parameters.
+      const variant = `${selected.targets.map(target => target.id).join(",")}:${selected.measurements[0]?.targetId ?? "none"}:${Boolean(query.target)}`;
+      if (publicSnapshotHeaders(request, reply, value, variant)) return reply;
+      return { ...selected, snapshotStatus: value.state, snapshotAgeSeconds: value.ageSeconds };
+    }
+    catch { return reply.code(503).header("Cache-Control", "no-store").header("Retry-After", "10").send({ error: "probes_unavailable", message: "Optional measurements are temporarily unavailable." }); }
   });
 }

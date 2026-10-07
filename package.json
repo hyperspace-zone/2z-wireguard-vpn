@@ -16,6 +16,7 @@
   "scripts": {
     "build": "npm run build --workspaces --if-present",
     "db:migrate": "npm run build -w @hyperspace-zone/db && node packages/db/dist/migrate.js",
+    "db:migrate:probes": "npm run build -w @hyperspace-zone/db && node packages/db/dist/migrate-probes.js",
     "db:seed:gates": "npm run build -w @hyperspace-zone/db && node packages/db/dist/seed-gates.js",
     "db:seed:gates:json": "scripts/seed-gates-json",
     "test": "npm run test --workspaces --if-present",

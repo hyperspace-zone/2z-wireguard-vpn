@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+set -euo pipefail
+[[ $EUID == 0 ]] || exit 2
+repo="${HS_REPO_DIR:-/opt/2z-wireguard-vpn}"
+environment="${HS_PROBES_ENV_FILE:-/etc/hyperspace/probes-worker.env}"
+[[ -f "$environment" && -f "$repo/packages/db/dist/migrate-probes.js" ]] || exit 2
+# Deliberately separate from restart-after-migrations: an unavailable probes
+# server must never prevent restarting or deploying the core API/worker.
+node --env-file="$environment" "$repo/packages/db/dist/migrate-probes.js"
+systemctl restart hyperspace-probes-worker.service
+systemctl is-active --quiet hyperspace-probes-worker.service
+echo 'Probes migrations applied and optional worker restarted. Core services untouched.'

@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+set -euo pipefail
+[[ $(id -u) == 0 ]] || exit 2
+release="${1:?Absolute staged runtime directory required}"
+[[ "$release" == /opt/hyperspace-deploy/mongo-measurements-* && -f "$release/apps/control-plane-worker/dist/probes-main.js" ]] || exit 2
+cd "$release"
+# Resolve migration dependencies before touching any running service.
+node --input-type=module -e 'await import("./packages/db/dist/index.js")'
+live=/opt/2z-wireguard-vpn
+rollback="/opt/hyperspace-rollbacks/mongo-measurements-$(date -u +%Y%m%dT%H%M%SZ)"
+[[ ! -e "$rollback" ]] || exit 2
+install -d -m 0700 "$rollback/env"
+cp -a "$live" "$rollback/runtime"
+for name in control-plane-api probes-worker; do install -m 0600 "/etc/hyperspace/$name.env" "$rollback/env/$name.env"; done
+changed=false
+on_exit() {
+  result=$?
+  if (( result != 0 )) && [[ "$changed" == true ]]; then
+    systemctl stop hyperspace-probes-worker hyperspace-control-plane-api || true
+    rsync -a "$rollback/runtime/" "$live/"
+    for name in control-plane-api probes-worker; do install -m 0600 "$rollback/env/$name.env" "/etc/hyperspace/$name.env"; done
+    systemctl restart hyperspace-control-plane-api hyperspace-probes-worker
+    echo 'Mongo cutover failed: previous code/env restored, core worker and SQL history untouched.' >&2
+  fi
+  exit "$result"
+}
+trap on_exit EXIT
+changed=true
+systemctl stop hyperspace-probes-worker hyperspace-control-plane-api
+node --env-file=/etc/hyperspace/probes-worker.env scripts/db/seed-mongo-schedule.mjs
+for package in db contracts shared control-plane; do rsync -a "$release/packages/$package/dist/" "$live/packages/$package/dist/"; done
+for app in control-plane-api control-plane-worker; do rsync -a "$release/apps/$app/dist/" "$live/apps/$app/dist/"; done
+rsync -a "$release/node_modules/" "$live/node_modules/"
+rsync -a "$release/packages/db/probes-migrations/" "$live/packages/db/probes-migrations/"
+install -m 0644 "$release/packages/control-plane/package.json" "$live/packages/control-plane/package.json"
+install -m 0644 "$release/package-lock.json" "$live/package-lock.json"
+install -d "$live/scripts/db"
+for helper in configure-mongo-runtime.mjs seed-mongo-schedule.mjs copy-measurements-mongo.mjs; do
+  install -m 0644 "$release/scripts/db/$helper" "$live/scripts/db/$helper"
+done
+node "$release/scripts/db/configure-mongo-runtime.mjs"
+systemctl restart hyperspace-control-plane-api hyperspace-probes-worker
+port="$(awk -F= '/^PORT=/{print $2}' /etc/hyperspace/control-plane-api.env)"
+curl --fail --silent --show-error --retry 10 --retry-connrefused --retry-delay 1 --max-time 5 "http://127.0.0.1:${port:-8080}/health" >/dev/null
+systemctl is-active --quiet hyperspace-probes-worker hyperspace-control-plane-api hyperspace-control-plane-worker
+echo "Mongo measurement cutover complete; runtime/env rollback: $rollback. Core worker was not restarted."

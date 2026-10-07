@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+set -euo pipefail
+# Restore to a NEW database only; switching live DATABASE_URL is a separate step.
+dump="${1:?Usage: hyperspace-pg-restore-core DUMP NEW_DATABASE}"
+target="${2:?A new database name is required}"
+app_owner="${HS_CORE_DATABASE_OWNER:-hyperspace}"
+[[ "$app_owner" =~ ^[a-zA-Z_][a-zA-Z0-9_]*$ ]] || { echo 'Invalid core database owner'; exit 2; }
+[[ "$target" =~ ^[a-zA-Z_][a-zA-Z0-9_]*$ ]] || { echo 'Invalid database name'; exit 2; }
+[[ "$target" != "${HS_DB_NAME:-hyperspace}" && "$target" != hyperspace_probes ]] || { echo 'Refusing an operational/probes destination'; exit 2; }
+[[ -r "$dump" && -r "${dump}.sha256" ]] || { echo 'Dump and checksum are required'; exit 2; }
+expected="$(<"${dump}.sha256")"
+actual="$(sha256sum "$dump" | awk '{print $1}')"
+[[ "$expected" =~ ^[a-f0-9]{64}$ && "$expected" == "$actual" ]] || { echo 'Backup checksum mismatch'; exit 1; }
+pg_restore --list "$dump" >/dev/null
+exists="$(psql -X -At --dbname=postgres -v ON_ERROR_STOP=1 -c "SELECT count(*) FROM pg_database WHERE datname='${target}'")"
+[[ "$exists" == 0 ]] || { echo 'Refusing to overwrite an existing database'; exit 1; }
+# Original object owners must already exist (restore the reviewed globals on a
+# fresh host). Preserve ownership so subsequent application migrations work.
+createdb --template=template0 --owner="$app_owner" "$target"
+pg_restore --exit-on-error --single-transaction --dbname="$target" "$dump"
+psql -X -v ON_ERROR_STOP=1 -v app_owner="$app_owner" --dbname="$target" <<'SQL'
+DO $$ BEGIN
+  IF to_regclass('public.balance_ledger_entries') IS NULL OR to_regclass('public.sessions') IS NULL
+     OR to_regclass('public.gate_assignments') IS NULL OR to_regclass('public.schema_migrations') IS NULL THEN
+    RAISE EXCEPTION 'Core restore is missing required tables';
+  END IF;
+END $$;
+-- Check the actual runtime role, not only the privileged restore operator.
+SET ROLE :"app_owner";
+BEGIN;
+CREATE TABLE public.hs_core_restore_permissions_check (id integer);
+ROLLBACK;
+SELECT 'core_restore_verified' AS status,
+  (SELECT count(*) FROM users) AS users,
+  (SELECT count(*) FROM sessions) AS sessions,
+  (SELECT count(*) FROM balance_ledger_entries) AS ledger_entries;
+SQL
+echo 'Restore complete. Original database and live services have NOT been changed.'
