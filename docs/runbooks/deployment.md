@@ -1053,6 +1053,8 @@ else
   chown -R hyperspace:hyperspace "$HS_REPO_DIR"
 
   cd "$HS_REPO_DIR"
+  # Never build an active control-plane tree as root. Restrictive root umasks
+  # can make dist files unreadable by the systemd service user.
   sudo -u hyperspace npm ci
   sudo -u hyperspace npm run build
   sudo -u hyperspace npm run typecheck
@@ -1585,6 +1587,8 @@ Install and start the API and worker units:
 
 ```bash
 cd "$HS_REPO_DIR"
+install -o root -g root -m 0755 scripts/control-plane/prepare-runtime-tree \
+  /usr/local/sbin/hyperspace-control-plane-prepare-runtime
 install -o root -g root -m 0644 infra/systemd/hyperspace-control-plane-api.service /etc/systemd/system/
 install -o root -g root -m 0644 infra/systemd/hyperspace-control-plane-worker.service /etc/systemd/system/
 
@@ -1693,6 +1697,8 @@ sudo -u hyperspace git pull --ff-only
 # tree from your operator workstation first, excluding node_modules and dist.
 
 chown -R hyperspace:hyperspace "$HS_REPO_DIR"
+# Keep every build step under the runtime account. Do not run npm build or a
+# workspace build as root in the active release tree.
 sudo -u hyperspace npm ci
 sudo -u hyperspace npm run build
 sudo -u hyperspace npm run typecheck
@@ -1700,6 +1706,8 @@ sudo -u hyperspace npm test --workspaces --if-present
 
 install -o root -g root -m 0644 infra/systemd/hyperspace-control-plane-api.service /etc/systemd/system/
 install -o root -g root -m 0644 infra/systemd/hyperspace-control-plane-worker.service /etc/systemd/system/
+install -o root -g root -m 0755 scripts/control-plane/prepare-runtime-tree \
+  /usr/local/sbin/hyperspace-control-plane-prepare-runtime
 install -o root -g root -m 0755 scripts/control-plane/restart-after-migrations \
   /usr/local/sbin/hyperspace-control-plane-restart
 
@@ -1710,12 +1718,41 @@ install -o root -g root -m 0755 scripts/control-plane/restart-after-migrations \
   --api-health-url "https://${HS_API_HOST}/health"
 ```
 
-The restart wrapper applies every migration shipped with the deployed tree,
-runs the migration command a second time to prove that no migration remains
-pending, and only then restarts API and worker. A migration or verification
-failure leaves the old processes running. Do not replace this ordering with a
-bare `systemctl restart`: code that expects a newer schema can otherwise keep
-the worker business snapshot incomplete.
+The restart wrapper first repairs generated runtime ownership and proves that
+the API, worker, and database entrypoints are readable by `hyperspace`. It then
+applies every migration shipped with the deployed tree, runs the migration
+command a second time to prove that no migration remains pending, and only then
+restarts API and worker. A permission, migration, or verification failure leaves
+the old processes running. The API and worker systemd units run the same
+permission preflight before every start, so a restrictive root-owned `dist`
+directory is repaired before Node loads it. Do not replace this ordering with a
+bare deployment-time `systemctl restart`: code that expects a newer schema can
+otherwise keep the worker business snapshot incomplete.
+
+### Recovering root-owned control-plane build artifacts
+
+`ERR_MODULE_NOT_FOUND` for a file that exists under `packages/*/dist` usually
+means an active release was built as `root` with a restrictive umask. Do not
+reboot the host: an API process that already loaded the module can still be
+healthy, while a reboot would force it to import the unreadable tree again.
+
+Repair and validate the active release, then restart only the failed service:
+
+```bash
+/usr/local/sbin/hyperspace-control-plane-prepare-runtime \
+  --repo-dir /opt/2z-wireguard-vpn \
+  --service-user hyperspace
+
+systemctl restart hyperspace-control-plane-worker.service
+systemctl is-active hyperspace-control-plane-api.service \
+  hyperspace-control-plane-worker.service
+curl -fsS http://127.0.0.1:8080/health
+ss -lntp | grep ':9091'
+```
+
+The durable fix is to rebuild through the documented `sudo -u hyperspace`
+workflow and use `hyperspace-control-plane-restart`; manual root builds inside
+`/opt/2z-wireguard-vpn` are unsupported.
 
 If the web UI is served from the same host, sync the freshly built web assets
 locally:
@@ -1748,6 +1785,46 @@ curl --retry 30 --retry-delay 1 --retry-all-errors -fsS "https://${HS_WEB_HOST}/
 Run the live UI/API smoke only after the gate catalog is seeded and at least two
 gate agents are reporting `ready=true` and `schedulable=true`; see
 [Live Smoke Tests](live-smoke-tests.md).
+
+### Dashboard performance and static asset caching
+
+The dashboard renders gate/session/auth data before billing completes. Personal
+balances load in the background, and global billing/traffic reads are restricted
+to the Admin view. Browser read requests time out after 10 seconds; interactive
+Solana balance/rent reads time out after 5 seconds without background retries.
+Never cache personal balances or reuse display data to authorize payments.
+
+Migration `0054_billing_read_indexes` indexes active users by account/creation
+time and recent egress usage by window. On an existing busy deployment, prebuild
+the indexes without blocking writes before applying migrations:
+
+```bash
+cd "$HS_REPO_DIR"
+node --env-file=/etc/hyperspace/control-plane-api.env \
+  scripts/control-plane/prebuild-billing-read-indexes.mjs
+```
+
+Admin config counters and filtered traffic series share a bounded, per-process
+15-second cache. Authorization and current balances are checked on each request.
+Successful billing/session mutations invalidate the cache; gate reports and
+worker-side changes appear after at most 15 seconds. PostgreSQL remains the
+source of truth and raw traffic history is preserved.
+
+Build web assets with a unique `HYPERSPACE_WEB_BUILD_ID`. The HTML references
+`/assets/<build-id>/...`, and relative module imports use the same versioned
+namespace. Enable `encode zstd gzip` in Caddy, serve existing `/assets/*` files
+with `public, max-age=31536000, immutable`, and keep HTML/unversioned assets
+`no-store`. API responses must remain non-cacheable. Missing asset paths must
+return 404, not the SPA HTML. When deploying a new web release, retain previous
+`assets/` namespaces in the new serving root so cached pages and open tabs do not
+break after the release symlink switches. Never overwrite an existing build ID.
+
+Acceptance: verify dashboard render while billing is delayed, no admin billing
+requests on `/`, Admin navigation still loads its inventory/chart, logout ignores
+late billing responses, and both cold/warm browser loads work. Confirm compression
+and immutable asset headers, with `no-store` on HTML and API. Rollback by restoring
+the preceding web release symlink/Caddyfile and API module backups; the additive
+indexes can remain installed.
 
 ## Observability
 

@@ -9,6 +9,7 @@ User=hyperspace
 Group=hyperspace
 WorkingDirectory=/opt/2z-wireguard-vpn/apps/control-plane-worker
 EnvironmentFile=/etc/hyperspace/control-plane-worker.env
+ExecStartPre=+/usr/local/sbin/hyperspace-control-plane-prepare-runtime --repo-dir /opt/2z-wireguard-vpn --service-user hyperspace
 ExecStart=/usr/bin/node /opt/2z-wireguard-vpn/apps/control-plane-worker/dist/main.js
 Restart=always
 RestartSec=3

@@ -2,6 +2,7 @@ export interface SolanaRpcVerifierConfig {
   rpcUrl: string;
   tokenMint: string;
   fetchImpl?: typeof fetch;
+  timeoutMs?: number;
   beforeRequest?: () => Promise<void>;
   searchTransactionHistory?: boolean;
 }
@@ -85,13 +86,13 @@ export async function findFinalizedSolanaSignaturesForAddress(
 
 export async function readSolanaNativeBalance(
   address: string,
-  config: Pick<SolanaRpcVerifierConfig, "rpcUrl" | "fetchImpl">
+  config: Pick<SolanaRpcVerifierConfig, "rpcUrl" | "fetchImpl" | "timeoutMs">
 ): Promise<bigint> {
   if (!config.rpcUrl) return 0n;
   const result = asRecord(await rpcCall(config.fetchImpl ?? fetch, config.rpcUrl, "getBalance", [
     address,
     { commitment: "finalized" }
-  ]));
+  ], undefined, { timeoutMs: config.timeoutMs ?? 5_000, maxAttempts: 1 }));
   const value = result.value;
   if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
     throw new Error("Solana RPC getBalance returned an invalid lamport balance");
@@ -100,13 +101,13 @@ export async function readSolanaNativeBalance(
 }
 
 export async function readSolanaMinimumBalanceForRentExemption(
-  config: Pick<SolanaRpcVerifierConfig, "rpcUrl" | "fetchImpl">
+  config: Pick<SolanaRpcVerifierConfig, "rpcUrl" | "fetchImpl" | "timeoutMs">
 ): Promise<bigint> {
   if (!config.rpcUrl) return 0n;
   const result = await rpcCall(config.fetchImpl ?? fetch, config.rpcUrl, "getMinimumBalanceForRentExemption", [
     0,
     { commitment: "finalized" }
-  ]);
+  ], undefined, { timeoutMs: config.timeoutMs ?? 5_000, maxAttempts: 1 });
   if (typeof result !== "number" || !Number.isSafeInteger(result) || result < 0) {
     throw new Error("Solana RPC getMinimumBalanceForRentExemption returned an invalid lamport balance");
   }
@@ -236,19 +237,21 @@ async function rpcCall(
   rpcUrl: string,
   method: string,
   params: unknown[],
-  beforeRequest?: () => Promise<void>
+  beforeRequest?: () => Promise<void>,
+  options = { timeoutMs: 15_000, maxAttempts: 5 }
 ): Promise<unknown> {
-  for (let attempt = 0; attempt < 5; attempt += 1) {
+  for (let attempt = 0; attempt < options.maxAttempts; attempt += 1) {
     await beforeRequest?.();
     let response: Response;
     try {
       response = await fetchImpl(rpcUrl, {
         method: "POST",
+        signal: AbortSignal.timeout(options.timeoutMs),
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params })
       });
     } catch {
-      if (attempt === 4) {
+      if (attempt === options.maxAttempts - 1) {
         throw new Error(`Solana RPC ${method} failed after transient network errors`);
       }
       await new Promise((resolve) => setTimeout(resolve, solanaRpcRetryDelayMs(attempt)));
@@ -259,7 +262,7 @@ async function rpcCall(
     try {
       payload = text ? asRecord(JSON.parse(text)) : {};
     } catch {
-      if (attempt === 4 || !isRetryableStatus(response.status)) {
+      if (attempt === options.maxAttempts - 1 || !isRetryableStatus(response.status)) {
         throw new Error(`Solana RPC ${method} failed: invalid JSON response (${response.status})`);
       }
       await new Promise((resolve) => setTimeout(resolve, solanaRpcRetryDelayMs(attempt)));
@@ -275,7 +278,7 @@ async function rpcCall(
     }
     const retryable = isRetryableStatus(response.status)
       || (typeof message === "string" && /too many requests|rate limit/i.test(message));
-    if (!retryable || attempt === 4) {
+    if (!retryable || attempt === options.maxAttempts - 1) {
       throw new Error(`Solana RPC ${method} failed: ${typeof message === "string" ? message : response.status}`);
     }
     const retryAfterSeconds = Number(response.headers.get("retry-after"));

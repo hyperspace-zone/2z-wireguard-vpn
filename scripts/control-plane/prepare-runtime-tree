@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat >&2 <<'EOF'
+usage: prepare-runtime-tree [options]
+
+Repair and validate control-plane runtime artifact ownership before a service
+start. Run as root on the control-plane host.
+
+Options:
+  --repo-dir PATH       Repository/release root (default: /opt/2z-wireguard-vpn)
+  --service-user USER   Runtime owner (default: hyperspace)
+  --service-group GROUP Runtime group (default: service user's primary group)
+EOF
+}
+
+[[ "${EUID:-$(id -u)}" -eq 0 ]] || { echo "run as root" >&2; exit 2; }
+
+repo_dir="/opt/2z-wireguard-vpn"
+service_user="hyperspace"
+service_group=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --repo-dir) repo_dir="${2:-}"; shift 2 ;;
+    --service-user) service_user="${2:-}"; shift 2 ;;
+    --service-group) service_group="${2:-}"; shift 2 ;;
+    -h|--help) usage; exit 0 ;;
+    *) echo "unknown argument: $1" >&2; usage; exit 2 ;;
+  esac
+done
+
+repo_dir="$(readlink -f -- "$repo_dir")"
+[[ -f "$repo_dir/package.json" ]] || { echo "package.json not found in $repo_dir" >&2; exit 2; }
+id "$service_user" >/dev/null 2>&1 || { echo "service user not found: $service_user" >&2; exit 2; }
+service_group="${service_group:-$(id -gn "$service_user")}"
+getent group "$service_group" >/dev/null || { echo "service group not found: $service_group" >&2; exit 2; }
+
+runtime_dirs=(
+  apps/control-plane-api/dist
+  apps/control-plane-worker/dist
+  packages/contracts/dist
+  packages/control-plane/dist
+  packages/db/dist
+  packages/shared/dist
+)
+
+for relative_dir in "${runtime_dirs[@]}"; do
+  runtime_dir="$repo_dir/$relative_dir"
+  [[ -d "$runtime_dir" && ! -L "$runtime_dir" ]] || {
+    echo "runtime artifact directory is missing or is a symlink: $runtime_dir" >&2
+    exit 1
+  }
+  chown -R --no-dereference "$service_user:$service_group" "$runtime_dir"
+  chmod -R u=rwX,go=rX "$runtime_dir"
+done
+
+runtime_entrypoints=(
+  apps/control-plane-api/dist/main.js
+  apps/control-plane-worker/dist/main.js
+  packages/db/dist/index.js
+  packages/db/dist/migrate.js
+)
+
+for relative_entrypoint in "${runtime_entrypoints[@]}"; do
+  entrypoint="$repo_dir/$relative_entrypoint"
+  runuser -u "$service_user" -- test -r "$entrypoint" || {
+    echo "runtime entrypoint is not readable by $service_user: $entrypoint" >&2
+    exit 1
+  }
+done
+
+echo "Control-plane runtime artifacts are readable by $service_user."

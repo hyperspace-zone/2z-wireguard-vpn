@@ -24,6 +24,7 @@ import {
 import type { Database } from "@hyperspace-zone/db";
 import type { AdminAuthContext } from "../../http/auth.js";
 import { asRecord, readQuery, readString } from "../../http/request.js";
+import { createAsyncReadCache } from "../../http/async-read-cache.js";
 
 export function registerAdminBillingRoutes(
   app: FastifyInstance,
@@ -37,12 +38,24 @@ export function registerAdminBillingRoutes(
     } | null;
   }
 ): void {
+  const configCache = createAsyncReadCache<Awaited<ReturnType<typeof listAdminBillingConfigs>>>(15_000);
+  const trafficCache = createAsyncReadCache<Awaited<ReturnType<typeof readAdminTrafficSeries>>>(15_000);
+  // Check authorization on every request. Keep balances live and invalidate
+  // history caches after successful billing/session mutations on any surface.
+  app.addHook("onResponse", async (request, reply) => {
+    const route = request.routeOptions.url ?? "";
+    if (!["GET", "HEAD", "OPTIONS"].includes(request.method) && reply.statusCode < 400
+      && /^\/v1\/(admin\/billing|public\/(billing|sessions))(\/|$)/.test(route)) {
+      configCache.clear();
+      trafficCache.clear();
+    }
+  });
   app.get("/v1/admin/billing/customers", async (request, reply) => {
     const admin = await deps.requireAdmin(request, reply);
     if (!admin) return;
     const [customers, configs, payments, deposits, treasury] = await Promise.all([
       listBillingCustomers(deps.db),
-      listAdminBillingConfigs(deps.db),
+      configCache.get("configs", () => listAdminBillingConfigs(deps.db)),
       listAdminSolanaConfigPayments(deps.db),
       listAdminSolanaDeposits(deps.db),
       readTreasurySummary(deps.treasury)
@@ -72,11 +85,11 @@ export function registerAdminBillingRoutes(
     }
     const now = new Date();
     const from = new Date(now.getTime() - range.durationMs).toISOString();
-    const points = await readAdminTrafficSeries(deps.db, {
+    const points = await trafficCache.get(`${range.name}:${sessionId || "all"}`, () => readAdminTrafficSeries(deps.db, {
       from,
       bucketSeconds: range.bucketSeconds,
       ...(sessionId ? { sessionId } : {})
-    });
+    }));
     return reply.send({
       range: range.name,
       sessionId: sessionId || null,

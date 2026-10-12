@@ -117,3 +117,55 @@ function emptyDatabase(): Database {
     }
   } as unknown as Database;
 }
+
+test("admin counters are shared, authorization stays live, and writes invalidate", async () => {
+  let configReads = 0;
+  let customerReads = 0;
+  const db = {
+    async query(sql: string) {
+      if (sql.includes("WITH usage_by_session")) configReads++;
+      if (sql.includes("FROM accounts")) customerReads++;
+      return { rows: [] };
+    }
+  } as unknown as Database;
+  const app = Fastify();
+  registerAdminBillingRoutes(app, {
+    db, billing,
+    requireAdmin: async (request, reply) => {
+      if (request.headers["x-fixture-admin"] === "yes") return { kind: "admin", id: "fixture" };
+      reply.code(403).send({ error: "forbidden" });
+      return null;
+    }
+  });
+  app.patch("/v1/admin/billing/fixture-write", async () => ({ ok: true }));
+  app.post("/v1/public/sessions/:id/revoke", async () => ({ ok: true }));
+  const request = { method: "GET" as const, url: "/v1/admin/billing/customers", headers: { "x-fixture-admin": "yes" } };
+  await Promise.all([app.inject(request), app.inject(request)]);
+  assert.equal(configReads, 1);
+  assert.equal(customerReads, 2, "balances are not cached");
+  const denied = await app.inject({ method: "GET", url: request.url });
+  assert.equal(denied.statusCode, 403);
+  assert.equal(configReads, 1);
+  await app.inject({ method: "PATCH", url: "/v1/admin/billing/fixture-write" });
+  await app.inject(request);
+  assert.equal(configReads, 2);
+  await app.inject({ method: "POST", url: "/v1/public/sessions/fixture/revoke" });
+  await app.inject(request);
+  assert.equal(configReads, 3);
+  await app.close();
+});
+
+test("traffic caches are scoped by both range and config filter", async () => {
+  let reads = 0;
+  const db = { async query() { reads++; return { rows: [] }; } } as unknown as Database;
+  const app = Fastify();
+  registerAdminBillingRoutes(app, { db, billing, requireAdmin: async () => ({ kind: "admin", id: "fixture" }) });
+  for (const url of [
+    "/v1/admin/billing/traffic?range=24h",
+    "/v1/admin/billing/traffic?range=24h",
+    "/v1/admin/billing/traffic?range=7d",
+    "/v1/admin/billing/traffic?range=24h&sessionId=90386aa8-73e5-4fe0-82c2-8b442e3ad47d"
+  ]) assert.equal((await app.inject({ method: "GET", url })).statusCode, 200);
+  assert.equal(reads, 3);
+  await app.close();
+});
