@@ -254,6 +254,7 @@ export const publicBillingSummaryResponseSchema = {
     walletRentReserveBaseUnits: { type: ["string", "null"] },
     walletBalanceStatus: { type: "string", enum: ["loading", "available", "unavailable", "not_applicable"] },
     configPriceBaseUnits: { type: "string" },
+    configPaymentExempt: { type: "boolean" },
     configTrafficLimitBytes: { type: "string" }
   }
 } as const;

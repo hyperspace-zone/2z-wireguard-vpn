@@ -28,7 +28,7 @@ export async function createSession(
   actor: PublicSessionActor,
   body: Record<string, unknown>,
   abuseControls: Partial<SessionAbuseControlConfig> = {},
-  options: { initialPhase?: "payment_pending" | "requested"; tradingDb?: Queryable } = {}
+  options: { initialPhase?: "payment_pending" | "requested"; tradingDb?: Queryable; configGrant?: { includedBytes: number } } = {}
 ): Promise<CreateSessionSuccess | CreateSessionFailure> {
   const parsed = parseSessionCreateBody(body);
   if ("error" in parsed) {
@@ -79,7 +79,8 @@ export async function createSession(
     actor,
     parsed,
     controls,
-    options.initialPhase ?? "requested"
+    options.initialPhase ?? "requested",
+    options.configGrant
   );
   if (created.status === "rejected") {
     return {

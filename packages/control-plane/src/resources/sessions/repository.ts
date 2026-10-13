@@ -105,6 +105,7 @@ export async function insertRequestedSessionInTransaction(
   parsed: SessionCreateParsed,
   input: {
     initialPhase: string;
+    configGrant?: { includedBytes: number };
   }
 ): Promise<string> {
   const session = await db.query<{ id: string }>(
@@ -144,7 +145,7 @@ export async function insertRequestedSessionInTransaction(
       INSERT INTO session_status (session_id, phase)
       VALUES ($1, $2::session_phase)
     `,
-    [sessionId, input.initialPhase]
+    [sessionId, input.configGrant ? "requested" : input.initialPhase]
   );
   await db.query(
     `
@@ -167,7 +168,37 @@ export async function insertRequestedSessionInTransaction(
     `,
     [actor.id, actor.accountId, sessionId, JSON.stringify({ mode: parsed.mode })]
   );
+  if (input.configGrant) {
+    const includedBytes = input.configGrant.includedBytes;
+    if (!Number.isSafeInteger(includedBytes) || includedBytes <= 0) throw new Error("invalid config grant allowance");
+    await db.query(
+      `INSERT INTO session_config_grants (session_id, granted_by_user_id, reason, included_bytes)
+       VALUES ($1, $2, 'administrator', $3::bigint)`,
+      [sessionId, actor.id, String(includedBytes)]
+    );
+    await db.query(
+      `INSERT INTO session_traffic_entitlements (session_id, included_bytes) VALUES ($1, $2::bigint)`,
+      [sessionId, String(includedBytes)]
+    );
+    await db.query(
+      `INSERT INTO audit_events (event_type, actor_type, actor_id, account_id, session_id, details)
+       VALUES ('session_config_granted', 'user', $1, $2, $3, $4::jsonb)`,
+      [actor.id, actor.accountId, sessionId, JSON.stringify({ reason: "administrator", includedBytes: String(includedBytes) })]
+    );
+  }
   return sessionId;
+}
+
+export async function sessionHasConfigGrant(db: Queryable, accountId: string, sessionId: string): Promise<boolean> {
+  const result = await db.query<{ granted: boolean }>(
+    `SELECT EXISTS (
+       SELECT 1 FROM session_config_grants
+       JOIN sessions ON sessions.id = session_config_grants.session_id
+       WHERE sessions.id = $1 AND sessions.account_id = $2
+     ) AS granted`,
+    [sessionId, accountId]
+  );
+  return result.rows[0]?.granted === true;
 }
 
 export async function findSessionIdByCreateRequest(

@@ -24,6 +24,7 @@ export function registerPublicBillingRoutes(
   deps: {
     db: Database;
     requireUser: (request: FastifyRequest, reply: FastifyReply) => Promise<PublicAuthUser | null>;
+    hasBillingAdminAccess: (user: PublicAuthUser) => Promise<boolean>;
     billing: BillingConfig;
     custodialEncryptionKey: Buffer | null;
   }
@@ -79,7 +80,9 @@ export function registerPublicBillingRoutes(
           qrSvg: await measure("qr", () => qr(summary.deposit!.address))
         }
       : null;
-    return reply.send({ ...summary, deposit });
+    const configPaymentExempt = await deps.hasBillingAdminAccess(user);
+    return reply.send({ ...summary, deposit, configPaymentExempt,
+      configPriceBaseUnits: configPaymentExempt ? "0" : summary.configPriceBaseUnits });
   });
 
   app.get("/v1/public/billing/wallet-balance", async (request, reply) => {

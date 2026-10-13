@@ -118,6 +118,23 @@ grant access. A database `billing_admin` or `platform_admin` role is the
 alternative for per-account role management. The static `ADMIN_TOKEN` remains
 an operator fallback and is never sent to the browser.
 
+These administrators can issue their own VPN configs without a SOL transfer,
+network fee, or positive wallet balance. This applies to both supported
+WireGuard profiles. The public billing response reports `configPaymentExempt`
+and a zero `configPriceBaseUnits`, and the confirmation screen displays free
+issuance. The API checks authorization independently of all client fields.
+The normal active-config and creation-rate limits still apply.
+
+A free issuance atomically records the config, a `session_config_grants` row,
+a `session_config_granted` audit event, and the configured traffic allowance
+(50 decimal GB by default). It does not create a payment or ledger credit.
+Normal traffic accounting and exhaustion revocation still apply. Retrying the
+same request reuses its original grant and does not reset consumed traffic.
+An existing paid request is never converted into a grant after a role change;
+start a new request to receive the administrator exemption.
+Deploy migration `0056_admin_config_grants` through the normal migration/restart
+wrapper before starting the updated API, then publish the matching web bundle.
+
 The admin page exposes every customer's active and historical VPN config,
 native SOL config payment and finalized deposit. It also reads the platform
 treasury's current finalized native SOL balance through the control-plane RPC.

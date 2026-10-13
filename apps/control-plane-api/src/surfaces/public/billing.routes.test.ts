@@ -10,7 +10,7 @@ test("startup QR warmup reads only a bounded set of public addresses and does no
   let query = "";
   const db = { async query(sql: string) { query = sql; return { rows: [{ publicKey: "11111111111111111111111111111111" }] }; } } as unknown as Database;
   const app = Fastify();
-  registerPublicBillingRoutes(app, { db, billing: {} as BillingConfig, custodialEncryptionKey: null,
+  registerPublicBillingRoutes(app, { db, billing: {} as BillingConfig, custodialEncryptionKey: null, hasBillingAdminAccess: async () => false,
     requireUser: async (_request, reply) => { reply.code(401).send({ error: "auth_required" }); return null; }
   });
   await app.ready();
@@ -27,7 +27,7 @@ test("startup QR warmup reads only a bounded set of public addresses and does no
 test("optional QR warmup failure does not prevent API startup or expose the database error", async () => {
   const db = { async query() { throw new Error("private database failure"); } } as unknown as Database;
   const app = Fastify();
-  registerPublicBillingRoutes(app, { db, billing: {} as BillingConfig, custodialEncryptionKey: null,
+  registerPublicBillingRoutes(app, { db, billing: {} as BillingConfig, custodialEncryptionKey: null, hasBillingAdminAccess: async () => false,
     requireUser: async (_request, reply) => { reply.code(401).send({ error: "auth_required" }); return null; }
   });
   await app.ready();
@@ -44,7 +44,7 @@ test("Billing nullable deposit serializer preserves object/null responses and fi
     plan: { id: "fixture", code: "pilot", version: 1, displayName: "Pilot", currency: "SOL", activeConfigMonthlyMinor: 0,
       trafficPerGbMinor: 0, gracePeriodSeconds: 0, withdrawalCooldownSeconds: 0, minimumWithdrawalMinor: 0 },
     availableBalanceMinor: 0, withdrawableBalanceMinor: 0, usage: [], withdrawals: [], walletBalanceBaseUnits: null,
-    walletSpendableBaseUnits: null, walletRentReserveBaseUnits: null, walletBalanceStatus: "loading", configPriceBaseUnits: "0", configTrafficLimitBytes: "0" };
+    walletSpendableBaseUnits: null, walletRentReserveBaseUnits: null, walletBalanceStatus: "loading", configPriceBaseUnits: "0", configPaymentExempt: true, configTrafficLimitBytes: "0" };
   const deposit = { chain: "solana", address: "fixture-address", tokenSymbol: "SOL", tokenMint: "native", tokenDecimals: 9, qrSvg: "<svg/>" };
   const app = Fastify();
   app.get("/null", { schema: { response: { 200: publicBillingSummaryResponseSchema } } }, async () => ({ ...base, deposit: null }));
@@ -54,6 +54,8 @@ test("Billing nullable deposit serializer preserves object/null responses and fi
   const response = await app.inject("/object");
   assert.equal(response.statusCode, 200);
   assert.deepEqual(response.json().deposit, deposit);
+  assert.equal(response.json().configPaymentExempt, true);
+  assert.equal(response.json().configPriceBaseUnits, "0");
   assert.doesNotMatch(response.body, /privateKey|must-not-be-sent/);
   assert.equal((await app.inject("/invalid")).statusCode, 500);
   await app.close();
@@ -69,7 +71,7 @@ test("wallet display is authorized on every read, never cached, and reports RPC 
     const method = JSON.parse(String(init?.body)).method;
     return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: method === "getBalance" ? { value: 1200 } : 200 }));
   } } as BillingConfig;
-  const app = Fastify(); registerPublicBillingRoutes(app, { db, billing, custodialEncryptionKey: null,
+  const app = Fastify(); registerPublicBillingRoutes(app, { db, billing, custodialEncryptionKey: null, hasBillingAdminAccess: async () => false,
     requireUser: async (request, reply) => {
       if (request.headers["x-fixture-user"] === "yes") return { id: "user", accountId: "account", email: "fixture@example.invalid", displayName: "Fixture", avatarUrl: null };
       reply.code(401).send({ error: "auth_required" }); return null;

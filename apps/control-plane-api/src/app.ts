@@ -156,6 +156,7 @@ export function createApp(input: CreateControlPlaneApiAppInput): FastifyInstance
   registerPublicBillingRoutes(app, {
     db,
     requireUser: auth.requireUser,
+    hasBillingAdminAccess: auth.hasBillingAdminAccess,
     billing: config.billing,
     custodialEncryptionKey: config.walletAuth.custodialEncryptionKey
   });
@@ -163,6 +164,7 @@ export function createApp(input: CreateControlPlaneApiAppInput): FastifyInstance
     db,
     tradingDb: benchmarkDb,
     requireUser: auth.requireUser,
+    hasBillingAdminAccess: auth.hasBillingAdminAccess,
     billing: config.billing,
     configPaymentService,
     selfServiceAbuseControls: config.selfServiceAbuseControls

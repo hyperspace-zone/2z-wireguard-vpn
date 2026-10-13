@@ -22,6 +22,7 @@ export type ApplicationErrorCode =
   | "config_payment_in_progress"
   | "config_payment_not_configured"
   | "config_payment_request_required"
+  | "config_payment_request_conflict"
   | "config_payment_unavailable"
   | "credentials_required"
   | "destination_not_allowed"
@@ -106,6 +107,7 @@ function applicationErrorStatus(code: ApplicationErrorCode): number {
     case "session_quota_exceeded":
     case "session_not_revoked":
     case "config_payment_in_progress":
+    case "config_payment_request_conflict":
       return 409;
     case "insufficient_solana_funds":
       return 402;

@@ -121,6 +121,7 @@ export {
 } from "./application/sessions/payment-session.scenario.js";
 export { deleteHiddenSession } from "./application/sessions/delete-session.scenario.js";
 export { revokeSession } from "./application/sessions/revoke-session.scenario.js";
+export { sessionHasConfigGrant } from "./resources/sessions/repository.js";
 export { type Principal } from "./authz/principals.js";
 export { readPublicGateBenchmarkMatrix } from "./read-models/public-benchmarks.query.js";
 export { readTradingPairsSnapshot, filterTradingPairs, resolveTradingRoute, startTradingPairsRefresh } from "./resources/trading-pairs/service.js";

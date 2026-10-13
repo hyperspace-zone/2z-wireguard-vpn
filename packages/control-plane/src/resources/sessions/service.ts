@@ -55,7 +55,8 @@ export async function createRequestedSessionWithAbuseControls(
   actor: SessionOwner,
   parsed: SessionCreateParsed,
   config: SessionAbuseControlConfig,
-  initialPhase = requestedSessionInitialTransition().phase
+  initialPhase = requestedSessionInitialTransition().phase,
+  configGrant?: { includedBytes: number }
 ): Promise<CreateRequestedSessionCreated | CreateRequestedSessionRejected> {
   return db.transaction(async (client) => {
     await lockAccountForSessionCreate(client, actor.accountId);
@@ -116,7 +117,8 @@ export async function createRequestedSessionWithAbuseControls(
     return {
       status: "created",
       sessionId: await insertRequestedSessionInTransaction(client, actor, parsed, {
-        initialPhase
+        initialPhase,
+        ...(configGrant ? { configGrant } : {})
       })
     };
   });

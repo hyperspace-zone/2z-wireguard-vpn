@@ -1315,7 +1315,7 @@ BENCHMARK_DATABASE_STATEMENT_TIMEOUT_MS=8000
 AUTH_SESSION_TTL_SECONDS=2592000
 ARTIFACT_DOWNLOAD_TTL_SECONDS=300
 ADMIN_TOKEN=${ADMIN_TOKEN}
-# Comma-separated verified account emails allowed to open the network admin.
+# Verified account emails allowed to open the network admin and issue configs for free.
 BILLING_ADMIN_EMAILS=
 ARTIFACT_ENCRYPTION_KEY=${ARTIFACT_ENCRYPTION_KEY}
 GATE_AGENT_RELEASE_DIR=/var/lib/hyperspace/gate-agent-releases

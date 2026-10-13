@@ -201,6 +201,7 @@ interface BillingSummary {
   walletRentReserveBaseUnits: string | null;
   walletBalanceStatus?: "loading" | "available" | "unavailable" | "not_applicable";
   configPriceBaseUnits: string;
+  configPaymentExempt?: boolean;
   configTrafficLimitBytes: string;
 }
 
@@ -2292,7 +2293,10 @@ function createConfigConfirmationPanel(gates: Gate[]): string {
     ? `${sourceLabel} enters through the selected ingress, crosses DoubleZero, and exits to the Internet through the selected egress.`
     : `${sourceLabel} can reach only ${destinationLabel} through the selected ingress, DoubleZero transit, and selected egress.`;
   const paymentAmount = configPriceText();
-  const buttonLabel = createConfigSubmitting ? `Paying ${paymentAmount}...` : `Pay ${paymentAmount} and create`;
+  const free = latestBilling?.configPaymentExempt === true;
+  const buttonLabel = free
+    ? createConfigSubmitting ? "Creating config..." : "Create config for free"
+    : createConfigSubmitting ? `Paying ${paymentAmount}...` : `Pay ${paymentAmount} and create`;
   const disabled = createConfigSubmitting ? "disabled" : "";
   return `
     <div class="review-step">
@@ -2343,7 +2347,7 @@ function createConfigConfirmationPanel(gates: Gate[]): string {
         </div>
         <div class="config-payment-copy">
           <p>Includes ${escapeHtml(configTrafficLimitText())} of aggregate traffic across both directions. The config is automatically disabled when the allowance is exhausted. No debt or overage charge is created.</p>
-          <p>The payment is sent from your Hyperspace Solana wallet when you confirm. A Solana network fee is added.</p>
+          <p>${free ? "Config issuance is free for administrators. No wallet balance or network fee is required." : "The payment is sent from your Hyperspace Solana wallet when you confirm. A Solana network fee is added."}</p>
         </div>
       </div>
       ${createConfigPaymentError ? `
@@ -4542,6 +4546,7 @@ function billingBalanceText(billing: BillingSummary | null): string {
 
 function configPriceText(): string {
   if (!latestBilling) return "Loading…";
+  if (latestBilling.configPaymentExempt) return "Free for administrators";
   const baseUnits = latestBilling?.configPriceBaseUnits || "100000000";
   const decimals = latestBilling?.deposit?.tokenDecimals ?? 9;
   return `${formatTokenBaseUnits(baseUnits, decimals)} SOL`;

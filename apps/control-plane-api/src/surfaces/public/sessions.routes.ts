@@ -14,6 +14,7 @@ import {
   listPublicSessions,
   readOwnSession,
   revokeSession,
+  sessionHasConfigGrant,
   type SessionAbuseControlConfig
 } from "@hyperspace-zone/control-plane";
 import type { Database } from "@hyperspace-zone/db";
@@ -28,10 +29,12 @@ export function registerPublicSessionsRoutes(
     db: Database;
     tradingDb?: Database;
     requireUser: (request: FastifyRequest, reply: FastifyReply) => Promise<PublicAuthUser | null>;
+    hasBillingAdminAccess: (user: PublicAuthUser) => Promise<boolean>;
     billing: {
       enforcePositiveBalance: boolean;
       requiredMinBalanceMinor: number;
       configPaymentEnabled?: boolean;
+      configTrafficLimitBytes?: number;
     };
     configPaymentService: SolanaConfigPaymentService | null;
     selfServiceAbuseControls: SessionAbuseControlConfig;
@@ -71,7 +74,8 @@ export function registerPublicSessionsRoutes(
       return;
     }
 
-    if (deps.billing.enforcePositiveBalance) {
+    const adminIssuance = await deps.hasBillingAdminAccess(user);
+    if (deps.billing.enforcePositiveBalance && !adminIssuance) {
       const hasBalance = await accountHasSufficientBalance(
         deps.db,
         user.accountId,
@@ -86,12 +90,12 @@ export function registerPublicSessionsRoutes(
 
     const body = asRecord(request.body);
     const paymentRequestId = readString(body, "paymentRequestId");
-    if (deps.billing.configPaymentEnabled && !paymentRequestId) {
+    if (deps.billing.configPaymentEnabled && !adminIssuance && !paymentRequestId) {
       return sendApplicationError(reply, "config_payment_request_required", {
         message: "A payment request ID is required to issue a paid VPN config."
       });
     }
-    if (deps.billing.configPaymentEnabled && !deps.configPaymentService) {
+    if (deps.billing.configPaymentEnabled && !adminIssuance && !deps.configPaymentService) {
       return sendApplicationError(reply, "config_payment_not_configured", {
         message: "SOL config payments are temporarily unavailable."
       });
@@ -102,7 +106,11 @@ export function registerPublicSessionsRoutes(
       user,
       body,
       deps.selfServiceAbuseControls,
-      { initialPhase: deps.billing.configPaymentEnabled ? "payment_pending" : "requested", ...(deps.tradingDb ? { tradingDb: deps.tradingDb } : {}) }
+      {
+        initialPhase: deps.billing.configPaymentEnabled ? "payment_pending" : "requested",
+        ...(deps.tradingDb ? { tradingDb: deps.tradingDb } : {}),
+        ...(adminIssuance ? { configGrant: { includedBytes: deps.billing.configTrafficLimitBytes ?? 50_000_000_000 } } : {})
+      }
     );
     if (created.status === "invalid") {
       return sendApplicationError(
@@ -112,7 +120,14 @@ export function registerPublicSessionsRoutes(
       );
     }
 
-    if (deps.billing.configPaymentEnabled && deps.configPaymentService) {
+    const paymentExempt = await sessionHasConfigGrant(deps.db, user.accountId, created.sessionId);
+    // A retry keeps its original issuance terms, even after an admin role change.
+    if (adminIssuance && deps.billing.configPaymentEnabled && !paymentExempt) {
+      return sendApplicationError(reply, "config_payment_request_conflict", {
+        message: "This request was started as a paid configuration. Start a new configuration for free administrator issuance."
+      });
+    }
+    if (deps.billing.configPaymentEnabled && !paymentExempt && deps.configPaymentService) {
       let payment;
       try {
         payment = await deps.configPaymentService.charge({

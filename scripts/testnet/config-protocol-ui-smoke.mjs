@@ -19,8 +19,9 @@ const base = `http://127.0.0.1:${server.address().port}`;
 let browser;
 try {
   browser = await chromium.launch({ executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE || "/snap/bin/chromium", headless: true, args: ["--no-sandbox"] });
+  for (const admin of [false, true]) {
   for (const [search, expected] of [["", "wireguard"], ["?protocol=wireguard", "wireguard"], ["?protocol=amnezia", "amneziawg"], ["?protocol=typo", null]]) {
-    const { context, page, requests, errors } = await setup();
+    const { context, page, requests, errors } = await setup(admin);
     await page.addInitScript(() => localStorage.setItem("hyperspaceAccessToken", "local-smoke-token"));
     await page.goto(base + "/create-config" + search);
     if (!expected) {
@@ -37,6 +38,10 @@ try {
       await page.locator('[name="egressGateName"]').selectOption("c-wg");
       await page.getByRole("button", { name: "Review config", exact: true }).click();
       assert.equal((await page.locator("body").innerText()).includes("AmneziaWG"), expected === "amneziawg");
+      assert.equal(await page.locator("#confirm-create-config").innerText(), admin ? "Create config for free" : "Pay 0.1 SOL and create");
+      const paymentCopy = await page.locator(".config-payment-copy").innerText();
+      assert.match(paymentCopy, /50\.00 GB/);
+      assert.match(paymentCopy, admin ? /No wallet balance or network fee is required/ : /A Solana network fee is added/);
       await page.locator("#confirm-create-config").click();
       await page.locator("#download-created-config").waitFor();
       assert.equal(requests.length, 1);
@@ -58,6 +63,7 @@ try {
     assert.deepEqual(errors, []);
     await context.close();
   }
+  }
 
   // Simulate a full OAuth redirect/reload; the browser storage survives it.
   const { context, page, errors } = await setup();
@@ -78,13 +84,13 @@ try {
   assert.match(await page.locator("body").innerText(), /AmneziaWG/);
   assert.deepEqual(errors, []);
   await context.close();
-  console.log("PASS: default/explicit WG, hidden AWG, invalid URL, gate filtering, request payload, result, navigation and OAuth return");
+  console.log("PASS: both WireGuard profiles, paid/free issuance UI, invalid URL, gate filtering, request payload, result, navigation and OAuth return");
 } finally {
   await browser?.close();
   await new Promise(resolve => server.close(resolve));
 }
 
-async function setup() {
+async function setup(admin = false) {
   const context = await browser.newContext();
   const page = await context.newPage();
   page.setDefaultTimeout(10_000);
@@ -98,7 +104,9 @@ async function setup() {
     if (!url.pathname.startsWith("/api/")) return route.continue();
     const path = url.pathname;
     let body = {};
-    if (path.endsWith("/auth/me")) body = { user: { id: "test", accountId: "test", email: "test@example.invalid" }, capabilities: [] };
+    if (path.endsWith("/auth/me")) body = { user: { id: "test", accountId: "test", email: "test@example.invalid" }, capabilities: admin ? ["billing:admin"] : [] };
+    else if (path.endsWith("/billing")) body = { configPaymentExempt: admin, configPriceBaseUnits: admin ? "0" : "100000000", configTrafficLimitBytes: "50000000000", walletBalanceStatus: "available", walletSpendableBaseUnits: "0", deposit: { tokenDecimals: 9, tokenSymbol: "SOL" } };
+    else if (path.endsWith("/billing/wallet-balance")) body = { walletBalanceStatus: "available", walletSpendableBaseUnits: "0" };
     else if (path.endsWith("/auth/security-config")) body = { turnstileEnabled: false, turnstileSiteKey: "" };
     else if (path.endsWith("/gates")) body = { gates };
     else if (path.includes("/trading/routes/")) body = { route: { ingressGateName: "b-awg", egressGateName: "c-wg" }, source: { city: "Test" }, venues: [] };
