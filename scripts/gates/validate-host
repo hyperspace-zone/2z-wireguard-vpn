@@ -10,6 +10,7 @@ Options:
   --ssh-user USER    SSH user, default root.
   --known-hosts-file PATH  Pinned SSH known_hosts file, default ~/.ssh/known_hosts.
   --require-deployment-ready  Exit non-zero unless the agent service and artifact self-test pass.
+  --require-amneziawg  Also require an AmneziaWG 3.1 kernel/tools probe to pass.
   --dry-run          Print the SSH command instead of executing.
 EOF
 }
@@ -21,6 +22,7 @@ known_hosts_file="${HOME}/.ssh/known_hosts"
 dz_env=""
 dry_run=false
 require_deployment_ready=false
+require_amneziawg=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -30,6 +32,7 @@ while [[ $# -gt 0 ]]; do
     --known-hosts-file) known_hosts_file="${2:-}"; shift 2 ;;
     --doublezero-env) dz_env="${2:-}"; shift 2 ;;
     --require-deployment-ready) require_deployment_ready=true; shift ;;
+    --require-amneziawg) require_amneziawg=true; shift ;;
     --dry-run) dry_run=true; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "unknown argument: $1" >&2; usage; exit 2 ;;
@@ -85,6 +88,7 @@ cat <<JSON
   "commands": {
     "doublezero": $(json_bool command -v doublezero),
     "wg": $(json_bool command -v wg),
+    "awg": $(json_bool command -v awg),
     "ip": $(json_bool command -v ip),
     "nft": $(json_bool command -v nft),
     "chronyc": $(json_bool command -v chronyc),
@@ -108,6 +112,7 @@ cat <<JSON
   },
   "gateAgent": {
     "artifactSelfTestPassed": $(json_bool /usr/local/bin/hyperspace-gate-agent --self-test),
+    "amneziaWGReady": $(json_bool /usr/local/bin/hyperspace-gate-agent --check-amneziawg),
     "release": ${agent_release}
   },
   "interfaces": {
@@ -133,13 +138,16 @@ if [[ "${REQUIRE_DEPLOYMENT_READY}" == "true" ]]; then
   test -x /usr/local/sbin/hyperspace-gate-agent-release
   /usr/local/bin/hyperspace-gate-agent --self-test >/dev/null
 fi
+if [[ "${REQUIRE_AMNEZIAWG}" == "true" ]]; then
+  /usr/local/bin/hyperspace-gate-agent --check-amneziawg >/dev/null
+fi
 REMOTE
 )"
 
 if [[ "$dry_run" == true ]]; then
-  printf 'ssh %q %q DZ_ENV=%q REQUIRE_DEPLOYMENT_READY=%q bash -s <<REMOTE\n%s\nREMOTE\n' \
-    "${ssh_args[*]}" "${ssh_user}@${host}" "$dz_env" "$require_deployment_ready" "$remote_script"
+  printf 'ssh %q %q DZ_ENV=%q REQUIRE_DEPLOYMENT_READY=%q REQUIRE_AMNEZIAWG=%q bash -s <<REMOTE\n%s\nREMOTE\n' \
+    "${ssh_args[*]}" "${ssh_user}@${host}" "$dz_env" "$require_deployment_ready" "$require_amneziawg" "$remote_script"
   exit 0
 fi
 
-ssh "${ssh_args[@]}" "${ssh_user}@${host}" "DZ_ENV=$(printf '%q' "$dz_env") REQUIRE_DEPLOYMENT_READY=$(printf '%q' "$require_deployment_ready") bash -s" <<<"$remote_script"
+ssh "${ssh_args[@]}" "${ssh_user}@${host}" "DZ_ENV=$(printf '%q' "$dz_env") REQUIRE_DEPLOYMENT_READY=$(printf '%q' "$require_deployment_ready") REQUIRE_AMNEZIAWG=$(printf '%q' "$require_amneziawg") bash -s" <<<"$remote_script"

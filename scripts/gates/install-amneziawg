@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Run on the ingress host. Keep ordinary WireGuard installed for transit.
+if [[ "${1:-}" == "--help" ]]; then
+  echo "usage: sudo scripts/gates/install-amneziawg (Ubuntu ingress host)"
+  exit 0
+fi
+[[ $# -eq 0 && $EUID -eq 0 ]] || { echo "run as root without arguments" >&2; exit 2; }
+. /etc/os-release
+[[ "$ID" == ubuntu ]] || {
+  echo "This installer supports Ubuntu. Install AmneziaWG 3.1 tools/kernel module using the upstream instructions for this distribution." >&2
+  exit 1
+}
+
+export DEBIAN_FRONTEND=noninteractive
+export NEEDRESTART_MODE=l
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+apt-get update
+apt-get install -y software-properties-common python3-launchpadlib gnupg2 \
+  "linux-headers-$(uname -r)" wireguard-tools patch
+add-apt-repository --yes --enable-source ppa:amnezia/ppa
+apt-get update
+# The current source needs signature detection for Ubuntu's UDP socket backport.
+# Repackage only the reviewed source hash; do not patch an unknown future release.
+work_dir="$(mktemp -d /var/tmp/hyperspace-wg-module.XXXXXX)"
+trap 'rm -rf "$work_dir"' EXIT
+upstream_version="$(apt-cache madison amneziawg-dkms | awk 'NR == 1 {print $3}')"
+[[ -n "$upstream_version" ]] || exit 1
+(cd "$work_dir" && apt-get download "amneziawg-dkms=$upstream_version")
+packages=("$work_dir"/*.deb)
+[[ ${#packages[@]} -eq 1 && -f "${packages[0]}" ]] || exit 1
+dpkg-deb -R "${packages[0]}" "$work_dir/package"
+compat="$work_dir/package/usr/src/amneziawg-1.0.0/compat/compat.h"
+source_sha="$(sha256sum "$compat" | awk '{print $1}')"
+[[ "$source_sha" == b14346040ce0188c47e2db2baad1a4f21aa784510f6c95bbb4aa58d5bbe691c9 ]] || {
+  echo "Kernel source changed; review the UDP compatibility patch before installation." >&2
+  exit 1
+}
+patch --batch --fuzz=0 -p2 -d "$(dirname "$(dirname "$compat")")" < "$script_dir/patches/udp-tunnel-compat.patch"
+[[ "$(sha256sum "$compat" | awk '{print $1}')" == 8d47a358b4df0b2187788ce6f88ad63128218de1be22c78b263ef3e5d770c26b ]] || exit 1
+# Remove stale package checksums after the reviewed source change.
+(cd "$work_dir/package" && find usr -type f -print0 | sort -z | xargs -0 md5sum > DEBIAN/md5sums)
+sed -i '/^Version:/s/$/+hyperspace1/' "$work_dir/package/DEBIAN/control"
+dpkg-deb --build --root-owner-group "$work_dir/package" "$work_dir/patched.deb"
+apt-get install -y "$work_dir/patched.deb" amneziawg-tools amneziawg
+
+awg_version="$(awg --version | awk '{print $2}')"
+dpkg --compare-versions "${awg_version#v}" ge 3.1.20260812 || {
+  echo "AmneziaWG tools 3.1.20260812 or newer are required; the configured package repository is too old." >&2
+  exit 1
+}
+modprobe amneziawg
+install -d -m 0755 /etc/modules-load.d
+printf 'amneziawg\n' > /etc/modules-load.d/hyperspace-amneziawg.conf
+echo "AmneziaWG installed. Deploy/restart gate-agent and run hyperspace-gate-agent --check-amneziawg."

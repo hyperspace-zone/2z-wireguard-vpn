@@ -27,7 +27,7 @@ import (
 )
 
 var (
-	version       = "0.5.0"
+	version       = "0.6.0"
 	buildRevision = "unknown"
 	buildTime     = "unknown"
 )
@@ -103,6 +103,7 @@ var defaultNTPDiscoveryHosts = []string{
 }
 
 type config struct {
+	AmneziaWGReady                 bool
 	ControlPlaneURL                string
 	GateName                       string
 	GateToken                      string
@@ -138,6 +139,12 @@ func main() {
 	runningBuildInfo = currentAgentBuildInfo()
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
+		case "--check-amneziawg":
+			if err := checkAmneziaWG(); err != nil {
+				fatal(err)
+			}
+			fmt.Println("AmneziaWG 3.1 kernel and tools are ready")
+			return
 		case "--version", "--build-info":
 			if err := json.NewEncoder(os.Stdout).Encode(runningBuildInfo); err != nil {
 				fatal(err)
@@ -163,6 +170,13 @@ func main() {
 	}
 	if err := runAgentSelfTest(); err != nil {
 		fatal(fmt.Errorf("installed gate-agent startup self-test failed: %w", err))
+	}
+	if cfg.ExecutionMode == "apply" {
+		if err := checkAmneziaWG(); err == nil {
+			cfg.AmneziaWGReady = true
+		} else {
+			logJSON("amneziawg_unavailable", map[string]any{"error": err.Error()})
+		}
 	}
 	doubleZeroRecovery := newDoubleZeroRecoveryManager(cfg)
 	var probeManager *probeServerManager
@@ -564,11 +578,12 @@ func downloadGateAgentRelease(
 }
 
 type assignmentPayload struct {
-	AssignmentID string      `json:"assignmentId"`
-	Operation    string      `json:"operation"`
-	Role         string      `json:"role"`
-	Plan         preparePlan `json:"plan"`
-	NetworkPlan  networkPlan `json:"networkPlan"`
+	ClientTunnelSecret clientTunnelSecret `json:"clientTunnelSecret,omitempty"`
+	AssignmentID       string             `json:"assignmentId"`
+	Operation          string             `json:"operation"`
+	Role               string             `json:"role"`
+	Plan               preparePlan        `json:"plan"`
+	NetworkPlan        networkPlan        `json:"networkPlan"`
 }
 
 type preparePlan struct {
@@ -590,14 +605,15 @@ type networkPlan struct {
 }
 
 type publicMaterial struct {
-	SessionID                  string   `json:"sessionId"`
-	Generation                 int      `json:"generation"`
-	Mode                       string   `json:"mode"`
-	DestinationCidrs           []string `json:"destinationCidrs"`
-	ClientAddress              string   `json:"clientAddress"`
-	ClientPublicKey            string   `json:"clientPublicKey"`
-	PersistentKeepaliveSeconds int      `json:"persistentKeepaliveSeconds"`
-	MTU                        int      `json:"mtu"`
+	ClientTunnel               *clientTunnel `json:"clientTunnel,omitempty"`
+	SessionID                  string        `json:"sessionId"`
+	Generation                 int           `json:"generation"`
+	Mode                       string        `json:"mode"`
+	DestinationCidrs           []string      `json:"destinationCidrs"`
+	ClientAddress              string        `json:"clientAddress"`
+	ClientPublicKey            string        `json:"clientPublicKey"`
+	PersistentKeepaliveSeconds int           `json:"persistentKeepaliveSeconds"`
+	MTU                        int           `json:"mtu"`
 }
 
 type assignmentEndpoint struct {
@@ -610,6 +626,7 @@ type assignmentEndpoint struct {
 }
 
 type localMaterial struct {
+	ClientTunnel      *clientTunnel      `json:"clientTunnel,omitempty"`
 	AssignmentID      string             `json:"assignmentId"`
 	Role              string             `json:"role"`
 	Handle            string             `json:"handle"`
@@ -631,24 +648,25 @@ type materialWireGuard struct {
 }
 
 type assignmentState struct {
-	AssignmentID      string                     `json:"assignmentId"`
-	Role              string                     `json:"role"`
-	Handle            string                     `json:"handle"`
-	SessionID         string                     `json:"sessionId"`
-	SourceCidr        string                     `json:"sourceCidr,omitempty"`
-	ClientAddress     string                     `json:"clientAddress"`
-	DestinationCidrs  []string                   `json:"destinationCidrs"`
-	RoutingTable      int                        `json:"routingTable"`
-	RulePriority      int                        `json:"rulePriority"`
-	ClientPrivateKey  string                     `json:"clientPrivateKey,omitempty"`
-	TransitPrivateKey string                     `json:"transitPrivateKey"`
-	Material          localMaterial              `json:"material"`
-	NetworkPlan       *networkPlan               `json:"networkPlan,omitempty"`
-	CounterOffset     assignmentCounterSnapshot  `json:"counterOffset,omitempty"`
-	CounterCheckpoint *assignmentCounterSnapshot `json:"counterCheckpoint,omitempty"`
-	CreatedAt         string                     `json:"createdAt"`
-	CommittedAt       string                     `json:"committedAt,omitempty"`
-	RevokedAt         string                     `json:"revokedAt,omitempty"`
+	HeaderProtectionKey string                     `json:"headerProtectionKey,omitempty"`
+	AssignmentID        string                     `json:"assignmentId"`
+	Role                string                     `json:"role"`
+	Handle              string                     `json:"handle"`
+	SessionID           string                     `json:"sessionId"`
+	SourceCidr          string                     `json:"sourceCidr,omitempty"`
+	ClientAddress       string                     `json:"clientAddress"`
+	DestinationCidrs    []string                   `json:"destinationCidrs"`
+	RoutingTable        int                        `json:"routingTable"`
+	RulePriority        int                        `json:"rulePriority"`
+	ClientPrivateKey    string                     `json:"clientPrivateKey,omitempty"`
+	TransitPrivateKey   string                     `json:"transitPrivateKey"`
+	Material            localMaterial              `json:"material"`
+	NetworkPlan         *networkPlan               `json:"networkPlan,omitempty"`
+	CounterOffset       assignmentCounterSnapshot  `json:"counterOffset,omitempty"`
+	CounterCheckpoint   *assignmentCounterSnapshot `json:"counterCheckpoint,omitempty"`
+	CreatedAt           string                     `json:"createdAt"`
+	CommittedAt         string                     `json:"committedAt,omitempty"`
+	RevokedAt           string                     `json:"revokedAt,omitempty"`
 }
 
 type rehydrateResult struct {
@@ -1972,8 +1990,20 @@ func decodeAssignmentPayload(item job) (assignmentPayload, error) {
 }
 
 func prepareAssignment(cfg config, payload assignmentPayload) (localMaterial, error) {
+	tunnel := payload.Plan.PublicMaterial.ClientTunnel
+	if err := tunnel.validate(); err != nil {
+		return localMaterial{}, err
+	}
 	existing, err := readAssignmentState(cfg, payload.AssignmentID)
 	if err == nil && reusablePreparedAssignment(existing, payload.Role) {
+		if payload.Role == "Ingress" {
+			if !sameClientTunnel(existing.Material.ClientTunnel, tunnel) {
+				return localMaterial{}, errors.New("prepared client tunnel differs from plan; create a new assignment")
+			}
+			if err := tunnel.validateSecret(existing.HeaderProtectionKey); err != nil {
+				return localMaterial{}, err
+			}
+		}
 		return existing.Material, nil
 	}
 	if payload.Role != "Ingress" && payload.Role != "Egress" {
@@ -1987,6 +2017,12 @@ func prepareAssignment(cfg config, payload assignmentPayload) (localMaterial, er
 	clientPublicKey := ""
 	clientListenPort := 0
 	if payload.Role == "Ingress" {
+		if err := tunnel.validateSecret(payload.ClientTunnelSecret.HeaderProtectionKey); err != nil {
+			return localMaterial{}, err
+		}
+		if tunnel.isAmneziaWG() && !cfg.AmneziaWGReady {
+			return localMaterial{}, errors.New("AmneziaWG 3.1 kernel/tools are unavailable on ingress")
+		}
 		clientPrivateKey, clientPublicKey, err = generateWireGuardKeyPair()
 		if err != nil {
 			return localMaterial{}, err
@@ -2045,6 +2081,13 @@ func prepareAssignment(cfg config, payload assignmentPayload) (localMaterial, er
 		CounterOffset:     counterOffset,
 		CreatedAt:         time.Now().UTC().Format(time.RFC3339),
 	}
+	if payload.Role == "Ingress" {
+		material.ClientTunnel = tunnel
+		state.Material = material
+		if tunnel.isAmneziaWG() {
+			state.HeaderProtectionKey = payload.ClientTunnelSecret.HeaderProtectionKey
+		}
+	}
 	if err := writeAssignmentState(cfg, state); err != nil {
 		return localMaterial{}, err
 	}
@@ -2070,6 +2113,9 @@ func commitAssignment(cfg config, payload assignmentPayload) (assignmentState, e
 	state, err := readAssignmentState(cfg, payload.AssignmentID)
 	if err != nil {
 		return state, fmt.Errorf("assignment must be prepared before commit: %w", err)
+	}
+	if err := validateAssignmentClientTunnel(state, payload.NetworkPlan); err != nil {
+		return state, err
 	}
 	if err := runCommand("sysctl", "-w", "net.ipv4.ip_forward=1"); err != nil {
 		return state, err
@@ -2106,6 +2152,9 @@ func commitAssignment(cfg config, payload assignmentPayload) (assignmentState, e
 }
 
 func commitIngress(state assignmentState, plan networkPlan) error {
+	if err := validateAssignmentClientTunnel(state, plan); err != nil {
+		return err
+	}
 	pm := plan.PublicMaterial
 	if pm.ClientPublicKey == "" {
 		return errors.New("client public key is required for ingress commit")
@@ -2123,10 +2172,12 @@ func commitIngress(state assignmentState, plan networkPlan) error {
 		keepalive = 25
 	}
 	if err := configureWireGuardInterface(wgInterfaceConfig{
-		Name:       state.Material.Interfaces.Client,
-		PrivateKey: state.ClientPrivateKey,
-		ListenPort: state.Material.WireGuard.ClientListenPort,
-		MTU:        mtu,
+		Name:                state.Material.Interfaces.Client,
+		ClientTunnel:        state.Material.ClientTunnel,
+		HeaderProtectionKey: state.HeaderProtectionKey,
+		PrivateKey:          state.ClientPrivateKey,
+		ListenPort:          state.Material.WireGuard.ClientListenPort,
+		MTU:                 mtu,
 		Peers: []wgPeer{{
 			PublicKey:           pm.ClientPublicKey,
 			AllowedIPs:          []string{pm.ClientAddress},
@@ -2367,6 +2418,9 @@ func sendHeartbeat(
 	if failure := releaseFailureCapability(); failure != "" {
 		capabilities = append(capabilities, failure)
 	}
+	if cfg.AmneziaWGReady {
+		capabilities = append(capabilities, amneziaWGCapability)
+	}
 	body := map[string]any{
 		"gateId":              cfg.GateName,
 		"agentVersion":        version,
@@ -2566,6 +2620,7 @@ func actualStateHash() string {
 		bootID(),
 		commandOutput("ip", "-br", "link", "show", "doublezero0"),
 		commandOutput("wg", "show"),
+		commandOutput("awg", "show"),
 		commandOutput("nft", "list", "ruleset"),
 	}
 	hash := sha256.Sum256([]byte(strings.Join(parts, "\n")))
@@ -3211,11 +3266,13 @@ func parseDoubleZeroLatencyDevice(value string) (string, *bool) {
 }
 
 type wgInterfaceConfig struct {
-	Name       string
-	PrivateKey string
-	ListenPort int
-	MTU        int
-	Peers      []wgPeer
+	ClientTunnel        *clientTunnel
+	HeaderProtectionKey string
+	Name                string
+	PrivateKey          string
+	ListenPort          int
+	MTU                 int
+	Peers               []wgPeer
 }
 
 type wgPeer struct {
@@ -3229,8 +3286,7 @@ func configureWireGuardInterface(input wgInterfaceConfig) error {
 	if input.Name == "" || input.PrivateKey == "" || input.ListenPort == 0 {
 		return errors.New("wireguard interface config is incomplete")
 	}
-	runIgnore("ip", "link", "delete", "dev", input.Name)
-	if err := runCommand("ip", "link", "add", "dev", input.Name, "type", "wireguard"); err != nil {
+	if err := input.ClientTunnel.validateSecret(input.HeaderProtectionKey); err != nil {
 		return err
 	}
 	privateKeyFile, cleanup, err := writeTempPrivateKey(input.PrivateKey)
@@ -3240,6 +3296,17 @@ func configureWireGuardInterface(input wgInterfaceConfig) error {
 	defer cleanup()
 
 	args := []string{"set", input.Name, "private-key", privateKeyFile, "listen-port", strconv.Itoa(input.ListenPort)}
+	kind := "wireguard"
+	if input.ClientTunnel.isAmneziaWG() {
+		kind = "amneziawg"
+		keyFile, keyCleanup, err := writeTempPrivateKey(input.HeaderProtectionKey)
+		if err != nil {
+			return err
+		}
+		defer keyCleanup()
+		args = append(args, input.ClientTunnel.Parameters.args()...)
+		args = append(args, "header-protection-key", keyFile)
+	}
 	for _, peer := range input.Peers {
 		if peer.PublicKey == "" || len(peer.AllowedIPs) == 0 {
 			return errors.New("wireguard peer config is incomplete")
@@ -3252,7 +3319,17 @@ func configureWireGuardInterface(input wgInterfaceConfig) error {
 			args = append(args, "persistent-keepalive", strconv.Itoa(peer.PersistentKeepalive))
 		}
 	}
-	if err := runCommand("wg", args...); err != nil {
+	runIgnore("ip", "link", "delete", "dev", input.Name)
+	if err := runCommand("ip", "link", "add", "dev", input.Name, "type", kind); err != nil {
+		return err
+	}
+	configured := false
+	defer func() {
+		if !configured {
+			runIgnore("ip", "link", "delete", "dev", input.Name)
+		}
+	}()
+	if err := setTunnel(input.ClientTunnel.controlTool(), args...); err != nil {
 		return err
 	}
 	if input.MTU > 0 {
@@ -3260,7 +3337,11 @@ func configureWireGuardInterface(input wgInterfaceConfig) error {
 			return err
 		}
 	}
-	return runCommand("ip", "link", "set", "up", "dev", input.Name)
+	if err := runCommand("ip", "link", "set", "up", "dev", input.Name); err != nil {
+		return err
+	}
+	configured = true
+	return nil
 }
 
 func writeTempPrivateKey(privateKey string) (string, func(), error) {
@@ -3298,6 +3379,7 @@ func revokeAssignment(cfg config, payload assignmentPayload) error {
 	checkpoint.SampledAt = time.Now().UTC().Format(time.RFC3339Nano)
 	state.CounterCheckpoint = &checkpoint
 	state.ClientPrivateKey = ""
+	state.HeaderProtectionKey = ""
 	state.TransitPrivateKey = ""
 	state.RevokedAt = time.Now().UTC().Format(time.RFC3339)
 	deleteNftRules("inet", "hyperspace", "input", state.Handle)
@@ -3574,11 +3656,21 @@ func assignmentKernelStatePresent(state assignmentState) bool {
 		interfaces = append(interfaces, state.Material.Interfaces.Client)
 	}
 	for _, interfaceName := range interfaces {
-		if commandOutput("ip", "link", "show", "dev", interfaceName) == "" || commandOutput("wg", "show", interfaceName) == "" {
+		tool := "wg"
+		if interfaceName == state.Material.Interfaces.Client {
+			if state.Material.ClientTunnel.validate() != nil {
+				return false
+			}
+			tool = state.Material.ClientTunnel.controlTool()
+		}
+		if commandOutput("ip", "link", "show", "dev", interfaceName) == "" || commandOutput(tool, "show", interfaceName) == "" {
 			return false
 		}
 	}
 	forwardRules := commandOutput("nft", "list", "chain", "inet", "hyperspace", "forward")
+	if state.Role == "Ingress" && !amneziaWGKernelStatePresent(state) {
+		return false
+	}
 	if !strings.Contains(forwardRules, `comment "`+state.Handle+`:`) {
 		return false
 	}
@@ -3635,7 +3727,7 @@ func readAssignmentCounter(state assignmentState) assignmentCounterSnapshot {
 		SampledAt:    time.Now().UTC().Format(time.RFC3339Nano),
 	}
 	if state.Material.Interfaces.Client != "" {
-		counter.WireGuardClientReceiveBytes, counter.WireGuardClientTransmitBytes = wireGuardTransfer(state.Material.Interfaces.Client)
+		counter.WireGuardClientReceiveBytes, counter.WireGuardClientTransmitBytes = tunnelTransfer(state.Material.ClientTunnel.controlTool(), state.Material.Interfaces.Client)
 	}
 	counter.WireGuardTransitReceiveBytes, counter.WireGuardTransitTransmitBytes = wireGuardTransfer(state.Material.Interfaces.Transit)
 
@@ -3685,10 +3777,14 @@ func addAssignmentCounters(left assignmentCounterSnapshot, right assignmentCount
 }
 
 func wireGuardTransfer(interfaceName string) (uint64, uint64) {
+	return tunnelTransfer("wg", interfaceName)
+}
+
+func tunnelTransfer(tool, interfaceName string) (uint64, uint64) {
 	if interfaceName == "" {
 		return 0, 0
 	}
-	output := commandOutput("wg", "show", interfaceName, "transfer")
+	output := commandOutput(tool, "show", interfaceName, "transfer")
 	var receiveTotal uint64
 	var transmitTotal uint64
 	for _, line := range strings.Split(output, "\n") {

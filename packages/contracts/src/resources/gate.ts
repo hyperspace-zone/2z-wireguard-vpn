@@ -69,6 +69,7 @@ export const gateSummarySchema = {
     agentInstalledAt: { type: "string", format: "date-time" },
     clockErrorMs: { type: "number" },
     doubleZero: gateDoubleZeroStatusSchema,
+    amneziaWGReady: { type: "boolean" },
     ready: { type: "boolean" },
     schedulable: { type: "boolean" }
   }

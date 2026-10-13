@@ -1,9 +1,11 @@
+import { connectHelperScript } from "./connect-helper.js";
+import { configProtocolFromSearch, createConfigPath, pendingConfigPath } from "./config-protocol.js";
 import { benchmarkRequestTimeoutMs, shouldLoadBenchmarkMatrix } from "./benchmark-isolation.js";
 import { readRequestTimeoutMs, shouldLoadAdminBilling } from "./billing-isolation.js";
 import { disposeAuthSecurity, mountAuthSecurity } from "./auth-security.js";
 import { emailCodeView } from "./email-code-view.js";
 import { tradingRouteIntent } from "./trading-route-intent.js";
-import type { PublicTradingRouteResponse } from "@hyperspace-zone/contracts";
+import type { ClientProtocol, PublicTradingRouteResponse } from "@hyperspace-zone/contracts";
 
 type SessionMode = "IpToIp" | "FullTunnel";
 type AppView = "dashboard" | "create-config" | "benchmarks" | "billing" | "admin-billing" | "login" | "register";
@@ -26,6 +28,7 @@ interface Gate {
   doubleZero?: GateDoubleZeroStatus;
   ready: boolean;
   schedulable: boolean;
+  amneziaWGReady?: boolean;
   browserLatencyMs?: number | null;
   browserLatencyStatus?: "measured" | "unavailable" | "measuring";
 }
@@ -401,6 +404,9 @@ let automaticGateLatencyMeasurementStarted = false;
 let gateLatencyMeasurementInFlight = false;
 let browserIp = "";
 let currentView: AppView = viewFromLocation();
+let configProtocol: ClientProtocol | null = currentView === "create-config" ? configProtocolFromSearch(window.location.search) : "wireguard";
+let authConfigPath = pendingConfigPath(sessionStorage.getItem("hyperspaceConfigAfterAuth"));
+if (currentView !== "login" && currentView !== "register") clearAuthConfigPath();
 let createConfigStep: CreateConfigStep = "configure";
 let createConfigSubmitting = false;
 let createConfigOptionsOpen = false;
@@ -471,6 +477,15 @@ if (/^\/trading\/(pairs|routes)(\/|$)/.test(window.location.pathname)) {
   renderLoading();
   window.addEventListener("popstate", () => {
     currentView = viewFromLocation();
+    if (currentView === "create-config") {
+      const protocol = configProtocolFromSearch(window.location.search);
+      if (protocol !== configProtocol) {
+        resetSessionDraft();
+        resetCreatedConfigResult();
+        createConfigStep = "configure";
+      }
+      configProtocol = protocol;
+    }
     if (currentView !== "create-config") {
       createConfigStep = "configure";
     }
@@ -487,7 +502,7 @@ function renderLoading(): void {
       <section class="topbar">
         <div>
           <h1>DoubleZero WireGuard VPN</h1>
-          <p>DoubleZero-backed WireGuard configs across Hyperspace gates.</p>
+          <p>VPN connections across DoubleZero-backed Hyperspace gates.</p>
         </div>
         <div class="identity">
           <span>Loading</span>
@@ -527,10 +542,7 @@ async function refresh(options: { skipAutoMeasure?: boolean } = {}): Promise<voi
   }
   latestMe = me;
   latestBenchmarkMatrix = benchmarkMatrix;
-  if (me && tradingRouteId && (currentView === "login" || currentView === "register")) {
-    currentView = "create-config";
-    window.history.replaceState({}, "", `/create-config?tradingRoute=${tradingRouteId}`);
-  }
+  if (me && (currentView === "login" || currentView === "register")) resumeConfigAfterAuth();
   if (currentView === "create-config" && tradingRouteId && !tradingRouteSelection) await loadTradingRouteSelection();
   render({ gates: decorateGates(gates), sessions, me, benchmarkMatrix });
   void billingPromise.then((billing) => {
@@ -583,7 +595,7 @@ function render(state: { gates?: Gate[]; sessions?: Session[]; me?: Me | null; b
       <section class="topbar">
         <div>
           <h1>DoubleZero WireGuard VPN</h1>
-          <p>DoubleZero-backed WireGuard configs across Hyperspace gates.</p>
+          <p>VPN connections across DoubleZero-backed Hyperspace gates.</p>
         </div>
         <div class="identity">
           ${me ? `${headerBalance(billing)}${me.avatarUrl ? `<img class="identity-avatar" src="${escapeHtml(me.avatarUrl)}" alt="" referrerpolicy="no-referrer" />` : ""}<span>${escapeHtml(me.displayName || me.email)}</span><button id="logout">Log out</button>` : '<a class="button-link secondary-button" href="/login" data-view="login">Log in</a>'}
@@ -625,6 +637,13 @@ function stopSessionAutoRefresh(): void {
 }
 
 function navigateToView(view: AppView): void {
+  if (view !== "login" && view !== "register") clearAuthConfigPath();
+  if (view === "create-config" && configProtocol !== "wireguard") {
+    resetSessionDraft();
+    resetCreatedConfigResult();
+    createConfigStep = "configure";
+    configProtocol = "wireguard";
+  }
   currentView = view;
   if (view !== "create-config") {
     resetCreatedConfigResult();
@@ -687,7 +706,7 @@ function viewFromLocation(): AppView {
 
 function viewPath(view: AppView): string {
   if (view === "create-config") {
-    return "/create-config";
+    return createConfigPath(configProtocol, tradingRouteId);
   }
   if (view === "benchmarks") {
     return "/benchmarks";
@@ -710,6 +729,10 @@ function viewPath(view: AppView): string {
 function resolveViewForAuth(me: Me | null): AppView {
   let view = currentView;
   if (!me && view !== "login" && view !== "register" && view !== "benchmarks") {
+    if (view === "create-config") {
+      authConfigPath = window.location.pathname + window.location.search;
+      sessionStorage.setItem("hyperspaceConfigAfterAuth", JSON.stringify({ path: authConfigPath, createdAt: Date.now() }));
+    }
     view = "login";
   }
   if (me && (view === "login" || view === "register")) {
@@ -923,7 +946,7 @@ function loginView(): string {
     <section class="panel auth-panel">
       <div>
         <h2>Log in</h2>
-        <p>Use an email code or Google account to manage issued WireGuard configs.</p>
+        <p>Use an email code or Google account to manage issued VPN configs.</p>
       </div>
       ${emailCodeView({ email: emailOtpPendingEmail, codeSent: emailOtpCodeSent,
         busy: emailOtpBusy, notice: emailOtpNotice, noticeIsError: emailOtpNoticeIsError })}
@@ -945,7 +968,7 @@ function registerView(): string {
       <form id="register-form" class="auth-form">
         <div>
           <h2>Register</h2>
-          <p>Create an account to issue and revoke DoubleZero WireGuard VPN configs.</p>
+          <p>Create an account to issue and revoke DoubleZero VPN configs.</p>
         </div>
         <label>Email <input name="email" type="email" autocomplete="email" required /></label>
         <label>Password <input name="password" type="password" autocomplete="new-password" minlength="12" required /></label>
@@ -2124,14 +2147,17 @@ function relativeTime(value: string): string {
 }
 
 function createSessionPanel(gates: Gate[]): string {
+  if (configProtocol === null) return '<p role="alert">Unknown VPN protocol in this link. Check the protocol parameter before creating a config.</p>';
   if (tradingRouteId && (!tradingRouteSelection || tradingRouteError)) return "";
   const schedulableGates = gates.filter((gate) => gate.ready && gate.schedulable);
   const policyGates = schedulableGates.filter((gate) => !gateExcludedByDraftPolicy(gate));
-  const ingressGates = sortIngressGates(policyGates);
+  const ingressGates = sortIngressGates(policyGates.filter((gate) => configProtocol !== "amneziawg" || gate.amneziaWGReady === true));
   ensureSessionDraftGateSelection(ingressGates, policyGates);
   const emptyIngressLabel = gateCatalogLoadError
     ? "Unable to load ingress gates"
-    : schedulableGates.length > 0
+    : configProtocol === "amneziawg" && !schedulableGates.some((gate) => gate.amneziaWGReady === true)
+      ? "No AmneziaWG 3.1 ingress gates available"
+      : schedulableGates.length > 0
       ? "No ingress gates match routing policy"
       : "No ingress gates available";
   const ingressOptions = ingressGates.length === 0
@@ -2167,7 +2193,7 @@ function createSessionPanel(gates: Gate[]): string {
               ${egressOptions}
             </select>
             ${fieldError("egressGateName")}
-            <small>Ingress is selected automatically from the nearest ready gate.</small>
+            <small>Ingress is selected automatically from the nearest ready ${configProtocol === "amneziawg" ? "AmneziaWG 3.1 " : ""}gate.</small>
           </label>
         </fieldset>
 
@@ -2210,13 +2236,13 @@ function createSessionPanel(gates: Gate[]): string {
             <fieldset class="form-group client-key-group">
               <label class="checkbox-line">
                 <input name="useClientPublicKey" type="checkbox" ${sessionDraft.useClientPublicKey ? "checked" : ""} />
-                <span>Use my own WireGuard client public key</span>
+                <span>Use my own client public key</span>
               </label>
               ${sessionDraft.useClientPublicKey ? `
                 <label>Client public key
                   <input name="clientPublicKey" placeholder="WireGuard public key" value="${escapeHtml(sessionDraft.clientPublicKey)}" required ${sessionValidationErrors.clientPublicKey ? 'aria-invalid="true"' : ""} />
                 </label>
-                <small>Paste the 44-character WireGuard public key only. Keep the private key on the client machine.</small>
+                <small>Paste the 44-character WireGuard public key only. Keep the private key on the client machine.${configProtocol === "amneziawg" ? " WireGuard keys also work with AmneziaWG; connecting requires AmneziaWG 3.1 or newer." : ""}</small>
                 ${fieldError("clientPublicKey")}
                 ${clientKeyInstructionsPanel()}
               ` : "<small>The control plane will generate a client key pair when this is off.</small>"}
@@ -2303,6 +2329,8 @@ function createConfigConfirmationPanel(gates: Gate[]): string {
       <div class="policy-panel">
         <h3>Tunnel policy</h3>
         <p>${escapeHtml(policyText)}</p>
+        ${configProtocol === "amneziawg" ? `<p>This config requires a client supporting the AmneziaWG 3.1 protocol.
+          <a href="https://docs.amnezia.org/documentation/instructions/use-amneziawg-app/" target="_blank" rel="noopener noreferrer">Install AmneziaWG</a> before connecting.</p>` : ""}
       </div>
 
       ${sessionDraft.mode === "FullTunnel" ? fullTunnelAlertPanel() : ""}
@@ -2354,7 +2382,7 @@ function createConfigResultPanel(): string {
         <div class="config-provisioning">
           <span class="loading-spinner" aria-hidden="true"></span>
           <div>
-            <strong>Preparing WireGuard config</strong>
+            <strong>Preparing ${configProtocol === "amneziawg" ? "AmneziaWG" : "WireGuard"} config</strong>
             <p>${escapeHtml(createdConfigPhaseText(createdConfigSessionPhase))}</p>
           </div>
         </div>
@@ -2365,10 +2393,15 @@ function createConfigResultPanel(): string {
     <div class="config-result-state">
       <p class="step-caption">Create VPN config - Ready</p>
       <div class="created-config-result">
-        <div class="created-config-qr" role="img" aria-label="WireGuard configuration QR code">${createdConfigQrSvg}</div>
+        <div class="created-config-qr" role="img" aria-label="VPN configuration QR code">${createdConfigQrSvg}</div>
         <div class="created-config-actions">
-          <h3>WireGuard config is ready</h3>
-          <p>Scan the QR code with the WireGuard mobile app or download the config file.</p>
+          <h3>VPN config is ready</h3>
+          ${configProtocol === "amneziawg" ? `<p>Import this config with a client supporting AmneziaWG 3.1.</p>
+          <p>Get AmneziaWG for
+            <a href="https://github.com/amnezia-vpn/amneziawg-windows-client/releases/latest" target="_blank" rel="noopener noreferrer">Windows</a>,
+            <a href="https://apps.apple.com/app/amneziawg/id6478942365" target="_blank" rel="noopener noreferrer">macOS / iOS</a> or
+            <a href="https://play.google.com/store/apps/details?id=org.amnezia.awg" target="_blank" rel="noopener noreferrer">Android</a>.
+            On Linux, use current AmneziaWG tools with awg-quick.</p>` : "<p>Import this config into WireGuard, or scan the QR code with the WireGuard app.</p>"}
           <button id="download-created-config" type="button">Download config</button>
           <button id="finish-create-config" class="success-button" type="button">OK</button>
         </div>
@@ -2727,10 +2760,10 @@ function vpnConfigsPanel(sessions: Session[]): string {
       </table>
     </div>
     ${activeConfigQrSvg ? `
-      <div class="qr-overlay" role="dialog" aria-modal="true" aria-label="WireGuard configuration QR code">
+      <div class="qr-overlay" role="dialog" aria-modal="true" aria-label="VPN configuration QR code">
         <div class="qr-dialog">
           <div class="panel-heading">
-            <h3>Scan with WireGuard</h3>
+            <h3>Scan with your VPN app</h3>
             <button id="close-config-qr" class="secondary-button" type="button">Close</button>
           </div>
           <div class="config-qr">${activeConfigQrSvg}</div>
@@ -2837,7 +2870,7 @@ function bindHandlers(): void {
   document.getElementById("detach-trading-route")?.addEventListener("click", () => {
     tradingRouteId = ""; tradingRouteSelection = null; tradingRouteError = "";
     sessionStorage.removeItem("hyperspaceTradingRoute");
-    window.history.replaceState({}, "", "/create-config");
+    window.history.replaceState({}, "", viewPath("create-config"));
     createConfigStep = "configure";
     render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
   });
@@ -3345,13 +3378,28 @@ async function startGoogleLogin(): Promise<void> {
 function completeAuth(response: { accessToken: string }): void {
   resetEmailOtp();
   token = response.accessToken;
-  currentView = tradingRouteId ? "create-config" : "dashboard";
+  currentView = "dashboard";
   createConfigStep = "configure";
   resetCreatedConfigResult();
   resetSessionDraft();
   tradingRouteSelection = null;
   localStorage.setItem("hyperspaceAccessToken", token);
-  window.history.replaceState({}, "", tradingRouteId ? `/create-config?tradingRoute=${tradingRouteId}` : viewPath("dashboard"));
+  if (!resumeConfigAfterAuth()) window.history.replaceState({}, "", viewPath("dashboard"));
+}
+
+function clearAuthConfigPath(): void {
+  authConfigPath = null;
+  sessionStorage.removeItem("hyperspaceConfigAfterAuth");
+}
+
+function resumeConfigAfterAuth(): boolean {
+  const path = authConfigPath ?? (tradingRouteId ? createConfigPath("wireguard", tradingRouteId) : null);
+  if (!path) return false;
+  currentView = "create-config";
+  configProtocol = configProtocolFromSearch(new URL(path, window.location.origin).search);
+  window.history.replaceState({}, "", path);
+  clearAuthConfigPath();
+  return true;
 }
 
 function resetEmailOtp(): void {
@@ -3374,6 +3422,7 @@ async function createSession(): Promise<void> {
     return;
   }
   createConfigSubmitting = true;
+  const requestedProtocol = configProtocol;
   createConfigPaymentError = "";
   createConfigPaymentRequestId ||= crypto.randomUUID();
   sessionValidationErrors = {};
@@ -3399,6 +3448,7 @@ async function createSession(): Promise<void> {
     }
     createConfigSubmitting = false;
     createdConfigSessionId = sessionId;
+    configProtocol = requestedProtocol;
     sessionStorage.removeItem("hyperspaceTradingRoute");
     tradingRouteId = "";
     tradingRouteSelection = null;
@@ -3457,7 +3507,7 @@ async function waitForCreatedConfigArtifact(sessionId: string): Promise<void> {
     await wait(1500);
   }
   if (createdConfigSessionId !== sessionId) return;
-  createdConfigError = "Timed out while waiting for the WireGuard artifact. The request remains visible on Dashboard.";
+  createdConfigError = "Timed out while waiting for the VPN artifact. The request remains visible on Dashboard.";
   render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
 }
 
@@ -3579,6 +3629,10 @@ async function updateAdminConfigQuota(sessionId: string, form: FormData): Promis
 
 function validateSessionDraft(): SessionValidationErrors {
   const errors: SessionValidationErrors = {};
+  if (configProtocol === null) {
+    errors.ingressGateName = "Unknown VPN protocol in this link. Check the protocol parameter.";
+    return errors;
+  }
   if (tradingRouteId && (!tradingRouteSelection || tradingRouteError || sessionDraft.mode !== "FullTunnel"
     || sessionDraft.ingressGateName !== tradingRouteSelection.route.ingressGateName
     || sessionDraft.egressGateName !== tradingRouteSelection.route.egressGateName)) {
@@ -3629,6 +3683,7 @@ function clearSessionValidationErrors(): void {
 function sessionPayloadFromDraft(): Record<string, unknown> {
   const payload: Record<string, unknown> = {
     mode: sessionDraft.mode,
+    clientProtocol: configProtocol,
     label: optionalDraftString(sessionDraft.label),
     sourceIp: sessionDraft.restrictSource ? optionalDraftString(sessionDraft.sourceIp) : undefined,
     ingressGateName: optionalDraftString(sessionDraft.ingressGateName),
@@ -3717,7 +3772,7 @@ async function showConfigQr(id: string): Promise<void> {
     activeConfigQrSessionId = id;
     render({ gates: decorateGates(latestGates), sessions: latestSessions, me: latestMe });
   } catch (error) {
-    log(error instanceof Error ? error.message : "Could not generate WireGuard QR code.");
+    log(error instanceof Error ? error.message : "Could not generate VPN QR code.");
   }
 }
 
@@ -3728,7 +3783,7 @@ async function fetchConfigQrSvg(id: string): Promise<string> {
     cache: "no-store"
   });
   if (!response.ok) {
-    throw new Error("Could not generate WireGuard QR code.");
+    throw new Error("Could not generate VPN QR code.");
   }
   return response.text();
 }
@@ -3763,46 +3818,6 @@ function apiUrl(path: string): string {
   return new URL(`${apiBase}${path}`, window.location.origin).toString();
 }
 
-function connectHelperScript(platform: "linux" | "macos" | "windows", configUrl: string): string {
-  if (platform === "windows") {
-    return [
-      "$ErrorActionPreference = 'Stop'",
-      "$configPath = Join-Path $env:TEMP 'hyperspace.conf'",
-      `Invoke-WebRequest -UseBasicParsing -Uri '${configUrl}' -OutFile $configPath`,
-      "$wireGuard = Join-Path $env:ProgramFiles 'WireGuard\\wireguard.exe'",
-      "if (-not (Test-Path $wireGuard)) { winget install --id WireGuard.WireGuard -e --accept-package-agreements --accept-source-agreements }",
-      "Start-Process -FilePath $wireGuard -ArgumentList @('/installtunnelservice', $configPath) -Verb RunAs -Wait",
-      "Write-Host 'Hyperspace tunnel installed and started.'"
-    ].join("\r\n");
-  }
-  if (platform === "macos") {
-    return [
-      "#!/usr/bin/env bash",
-      "set -euo pipefail",
-      "config_path=\"$HOME/Downloads/hyperspace.conf\"",
-      `curl -fsSL '${configUrl}' -o \"$config_path\"`,
-      "chmod 600 \"$config_path\"",
-      "if [ -d /Applications/WireGuard.app ]; then open -a WireGuard \"$config_path\"; else echo 'Install WireGuard from the App Store, then open hyperspace.conf.'; open -R \"$config_path\"; fi"
-    ].join("\n");
-  }
-  return [
-    "#!/usr/bin/env bash",
-    "set -euo pipefail",
-    "if ! command -v wg-quick >/dev/null; then",
-    "  if command -v apt-get >/dev/null; then sudo apt-get update && sudo apt-get install -y wireguard-tools;",
-    "  elif command -v dnf >/dev/null; then sudo dnf install -y wireguard-tools;",
-    "  elif command -v pacman >/dev/null; then sudo pacman -Sy --noconfirm wireguard-tools;",
-    "  else echo 'Install WireGuard tools first.' >&2; exit 1; fi",
-    "fi",
-    "tmp_config=$(mktemp)",
-    "trap 'rm -f \"$tmp_config\"' EXIT",
-    `curl -fsSL '${configUrl}' -o \"$tmp_config\"`,
-    "sudo install -m 600 \"$tmp_config\" /etc/wireguard/hyperspace.conf",
-    "sudo wg-quick down hyperspace >/dev/null 2>&1 || true",
-    "sudo wg-quick up hyperspace",
-    "echo 'Hyperspace tunnel is connected.'"
-  ].join("\n");
-}
 
 async function getMe(): Promise<Me> {
   const response = await api("/v1/public/auth/me", { method: "GET" });

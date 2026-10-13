@@ -1,4 +1,6 @@
 import type { TransactionalQueryable } from "../../db/queryable.js";
+import { choosePath } from "../../planning/choose-path.js";
+import { sessionClientProtocolLabel } from "../../planning/client-tunnel.js";
 import type { SessionAbuseControlConfig } from "./abuse-controls.js";
 import {
   countNonTerminalSessionsForAccount,
@@ -97,6 +99,17 @@ export async function createRequestedSessionWithAbuseControls(
         status: "rejected",
         error: "session_create_rate_limited",
         message: `Self-service account create limit reached: ${config.maxSessionCreatesPerWindow} VPN configs per ${config.sessionCreateWindowSeconds} seconds.`
+      };
+    }
+
+    // Validate before issuing a new session (and before the API charges it).
+    // Existing requests return above so retries still resume the original payment.
+    // The reconciler checks again because readiness can change after this read.
+    if (!await choosePath(client, parsed.spec)) {
+      return {
+        status: "rejected",
+        error: "route_policy_not_satisfied",
+        message: `No ready ${sessionClientProtocolLabel(parsed.spec)} ingress and distinct WireGuard egress match this route. Refresh the gate list and select an available route. No payment has been taken.`
       };
     }
 

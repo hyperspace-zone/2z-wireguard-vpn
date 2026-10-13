@@ -22,6 +22,7 @@
     "test": "npm run test --workspaces --if-present",
     "test:unit": "npm run test --workspaces --if-present",
     "test:milestone3:ui": "node scripts/testnet/milestone3-ui-smoke.mjs",
+    "test:config-protocol:ui": "node scripts/testnet/config-protocol-ui-smoke.mjs",
     "test:live:email": "node --env-file-if-exists=.env scripts/testnet/resend-otp-e2e.mjs",
     "test:live:identity-db": "node --env-file-if-exists=.env scripts/testnet/identity-linking-db-e2e.mjs",
     "test:live:billing-db": "node --env-file-if-exists=.env scripts/testnet/milestone3-billing-db-e2e.mjs",

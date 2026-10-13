@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { amneziaWGCapability } from "./client-tunnel.js";
 import { choosePath } from "./choose-path.js";
 
 interface QueryCall {
@@ -21,7 +22,9 @@ const egressGate = {
   doubleZeroEnv: "mainnet-beta"
 };
 
-test("choosePath schedules an explicit mainnet-beta gate pair using gate_status readiness", async () => {
+for (const clientProtocol of [undefined, "wireguard", "amneziawg"]) {
+test(`choosePath schedules ${clientProtocol ?? "default WG"} using gate_status readiness`, async () => {
+  const requiredCapabilities = clientProtocol === "amneziawg" ? [amneziaWGCapability] : [];
   const calls: QueryCall[] = [];
   const client = {
     async query<Row extends object = Record<string, unknown>>(
@@ -32,16 +35,17 @@ test("choosePath schedules an explicit mainnet-beta gate pair using gate_status 
       assertSchedulableGateQuery(sql);
 
       if (calls.length === 1) {
-        assert.deepEqual(params, [null, null, ingressGate.name, [], [], []]);
+        assert.deepEqual(params, [null, null, ingressGate.name, [], [], [], requiredCapabilities]);
         return { rows: [ingressGate as unknown as Row] };
       }
 
-      assert.deepEqual(params, [ingressGate.id, null, egressGate.name, [], [], []]);
+      assert.deepEqual(params, [ingressGate.id, null, egressGate.name, [], [], [], []]);
       return { rows: [egressGate as unknown as Row] };
     }
   };
 
   const path = await choosePath(client, {
+    clientProtocol,
     ingressGateName: ingressGate.name,
     egressGateName: egressGate.name
   });
@@ -54,9 +58,10 @@ test("choosePath schedules an explicit mainnet-beta gate pair using gate_status 
     egressGateName: egressGate.name,
     egressPublicIpv4: egressGate.publicIpv4
   });
-  assert.deepEqual(calls[0]?.params, [null, null, ingressGate.name, [], [], []]);
+  assert.deepEqual(calls[0]?.params, [null, null, ingressGate.name, [], [], [], requiredCapabilities]);
   assert.equal(calls.length, 2);
 });
+}
 
 test("choosePath passes excluded countries from censorship-resistant route policy", async () => {
   const calls: QueryCall[] = [];
@@ -75,6 +80,7 @@ test("choosePath passes excluded countries from censorship-resistant route polic
   };
 
   const path = await choosePath(client, {
+    clientProtocol: "amneziawg",
     ingressGateName: ingressGate.name,
     egressGateName: egressGate.name,
     pathPolicy: {
@@ -85,11 +91,12 @@ test("choosePath passes excluded countries from censorship-resistant route polic
   });
 
   assert.ok(path);
-  assert.deepEqual(calls[0]?.params, [null, null, ingressGate.name, ["germany"], ["frankfurt"], []]);
-  assert.deepEqual(calls[1]?.params, [ingressGate.id, null, egressGate.name, ["germany"], ["frankfurt"], ["na"]]);
+  assert.deepEqual(calls[0]?.params, [null, null, ingressGate.name, ["germany"], ["frankfurt"], [], [amneziaWGCapability]]);
+  assert.deepEqual(calls[1]?.params, [ingressGate.id, null, egressGate.name, ["germany"], ["frankfurt"], ["na"], []]);
 });
 
 function assertSchedulableGateQuery(sql: string): void {
+  assert.ok(sql.includes("@> $7::text[]"));
   if (/gate_status\./.test(sql) && !/\bJOIN\s+gate_status\b/i.test(sql)) {
     throw new Error('missing FROM-clause entry for table "gate_status"');
   }

@@ -1,4 +1,5 @@
-import type { SessionMode } from "@hyperspace-zone/contracts";
+import type { ClientProtocol, SessionMode } from "@hyperspace-zone/contracts";
+import { readSessionClientProtocol } from "../../planning/client-tunnel.js";
 
 export interface SessionCreateParsed {
   mode: SessionMode;
@@ -13,6 +14,12 @@ export interface SessionCreateParsed {
 const wireGuardCanonicalBase64Pattern = /^[A-Za-z0-9+/]{42}[AEIMQUYcgkosw048]=$/;
 
 export function parseSessionCreateBody(body: Record<string, unknown>): SessionCreateParsed | { error: string; message?: string } {
+  let clientProtocol: ClientProtocol;
+  try {
+    clientProtocol = readSessionClientProtocol(body.clientProtocol);
+  } catch {
+    return { error: "invalid_client_protocol", message: "Client protocol must be wireguard or amneziawg." };
+  }
   const mode = readString(body, "mode");
   if (mode !== "IpToIp" && mode !== "FullTunnel") {
     return { error: "invalid_mode" };
@@ -50,6 +57,7 @@ export function parseSessionCreateBody(body: Record<string, unknown>): SessionCr
 
   const spec = {
     desiredState: "Active",
+    clientProtocol,
     mode,
     destinationCidrs,
     ...(sourceCidr ? { sourceCidr } : {}),

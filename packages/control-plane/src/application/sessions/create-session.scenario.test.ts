@@ -2,16 +2,25 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { Queryable, TransactionalQueryable } from "../../db/queryable.js";
 import { createSession } from "./create-session.scenario.js";
+import { amneziaWGCapability } from "../../planning/client-tunnel.js";
 
 test("ordinary VPN creation uses only a core transaction when probes is unavailable",async()=>{
   const statements:string[]=[];
   const core:TransactionalQueryable={
     query:async<Row extends object>()=>{assert.fail("use the core transaction");return{rows:[] as Row[],rowCount:0};},
-    transaction:async<T>(fn:(client:Queryable)=>Promise<T>)=>fn({query:async<Row extends object>(sql:string)=>{
+    transaction:async<T>(fn:(client:Queryable)=>Promise<T>)=>fn({query:async<Row extends object>(sql:string,params?:readonly unknown[])=>{
       statements.push(sql);
       if(/SELECT id\s+FROM accounts/.test(sql))return{rows:[{id:"account-1"} as Row],rowCount:1};
       if(/COUNT\(\*\)::int AS count/.test(sql))return{rows:[{count:0} as Row],rowCount:1};
-      if(/INSERT INTO sessions\s*\(/.test(sql))return{rows:[{id:"session-1"} as Row],rowCount:1};
+      if(/SELECT gates.id, gates.name/.test(sql)) {
+        const ingress = params?.[2] === "gate-a";
+        assert.deepEqual(params?.[6], []);
+        return {rows:[{id:ingress ? "gate-a-id" : "gate-b-id",name:params?.[2],publicIpv4:"192.0.2.1"} as Row],rowCount:1};
+      }
+      if(/INSERT INTO sessions\s*\(/.test(sql)) {
+        assert.ok(params?.some(value => typeof value === "string" && value.includes('"clientProtocol":"wireguard"')));
+        return{rows:[{id:"session-1"} as Row],rowCount:1};
+      }
       if(/INSERT INTO (session_status|session_conditions|audit_events)/.test(sql))return{rows:[] as Row[],rowCount:1};
       assert.fail(`unexpected core statement: ${sql}`);
     }})
@@ -21,6 +30,41 @@ test("ordinary VPN creation uses only a core transaction when probes is unavaila
   assert.deepEqual(result,{status:"created",sessionId:"session-1"});
   assert.ok(statements.some(sql=>/INSERT INTO sessions/.test(sql)));
 });
+
+for (const missingRole of ["ingress", "egress"] as const) {
+  test(`new paid sessions reject an unavailable ${missingRole} before inserting a session`, async () => {
+    let gateReads = 0;
+    const db: TransactionalQueryable = {
+      async query<Row extends object>(): Promise<{ rows: Row[]; rowCount: number }> {
+        assert.fail("use the core transaction");
+      },
+      async transaction<T>(fn: (client: Queryable) => Promise<T>) {
+        return fn({ async query<Row extends object>(sql: string, params?: readonly unknown[]) {
+          if (/SELECT id\s+FROM accounts/.test(sql)) return { rows: [{ id: "account-1" } as Row], rowCount: 1 };
+          if (/create_request_id/.test(sql)) return { rows: [] as Row[], rowCount: 0 };
+          if (/COUNT\(\*\)::int AS count/.test(sql)) return { rows: [{ count: 0 } as Row], rowCount: 1 };
+          if (/SELECT gates.id, gates.name/.test(sql)) {
+            gateReads++;
+            assert.deepEqual(params?.[6], gateReads === 1 ? [amneziaWGCapability] : []);
+            if (missingRole === "ingress" || gateReads === 2) return { rows: [] as Row[], rowCount: 0 };
+            return { rows: [{ id: "gate-a-id", name: "gate-a", publicIpv4: "192.0.2.1" } as Row], rowCount: 1 };
+          }
+          assert.fail(`must not issue a paid session on an unavailable route: ${sql}`);
+        } });
+      }
+    };
+    const result = await createSession(db, { id: "user-1", accountId: "account-1" }, {
+      mode: "FullTunnel", clientProtocol: "amneziawg", ingressGateName: "gate-a", egressGateName: "gate-b",
+      paymentRequestId: "a286e955-fd9f-4cad-811f-b48a451507f8"
+    }, {}, { initialPhase: "payment_pending" });
+    assert.equal(result.status, "invalid");
+    if (result.status === "invalid") {
+      assert.equal(result.error, "route_policy_not_satisfied");
+      assert.match(result.message ?? "", /No payment has been taken/);
+    }
+    assert.equal(gateReads, missingRole === "ingress" ? 1 : 2);
+  });
+}
 
 test("an unavailable optional trading preset is rejected before a core write or payment",async()=>{
   const core:TransactionalQueryable={query:async<Row extends object>()=>{assert.fail("no core writes/reads needed");return{rows:[] as Row[],rowCount:0};},transaction:async<T>():Promise<T>=>{assert.fail("must not begin a paid core transaction");}};

@@ -1,6 +1,7 @@
 # DoubleZero WireGuard VPN
 
 DoubleZero WireGuard VPN is a self-service control plane for issuing WireGuard
+or opt-in the extended WireGuard variant 3.1
 configs that route traffic through DoubleZero-backed gate servers.
 
 The target operator experience is:
@@ -9,11 +10,17 @@ The target operator experience is:
 2. Obtain DoubleZero `access-pass` records for those gate servers.
 3. Deploy the control plane, database, web UI, and gate agents.
 4. Let users register, sign in, choose ingress and egress gates, and download
-   WireGuard configs.
+   VPN configs.
 
-Users of the issued WireGuard configs do not need to install DoubleZero. Only
-the gate servers run DoubleZero and expose ordinary WireGuard entry points to
-clients.
+`/create-config` (or `?protocol=wireguard`) issues ordinary WireGuard configs.
+The unlisted `/create-config?protocol=amnezia` URL issues the extended WireGuard variant 3.1 configs.
+There is no protocol picker; the API receives `clientProtocol: "amneziawg"`
+only for that explicit opt-in, and defaults to `"wireguard"` when omitted.
+Clients use the matching app and do not need to install DoubleZero. Only the
+gate servers run DoubleZero. Ingress-to-egress connections remain ordinary
+WireGuard. Existing immutable plans retain their original client protocol.
+See the [WireGuard variant rollout guide](docs/runbooks/deployment.md#wireguard-variant-ingress-rollout)
+for host dependencies and the coordinated agent/API/worker/UI upgrade.
 
 The platform can be deployed over either DoubleZero testnet or DoubleZero
 mainnet-beta. The choice is made when provisioning the gate hosts and their
@@ -38,6 +45,7 @@ Each gate host needs:
 - A stable public IPv4 address.
 - Root or sudo access.
 - `wireguard-tools`, `iproute2`, `nftables`, and the DoubleZero client/daemon.
+- On extended WireGuard ingress: the extended WireGuard variant 3.1 tools (`awg`) and a matching kernel module.
 - A DoubleZero identity/keypair. The gate catalog `identity` field is the
   DoubleZero `user_payer` identity returned by `doublezero address` on that
   gate host.
@@ -75,7 +83,7 @@ traffic it will serve.
 
 Plan at least two locations:
 
-- Ingress gate: near the source clients that will initiate WireGuard
+- Ingress gate: near the source clients that will initiate VPN
   connections.
 - Egress gate: near the destination side or desired internet exit location.
 
@@ -106,9 +114,9 @@ flowchart LR
   worker["Control-plane worker\nreconciliation loop"]
   agentIn["Ingress gate agent"]
   agentEg["Egress gate agent"]
-  ingress["Ingress gate host\nWireGuard + nftables + doublezero0"]
+  ingress["Ingress gate host\nthe extended WireGuard variant + WireGuard + nftables + doublezero0"]
   egress["Egress gate host\nWireGuard + nftables + doublezero0"]
-  client["WireGuard client"]
+  client["WireGuard or the extended WireGuard variant 3.1 client"]
   dz["DoubleZero fabric"]
   target["Target IP or Internet"]
 
@@ -123,12 +131,12 @@ flowchart LR
   worker -->|"schedules benchmark\nprobe jobs"| db
   agentIn <-->|"UDP benchmark probes\npublic + doublezero0"| agentEg
 
-  client -->|"WireGuard config"| ingress
+  client -->|"WireGuard or the extended WireGuard variant"| ingress
   ingress -->|"pinned route"| dz
   dz -->|"pinned route"| egress
   egress -->|"policy-enforced exit"| target
 
-  agentIn -->|"applies WireGuard peers, routes, nftables"| ingress
+  agentIn -->|"applies extended WireGuard/WG peers, routes, nftables"| ingress
   agentEg -->|"applies WireGuard peers, routes, nftables"| egress
 ```
 

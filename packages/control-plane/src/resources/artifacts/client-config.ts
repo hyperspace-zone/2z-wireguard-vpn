@@ -1,3 +1,5 @@
+import { readClientTunnel, validateHeaderProtectionKey, type ClientTunnel } from "../../planning/client-tunnel.js";
+
 export interface WireGuardClientConfigInput {
   privateKey: string;
   clientPublicKey: string;
@@ -7,9 +9,17 @@ export interface WireGuardClientConfigInput {
   endpoint: string;
   allowedIps: string[];
   persistentKeepaliveSeconds: number;
+  clientTunnel?: ClientTunnel;
+  headerProtectionKey?: string;
+  mtu?: number;
 }
 
 export function renderClientConfig(input: WireGuardClientConfigInput): string {
+  const tunnel = readClientTunnel(input.clientTunnel);
+  const headerProtectionKey = validateHeaderProtectionKey(tunnel, input.headerProtectionKey);
+  const obfuscation = tunnel.protocol === "amneziawg"
+    ? ["# Requires a client supporting the extended WireGuard profile 3.1.", ...Object.entries(tunnel.parameters).map(([key, value]) => `${key} = ${value}`), `HeaderProtectionKey = ${headerProtectionKey}`]
+    : [];
   const interfaceLines = input.clientKeyMode === "BringYourOwnPublicKey"
     ? [
         "[Interface]",
@@ -27,6 +37,8 @@ export function renderClientConfig(input: WireGuardClientConfigInput): string {
     ...interfaceLines,
     `Address = ${input.address}`,
     "DNS = 1.1.1.1",
+    ...(input.mtu ? [`MTU = ${input.mtu}`] : []),
+    ...obfuscation,
     "",
     "[Peer]",
     `PublicKey = ${input.serverPublicKey}`,

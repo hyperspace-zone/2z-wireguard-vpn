@@ -14,6 +14,7 @@ import {
   selectRenderedPlanSecret
 } from "./repository.js";
 import { artifactInvalidatedTransition, preparedArtifactTransition } from "./transitions.js";
+import { readClientTunnel, validateHeaderProtectionKey } from "../../planning/client-tunnel.js";
 
 export async function prepareClientConfigArtifact(
   db: Queryable,
@@ -40,6 +41,10 @@ export async function prepareClientConfigArtifact(
   const clientKeyMode = readRequiredString(publicMaterial, "clientKeyMode");
   const clientPublicKey = readRequiredString(publicMaterial, "clientPublicKey");
   const ingressMaterial = asRecord(ingress.localMaterial);
+  const clientTunnel = readClientTunnel(publicMaterial.clientTunnel);
+  if (JSON.stringify(readClientTunnel(ingressMaterial.clientTunnel)) !== JSON.stringify(clientTunnel)) {
+    throw new Error("ingress client tunnel does not match rendered plan");
+  }
   const ingressWireGuard = asRecord(ingressMaterial.wireGuard);
   const serverPublicKey = readRequiredString(ingressWireGuard, "clientPublicKey");
   const listenPort = readRequiredNumber(ingressWireGuard, "clientListenPort");
@@ -51,6 +56,7 @@ export async function prepareClientConfigArtifact(
   const clientPrivateKey = typeof secretPayload.clientPrivateKey === "string"
     ? secretPayload.clientPrivateKey
     : "<client-private-key>";
+  const headerProtectionKey = validateHeaderProtectionKey(clientTunnel, secretPayload.headerProtectionKey);
 
   const fileName = `hyperspace-${sessionId.slice(0, 8)}.conf`;
   const configText = renderClientConfig({
@@ -61,12 +67,16 @@ export async function prepareClientConfigArtifact(
     serverPublicKey,
     endpoint: `${String(ingress.publicIpv4)}:${listenPort}`,
     allowedIps: destinationCidrs,
+    clientTunnel,
+    headerProtectionKey,
+    mtu: typeof publicMaterial.mtu === "number" ? publicMaterial.mtu : 1420,
     persistentKeepaliveSeconds: 25
   });
   const encryptedArtifact = encryptJsonPayload(
     {
       fileName,
       configText,
+      clientProtocol: clientTunnel.protocol,
       mode,
       clientKeyMode,
       clientAddress,
@@ -82,6 +92,7 @@ export async function prepareClientConfigArtifact(
     sessionId,
     publicPayload: {
       status: "prepared",
+      clientProtocol: clientTunnel.protocol,
       fileName,
       mode,
       clientKeyMode,

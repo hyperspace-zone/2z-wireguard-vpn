@@ -1,6 +1,7 @@
 # Deployment Guide
 
-This guide describes a bare-metal deployment of DoubleZero WireGuard VPN. It
+This guide describes a bare-metal deployment of DoubleZero WireGuard VPN with
+optional the extended WireGuard variant ingress. It
 does not assume any Hyperspace-owned servers. Replace every placeholder with
 your own DNS names, public IPs, secrets, and gate metadata.
 
@@ -8,6 +9,125 @@ The deployment can target DoubleZero testnet or DoubleZero mainnet-beta. Choose
 the DoubleZero environment before requesting `access-pass` records and use that
 same environment everywhere: DoubleZero CLI, `doublezerod`, gate catalog, and
 control-plane gate metadata.
+
+## WireGuard Variant Ingress Rollout
+
+Sessions explicitly requested with `clientProtocol: "amneziawg"` use the extended WireGuard variant
+**3.1** between the client and ingress. Omitted `clientProtocol` and explicit
+`"wireguard"` retain ordinary WireGuard. Traffic from
+ingress to egress remains WireGuard; routing, DoubleZero policies, firewall
+handles and session accounting keep their existing contract. Ordinary WireGuard
+apps cannot use extended WireGuard configs. Use an the extended WireGuard variant client supporting 3.1 for them.
+
+The web UI has no protocol picker or public extended WireGuard link:
+
+- `/create-config` and `/create-config?protocol=wireguard` create WG configs.
+- `/create-config?protocol=amnezia` creates extended WireGuard 3.1 configs.
+- Unknown, empty or duplicate `protocol` values block creation rather than
+  silently choosing another protocol. The API rejects unsupported protocol values.
+- The selected URL survives login/registration/OAuth in the same browser tab.
+  Normal navigation to Create config defaults to WG again. Back/forward honors
+  the URL, and an interrupted login return path expires after 24 hours.
+
+The URL is an unlisted UI entry point, not an authorization boundary. Both
+protocols use the same authenticated session-creation and payment flow.
+
+The generated profile uses Header Protection, equal randomized S1–S4 prefixes,
+junk packets, randomized rekey/keepalive timings, content padding and random
+trailers. Each rendered plan has its own header protection key. H1–H4 retain
+the upstream-recommended 1–4 values because Header Protection conceals them.
+The client and gate receive identical parameters and an explicit MTU of 1280
+to reserve room for obfuscation overhead. Cookie replies retain the upstream
+default. No fixed, purported QUIC signature is embedded.
+
+Sources: [the extended WireGuard variant protocol and parameters](https://docs.amnezia.org/documentation/amnezia-wg/),
+[official tools](https://github.com/amnezia-vpn/amneziawg-tools),
+[kernel installation](https://github.com/amnezia-vpn/amneziawg-linux-kernel-module).
+
+1. Install the extended WireGuard variant tools 3.1.20260812 or newer and a matching kernel module on
+   each intended ingress. On Ubuntu, copy and run `scripts/gates/install-amneziawg`
+   together with `scripts/gates/patches/udp-tunnel-compat.patch` on that host.
+   The installer repackages the current DKMS source with a reviewed UDP socket
+   signature fix for Ubuntu HWE 7.0.0-38. Both the original and patched source
+   hashes are checked; an unknown package version stops installation for review.
+   This keeps the fix in the installed package for future DKMS rebuilds.
+   Keep `wireguard-tools` for transit and legacy assignments.
+   The installer uses the official upstream PPA and needs headers for the running
+   kernel. For another distribution use the upstream installation instructions.
+2. Deploy gate-agent 0.6.0 using the existing release workflow, restart it and run
+   `hyperspace-gate-agent --check-amneziawg` on the host. After installing packages
+   or changing the kernel, restart the agent to refresh its startup capability.
+   `scripts/gates/validate-host ... --require-deployment-ready --require-amneziawg`
+   fails if the running kernel cannot apply and read back the 3.1 profile.
+3. Deploy the API, worker and UI together. The API must have the same
+   `ARTIFACT_ENCRYPTION_KEY` as the worker: it decrypts only the header protection
+   key when serving an authenticated ingress job claim. Stored job payloads,
+   egress jobs, heartbeat reports and public artifact metadata contain no such key.
+   Header protection keys are encrypted in `rendered_plan_secrets`, and the
+   downloaded config is encrypted through the existing artifact mechanism.
+   `GET /v1/public/gates` now includes `amneziaWGReady`, based on a fresh agent
+   lease and its advertised `client-tunnel:amneziawg-3.1` capability. The web
+   ingress picker requires it only in extended WireGuard mode; WG mode and the egress picker
+   still allow ordinary WG gates.
+   New session requests validate the route before session insertion and payment;
+   retries of an existing payment retain their original session. The worker
+   rechecks readiness when scheduling because it can change after the request.
+4. Create a canary session through `/create-config?protocol=amnezia`. Import
+   its `.conf` or QR into the extended WireGuard variant 3.1+;
+   verify handshake, destination reachability, egress IP, traffic counters,
+   restart recovery and revocation. Test from the affected Russian providers;
+   local protocol tests cannot establish whether a particular DPI system will
+   allow the connection. Linux helpers select `awg-quick` for extended WireGuard configs and
+   `wg-quick` for WG; Windows/macOS helpers save extended WireGuard files for import into the
+   the extended WireGuard variant app. Also create a WG canary through plain `/create-config` and
+   confirm it connects with the ordinary WireGuard app.
+
+Persisted plans without `clientTunnel` continue to mean ordinary WireGuard.
+Their existing configs and restarted assignments keep working. To migrate a
+client, create a new session through the explicit extended WireGuard URL, import its the extended WireGuard variant
+config, test it and revoke the
+old session. Never edit stored plans or relabel old interfaces in place. A plan's
+profile and fingerprint are checked against prepared ingress material before
+commit and artifact issuance. Failed the extended WireGuard variant setup does not fall back to WG.
+
+The agent stores the delivered header protection key only in its root-only
+assignment state, passes it to `awg` via a temporary mode-0600 file, excludes CLI
+output from configuration errors, and clears the key on revocation. The existing
+`wireGuardClient*Bytes` field names remain for API/billing compatibility; values
+come from `awg` for extended WireGuard assignments and `wg` for legacy assignments.
+
+Rollback: old agents cannot restore new extended WireGuard assignments after a restart. Drain
+and revoke/migrate those sessions before rolling an ingress back to an old agent.
+Old egress agents can continue serving the unchanged WireGuard transit protocol.
+No database schema migration is needed; the profile is carried in existing JSON
+plan/material columns.
+
+### Client installation and import
+
+The protocol version (3.1) and app versions are separate. As checked on
+2026-10-13, these official native clients support the generated protocol:
+
+| Client OS | App / tools |
+| --- | --- |
+| Windows | [the extended WireGuard variant 3.1.0](https://github.com/amnezia-vpn/amneziawg-windows-client/releases/tag/3.1.0) or a newer compatible release |
+| macOS / iOS | [the extended WireGuard variant 3.1.4](https://apps.apple.com/app/amneziawg/id6478942365) or a newer compatible release |
+| Android | Current [the extended WireGuard variant on Google Play](https://play.google.com/store/apps/details?id=org.amnezia.awg), which lists version 3.1.4; official [APK releases](https://github.com/amnezia-vpn/amneziawg-android/releases) are also available |
+| Linux | `amneziawg-tools` 3.1.20260812 or newer with a compatible kernel module or a compatible userspace backend; connect using `awg-quick` |
+
+Create a **new** config at `/create-config?protocol=amnezia`, download its `.conf`, then import it
+into the extended WireGuard variant and activate the tunnel. The
+[official import guide](https://docs.amnezia.org/documentation/instructions/use-amneziawg-app/)
+covers each GUI platform. The file comes from Hyperspace; an vendor premium
+subscription and SSH access to the gate are not required. QR import can be used
+where the client offers it. With a user-supplied public key, replace the private
+key placeholder locally before importing; do not upload that private key.
+
+The upstream VPN app also added protocol 3.1 in
+[release 5.0.1.5](https://github.com/amnezia-vpn/amnezia-client/releases/tag/5.0.1.5).
+The native the extended WireGuard variant clients above are the primary path for our `.conf` files.
+Release-note compatibility does not replace a real import/handshake test on each
+OS intended for launch. The automated network test exercises the real extended WireGuard-Go
+backend and WG transit, not these desktop/mobile GUI applications.
 
 ## Required Hosts
 

@@ -1,3 +1,5 @@
+import { clientProtocolValues } from "../resources/session.js";
+
 export const agentCreateSessionRequestSchema = {
   type: "object",
   additionalProperties: true,
@@ -11,6 +13,7 @@ export const agentCreateSessionRequestSchema = {
     ingressGateName: { type: "string" },
     egressGateName: { type: "string" },
     clientPublicKey: { type: "string" },
+    clientProtocol: { enum: clientProtocolValues },
     prepaidSeconds: { type: "integer", minimum: 0 }
   }
 } as const;

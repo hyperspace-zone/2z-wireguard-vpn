@@ -1,6 +1,8 @@
 import type { FromSchema } from "json-schema-to-ts";
 
 export const sessionModeValues = ["IpToIp", "FullTunnel"] as const;
+export const clientProtocolValues = ["wireguard", "amneziawg"] as const;
+export type ClientProtocol = typeof clientProtocolValues[number];
 export const desiredSessionStateValues = ["Active", "Revoked"] as const;
 export const sessionPhaseValues = [
   "payment_pending",
@@ -26,6 +28,7 @@ export const sessionSpecSchema = {
   properties: {
     desiredState: { enum: desiredSessionStateValues },
     mode: { enum: sessionModeValues },
+    clientProtocol: { enum: clientProtocolValues },
     destinationCidrs: { type: "array", items: { type: "string", minLength: 1 }, minItems: 1 },
     sourceCidr: { type: "string", minLength: 1 },
     ingressGateId: { type: "string", minLength: 1 },

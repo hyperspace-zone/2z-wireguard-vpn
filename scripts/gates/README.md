@@ -3,6 +3,53 @@
 Milestone 3 gate automation is intentionally shell-first and idempotent. The
 scripts assume a clean Ubuntu gate host reachable over SSH as root.
 
+Client connections default to WireGuard; `/create-config?protocol=amnezia`
+explicitly selects **extended WireGuard profile 3.1** on ingress. The ingress-to-egress
+tunnel still uses ordinary WireGuard, including when egress runs the previous
+agent version. Both `wg` and `awg` must remain installed on extended WireGuard ingress.
+`bootstrap-host` installs the extended WireGuard variant from the upstream Ubuntu PPA. On an existing
+ingress, run `sudo scripts/gates/install-amneziawg` locally on that host, then
+deploy/restart the new agent and validate with `--require-amneziawg`.
+
+The agent supports `hyperspace-gate-agent --check-amneziawg`: it creates a
+temporary, down interface without peers or a UDP listener, applies the 3.1
+profile, checks kernel readback and removes it. A successful startup probe in
+apply mode advertises `client-tunnel:amneziawg-3.1`. Only gates advertising this
+capability can receive extended WireGuard ingress assignments. WG ingress and egress require
+only WireGuard.
+There is no automatic downgrade if the extended WireGuard variant installation or configuration fails.
+
+See [WireGuard variant rollout](../../docs/runbooks/deployment.md#wireguard-variant-ingress-rollout)
+for rollout order and existing-client compatibility.
+
+### Local WireGuard variant integration test
+
+After `npm ci && npm run build`, build the official `amneziawg-tools`,
+`amneziawg-go` (3.1+) and `wireguard-tools` projects in a temporary directory.
+No installation into the host is necessary. Then run:
+
+```bash
+python3 scripts/gates/test-amneziawg-netns.py \
+  --awg /path/to/awg --awg-go /path/to/amneziawg-go --wg /path/to/wg \
+  --go /path/to/go
+```
+
+Repeat with `--client-protocol wireguard` to exercise the default WG renderer
+and kernel WG client with the same forwarding, recovery and revocation checks.
+For the hidden URL and login/browser navigation checks, build the workspaces
+and run `npm run test:config-protocol:ui` (set `PLAYWRIGHT_CHROMIUM_EXECUTABLE`
+if Chromium is not at `/snap/bin/chromium`). This uses a local UI with mocked
+API/payment endpoints.
+
+The test requires Linux user/network/mount namespaces, `ip`, `nft`, Python and
+Node. It creates four isolated hosts, uses the real control-plane config renderer
+and agent apply/restore/revoke code, and checks HTTP payloads, egress NAT, both
+protocols' traffic counters and blocked traffic after revocation. extended WireGuard uses the
+official userspace implementation through a test-only link-creation adapter;
+transit uses kernel WireGuard. This verifies wire interoperability but does not
+replace `--check-amneziawg` on the target kernel or connectivity testing from the
+affected client networks. No production endpoints or secrets are used.
+
 ## Scripts
 
 - `bootstrap-host` installs host packages, the HWE kernel package when

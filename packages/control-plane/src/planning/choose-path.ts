@@ -1,5 +1,6 @@
 import type { Queryable } from "../db/queryable.js";
 import { selectSchedulableGate } from "../resources/gates/repository.js";
+import { amneziaWGCapability, readSessionClientProtocol } from "./client-tunnel.js";
 
 export interface PathChoice {
   ingressGateId: string;
@@ -11,6 +12,7 @@ export interface PathChoice {
 }
 
 export async function choosePath(client: Queryable, spec: Record<string, unknown>): Promise<PathChoice | null> {
+  const clientProtocol = readSessionClientProtocol(spec.clientProtocol);
   const ingressGateId = readOptionalString(spec, "ingressGateId");
   const egressGateId = readOptionalString(spec, "egressGateId");
   const ingressGateName = readOptionalString(spec, "ingressGateName");
@@ -21,6 +23,7 @@ export async function choosePath(client: Queryable, spec: Record<string, unknown
   const ingress = await selectSchedulableGate(client, {
     gateId: ingressGateId,
     gateName: ingressGateName,
+    requiredCapabilities: clientProtocol === "amneziawg" ? [amneziaWGCapability] : [],
     excludedCountries,
     excludedCities
   });

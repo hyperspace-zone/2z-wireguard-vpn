@@ -106,6 +106,9 @@ apt-get update
 apt-get install -y ca-certificates curl git gnupg build-essential gettext-base jq python3 \
   wireguard-tools iproute2 nftables ufw chrony caddy prometheus-node-exporter vnstat sysstat logrotate kmod
 
+# New gates support extended WireGuard ingress; keep WG for transit and legacy assignments.
+bash "$ASSET_DIR/scripts/gates/install-amneziawg"
+
 install -d -m 0750 /etc/hyperspace/disabled-apt-hooks
 if dpkg-divert --list /etc/apt/apt.conf.d/20packagekit 2>/dev/null | grep -q '20packagekit.distrib'; then
   dpkg-divert --local --rename --remove /etc/apt/apt.conf.d/20packagekit
@@ -273,6 +276,7 @@ fi
 
 command -v doublezero
 command -v wg
+command -v awg
 command -v nft
 command -v chronyc
 command -v vnstat
@@ -283,6 +287,8 @@ REMOTE
 )"
 
 assets=(
+  scripts/gates/install-amneziawg \
+  scripts/gates/patches/udp-tunnel-compat.patch
   infra/journald/zz-hyperspace-gate-limits.conf
   infra/systemd/doublezerod-log-filter.conf
   infra/systemd/hyperspace-disk-janitor.service

@@ -1,5 +1,6 @@
 import type { TransactionalQueryable } from "../db/queryable.js";
 import { choosePath } from "../planning/choose-path.js";
+import { sessionClientProtocolLabel } from "../planning/client-tunnel.js";
 import { toGatePreparePlan } from "../planning/network-plan.js";
 import { renderWireGuardPlan } from "../planning/render-plan.js";
 import { ensureClientAddressLease, releaseClientAddressLease, type AddressAllocatorLogger } from "../resources/addresses/allocator.js";
@@ -105,7 +106,7 @@ export async function scheduleSessionsForProvisioning(
       if (!path) {
         const error = {
           code: "no_schedulable_path",
-          message: "No ready ingress/egress gate pair is currently schedulable"
+          message: `No ready ${sessionClientProtocolLabel(session.spec)} ingress / WireGuard egress gate pair is currently schedulable`
         };
         await setSessionCondition(client, session.id, "Ready", "False", "NoSchedulablePath", error.message, session.generation);
         await markSessionFailed(client, session.id, failedTransition(error));

@@ -5,6 +5,7 @@ import {
   type EncryptedJsonPayload
 } from "@hyperspace-zone/shared";
 import type { PathChoice } from "./choose-path.js";
+import { createClientTunnel, readSessionClientProtocol, type ClientTunnel } from "./client-tunnel.js";
 
 export interface WireGuardRenderedPlan {
   planHash: string;
@@ -23,6 +24,7 @@ export function renderWireGuardPlan(
     destinationCidrs: string[];
     sourceCidr: string | null;
     clientPublicKey: string | null;
+    spec?: Record<string, unknown>;
   },
   path: PathChoice,
   clientAddress: string,
@@ -33,6 +35,9 @@ export function renderWireGuardPlan(
   if (!clientPublicKey) {
     throw new Error(`missing client public key for session ${session.id}`);
   }
+  const clientProtocol = readSessionClientProtocol(session.spec?.clientProtocol);
+  const { tunnel: clientTunnel, headerProtectionKey }: { tunnel: ClientTunnel; headerProtectionKey?: string } =
+    clientProtocol === "amneziawg" ? createClientTunnel() : { tunnel: { protocol: "wireguard" } };
   const model = {
     sessionId: session.id,
     generation: session.generation,
@@ -42,18 +47,20 @@ export function renderWireGuardPlan(
     clientAddress,
     clientPublicKey,
     clientKeyMode: generatedClientKey ? "ServerGenerated" : "BringYourOwnPublicKey",
+    clientTunnel,
     path
   };
-  const secretPayload = generatedClientKey
-    ? encryptJsonPayload(
-        {
-          clientPrivateKey: generatedClientKey.privateKey,
-          clientPublicKey: generatedClientKey.publicKey
-        },
-        artifactEncryptionKey,
-        `rendered-plan:${session.id}:${session.generation}`
-      )
-    : null;
+  const secretPayload = generatedClientKey || headerProtectionKey ? encryptJsonPayload(
+    {
+      ...(generatedClientKey ? {
+        clientPrivateKey: generatedClientKey.privateKey,
+        clientPublicKey: generatedClientKey.publicKey
+      } : {}),
+      ...(headerProtectionKey ? { headerProtectionKey } : {})
+    },
+    artifactEncryptionKey,
+    `rendered-plan:${session.id}:${session.generation}`
+  ) : null;
 
   return {
     planHash: createHash("sha256").update(JSON.stringify(model)).digest("hex"),
@@ -66,7 +73,8 @@ export function renderWireGuardPlan(
       clientPublicKey,
       clientKeyMode: generatedClientKey ? "ServerGenerated" : "BringYourOwnPublicKey",
       persistentKeepaliveSeconds: 25,
-      mtu: 1420,
+      clientTunnel,
+      mtu: clientProtocol === "amneziawg" ? 1280 : 1420,
       path
     },
     routingModel: {
@@ -82,7 +90,10 @@ export function renderWireGuardPlan(
       destinationCidrs: session.destinationCidrs,
       clientAddress
     },
-    secretRefs: generatedClientKey ? { clientPrivateKey: "rendered_plan_secrets" } : {},
+    secretRefs: {
+      ...(generatedClientKey ? { clientPrivateKey: "rendered_plan_secrets" } : {}),
+      ...(headerProtectionKey ? { headerProtectionKey: "rendered_plan_secrets" } : {})
+    },
     secretPayload
   };
 }

@@ -1,5 +1,6 @@
 import type { GateSummary } from "@hyperspace-zone/contracts";
 import type { Queryable } from "../db/queryable.js";
+import { amneziaWGCapability } from "../planning/client-tunnel.js";
 import { freshGateLeaseSqlPredicate } from "../resources/gate-leases/repository.js";
 
 export async function listPublicGates(
@@ -26,6 +27,7 @@ export async function listPublicGates(
     doubleZeroLowestLatencyDevice: string | null;
     doubleZeroLowestLatencyDeviceWarning: boolean | null;
     agentConnected: boolean;
+    observedCapabilities: string[] | null;
     ready: boolean;
     schedulable: boolean;
   }>(
@@ -45,6 +47,7 @@ export async function listPublicGates(
         gate_status.agent_artifact_sha256 AS "agentArtifactSha256",
         gate_status.agent_installed_at AS "agentInstalledAt",
         gate_status.clock_error_ms::float AS "clockErrorMs",
+        gate_status.observed_capabilities AS "observedCapabilities",
         gate_status.doublezero_status AS "doubleZero",
         gate_status.doublezero_current_device AS "doubleZeroCurrentDevice",
         gate_status.doublezero_lowest_latency_device AS "doubleZeroLowestLatencyDevice",
@@ -98,6 +101,7 @@ export async function listPublicGates(
       ...(row.agentInstalledAt ? { agentInstalledAt: row.agentInstalledAt } : {}),
       ...(typeof row.clockErrorMs === "number" ? { clockErrorMs: row.clockErrorMs } : {}),
       ...(doubleZero ? { doubleZero } : {}),
+      amneziaWGReady: row.agentConnected && (row.observedCapabilities ?? []).includes(amneziaWGCapability),
       ready: row.ready,
       schedulable: row.schedulable
     };

@@ -15,6 +15,7 @@ export function registerGateJobRoutes(
   deps: {
     db: Database;
     probesDb?: Database;
+    artifactEncryptionKey?: Buffer | null;
     requireGate: (request: FastifyRequest, reply: FastifyReply) => Promise<GateAuthContext | null>;
   }
 ): void {
@@ -33,7 +34,7 @@ export function registerGateJobRoutes(
 
     const lane = readString(asRecord(request.body), "lane") as GateJobLane | "";
     const database = lane === "probe" ? deps.probesDb ?? deps.db : deps.db;
-    return reply.send({ job: await claimGateJob(database, gate, lane || (deps.probesDb ? "control" : undefined)) });
+    return reply.send({ job: await claimGateJob(database, gate, lane || (deps.probesDb ? "control" : undefined), deps.artifactEncryptionKey) });
   });
 
   app.post("/v1/gate/jobs/:jobId/report", {

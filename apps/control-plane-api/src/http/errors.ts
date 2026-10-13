@@ -41,6 +41,7 @@ export type ApplicationErrorCode =
   | "ingress_gate_required"
   | "invalid_auth_session"
   | "invalid_client_public_key"
+  | "invalid_client_protocol"
   | "invalid_create_request_id"
   | "invalid_credentials"
   | "invalid_destination_cidr"
@@ -144,6 +145,7 @@ function applicationErrorStatus(code: ApplicationErrorCode): number {
     case "email_code_expired":
     case "ingress_gate_required":
     case "invalid_client_public_key":
+    case "invalid_client_protocol":
     case "invalid_create_request_id":
     case "invalid_destination_cidr":
     case "invalid_email_code":

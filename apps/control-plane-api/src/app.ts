@@ -204,7 +204,7 @@ export function createApp(input: CreateControlPlaneApiAppInput): FastifyInstance
   registerAgentEntitlementRoutes(app);
   registerGateActualStateRoutes(app, { db, requireGate: auth.requireGate });
   registerGateHeartbeatRoutes(app, { db, requireGate: auth.requireGate });
-  registerGateJobRoutes(app, { db, ...(input.probesDb ? { probesDb: input.probesDb } : {}), requireGate: auth.requireGate });
+  registerGateJobRoutes(app, { db, ...(input.probesDb ? { probesDb: input.probesDb } : {}), requireGate: auth.requireGate, artifactEncryptionKey: config.artifactEncryptionKey });
   registerTradingProbeAgentRoutes(app, {
     db: input.probesDb ?? db,
     requireTradingProbe: auth.requireTradingProbe

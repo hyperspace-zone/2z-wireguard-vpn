@@ -11,19 +11,22 @@ import {
 import { findAssignmentPhaseForUpdate, updateAssignmentPhase } from "../gate-assignments/repository.js";
 import { leasedAssignmentTransition, type GateAssignmentPhase } from "../gate-assignments/transitions.js";
 import { claimJobTransition } from "./transitions.js";
+import { withClientTunnelSecret } from "./client-tunnel-secret.js";
 
 export type { ClaimedGateJob, GateJobLane, GateJobLeaseIdentity } from "./repository.js";
 
 export async function claimGateJob(
   db: TransactionalQueryable,
   gate: GateJobLeaseIdentity,
-  lane?: GateJobLane
+  lane?: GateJobLane,
+  artifactEncryptionKey?: Buffer | null
 ): Promise<ClaimedGateJob | null> {
   return db.transaction(async (client) => {
     const job = await findClaimableGateJobForUpdate(client, gate.id, lane);
     if (!job) {
       return null;
     }
+    const payload = await withClientTunnelSecret(client, job, artifactEncryptionKey);
 
     const attemptNumber = await nextJobAttemptNumber(client, job.id);
     const jobTransition = claimJobTransition();
@@ -53,6 +56,7 @@ export async function claimGateJob(
 
     return {
       ...job,
+      payload,
       attemptNumber
     };
   });
