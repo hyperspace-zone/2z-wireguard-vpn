@@ -11,6 +11,8 @@ Options:
   --known-hosts-file PATH     Pinned SSH known_hosts file, default ~/.ssh/known_hosts.
   --tier standard|hub         Resource tier, default standard. Hub requires at least 2 GiB RAM.
   --doublezero-version VER    Optional pinned doublezero package version.
+  --kernel-flavor auto|aws|hwe Kernel track; auto preserves AWS kernels (default auto).
+  --public-ipv4 IPV4          Pin doublezerod client IPv4 (verify static IP/egress first).
   --observability-ip IPV4     Allowed TCP/9100 source; repeat for every cluster observability host.
   --benchmark-peer-ip IPV4    Allowed UDP/19192 source; repeat for every gate public IPv4.
   --dry-run                   Print the remote command instead of executing it.
@@ -25,6 +27,8 @@ known_hosts_file="${HOME}/.ssh/known_hosts"
 dz_env=""
 gate_tier="standard"
 doublezero_version=""
+kernel_flavor="auto"
+public_ipv4=""
 observability_ips=()
 benchmark_peer_ips=()
 dry_run=false
@@ -38,6 +42,8 @@ while [[ $# -gt 0 ]]; do
     --tier) gate_tier="${2:-}"; shift 2 ;;
     --doublezero-env) dz_env="${2:-}"; shift 2 ;;
     --doublezero-version) doublezero_version="${2:-}"; shift 2 ;;
+    --kernel-flavor) kernel_flavor="${2:-}"; shift 2 ;;
+    --public-ipv4) public_ipv4="${2:-}"; shift 2 ;;
     --observability-ip) observability_ips+=("${2:-}"); shift 2 ;;
     --benchmark-peer-ip) benchmark_peer_ips+=("${2:-}"); shift 2 ;;
     --dry-run) dry_run=true; shift ;;
@@ -58,6 +64,10 @@ case "$gate_tier" in
   standard|hub) ;;
   *) echo "unsupported --tier: $gate_tier" >&2; exit 2 ;;
 esac
+case "$kernel_flavor" in
+  auto|aws|hwe) ;;
+  *) echo "unsupported --kernel-flavor: $kernel_flavor" >&2; exit 2 ;;
+esac
 valid_ipv4() {
   local address="$1"
   local -a octets=()
@@ -76,6 +86,9 @@ fi
 for address in "${observability_ips[@]}" "${benchmark_peer_ips[@]}"; do
   valid_ipv4 "$address" || { echo "invalid firewall source IPv4: $address" >&2; exit 2; }
 done
+if [[ -n "$public_ipv4" ]]; then
+  valid_ipv4 "$public_ipv4" || { echo "invalid --public-ipv4" >&2; exit 2; }
+fi
 if [[ "$dry_run" != true && ! -r "$known_hosts_file" ]]; then
   echo "known_hosts file is not readable: $known_hosts_file" >&2
   exit 2
@@ -89,6 +102,19 @@ fi
 remote_script="$(cat <<'REMOTE'
 set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
+export NEEDRESTART_MODE=l
+
+# DKMS builds on small gates need swap before the package installation, not
+# after it. Never replace existing swap or format an existing swap file.
+if ! swapon --show=NAME --noheadings | grep -q . && [ "$(df -Pk / | awk 'NR == 2 {print $4}')" -ge 4194304 ]; then
+  if [ ! -f /swapfile ]; then
+    fallocate -l 2G /swapfile || dd if=/dev/zero of=/swapfile bs=1M count=2048 status=none
+    chmod 0600 /swapfile
+    mkswap /swapfile >/dev/null
+  fi
+  grep -qE '^/swapfile[[:space:]]' /etc/fstab || printf '/swapfile none swap sw 0 0\n' >>/etc/fstab
+  swapon /swapfile
+fi
 
 # A masked PackageKit unit makes apt's PackageKit post-invoke hook fail. Unmask
 # it before the first apt transaction; the hook is diverted before the unit is
@@ -106,9 +132,6 @@ apt-get update
 apt-get install -y ca-certificates curl git gnupg build-essential gettext-base jq python3 \
   wireguard-tools iproute2 nftables ufw chrony caddy prometheus-node-exporter vnstat sysstat logrotate kmod
 
-# New gates support extended WireGuard ingress; keep WG for transit and legacy assignments.
-bash "$ASSET_DIR/scripts/gates/install-amneziawg"
-
 install -d -m 0750 /etc/hyperspace/disabled-apt-hooks
 if dpkg-divert --list /etc/apt/apt.conf.d/20packagekit 2>/dev/null | grep -q '20packagekit.distrib'; then
   dpkg-divert --local --rename --remove /etc/apt/apt.conf.d/20packagekit
@@ -122,16 +145,39 @@ fi
 systemctl disable --now packagekit.service packagekit-offline-update.service 2>/dev/null || true
 systemctl mask packagekit.service packagekit-offline-update.service 2>/dev/null || true
 
-if apt-cache show linux-generic-hwe-24.04 >/dev/null 2>&1; then
+if [ "$KERNEL_FLAVOR" = auto ]; then
+  case "$(uname -r)" in
+    *-aws) KERNEL_FLAVOR=aws ;;
+    *) KERNEL_FLAVOR=hwe ;;
+  esac
+fi
+if [ "$KERNEL_FLAVOR" = aws ]; then
+  apt-get install -y linux-aws linux-headers-aws
+elif apt-cache show linux-generic-hwe-24.04 >/dev/null 2>&1; then
   apt-get install -y linux-generic-hwe-24.04
 else
   apt-get install -y linux-generic
 fi
 
+# New gates support extended WireGuard ingress; keep WG for transit and legacy assignments.
+# Install the selected kernel before DKMS so its module is built for both the
+# running and newly installed kernels. Reboot/validate before enabling a gate.
+bash "$ASSET_DIR/scripts/gates/install-amneziawg"
+
 systemctl disable --now fwupd-refresh.timer fwupd-refresh.service fwupd.service 2>/dev/null || true
 systemctl mask fwupd-refresh.timer fwupd-refresh.service fwupd.service 2>/dev/null || true
 systemctl disable --now apt-daily.timer apt-daily-upgrade.timer unattended-upgrades.service 2>/dev/null || true
 systemctl mask apt-daily.timer apt-daily-upgrade.timer unattended-upgrades.service 2>/dev/null || true
+
+# node-exporter recommendations pull in physical-server IPMI tooling. A cloud
+# VM has no BMC; leaving its init script enabled creates a failed unit on reboot.
+if systemd-detect-virt --vm --quiet; then
+  systemctl disable --now openipmi.service ipmievd.service \
+    prometheus-node-exporter-ipmitool-sensor.timer \
+    prometheus-node-exporter-ipmitool-sensor.service 2>/dev/null || true
+  systemctl reset-failed openipmi.service ipmievd.service \
+    prometheus-node-exporter-ipmitool-sensor.service 2>/dev/null || true
+fi
 
 if [ "$DOUBLEZERO_CLOUDSMITH_REPO" = "doublezero-testnet" ]; then
   rm -f /etc/apt/sources.list.d/malbeclabs-doublezero.list
@@ -179,16 +225,6 @@ EOF
 modprobe nf_conntrack >/dev/null 2>&1 || true
 sysctl --system >/dev/null
 
-if ! swapon --show=NAME --noheadings | grep -q . && [ "$(df -Pk / | awk 'NR == 2 {print $4}')" -ge 4194304 ]; then
-  if [ ! -f /swapfile ]; then
-    fallocate -l 2G /swapfile || dd if=/dev/zero of=/swapfile bs=1M count=2048 status=none
-    chmod 0600 /swapfile
-    mkswap /swapfile >/dev/null
-  fi
-  grep -qE '^/swapfile[[:space:]]' /etc/fstab || printf '/swapfile none swap sw 0 0\n' >>/etc/fstab
-  swapon /swapfile
-fi
-
 install -d -m 0755 /var/lib/node_exporter/textfile_collector
 cat >/etc/default/prometheus-node-exporter <<'EOF'
 ARGS="--collector.textfile.directory=/var/lib/node_exporter/textfile_collector"
@@ -226,10 +262,16 @@ install -d -m 0755 /etc/systemd/journald.conf.d
 install -m 0644 "$ASSET_DIR/infra/journald/zz-hyperspace-gate-limits.conf" /etc/systemd/journald.conf.d/zz-hyperspace-gate-limits.conf
 
 install -d /etc/systemd/system/doublezerod.service.d
+client_ip_argument=""
+if [ -n "${PUBLIC_IPV4:-}" ]; then
+  # Avoid IPv6-only replies from the daemon's external IP discovery endpoint.
+  # This selects its on-chain client identity; it does NOT make NAT/GRE work.
+  client_ip_argument=" -client-ip ${PUBLIC_IPV4}"
+fi
 cat >/etc/systemd/system/doublezerod.service.d/zz-route-liveness-passive-tuning.conf <<EOF
 [Service]
 ExecStart=
-ExecStart=/usr/bin/doublezerod -sock-file /run/doublezerod/doublezerod.sock -env ${DZ_ENV} -route-liveness-tx-min 10s -route-liveness-rx-min 10s -route-liveness-max-tx-ceil 30s -metrics-enable -metrics-addr 127.0.0.1:2112
+ExecStart=/usr/bin/doublezerod -sock-file /run/doublezerod/doublezerod.sock -env ${DZ_ENV}${client_ip_argument} -route-liveness-tx-min 10s -route-liveness-rx-min 10s -route-liveness-max-tx-ceil 30s -metrics-enable -metrics-addr 127.0.0.1:2112
 EOF
 install -m 0644 "$ASSET_DIR/infra/systemd/doublezerod-log-filter.conf" /etc/systemd/system/doublezerod.service.d/zz-log-filter.conf
 
@@ -262,10 +304,13 @@ fi
 systemctl enable doublezerod
 systemctl restart doublezerod
 for attempt in $(seq 1 30); do
-  systemctl is-active --quiet doublezerod && break
+  test -S /run/doublezerod/doublezerod.sock && break
   sleep 1
 done
+# Type=simple can be active for a few seconds before IP discovery fails.
+sleep 5
 systemctl is-active --quiet doublezerod
+test -S /run/doublezerod/doublezerod.sock
 
 if [ -s /root/.config/doublezero/id.json ]; then
   chmod 0600 /root/.config/doublezero/id.json
@@ -305,8 +350,9 @@ remote_asset_dir="/tmp/hyperspace-gate-bootstrap-$$"
 if [[ "$dry_run" == true ]]; then
   printf 'tar -C %q -cf - %s | ssh %q %q %q\n' \
     "$repo_root" "${assets[*]}" "${ssh_args[*]}" "${ssh_user}@${host}" "install -d $remote_asset_dir && tar -xf - -C $remote_asset_dir"
-  printf 'ssh %q %q DZ_ENV=%q GATE_TIER=%q DOUBLEZERO_VERSION=%q OBSERVABILITY_IPS=%q BENCHMARK_PEER_IPS=%q ASSET_DIR=%q bash -s <<REMOTE\n%s\nREMOTE\n' \
+  printf 'ssh %q %q DZ_ENV=%q GATE_TIER=%q DOUBLEZERO_VERSION=%q KERNEL_FLAVOR=%q PUBLIC_IPV4=%q OBSERVABILITY_IPS=%q BENCHMARK_PEER_IPS=%q ASSET_DIR=%q bash -s <<REMOTE\n%s\nREMOTE\n' \
     "${ssh_args[*]}" "${ssh_user}@${host}" "$dz_env" "$gate_tier" "$doublezero_version" \
+    "$kernel_flavor" "$public_ipv4" \
     "${observability_ips[*]}" "${benchmark_peer_ips[*]}" "$remote_asset_dir" "$remote_script"
   exit 0
 fi
@@ -314,5 +360,5 @@ fi
 tar -C "$repo_root" -cf - "${assets[@]}" \
   | ssh "${ssh_args[@]}" "${ssh_user}@${host}" "install -d -m 0700 '$remote_asset_dir' && tar -xf - -C '$remote_asset_dir'"
 ssh "${ssh_args[@]}" "${ssh_user}@${host}" \
-  "DZ_ENV=$(printf '%q' "$dz_env") GATE_TIER=$(printf '%q' "$gate_tier") DOUBLEZERO_VERSION=$(printf '%q' "$doublezero_version") OBSERVABILITY_IPS=$(printf '%q' "${observability_ips[*]}") BENCHMARK_PEER_IPS=$(printf '%q' "${benchmark_peer_ips[*]}") ASSET_DIR=$(printf '%q' "$remote_asset_dir") bash -s" <<<"$remote_script"
+  "DZ_ENV=$(printf '%q' "$dz_env") GATE_TIER=$(printf '%q' "$gate_tier") DOUBLEZERO_VERSION=$(printf '%q' "$doublezero_version") KERNEL_FLAVOR=$(printf '%q' "$kernel_flavor") PUBLIC_IPV4=$(printf '%q' "$public_ipv4") OBSERVABILITY_IPS=$(printf '%q' "${observability_ips[*]}") BENCHMARK_PEER_IPS=$(printf '%q' "${benchmark_peer_ips[*]}") ASSET_DIR=$(printf '%q' "$remote_asset_dir") bash -s" <<<"$remote_script"
 ssh "${ssh_args[@]}" "${ssh_user}@${host}" "rm -rf '$remote_asset_dir'"

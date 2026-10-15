@@ -53,10 +53,18 @@ affected client networks. No production endpoints or secrets are used.
 ## Scripts
 
 - `bootstrap-host` installs host packages, the HWE kernel package when
-  available, DoubleZero, chrony, Caddy, WireGuard tooling, node exporter,
+  available (preserving `linux-aws` on AWS), DoubleZero, chrony, Caddy, WireGuard tooling, node exporter,
   `vnstat`, `sysstat`, log hygiene and resource-exporter timers. It disables
   unattended package/firmware jobs and installs the passive DoubleZero
   route-liveness tuning and aggregate metrics endpoint.
+  `--kernel-flavor auto|aws|hwe` selects the kernel track. Optional
+  `--public-ipv4` pins DoubleZero's client address on dual-stack hosts after
+  checking the attached static IP and actual egress; it does not solve NAT.
+  Swap is prepared before DKMS builds; unused physical-server IPMI services are
+  disabled on virtual machines. For hosts without an access-pass follow
+  [preparation-only onboarding](../../docs/runbooks/deployment.md#preparing-a-new-gate-before-an-access-pass-exists):
+  `Maintenance`, auto-recovery disabled, no connection attempts, then explicit
+  transport/ingress/egress validation before activation.
 - `build-agent` requires a completely clean worktree (including no untracked
   files), runs all Go tests, embeds the
   Git revision and UTC build time, and verifies the resulting artifact SHA.

@@ -1613,7 +1613,8 @@ overridden in `/etc/hyperspace/gate-agent.env` with
 `DOUBLEZERO_KEYPAIR_PATH`; production defaults enable recovery, require two
 minutes of confirmation, and allow one attempt per six hours.
 
-The automation installs host packages, HWE kernel where available, DoubleZero,
+The automation installs host packages, HWE kernel where available (or the
+native `linux-aws` + `linux-headers-aws` track on AWS), DoubleZero,
 chrony, Caddy, WireGuard tooling, node exporter, `vnstat`, `sysstat`, journald
 limits, the disk janitor, the gate resource exporter, the passive DoubleZero
 route-liveness tuning and aggregate DoubleZero metrics. It also derives the
@@ -1632,6 +1633,89 @@ yet exist.
 It never overwrites `/root/.config/doublezero/id.json`; if a host does not yet
 have a DoubleZero identity or access-pass, keep that gate `Disabled` or
 `Maintenance` in the catalog until DoubleZero approves it.
+
+### Preparing a new gate before an access-pass exists
+
+Preparation is not activation. Use an explicit `desiredState: "Maintenance"`
+in the new seed records: omitting it defaults to `Enabled`. Seed only the new
+records, then merge them into the operator inventory without reseeding or
+replacing the spec/tokens of existing gates. Capture issued tokens into a
+root-only file, not a terminal log. Preserve every existing DoubleZero identity;
+generate `~/.config/doublezero/id.json` only when absent and keep it mode `0600`.
+
+1. Verify SSH host fingerprints and, on cloud hosts, that the provider has
+   attached a **static** public IPv4. Confirm outbound IPv4 matches it.
+2. Run `apt-get update` and `apt-get upgrade` in an explicit maintenance window.
+   Stay on the supported Ubuntu LTS release; a `do-release-upgrade` MOTD is not
+   an instruction to change the operating system during gate provisioning.
+   Install the correct kernel meta-package and reboot before final validation.
+3. Run `scripts/gates/bootstrap-host` with the cluster's DoubleZero environment,
+   observability source, and current gate peer allowlist. It creates swap before
+   DKMS compilation on small hosts and does **not** issue `doublezero connect`.
+4. Generate/read the DoubleZero public address, configure `mainnet-beta` when
+   appropriate, and submit **city + static IPv4 + address** to the DoubleZero
+   team. Do not loop connect/disconnect while awaiting approval.
+5. Register the gate in `Maintenance`. Create `/etc/hyperspace/gate-agent.env`
+   with its unique token, normal cluster probe secret, and
+   `DOUBLEZERO_AUTO_RECOVERY=false` **before starting the agent**. Maintenance
+   blocks session scheduling centrally; disabling recovery explicitly also
+   prevents a local reconnect attempt during preparation.
+6. Bootstrap the current verified immutable production artifact through
+   `scripts/gates/deploy-agent --reuse-existing-env --binary <artifact>`.
+   Do not bypass nft self-tests or control-plane SHA confirmation. This initial
+   SSH bootstrap enables later managed control-plane releases and rollbacks.
+   On a fresh host there is no previous release to roll back to: a failed
+   bootstrap must remain stopped/failed and in maintenance, not be enabled.
+7. Install the independent trading probe service with its own credentials;
+   register its node as `Maintenance` too. It may heartbeat but should not claim
+   measurement work until intentionally enabled. No fresh trading measurements
+   are expected from this preparation-only node.
+8. Add DNS-only A records, configure the Caddy HTTPS probe and test externally
+   for status `204` with the expected browser-origin CORS headers. Keep exporter
+   access restricted to observability; synchronize provider and host firewalls.
+9. After a reboot require `validate-host --require-deployment-ready
+   --require-amneziawg`, a fresh control-plane heartbeat, the expected artifact
+   SHA, `desiredState=Maintenance`, and `schedulable=false`. Missing
+   `doublezero0` / disconnected BGP is expected before the access-pass exists;
+   it is not a successful VPN test.
+
+Only after a matching access-pass, successful DoubleZero attachment, and real
+external ingress **and** egress tests should an operator enable the gate and
+its probe node. Re-enable guarded recovery only for a proven supported connect
+mode; the existing recovery command is plain `doublezero connect ibrl`.
+
+### AWS / Lightsail-specific preparation
+
+`bootstrap-host --kernel-flavor auto` preserves a running `*-aws` kernel;
+`--kernel-flavor aws` makes that choice explicit. Do not silently replace the
+AWS kernel with generic HWE. Install `linux-aws linux-headers-aws`, then validate
+AmneziaWG against the running kernel after reboot.
+
+On dual-stack hosts the DoubleZero daemon can exit during startup because its
+external discovery endpoint returns IPv6. After verifying the attached static
+IPv4 against the provider and IPv4 egress, pass `--public-ipv4 <static-ip>` to
+bootstrap. This adds `-client-ip` to the daemon override without disabling IPv6
+globally. Repeat that option when reprovisioning the host. The bootstrap checks
+both the daemon process and its socket after a startup grace period, rather
+than trusting the initial `Type=simple` active state alone.
+
+Lightsail public IPv4 is translated to a private guest address. A static IP
+does **not** remove NAT. The [DoubleZero setup prerequisites](https://docs.malbeclabs.com/setup/)
+specify a public IP without NAT, and the transport uses GRE (IP protocol 47).
+Pinning `-client-ip`, a successful ICMP latency probe, an access-pass, or an
+open TCP/UDP port alone does not prove that a Lightsail host can carry IBRL.
+Keep it in maintenance until DoubleZero confirms a supported connection mode
+and GRE/BGP plus real VPN traffic have been tested. Do not add the public IP to
+the guest NIC or try `--allocate-addr` as an unreviewed workaround: Hyperspace
+readiness and peer endpoint generation must also be compatible with that mode.
+
+Lightsail's provider firewall is separate from UFW. Keep TCP/22, TCP/80/443,
+TCP/9100 from observability only, and UDP/19192 from known peers. The current
+agent allocates UDP listener ports using the kernel ephemeral range (inspect
+`sysctl net.ipv4.ip_local_port_range`; on the prepared Ubuntu hosts it is
+`32768 60999`), not a single hard-coded `51820`. Allow that range for future
+WireGuard ingress. This TCP/UDP preparation does **not** configure or validate
+GRE; resolve the provider transport limitation before enabling a Lightsail gate.
 
 Validate every new or rebooted standard-tier gate before enabling traffic:
 
