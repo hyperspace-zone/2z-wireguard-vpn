@@ -11,7 +11,7 @@ groups:
           service_ipv4: 88.216.62.149
         annotations:
           summary: MongoDB measurement delivery is unavailable
-          description: Measurement reports remain in the probes PostgreSQL delivery journal and will retry. Check MongoDB TLS/auth/service and network access. Core VPN and billing are independent.
+          description: MongoDB probes storage or result projection is unavailable. Durable completed jobs will retry projection; agents may retry unacknowledged reports. Check MongoDB TLS/auth/service and network access. Core VPN and billing are independent.
       - alert: HyperspaceMeasurementsDeliveryBacklog
         expr: hyperspace_measurements_delivery_oldest_age_seconds > 300 or hyperspace_measurements_delivery_backlog > 10000
         for: 5m
@@ -19,7 +19,7 @@ groups:
           severity: warning
         annotations:
           summary: Measurement delivery journal is accumulating reports
-          description: Check MongoDB availability and delivery throughput. The isolated probes PostgreSQL journal is growing; do not delete undelivered reports or financial data.
+          description: Check MongoDB availability and delivery throughput. Completed probes have pending result projections; do not delete their durable journal or financial data.
       - alert: HyperspaceMeasurementsMongoDiskCritical
         expr: node_filesystem_avail_bytes{job="hyperspace-host-node",role="mongodb",mountpoint="/"} < 4 * 1024 * 1024 * 1024 or node_filesystem_avail_bytes{job="hyperspace-host-node",role="mongodb",mountpoint="/"} / node_filesystem_size_bytes{job="hyperspace-host-node",role="mongodb",mountpoint="/"} < 0.15
         for: 10m
@@ -43,7 +43,23 @@ groups:
           severity: warning
         annotations:
           summary: Optional probes loop cannot complete
-          description: Probes loop {{ $labels.loop }} has been failing for 5 minutes. Check PostgreSQL port 5433 and the probes worker; this is not a core worker outage.
+          description: Probes loop {{ $labels.loop }} has been failing for 5 minutes. Check the configured probes backend, MongoDB and read-only core catalog sync. PostgreSQL probes port 5433 is retired in Mongo-only deployments; this is not a core worker outage.
+      - alert: HyperspaceProbesCatalogStale
+        expr: hyperspace_probes_catalog_age_seconds > 60
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: MongoDB probes catalog is stale
+          description: Probes fail closed after 60 seconds without a catalog refresh. Check the read-only core catalog connection and MongoDB writes. Do not change VPN or billing state to repair synthetic probes.
+      - alert: HyperspaceProbesQueueStalled
+        expr: hyperspace_probes_oldest_queued_age_seconds > 600
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: MongoDB probes queue is not progressing
+          description: Synthetic jobs have waited more than 10 minutes. Check probe agent heartbeats, eligibility, leases and the probes scheduler. Core assignments use their independent PostgreSQL queue.
       - alert: HyperspaceProbesFilesystemPressure
         expr: node_filesystem_avail_bytes{job="hyperspace-host-node",mountpoint="/var/lib/postgresql-probes"} / node_filesystem_size_bytes{job="hyperspace-host-node",mountpoint="/var/lib/postgresql-probes"} < 0.15
         for: 10m

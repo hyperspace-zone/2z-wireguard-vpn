@@ -3,6 +3,7 @@ import test from "node:test";
 import Fastify from "fastify";
 import type { Database } from "@hyperspace-zone/db";
 import { registerGateJobRoutes } from "./jobs.routes.js";
+import { createMongoProbesContext, type MongoProbeStore } from "@hyperspace-zone/control-plane";
 
 const gate = { id: "00000000-0000-4000-8000-000000000010", name: "gate-test", generation: 1, desiredState: "Enabled" as const, publicIpv4: "192.0.2.10", spec: {} };
 function setup(core: Database, probes: Database) {
@@ -40,4 +41,20 @@ test("synthetic claims are sent only to probes", async () => {
   const app=setup(core,probes);
   try { assert.equal((await app.inject({method:"POST",url:"/v1/gate/jobs/claim",payload:{lane:"probe"}})).statusCode,200); assert.equal(probeCalls,1); }
   finally {await app.close();}
+});
+
+test("Mongo queue outage cannot prevent operational claims or successful reports", async () => {
+  let mongoCalls=0;
+  const unavailable=async()=>{mongoCalls++;throw new Error('Mongo unavailable');};
+  const probes=createMongoProbesContext({claimGate:unavailable,reportGate:unavailable,measurements:{}} as unknown as MongoProbeStore);
+  let reporting=false;
+  const core={transaction:async(fn:(c:unknown)=>Promise<unknown>)=>fn({query:async(sql:string)=>({rows:reporting && sql.includes('FROM jobs')
+    ? [{id:gate.id,type:'reconcile',gateId:gate.id,assignmentId:null,retryCount:0,maxRetries:5,payload:{}}] : []})})} as unknown as Database;
+  const app=setup(core,probes);
+  try {
+    assert.equal((await app.inject({method:'POST',url:'/v1/gate/jobs/claim',payload:{lane:'control'}})).statusCode,200);
+    reporting=true;
+    assert.equal((await app.inject({method:'POST',url:`/v1/gate/jobs/${gate.id}/report`,payload:{status:'succeeded',resultSummary:{}}})).statusCode,200);
+    assert.equal(mongoCalls,0);
+  } finally {await app.close();}
 });

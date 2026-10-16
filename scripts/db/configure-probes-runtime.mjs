@@ -1,6 +1,12 @@
 import { readFileSync, writeFileSync, mkdirSync, copyFileSync, existsSync } from 'node:fs';
 const root = process.env.HS_RUNTIME_ENV_DIR ?? '/etc/hyperspace';
 const parse = file => Object.fromEntries(readFileSync(file, 'utf8').split('\n').filter(line => /^[A-Z_][A-Z0-9_]*=/.test(line)).map(line => [line.slice(0,line.indexOf('=')),line.slice(line.indexOf('=')+1)]));
+for (const name of ['control-plane-api','probes-worker']) {
+  const file = `${root}/${name}.env`;
+  if (existsSync(file) && parse(file).PROBES_BACKEND === 'mongodb') {
+    throw new Error('Mongo-only probes already configured; refusing to restore the retired SQL backend');
+  }
+}
 const credentials = parse(`${root}/probes-instance.env`);
 for (const name of ['PROBES_DATABASE_URL','PROBES_CATALOG_DATABASE_URL']) {
   if (!credentials[name]) throw new Error(`Missing ${name}`);

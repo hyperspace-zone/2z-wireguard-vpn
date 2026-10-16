@@ -3,6 +3,8 @@ import type { Queryable } from "../../db/queryable.js";
 import { freshGateLeaseSqlPredicate } from "../gate-leases/repository.js";
 import { enqueueMeasurement, markMeasurementScheduled, measurementStore } from "../../measurements/context.js";
 import { validDate } from "../../measurements/mongo.js";
+import { probeStore } from "../../probes/context.js";
+import { catalogGates } from "../../probes/catalog.js";
 
 export interface ScheduleGateBenchmarkInput {
   intervalSeconds: number;
@@ -59,6 +61,8 @@ export async function insertDueGateBenchmarkProbeJobs(
   db: Queryable,
   input: ScheduleGateBenchmarkInput
 ): Promise<number> {
+  const mongo = probeStore(db);
+  if (mongo) return mongo.scheduleBenchmarks(input);
   const result = await db.query(
     `
       WITH scheduler_lock AS MATERIALIZED (
@@ -179,6 +183,8 @@ export async function insertDueGateNtpDiscoveryJobs(
   db: Queryable,
   input: ScheduleGateNtpDiscoveryInput
 ): Promise<number> {
+  const mongo = probeStore(db);
+  if (mongo) return mongo.scheduleNtp(input);
   const result = await db.query(
     `
       WITH scheduler_lock AS MATERIALIZED (
@@ -361,7 +367,9 @@ export async function insertGateBenchmarkReport(
 export async function listLatestGateBenchmarkRoutes(db: Queryable): Promise<GateBenchmarkRoute[]> {
   const store = measurementStore(db);
   if (store) {
-    const gates = await db.query<{ id: string; name: string; metro: string | null }>(`SELECT gates.id,gates.name,
+    const mongo = probeStore(db);
+    const gates = mongo ? { rows: catalogGates(await mongo.catalog()).filter(row => row.gate.desired_state === "Enabled").map(row => ({ id: String(row.gate.id), name: String(row.gate.name), metro: row.metro || null })) }
+      : await db.query<{ id: string; name: string; metro: string | null }>(`SELECT gates.id,gates.name,
         NULLIF(BTRIM(status.doublezero_status->>'metro'),'') AS metro
         FROM gates LEFT JOIN gate_status status ON status.gate_id=gates.id
         WHERE gates.desired_state='Enabled' ORDER BY gates.name`);

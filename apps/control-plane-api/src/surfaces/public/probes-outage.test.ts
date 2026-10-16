@@ -4,7 +4,7 @@ import Fastify from "fastify";
 import type { Database } from "@hyperspace-zone/db";
 import { registerPublicBenchmarkRoutes } from "./benchmarks.routes.js";
 import { registerPublicTradingRoutes } from "./trading.routes.js";
-import { attachMeasurementStore } from "@hyperspace-zone/control-plane";
+import { attachMeasurementStore, createMongoProbesContext, MongoProbeStore } from "@hyperspace-zone/control-plane";
 
 test("measurement outage returns bounded 503 without exposing SQL or breaking unrelated routes",async()=>{
   const app=Fastify();
@@ -21,6 +21,23 @@ test("measurement outage returns bounded 503 without exposing SQL or breaking un
     }
     assert.equal((await app.inject({url:"/core-check"})).statusCode,200);
   } finally {await app.close();}
+});
+
+test("Mongo-only probes context starts without Mongo and bounds public failures without a SQL fallback",async()=>{
+  const unavailable=async()=>{throw new Error("mongodb://user:secret@example.invalid credentials");};
+  const store={catalog:unavailable,tradingLatency:unavailable,measurements:{benchmarks:unavailable,trading:unavailable}} as unknown as MongoProbeStore;
+  const probes=createMongoProbesContext(store);
+  const app=Fastify();
+  registerPublicBenchmarkRoutes(app,{db:probes});registerPublicTradingRoutes(app,{db:probes});
+  app.get('/core-check',async()=>({ok:true}));
+  try{
+    await app.ready();
+    for(const url of ['/v1/public/benchmarks/gate-matrix','/v1/public/trading/latency']){
+      const r=await app.inject({url});assert.equal(r.statusCode,503,r.body);assert.doesNotMatch(r.body,/secret|mongodb|credentials|example|SQL/);
+    }
+    assert.equal((await app.inject({url:'/core-check'})).statusCode,200);
+    await assert.rejects(probes.query('SELECT 1'),/SQL is forbidden/);
+  }finally{await app.close();}
 });
 
 test("Mongo outage leaves PostgreSQL available and redacts driver errors while core routes stay healthy",async()=>{

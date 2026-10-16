@@ -12,6 +12,7 @@ import { findAssignmentPhaseForUpdate, updateAssignmentPhase } from "../gate-ass
 import { leasedAssignmentTransition, type GateAssignmentPhase } from "../gate-assignments/transitions.js";
 import { claimJobTransition } from "./transitions.js";
 import { withClientTunnelSecret } from "./client-tunnel-secret.js";
+import { probeStore } from "../../probes/context.js";
 
 export type { ClaimedGateJob, GateJobLane, GateJobLeaseIdentity } from "./repository.js";
 
@@ -21,6 +22,8 @@ export async function claimGateJob(
   lane?: GateJobLane,
   artifactEncryptionKey?: Buffer | null
 ): Promise<ClaimedGateJob | null> {
+  const mongo = probeStore(db);
+  if (mongo) return lane === "control" ? null : mongo.claimGate(gate.id, gate.name);
   return db.transaction(async (client) => {
     const job = await findClaimableGateJobForUpdate(client, gate.id, lane);
     if (!job) {

@@ -1,9 +1,13 @@
 import type { Database } from "@hyperspace-zone/db";
-import { measurementStore } from "@hyperspace-zone/control-plane";
+import { measurementStore, probeStore, catalogGates, catalogNodes } from "@hyperspace-zone/control-plane";
 
 export async function readMongoBenchmarkMetricRows(db: Database) {
   const store = measurementStore(db)!;
-  const gates = await db.query<{ id: string; name: string; ip: string; probe: string | null; connected: boolean; metro: string | null }>(`
+  const mongo = probeStore(db);
+  const gates = mongo ? { rows: catalogGates(await mongo.catalog()).filter(row => row.gate.desired_state === "Enabled").map(row => ({
+    id: String(row.gate.id), name: String(row.gate.name), ip: String(row.gate.public_ipv4), probe: row.gate.spec?.probeUrl as string | null,
+    connected: row.connected, metro: row.metro || null
+  })) } : await db.query<{ id: string; name: string; ip: string; probe: string | null; connected: boolean; metro: string | null }>(`
       SELECT gates.id,gates.name,gates.public_ipv4 AS ip,gates.spec->>'probeUrl' AS probe,
       COALESCE(agent.status='True' AND leases.lease_expires_at>now(),false) AS connected,
       NULLIF(BTRIM(status.doublezero_status->>'metro'),'') AS metro
@@ -31,7 +35,12 @@ export async function readMongoBenchmarkMetricRows(db: Database) {
 }
 
 export async function readMongoTradingTargetMetricRows(db: Database) {
-  const [targets, nodes] = await Promise.all([
+  const mongo = probeStore(db);
+  const catalog = mongo ? await mongo.catalog() : undefined;
+  const [targets, nodes] = catalog ? [
+    { rows: (catalog.trading_probe_targets ?? []).filter(row=>row.enabled).map(row=>({id: String(row.id), target: String(row.target_key), category: String(row.category)})) },
+    { rows: catalogNodes(catalog).filter(row=>row.desired_state !== "Disabled").map(row=>({id: String(row.id)})) }
+  ] as const : await Promise.all([
     db.query<{ id: string; target: string; category: string }>("SELECT id,target_key AS target,category FROM trading_probe_targets WHERE enabled=true"),
     db.query<{ id: string }>("SELECT id FROM trading_probe_nodes WHERE desired_state <> 'Disabled'")
   ]);

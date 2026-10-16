@@ -1,4 +1,5 @@
 import type { Database } from "@hyperspace-zone/db";
+import { probeStore, type ProbeCatalog } from "@hyperspace-zone/control-plane";
 
 export const catalogMirrors = [
   { table: "gates", key: "id" },
@@ -14,6 +15,7 @@ export const catalogMirrors = [
 /** End the read-only core snapshot before beginning the probes transaction.
  * No two-phase commit, foreign server, synchronous core write or reverse sync. */
 export async function syncProbesCatalog(core: Database, probes: Database): Promise<void> {
+  const capturedAt = new Date();
   const snapshot = await core.transaction(async client => {
     await client.query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY");
     const rows: Record<string, unknown[]> = {};
@@ -24,6 +26,8 @@ export async function syncProbesCatalog(core: Database, probes: Database): Promi
     }
     return rows;
   });
+  const mongo = probeStore(probes);
+  if (mongo) return mongo.replaceCatalog(snapshot as ProbeCatalog, capturedAt);
   await probes.transaction(async client => {
     // Preserve historical rows of retired gates, but never let a deleted core
     // gate remain enabled in the local measurement scheduler.

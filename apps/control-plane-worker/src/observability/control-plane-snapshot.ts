@@ -1,6 +1,6 @@
 import type { Database } from "@hyperspace-zone/db";
 import type { HealthRegistry, RuntimeMetrics } from "@hyperspace-zone/shared";
-import { measurementStore } from "@hyperspace-zone/control-plane";
+import { measurementStore, probeStore } from "@hyperspace-zone/control-plane";
 import { readMongoBenchmarkMetricRows, readMongoTradingTargetMetricRows } from "../probes/measurement-metrics.js";
 
 export interface ControlPlaneSnapshotSection {
@@ -99,7 +99,8 @@ function defaultSnapshotSections(db: Database, metrics: RuntimeMetrics, includeP
 }
 
 export async function collectTradingProbeMetrics(db: Database, metrics: RuntimeMetrics): Promise<void> {
-  const nodes = await db.query<{
+  const mongo = probeStore(db);
+  const nodes = mongo ? { rows: await mongo.tradingNodeMetrics() } : await db.query<{
     node: string;
     city: string;
     enabled: boolean;
@@ -116,6 +117,8 @@ export async function collectTradingProbeMetrics(db: Database, metrics: RuntimeM
     LEFT JOIN trading_probe_node_status status ON status.probe_node_id = nodes.id
     WHERE nodes.desired_state <> 'Disabled'
   `);
+  if (mongo) resetGauges(metrics, ["control_plane_trading_probe_node_fresh",
+    "control_plane_trading_probe_node_last_seen_age_seconds", "control_plane_trading_probe_nodes"]);
   let enabled = 0;
   let fresh = 0;
   for (const row of nodes.rows) {
@@ -157,6 +160,8 @@ export async function collectTradingProbeMetrics(db: Database, metrics: RuntimeM
     WHERE targets.enabled = true
     GROUP BY targets.id, targets.target_key, targets.category
   `);
+  if (mongo) resetGauges(metrics, ["control_plane_trading_target_reporting_nodes", "control_plane_trading_target_failed_nodes",
+    "control_plane_trading_target_rate_limited_nodes", "control_plane_trading_target_latest_age_seconds"]);
   for (const row of targets.rows) {
     const labels = { target: row.target, category: row.category };
     metrics.gauge("control_plane_trading_target_reporting_nodes", row.reportingNodes, {

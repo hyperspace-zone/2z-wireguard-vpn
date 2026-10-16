@@ -1,6 +1,6 @@
 import type { Database } from "@hyperspace-zone/db";
 import type { HealthRegistry, RuntimeMetrics } from "@hyperspace-zone/shared";
-import { requeueExpiredJobs, measurementStore, deliverMeasurements } from "@hyperspace-zone/control-plane";
+import { requeueExpiredJobs, measurementStore, deliverMeasurements, probeStore } from "@hyperspace-zone/control-plane";
 import { createBenchmarkSchedulerLoop, type BenchmarkSchedulerRuntimeConfig } from "../loops/benchmark-scheduler-loop.js";
 import { createTradingProbeSchedulerLoop } from "../loops/trading-probe-scheduler-loop.js";
 import { collectControlPlaneSnapshotMetrics, collectBenchmarkMetrics, collectTradingProbeMetrics } from "../observability/control-plane-snapshot.js";
@@ -16,6 +16,7 @@ export async function runProbesWorker(input: {
   const benchmark = createBenchmarkSchedulerLoop({ db: input.probes, config: input.config });
   const trading = createTradingProbeSchedulerLoop({ db: input.probes, config: input.config });
   const store = measurementStore(input.probes);
+  const queue = probeStore(input.probes);
   let initialized = false;
   let statsAt = 0;
   async function loop(name: string, interval: number, task: () => Promise<void>): Promise<void> {
@@ -35,12 +36,19 @@ export async function runProbesWorker(input: {
   }
   await Promise.all([
     ...(store ? [loop("mongo-delivery", 1000, async () => {
-      const result = await input.probes.query<{ count: number; age: number }>(`SELECT COUNT(*)::int AS count,
+      if (!initialized) { await store.initialize(); await queue?.initialize(); initialized = true; }
+      const stats = queue ? await queue.stats() : undefined;
+      const result = stats ? { rows: [{ count: stats.pending, age: stats.oldestAge }] } : await input.probes.query<{ count: number; age: number }>(`SELECT COUNT(*)::int AS count,
         COALESCE(EXTRACT(EPOCH FROM now()-MIN(created_at)),0)::float AS age FROM measurement_delivery_outbox`);
       input.metrics.gauge("measurements_delivery_backlog", result.rows[0]?.count ?? 0);
       input.metrics.gauge("measurements_delivery_oldest_age_seconds", result.rows[0]?.age ?? 0);
-      if (!initialized) { await store.initialize(); initialized = true; }
-      await deliverMeasurements(input.probes, store, 200);
+      if (stats) {
+        input.metrics.gauge("probes_catalog_age_seconds", stats.catalogAge);
+        input.metrics.gauge("probes_oldest_queued_age_seconds", stats.oldestQueuedAge);
+        input.metrics.resetGauge("probes_jobs");
+        for (const row of stats.phases) input.metrics.gauge("probes_jobs", row.count, { labels: row._id });
+      }
+      if (queue) await queue.deliver(200); else await deliverMeasurements(input.probes, store, 200);
       if (store.stats && Date.now()-statsAt>30_000) {
         const stats = await store.stats(); statsAt=Date.now();
         input.metrics.gauge("measurements_mongo_data_bytes",stats.dataBytes);
@@ -49,7 +57,12 @@ export async function runProbesWorker(input: {
       }
     })] : []),
     loop("catalog-sync", 10_000, () => syncProbesCatalog(input.core, input.probes)),
-    loop("scheduler", 15_000, async () => { await requeueExpiredJobs(input.probes); await benchmark.runOnce(); await trading.runOnce(); }),
+    loop("scheduler", 15_000, async () => {
+      // No queue writes before unique indexes are installed. An unavailable
+      // Mongo retries here; it is never a dependency of core startup.
+      if (queue && !initialized) throw new Error("Mongo probes are initializing");
+      await requeueExpiredJobs(input.probes); await benchmark.runOnce(); await trading.runOnce();
+    }),
     loop("retention", 30_000, () => cleanupProbesHistory(input.probes)),
     loop("snapshot", 15_000, async () => {
       await collectControlPlaneSnapshotMetrics({ db: input.probes, health: input.health, metrics: input.metrics, sections: [

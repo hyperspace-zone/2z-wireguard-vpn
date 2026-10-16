@@ -1,4 +1,5 @@
 import type { Queryable } from "../../db/queryable.js";
+import { probeStore } from "../../probes/context.js";
 import type { RevocableAssignmentRow } from "../gate-assignments/repository.js";
 import {
   insertApplyAssignmentJob,
@@ -56,6 +57,8 @@ export async function markApplyJobsDeadForSession(db: Queryable, sessionId: stri
 }
 
 export async function requeueExpiredJobLeases(db: Queryable): Promise<void> {
+  const mongo = probeStore(db);
+  if (mongo) return mongo.reapExpired();
   await updateExpiredJobLeasePhases(db, {
     nextPhase: expiredLeaseTransition("leased"),
     candidatePhases: expiredLeaseCandidateJobPhases

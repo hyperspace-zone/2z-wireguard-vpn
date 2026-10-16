@@ -1194,20 +1194,21 @@ are validated together.
 
 ## Database
 
-Production now uses two PostgreSQL instances on the existing DB host: core on
-5432 and disposable probes queues/catalog on 5433. Measurement values/history
-are stored on a separate MongoDB host; follow
-[Mongo measurement storage](mongodb-measurements.md) for TLS, TTL, outbox,
-dependency-complete artifact packaging and rollback. Mongo must not become a
-core startup, billing or reconciliation dependency. Follow
-[PostgreSQL core/probes isolation](postgresql-core-probes-isolation.md) for the
-fixed probes filesystem, credentials, independent worker, migration/cutover and
-verified core backup/restore. Do not run core migrations against the probes DB.
+Production uses core PostgreSQL on 5432 and MongoDB for the entire optional
+probes subsystem: jobs, leases, retries, catalog mirror, scheduler state and
+measurements. With `PROBES_BACKEND=mongodb`, PostgreSQL probes on 5433 is retired;
+do not provision a second SQL instance. Follow
+[MongoDB probes queue and cutover](mongodb-probes.md) and
+[Mongo measurement storage](mongodb-measurements.md) for TLS, TTL and recovery.
+Mongo must not become a core startup, billing or reconciliation dependency.
+[PostgreSQL core/probes isolation](postgresql-core-probes-isolation.md) retains
+the core backup/restore procedure and the historical SQL rollback instructions.
 After deploying API/worker builds, restart core with the usual
 `restart-after-migrations` helper; then independently run
-`scripts/control-plane/restart-probes-after-migrations`. A probes migration
-failure is a measurement-service problem and must not block core deployment.
-Copy `packages/db/probes-migrations` as well as the normal runtime migrations.
+`scripts/control-plane/restart-probes-after-migrations`. In Mongo mode it
+initializes Mongo indexes, without opening a probes SQL connection. Failure
+is a measurement-service problem and must not block core deployment.
+Legacy SQL deployments still require `packages/db/probes-migrations`.
 
 Install PostgreSQL as a native package. Keep PostgreSQL private to the
 control-plane host or a private network; do not expose it on the public

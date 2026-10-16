@@ -19,6 +19,7 @@ import { recordGateBenchmarkJobReport } from "../benchmarks/service.js";
 import { resolveReportedJobTransition, type JobReportStatus } from "./transitions.js";
 import { markDeploymentJobReported } from "../gate-agent-deployments/repository.js";
 import { measurementStore } from "../../measurements/context.js";
+import { probeStore } from "../../probes/context.js";
 
 export interface GateJobReport {
   status: JobReportStatus;
@@ -33,6 +34,8 @@ export async function recordGateJobReport(
   jobId: string,
   report: GateJobReport
 ): Promise<boolean> {
+  const mongo = probeStore(db);
+  if (mongo) return mongo.reportGate(gateId, jobId, report);
   return db.transaction(async (client) => {
     const row = await findJobForReportForUpdate(client, gateId, jobId);
     if (!row) {

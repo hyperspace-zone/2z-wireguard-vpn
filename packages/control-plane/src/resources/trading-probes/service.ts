@@ -10,6 +10,7 @@ import { sha256Hex } from "../../security/tokens.js";
 import type { AuthenticatedTradingProbeNode } from "../../security/trading-probe-auth.js";
 import { enqueueMeasurement, markMeasurementScheduled, measurementStore } from "../../measurements/context.js";
 import { validDate, type TradingMeasurement } from "../../measurements/mongo.js";
+import { probeStore } from "../../probes/context.js";
 
 export interface TradingProbeHeartbeat {
   bootId: string;
@@ -30,6 +31,8 @@ export async function recordTradingProbeHeartbeat(
   node: AuthenticatedTradingProbeNode,
   report: TradingProbeHeartbeat
 ): Promise<void> {
+  const mongo = probeStore(db);
+  if (mongo) return mongo.heartbeat(node, report);
   await db.transaction(async (client) => {
     await client.query(
       `
@@ -92,6 +95,8 @@ export async function recordTradingProbeHeartbeat(
 
 export async function scheduleTradingProbeJobs(db: Queryable, enabled: boolean): Promise<number> {
   if (!enabled) return 0;
+  const mongo = probeStore(db);
+  if (mongo) return mongo.scheduleTrading();
   await db.query(
     `
       UPDATE trading_probe_jobs
@@ -149,6 +154,8 @@ export async function claimTradingProbeJob(
   leaseOwner: string
 ): Promise<TradingProbeJob | null> {
   if (node.desiredState !== "Enabled") return null;
+  const mongo = probeStore(db);
+  if (mongo) return mongo.claimTrading(node, leaseOwner);
   return db.transaction(async (client) => {
     const selected = await client.query<TradingProbeJobRow>(
       `
@@ -223,6 +230,8 @@ export async function recordTradingProbeJobReport(
   attemptNumber: number,
   result: TradingProbeMetricSummary
 ): Promise<boolean> {
+  const mongo = probeStore(db);
+  if (mongo) return mongo.reportTrading(node, jobId, attemptNumber, result);
   return db.transaction(async (client) => {
     const job = await client.query<{ targetId: string; targetRevision: number; networkProfile: string }>(
       `
@@ -344,6 +353,8 @@ export async function recordTradingProbeJobReport(
 }
 
 export async function readPublicTradingLatency(db: Queryable, category?: string, targetKey?: string): Promise<PublicTradingLatencyResponse> {
+  const mongo = probeStore(db);
+  if (mongo) return mongo.tradingLatency(category, targetKey);
   const store = measurementStore(db);
   const [nodes, targets, measurements] = await Promise.all([
     db.query<PublicTradingLatencyResponse["nodes"][number]>(

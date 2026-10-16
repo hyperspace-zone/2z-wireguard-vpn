@@ -1,5 +1,5 @@
 import { createDatabase } from "@hyperspace-zone/db";
-import { attachMeasurementStore, MongoMeasurementStore } from "@hyperspace-zone/control-plane";
+import { attachMeasurementStore, MongoMeasurementStore, MongoProbeStore, createMongoProbesContext } from "@hyperspace-zone/control-plane";
 import { createApp } from "./app.js";
 import { loadConfig } from "./config.js";
 
@@ -9,7 +9,11 @@ const db = createDatabase({
   applicationName: "hyperspace-control-plane-api",
   minConnections: 10
 });
-const benchmarkDb = createDatabase({
+const mongoQueue = process.env.PROBES_BACKEND === "mongodb";
+if (mongoQueue && !process.env.MEASUREMENTS_MONGO_URL) throw new Error("Mongo probes require MEASUREMENTS_MONGO_URL");
+const measurements = process.env.MEASUREMENTS_MONGO_URL
+  ? new MongoMeasurementStore(process.env.MEASUREMENTS_MONGO_URL, process.env.MEASUREMENTS_MONGO_CA_FILE) : undefined;
+const benchmarkDb = mongoQueue ? createMongoProbesContext(new MongoProbeStore(measurements!)) : createDatabase({
   connectionString: config.probesDatabaseUrl ?? config.databaseUrl,
   applicationName: "hyperspace-control-plane-benchmarks",
   maxConnections: config.benchmarkDatabaseMaxConnections,
@@ -18,16 +22,14 @@ const benchmarkDb = createDatabase({
   statementTimeoutMs: config.benchmarkDatabaseStatementTimeoutMs
 });
 
-const measurements = process.env.MEASUREMENTS_MONGO_URL
-  ? new MongoMeasurementStore(process.env.MEASUREMENTS_MONGO_URL, process.env.MEASUREMENTS_MONGO_CA_FILE) : undefined;
-if (measurements) {
+if (measurements && !mongoQueue) {
   if (!config.probesDatabaseUrl) throw new Error("Mongo measurements require an isolated probes database");
   attachMeasurementStore(benchmarkDb, measurements);
 }
 const app = createApp({
   db,
   benchmarkDb,
-  ...(config.probesDatabaseUrl ? { probesDb: benchmarkDb } : {}),
+  ...(mongoQueue || config.probesDatabaseUrl ? { probesDb: benchmarkDb } : {}),
   config
 });
 

@@ -1,10 +1,12 @@
 import type { Database } from "@hyperspace-zone/db";
-import { measurementStore } from "@hyperspace-zone/control-plane";
+import { measurementStore, probeStore } from "@hyperspace-zone/control-plane";
 
 /** Probe history is expendable, unlike the billing ledger. Bounded batches
  * remove parent+attempts together, including orphaned unfinished attempts.
  * No NFS archive availability dependency and no maintenance in core. */
 export async function cleanupProbesHistory(db: Database): Promise<void> {
+  // Mongo TTL only applies after the durable completion journal was delivered.
+  if (probeStore(db)) return;
   const mongoBacked = Boolean(measurementStore(db));
   await db.transaction(async client => {
     await client.query("SET LOCAL lock_timeout='500ms'");

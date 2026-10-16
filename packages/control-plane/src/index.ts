@@ -243,5 +243,8 @@ export {
 export { authenticatePublicAuthSession } from "./resources/users/service.js";
 export { scheduleGateBenchmarkProbes, scheduleGateNtpDiscoveryJobs } from "./resources/benchmarks/service.js";
 export { attachMeasurementStore, measurementStore } from "./measurements/context.js";
+export { MongoProbeStore } from "./probes/mongo.js";
+export { createMongoProbesContext, probeStore } from "./probes/context.js";
+export { catalogTables, catalogGates, catalogNodes, publicCatalogGates, type ProbeCatalog } from "./probes/catalog.js";
 export { MongoMeasurementStore, type MeasurementStore, type BenchmarkLatest, type TradingMeasurement } from "./measurements/mongo.js";
 export { deliverMeasurements } from "./measurements/delivery.js";

@@ -2,11 +2,15 @@ import type { GateSummary } from "@hyperspace-zone/contracts";
 import type { Queryable } from "../db/queryable.js";
 import { amneziaWGCapability } from "../planning/client-tunnel.js";
 import { freshGateLeaseSqlPredicate } from "../resources/gate-leases/repository.js";
+import { probeStore } from "../probes/context.js";
+import { publicCatalogGates } from "../probes/catalog.js";
 
 export async function listPublicGates(
   db: Queryable,
   options: { includeNonEnabled?: boolean } = {}
 ): Promise<GateSummary[]> {
+  const mongo = probeStore(db);
+  if (mongo) return publicCatalogGates(await mongo.catalog(), options.includeNonEnabled);
   const result = await db.query<{
     id: string;
     name: string;

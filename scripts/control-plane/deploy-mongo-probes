@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+# Switch only API and the optional probes worker. Never touch core PostgreSQL,
+# gate services, core worker, or the source probes DB during this cutover.
+set -euo pipefail
+[[ $EUID == 0 ]] || exit 2
+release="${1:?Absolute unpacked mongo-probes release required}"
+[[ "$release" == /opt/2z-wireguard-vpn-releases/mongo-probes-* && -d "$release" && ! -L "$release" ]] || exit 2
+live=/opt/2z-wireguard-vpn
+[[ -L "$live" ]] || { echo 'Expected an existing versioned runtime symlink; refusing to overwrite a directory'; exit 2; }
+previous="$(readlink -f "$live")"
+[[ "$previous" != "$release" ]] || exit 2
+node --input-type=module -e "await import('$release/packages/control-plane/dist/index.js')"
+node --env-file=/etc/hyperspace/probes-worker.env "$release/scripts/db/initialize-mongo-probes.mjs"
+node --env-file=/etc/hyperspace/probes-worker.env "$release/scripts/db/migrate-probe-queue-mongo.mjs"
+rollback="/opt/hyperspace-rollbacks/mongo-probes-$(date -u +%Y%m%dT%H%M%SZ)"
+[[ ! -e "$rollback" ]] || exit 2
+install -d -m 0700 "$rollback"
+printf '%s\n' "$previous" >"$rollback/previous-runtime"
+for name in control-plane-api probes-worker; do install -m 0600 "/etc/hyperspace/$name.env" "$rollback/$name.env"; done
+changed=false
+switch_runtime() {
+  local target="$1" link="${live}.mongo-probes-$$"
+  [[ ! -e "$link" && ! -L "$link" ]] || return 2
+  ln -s "$target" "$link"
+  mv -Tf "$link" "$live"
+}
+on_exit() {
+  code=$?
+  if (( code != 0 )) && [[ "$changed" == true ]]; then
+    systemctl stop hyperspace-control-plane-api hyperspace-probes-worker || true
+    switch_runtime "$previous"
+    for name in control-plane-api probes-worker; do install -m 0600 "$rollback/$name.env" "/etc/hyperspace/$name.env"; done
+    systemctl start hyperspace-control-plane-api hyperspace-probes-worker
+    echo "Cutover failed. Restored previous API/probes runtime and env. SQL probes data untouched. Inspect Mongo migration marker before retrying. Rollback: $rollback" >&2
+  fi
+  exit "$code"
+}
+trap on_exit EXIT
+changed=true
+systemctl stop hyperspace-control-plane-api hyperspace-probes-worker
+node --env-file=/etc/hyperspace/probes-worker.env "$release/scripts/db/migrate-probe-queue-mongo.mjs" --execute
+node "$release/scripts/db/configure-mongo-probes-runtime.mjs"
+switch_runtime "$release"
+systemctl start hyperspace-probes-worker hyperspace-control-plane-api
+port="$(sed -n 's/^PORT=//p' /etc/hyperspace/control-plane-api.env)"
+for path in health v1/public/gates v1/public/benchmarks/gate-matrix v1/public/trading/latency; do
+  curl --fail --silent --show-error --retry 15 --retry-all-errors --retry-delay 1 --max-time 5 "http://127.0.0.1:${port:-8080}/$path" >/dev/null
+done
+systemctl is-active --quiet hyperspace-control-plane-api hyperspace-probes-worker hyperspace-control-plane-worker
+echo "Mongo probes cutover completed; rollback: $rollback. Verify real job completion before stopping PostgreSQL probes."

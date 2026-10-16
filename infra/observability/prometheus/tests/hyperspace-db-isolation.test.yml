@@ -4,6 +4,31 @@ evaluation_interval: 1m
 tests:
   - interval: 1m
     input_series:
+      - series: 'hyperspace_probes_catalog_age_seconds{cluster="mainnet"}'
+        values: '120+0x10'
+      - series: 'hyperspace_probes_oldest_queued_age_seconds{cluster="mainnet"}'
+        values: '700+0x10'
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: HyperspaceProbesCatalogStale
+        exp_alerts:
+          - exp_labels:
+              cluster: mainnet
+              severity: warning
+            exp_annotations:
+              summary: MongoDB probes catalog is stale
+              description: Probes fail closed after 60 seconds without a catalog refresh. Check the read-only core catalog connection and MongoDB writes. Do not change VPN or billing state to repair synthetic probes.
+      - eval_time: 6m
+        alertname: HyperspaceProbesQueueStalled
+        exp_alerts:
+          - exp_labels:
+              cluster: mainnet
+              severity: warning
+            exp_annotations:
+              summary: MongoDB probes queue is not progressing
+              description: Synthetic jobs have waited more than 10 minutes. Check probe agent heartbeats, eligibility, leases and the probes scheduler. Core assignments use their independent PostgreSQL queue.
+  - interval: 1m
+    input_series:
       - series: 'hyperspace_probes_worker_loop_ready{job="hyperspace-probes-worker",loop="mongo-delivery",cluster="mainnet"}'
         values: '0+0x10'
     alert_rule_test:
@@ -20,7 +45,7 @@ tests:
               service_ipv4: 88.216.62.149
             exp_annotations:
               summary: MongoDB measurement delivery is unavailable
-              description: Measurement reports remain in the probes PostgreSQL delivery journal and will retry. Check MongoDB TLS/auth/service and network access. Core VPN and billing are independent.
+              description: MongoDB probes storage or result projection is unavailable. Durable completed jobs will retry projection; agents may retry unacknowledged reports. Check MongoDB TLS/auth/service and network access. Core VPN and billing are independent.
   - interval: 1m
     input_series:
       - series: 'hyperspace_measurements_delivery_oldest_age_seconds{cluster="mainnet"}'
@@ -34,7 +59,7 @@ tests:
               severity: warning
             exp_annotations:
               summary: Measurement delivery journal is accumulating reports
-              description: Check MongoDB availability and delivery throughput. The isolated probes PostgreSQL journal is growing; do not delete undelivered reports or financial data.
+              description: Check MongoDB availability and delivery throughput. Completed probes have pending result projections; do not delete their durable journal or financial data.
   - interval: 1m
     input_series:
       - series: 'node_filesystem_avail_bytes{job="hyperspace-host-node",role="mongodb",mountpoint="/"}'

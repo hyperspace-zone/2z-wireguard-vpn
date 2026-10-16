@@ -2,15 +2,18 @@ import { createDatabase } from "@hyperspace-zone/db";
 import { createHealthRegistry, createRuntimeMetrics } from "@hyperspace-zone/shared";
 import { createWorkerObservabilityServer } from "./observability/server.js";
 import { runProbesWorker } from "./probes/runner.js";
-import { attachMeasurementStore, MongoMeasurementStore } from "@hyperspace-zone/control-plane";
+import { attachMeasurementStore, MongoMeasurementStore, MongoProbeStore, createMongoProbesContext } from "@hyperspace-zone/control-plane";
 
 const env = process.env;
-if (!env.PROBES_DATABASE_URL || !env.PROBES_CATALOG_DATABASE_URL) throw new Error("Separate probes and read-only core catalog URLs are required");
+const mongoQueue = env.PROBES_BACKEND === "mongodb";
+if ((!mongoQueue && !env.PROBES_DATABASE_URL) || !env.PROBES_CATALOG_DATABASE_URL) throw new Error("Read-only core catalog and separate probes backend are required");
+if (mongoQueue && !env.MEASUREMENTS_MONGO_URL) throw new Error("Mongo probes require MEASUREMENTS_MONGO_URL");
 if (env.PROBES_DATABASE_URL === env.PROBES_CATALOG_DATABASE_URL) throw new Error("Probes must not write to core");
 const core = createDatabase({ connectionString: env.PROBES_CATALOG_DATABASE_URL, applicationName: "hyperspace-probes-catalog-readonly", maxConnections: 1, connectionTimeoutMs: 1500, statementTimeoutMs: 2000 });
-const probes = createDatabase({ connectionString: env.PROBES_DATABASE_URL, applicationName: "hyperspace-probes-worker", maxConnections: 3, connectionTimeoutMs: 1500, statementTimeoutMs: 3000 });
 const measurements = env.MEASUREMENTS_MONGO_URL ? new MongoMeasurementStore(env.MEASUREMENTS_MONGO_URL, env.MEASUREMENTS_MONGO_CA_FILE) : undefined;
-if (measurements) attachMeasurementStore(probes, measurements);
+const probes = mongoQueue ? createMongoProbesContext(new MongoProbeStore(measurements!))
+  : createDatabase({ connectionString: env.PROBES_DATABASE_URL!, applicationName: "hyperspace-probes-worker", maxConnections: 3, connectionTimeoutMs: 1500, statementTimeoutMs: 3000 });
+if (measurements && !mongoQueue) attachMeasurementStore(probes, measurements);
 const health = createHealthRegistry("probes-worker");
 const metrics = createRuntimeMetrics({ service: "probes-worker" });
 const controller = new AbortController();

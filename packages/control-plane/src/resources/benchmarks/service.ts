@@ -64,7 +64,7 @@ export async function recordGateBenchmarkJobReport(
   });
 }
 
-function readBenchmarkResults(summary: Record<string, unknown>): GateBenchmarkReportMetricInput[] {
+export function readBenchmarkResults(summary: Record<string, unknown>): GateBenchmarkReportMetricInput[] {
   const value = summary.results;
   if (!Array.isArray(value)) {
     return [];

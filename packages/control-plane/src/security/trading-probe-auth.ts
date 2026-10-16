@@ -1,5 +1,6 @@
 import type { Queryable } from "../db/queryable.js";
 import { sha256Hex } from "./tokens.js";
+import { probeStore } from "../probes/context.js";
 
 export interface AuthenticatedTradingProbeNode {
   id: string;
@@ -12,6 +13,8 @@ export async function authenticateTradingProbeToken(
   db: Queryable,
   input: { nodeName: string; nodeToken: string }
 ): Promise<AuthenticatedTradingProbeNode | null> {
+  const mongo = probeStore(db);
+  if (mongo) return mongo.authenticate(input);
   const result = await db.query<AuthenticatedTradingProbeNode>(
     `
       SELECT

@@ -8,7 +8,8 @@ const backup=`${root}/before-mongo-${new Date().toISOString().replace(/[:.]/g,'-
 mkdirSync(backup,{mode:0o700});
 for(const name of ['control-plane-api','probes-worker']){
   const file=`${root}/${name}.env`;
-  if(!parse(file).PROBES_DATABASE_URL)throw new Error('Only isolated probes deployments can use Mongo');
+  const runtime=parse(file);
+  if(!runtime.PROBES_DATABASE_URL && runtime.PROBES_BACKEND!=='mongodb')throw new Error('Only isolated probes deployments can use Mongo');
   copyFileSync(file,`${backup}/${name}.env`);
   const original=readFileSync(file,'utf8').split('\n').filter(line=>!Object.keys(credentials).some(key=>line.startsWith(key+'=')));
   writeFileSync(file,original.join('\n').trimEnd()+'\n'+Object.entries(credentials).map(([k,v])=>`${k}=${v}`).join('\n')+'\n',{mode:0o600});

@@ -1,5 +1,10 @@
 # Измерения в MongoDB, операционные данные и очередь в PostgreSQL
 
+> Обновление: при `PROBES_BACKEND=mongodb` очередь, leases, scheduler и catalog
+> mirror тоже находятся в MongoDB; PostgreSQL probes останавливается после cutover.
+> Актуальная схема и deployment: [MongoDB probes](mongodb-probes.md).
+> Ниже описан первоначальный этап миграции measurements и SQL rollback backend.
+
 ## Границы
 
 Core PostgreSQL `hyperspace:5432` не меняется: пользователи, авторизация,
