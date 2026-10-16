@@ -13,7 +13,16 @@ test('Mongo probes cutover protects core and imports only bounded synthetic work
   const deploy=read('../control-plane/deploy-mongo-probes');
   assert.match(deploy,/previous-runtime/);assert.match(deploy,/trap on_exit EXIT/);
   assert.match(deploy,/--execute/);assert.match(deploy,/readlink -f/);
+  assert.match(deploy,/--upgrade/);assert.match(deploy,/grep -qx PROBES_BACKEND=mongodb/);
   assert.doesNotMatch(deploy,/systemctl (?:stop|restart) hyperspace-control-plane-worker/);
+});
+
+test('live Mongo outage drill includes a host-local failsafe and automatic recovery acceptance',()=>{
+  const drill=read('./check-mongo-probes-isolation');
+  assert.match(drill,/--on-active=60s/);assert.match(drill,/trap restore EXIT/);
+  assert.match(drill,/verify-mongo-probes.mjs --require-new-results/);
+  assert.doesNotMatch(drill,/systemctl (?:stop|restart) hyperspace-control-plane-worker/);
+  assert.equal(spawnSync('bash',['-n',new URL('./check-mongo-probes-isolation',import.meta.url).pathname]).status,0);
 });
 test('Mongo probes configuration removes only probes SQL credentials, preserving core and unrelated secrets',()=>{
   const dir=mkdtempSync(join(tmpdir(),'hs-mongo-probes-env-'));

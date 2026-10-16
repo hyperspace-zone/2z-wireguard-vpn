@@ -108,6 +108,11 @@ preset требует свежих измерений, проверяется **
 6. Проверить несколько реальных benchmark/trading циклов, fresh measurements,
    `probes_jobs`, delivery backlog, catalog age и loop readiness. Сравнить
    core users/payments/configs, freshness gate heartbeats и core health.
+   Read-only acceptance helper:
+
+   ```bash
+   node --env-file=/etc/hyperspace/probes-worker.env scripts/db/verify-mongo-probes.mjs --require-new-results
+   ```
 7. Только после успешной проверки на DB VM:
 
    ```bash
@@ -127,6 +132,12 @@ Import marker запрещает повторный перенос старог�
 Mongo-очереди. После автоматического отката сначала выяснить причину: не удалять
 marker/collections наугад. Повторный cutover требует отдельного плана переноса
 заданий, созданных в SQL после отката.
+
+Для последующих обновлений уже переключённого runtime используется тот же
+versioned helper с `--upgrade`: `bash scripts/control-plane/deploy-mongo-probes
+/opt/2z-wireguard-vpn-releases/mongo-probes-TIMESTAMP --upgrade`. Он требует
+Mongo backend в обоих env, не импортирует SQL повторно и не меняет credentials.
+Инициализация индексов, rollback и HTTP checks сохраняются.
 
 ## Откат после остановки probes PG
 
@@ -151,3 +162,17 @@ reports; ограничение retries; crash после частичной pro
 pending journal; отсутствие TTL на pending; revoked/stale catalog; same-metro
 N/A; Maintenance/Disabled; чтение матрицы/trading без SQL; core API при недоступной
 Mongo; cold restart при выключенном PostgreSQL probes.
+
+Для контролируемого live outage drill: на dev/builder
+`bash scripts/db/check-mongo-probes-isolation --execute`. Скрипт кратко
+останавливает Mongo, ставит host-local failsafe для восстановления через 60s,
+перезапускает только API/probes и проверяет core health/catalog вместе с 503
+измерений. После возврата Mongo проверяет автоматическое восстановление **без
+второго restart**. Не запускать вне окна обслуживания: API при рестарте имеет
+короткий HTTP gap. SSH/hosts переопределяются через HS_SSH_KEY, HS_MONGO_HOST,
+HS_CONTROL_HOST; подразумеваются production env paths и API 8080.
+
+Mongo store вызывает явный `client.connect()` перед операциями: driver lazy
+auto-connect после неудачного первого соединения может оставить closed topology.
+Повторный явный connect восстанавливает его; работающий pool переиспользуется.
+Core startup не ждёт этого подключения. После штатного close reconnect запрещён.

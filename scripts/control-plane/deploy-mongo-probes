@@ -4,6 +4,8 @@
 set -euo pipefail
 [[ $EUID == 0 ]] || exit 2
 release="${1:?Absolute unpacked mongo-probes release required}"
+mode="${2:-}"
+[[ -z "$mode" || "$mode" == --upgrade ]] || exit 2
 [[ "$release" == /opt/2z-wireguard-vpn-releases/mongo-probes-* && -d "$release" && ! -L "$release" ]] || exit 2
 live=/opt/2z-wireguard-vpn
 [[ -L "$live" ]] || { echo 'Expected an existing versioned runtime symlink; refusing to overwrite a directory'; exit 2; }
@@ -11,7 +13,14 @@ previous="$(readlink -f "$live")"
 [[ "$previous" != "$release" ]] || exit 2
 node --input-type=module -e "await import('$release/packages/control-plane/dist/index.js')"
 node --env-file=/etc/hyperspace/probes-worker.env "$release/scripts/db/initialize-mongo-probes.mjs"
-node --env-file=/etc/hyperspace/probes-worker.env "$release/scripts/db/migrate-probe-queue-mongo.mjs"
+if [[ "$mode" == --upgrade ]]; then
+  for name in control-plane-api probes-worker; do
+    grep -qx PROBES_BACKEND=mongodb "/etc/hyperspace/$name.env"
+    ! grep -q '^PROBES_DATABASE_URL=' "/etc/hyperspace/$name.env"
+  done
+else
+  node --env-file=/etc/hyperspace/probes-worker.env "$release/scripts/db/migrate-probe-queue-mongo.mjs"
+fi
 rollback="/opt/hyperspace-rollbacks/mongo-probes-$(date -u +%Y%m%dT%H%M%SZ)"
 [[ ! -e "$rollback" ]] || exit 2
 install -d -m 0700 "$rollback"
@@ -38,8 +47,10 @@ on_exit() {
 trap on_exit EXIT
 changed=true
 systemctl stop hyperspace-control-plane-api hyperspace-probes-worker
-node --env-file=/etc/hyperspace/probes-worker.env "$release/scripts/db/migrate-probe-queue-mongo.mjs" --execute
-node "$release/scripts/db/configure-mongo-probes-runtime.mjs"
+if [[ "$mode" != --upgrade ]]; then
+  node --env-file=/etc/hyperspace/probes-worker.env "$release/scripts/db/migrate-probe-queue-mongo.mjs" --execute
+  node "$release/scripts/db/configure-mongo-probes-runtime.mjs"
+fi
 switch_runtime "$release"
 systemctl start hyperspace-probes-worker hyperspace-control-plane-api
 port="$(sed -n 's/^PORT=//p' /etc/hyperspace/control-plane-api.env)"

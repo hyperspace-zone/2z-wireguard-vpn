@@ -26,6 +26,7 @@ const DAY = 86_400_000;
 export class MongoMeasurementStore implements MeasurementStore {
   readonly client: MongoClient;
   readonly databaseName: string;
+  private closed = false;
   constructor(url: string, caFile?: string, options: { socketTimeoutMs?: number } = {}) {
     this.client = new MongoClient(url, {
       maxPoolSize: 3, minPoolSize: 1, waitQueueTimeoutMS: 250, serverSelectionTimeoutMS: 1200,
@@ -36,7 +37,16 @@ export class MongoMeasurementStore implements MeasurementStore {
     this.databaseName = new URL(url.replace(/^mongodb\+srv:/, "mongodb:")).pathname.slice(1) || "hyperspace_measurements";
   }
   collection(name: string) { return this.client.db(this.databaseName).collection<Stored>(name); }
+  async connect(): Promise<void> {
+    if (this.closed) throw new Error("Measurement store is closed");
+    // Driver auto-connect can retain a closed topology after the first failed
+    // connection. Explicit connect retries that topology, deduplicates concurrent
+    // callers internally, and is a cheap no-op for an already connected client.
+    // Never await this from core startup or core operations.
+    await this.client.connect();
+  }
   async initialize(): Promise<void> {
+    await this.connect();
     for (const name of ["benchmark_results", "trading_results", "trading_rollups"]) {
       await this.collection(name).createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
     }
@@ -46,6 +56,7 @@ export class MongoMeasurementStore implements MeasurementStore {
     await this.collection("benchmark_latest").createIndex({ sourceGateId: 1, targetGateId: 1, transport: 1 });
   }
   async deliver(id: string, kind: "benchmark" | "trading", payload: unknown): Promise<void> {
+    await this.connect();
     if (kind === "benchmark") {
       const value = payload as BenchmarkMeasurement;
       const at = validDate(value.metric.measuredAt);
@@ -83,6 +94,7 @@ export class MongoMeasurementStore implements MeasurementStore {
     }
   }
   async replaceIfNewer(name: string, document: Stored): Promise<void> {
+    await this.connect();
     // Pipeline uses a literal document: error strings beginning with '$' are
     // data, never aggregation expressions. No upsert race/duplicate-key retry.
     await this.collection(name).updateOne({ _id: document._id }, [{ $replaceWith: { $cond: [
@@ -95,6 +107,7 @@ export class MongoMeasurementStore implements MeasurementStore {
   }
   async benchmarks(gateIds?: readonly string[]): Promise<BenchmarkLatest[]> {
     if (gateIds && !gateIds.length) return [];
+    await this.connect();
     const filter = gateIds ? { sourceGateId: { $in: [...gateIds] }, targetGateId: { $in: [...gateIds] } } : {};
     return await this.collection("benchmark_latest").find(filter, {
       projection: { _id: 0, sourceGateId: 1, targetGateId: 1, transport: 1, recent: { $slice: 2 } },
@@ -103,6 +116,7 @@ export class MongoMeasurementStore implements MeasurementStore {
   }
   async trading(selection?: { nodeIds: readonly string[]; targetIds: readonly string[] }): Promise<TradingMeasurement[]> {
     if (selection && (!selection.nodeIds.length || !selection.targetIds.length)) return [];
+    await this.connect();
     const filter = selection ? { nodeId: { $in: [...selection.nodeIds] }, targetId: { $in: [...selection.targetIds] } } : {};
     const rows = await this.collection("trading_latest").find(filter, {
       projection: { _id: 0, nodeId: 1, targetId: 1, targetRevision: 1, addressFamily: 1, networkProfile: 1,
@@ -112,8 +126,9 @@ export class MongoMeasurementStore implements MeasurementStore {
     }).limit(50_000).toArray();
     return rows.map(row => ({ ...row, measuredAt: (row.measuredAt as Date).toISOString() })) as unknown as TradingMeasurement[];
   }
-  async close(): Promise<void> { await this.client.close(); }
+  async close(): Promise<void> { this.closed = true; await this.client.close(); }
   async stats(): Promise<{ dataBytes: number; storageBytes: number; indexBytes: number }> {
+    await this.connect();
     const value = await this.client.db(this.databaseName).command({ dbStats: 1, scale: 1 }, { timeoutMS: 2000 });
     return { dataBytes: Number(value.dataSize), storageBytes: Number(value.storageSize), indexBytes: Number(value.indexSize) };
   }

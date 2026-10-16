@@ -58,6 +58,29 @@ test("Mongo context has no SQL connection or transaction fallback", async () => 
   await context.close(); await store.close();
 });
 
+test("Mongo initial connection failure is retried explicitly without restarting or reopening a closed store", async () => {
+  const measurements=new MongoMeasurementStore("mongodb://127.0.0.1:1/test");
+  const queue=new MongoProbeStore(measurements);
+  let attempts=0;
+  measurements.client.connect=async()=>{attempts++;throw new Error("initial connection unavailable");};
+  try {
+    // No collection operation may bypass an explicit reconnect after the driver
+    // retained a closed topology. Each next caller must be able to retry.
+    for(const operation of [()=>measurements.initialize(),()=>measurements.benchmarks(),()=>measurements.trading(),
+      ()=>measurements.stats(),()=>queue.initialize(),()=>queue.catalog(),()=>queue.stats(),()=>queue.deliver(),
+      ()=>queue.heartbeat(node,heartbeat),()=>queue.reportTrading(node,"claim",1,result())]) {
+      await assert.rejects(operation(),/initial connection unavailable/);
+    }
+    assert.equal(attempts,10);
+    measurements.client.connect=async()=>{attempts++;return measurements.client;};
+    await measurements.connect();
+    assert.equal(attempts,11);
+    await measurements.close();
+    await assert.rejects(measurements.connect(),/store is closed/);
+    assert.equal(attempts,11);
+  } finally {await measurements.close();}
+});
+
 test("live Mongo probes queue: atomic claims, fencing, replay, recovery, retention and read models without SQL", {
   skip: !process.env.MONGO_TEST_URL
 }, async t => {

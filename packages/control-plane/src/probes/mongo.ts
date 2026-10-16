@@ -41,6 +41,7 @@ export class MongoProbeStore {
   }
   get tasks() { return this.collection<ProbeTask>("jobs"); }
   async initialize(): Promise<void> {
+    await this.measurements.connect();
     await this.tasks.createIndex({ key: 1 }, { unique: true, partialFilterExpression: { active: true }, name: "one_active_task" });
     await this.tasks.createIndex({ claimId: 1 }, { unique: true, sparse: true });
     await this.tasks.createIndex({ sourceId: 1, kind: 1, phase: 1, runAfter: 1, createdAt: 1 });
@@ -50,6 +51,7 @@ export class MongoProbeStore {
     await this.tasks.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
   }
   async replaceCatalog(rows: ProbeCatalog, capturedAt = new Date()): Promise<void> {
+    await this.measurements.connect();
     if (Buffer.byteLength(JSON.stringify(rows)) > 8 * 1024 * 1024) throw new Error("Probes catalog exceeds bounded snapshot size");
     // One atomic snapshot, including removals/revocations. Older syncs cannot
     // resurrect revoked tokens. API reads don't depend on core availability.
@@ -59,6 +61,7 @@ export class MongoProbeStore {
     ] } }], { upsert: true });
   }
   async catalog(): Promise<ProbeCatalog> {
+    await this.measurements.connect();
     const value = await this.collection<CatalogDocument>("catalog").findOne({ _id: "current" }, { maxTimeMS: 1500 });
     if (!value || Date.now() - value.capturedAt.getTime() > 60_000 || value.capturedAt.getTime() > Date.now() + 5000) {
       throw new Error("Probes catalog snapshot unavailable or stale");
@@ -74,12 +77,14 @@ export class MongoProbeStore {
     return token ? { id: node.id, name: node.name, generation: Number(node.generation), desiredState: node.desired_state } : null;
   }
   async heartbeat(node: AuthenticatedTradingProbeNode, report: TradingProbeHeartbeat): Promise<void> {
+    await this.measurements.connect();
     const now = new Date();
     await this.collection<NodeStatus>("node_status").updateOne({ _id: node.id }, { $set: {
       lastSeenAt: now, leaseExpiresAt: new Date(now.getTime() + 60_000), report
     } }, { upsert: true });
   }
   async enqueue(task: Pick<ProbeTask, "key" | "kind" | "sourceId" | "targetId" | "revision" | "intervalMs" | "payload" | "maxAttempts">): Promise<boolean> {
+    await this.measurements.connect();
     const now = new Date();
     const state = await this.collection<ScheduleDocument>("schedule").findOne({ _id: task.key }, { maxTimeMS: 1500 });
     if (state && state.revision === task.revision && state.completedAt.getTime() + task.intervalMs > now.getTime()) return false;
@@ -167,6 +172,7 @@ export class MongoProbeStore {
     return task ? { id: task.claimId!, attemptNumber: task.attempts, networkProfile: "direct", target: task.payload.target } : null;
   }
   async reportGate(sourceId: string, claimId: string, report: GateJobReport): Promise<boolean> {
+    await this.measurements.connect();
     const task = await this.tasks.findOne({ claimId, sourceId, kind: { $in: ["benchmark", "ntp"] } }, { maxTimeMS: 1500 });
     if (!task) return false;
     if (task.phase !== "leased") return task.lastReportedClaimId === claimId;
@@ -189,6 +195,7 @@ export class MongoProbeStore {
     return this.complete(task, report.status, report.errorCode, events, report.status === "retryable_failed");
   }
   async reportTrading(node: AuthenticatedTradingProbeNode, claimId: string, attempt: number, result: TradingProbeMetricSummary): Promise<boolean> {
+    await this.measurements.connect();
     const task = await this.tasks.findOne({ claimId, sourceId: node.id, kind: "trading", attempts: attempt }, { maxTimeMS: 1500 });
     if (!task) return false;
     if (task.phase !== "leased") return task.lastReportedClaimId === claimId;
@@ -212,6 +219,7 @@ export class MongoProbeStore {
     return !!await this.tasks.findOne({ _id: task._id, claimId: task.claimId!, lastReportedClaimId: task.claimId!, phase: { $ne: "leased" } }, { projection: { _id: 1 } });
   }
   async reapExpired(): Promise<void> {
+    await this.measurements.connect();
     const now = new Date();
     // Keep the unique active key for the whole cooldown, including the gap
     // between a scheduler's state read and enqueue. Completion cannot race a
@@ -243,6 +251,7 @@ export class MongoProbeStore {
     }
   }
   async deliver(limit = 200): Promise<number> {
+    await this.measurements.connect();
     const rows = await this.tasks.find({ deliveryPending: true, deliveryAfter: { $lte: new Date() } }, { maxTimeMS: 1500 })
       .sort({ completedAt: 1 }).limit(limit).toArray();
     let delivered = 0;
@@ -267,6 +276,7 @@ export class MongoProbeStore {
     return delivered;
   }
   async stats() {
+    await this.measurements.connect();
     const [pending, oldest, phases, catalog, queued] = await Promise.all([
       this.tasks.countDocuments({ deliveryPending: true }, { maxTimeMS: 1500 }),
       this.tasks.find({ deliveryPending: true }, { projection: { completedAt: 1 }, maxTimeMS: 1500 }).sort({ completedAt: 1 }).limit(1).toArray(),

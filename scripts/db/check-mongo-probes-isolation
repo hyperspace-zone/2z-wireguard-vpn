@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+# Deliberate, short synthetic-measurement outage. Core worker and core PG are
+# never stopped. Use a maintenance window; API restarts once (brief HTTP gap).
+set -euo pipefail
+[[ "${1:-}" == --execute ]] || { echo 'Use --execute to run the production Mongo outage drill'; exit 2; }
+key="${HS_SSH_KEY:-/root/hyperspace/.ssh_keys/hyperspace_mainnet_gatekeeper_20260526}"
+mongo="${HS_MONGO_HOST:-88.216.62.149}"
+control="${HS_CONTROL_HOST:-5.199.161.13}"
+ssh_options=(-i "$key" -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=10)
+timer="hyperspace-mongo-probes-drill-restore-$(date -u +%Y%m%dT%H%M%SZ)"
+ssh "${ssh_options[@]}" "root@$control" 'grep -qx PROBES_BACKEND=mongodb /etc/hyperspace/control-plane-api.env && ! grep -q "^PROBES_DATABASE_URL=" /etc/hyperspace/control-plane-api.env'
+restore() {
+  ssh "${ssh_options[@]}" "root@$mongo" "systemctl start mongod && systemctl stop $timer.timer" || true
+  ssh "${ssh_options[@]}" "root@$control" 'systemctl start hyperspace-control-plane-api hyperspace-probes-worker' || true
+}
+trap restore EXIT
+# Host-local failsafe still restores Mongo if the dev SSH session disappears.
+ssh "${ssh_options[@]}" "root@$mongo" "systemd-run --unit=$timer --on-active=60s /bin/systemctl start mongod && systemctl stop mongod"
+ssh "${ssh_options[@]}" "root@$control" 'set -eu
+  systemctl restart hyperspace-control-plane-api hyperspace-probes-worker
+  curl -fsS --retry 20 --retry-all-errors --retry-delay 1 --max-time 3 http://127.0.0.1:8080/health
+  curl -fsS --max-time 3 http://127.0.0.1:8080/v1/public/gates >/dev/null
+  for path in benchmarks/gate-matrix trading/latency; do
+    code=$(curl -s -o /dev/null --max-time 5 -w "%{http_code}" "http://127.0.0.1:8080/v1/public/$path")
+    test "$code" = 503
+    echo "$path: bounded 503 while Mongo is down"
+  done
+  systemctl is-active hyperspace-control-plane-worker
+  echo "Core health and gate catalog succeeded during Mongo outage; no SQL probes fallback."
+'
+restore
+trap - EXIT
+# Do not restart a process after restoring Mongo: recovery itself is acceptance.
+ssh "${ssh_options[@]}" "root@$control" 'set -eu
+  cd /opt/2z-wireguard-vpn
+  for attempt in $(seq 1 20); do
+    if node --env-file=/etc/hyperspace/probes-worker.env scripts/db/verify-mongo-probes.mjs --require-new-results >/dev/null 2>&1; then break; fi
+    sleep 2
+  done
+  node --env-file=/etc/hyperspace/probes-worker.env scripts/db/verify-mongo-probes.mjs --require-new-results
+  for path in benchmarks/gate-matrix trading/latency; do
+    curl -fsS --retry 10 --retry-all-errors --retry-delay 1 --max-time 5 "http://127.0.0.1:8080/v1/public/$path" >/dev/null
+  done
+  echo "Mongo queue and public read models recovered without a second process restart."
+'
