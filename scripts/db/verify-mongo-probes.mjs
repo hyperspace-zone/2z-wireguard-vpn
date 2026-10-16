@@ -11,7 +11,7 @@ try {
   const marker=await queue.collection('migration').findOne({_id:'postgres-cutover-v1'});
   const since=marker?.completedAt??new Date(Date.now()-600000);
   const completed=await queue.tasks.aggregate([
-    {$match:{createdAt:{$gte:since},phase:'completed',outcome:{$nin:['cancelled','superseded']}}},
+    {$match:{createdAt:{$gte:since},phase:'completed',outcome:{$nin:['cancelled','superseded','dead']}}},
     {$group:{_id:{kind:'$kind',sourceId:'$sourceId'},count:{$sum:1},latest:{$max:'$completedAt'}}}
   ],{maxTimeMS:1500}).toArray();
   const gates=catalogGates(catalog).filter(row=>row.gate.desired_state==='Enabled').map(row=>({
@@ -26,6 +26,8 @@ try {
   const result={checkedAt:new Date().toISOString(),since,stats,gates,nodes};
   console.log(JSON.stringify(result,null,2));
   if(process.argv.includes('--require-new-results')){
+    const health=await fetch(`http://${process.env.PROBES_OBSERVABILITY_HOST??'127.0.0.1'}:${process.env.PROBES_OBSERVABILITY_PORT??9092}/health`,{signal:AbortSignal.timeout(3000)}).then(response=>response.json());
+    assert.equal(health.state,'ready','All optional worker loops must have recovered');
     assert.ok(stats.catalogAge<15,'Catalog is not refreshing');
     assert.ok(gates.some(row=>row.benchmarkEligible),'No eligible gates; acceptance needs explicit investigation');
     for(const row of gates.filter(row=>row.benchmarkEligible))assert.ok(row.completed>0,`No new benchmark completion: ${row.name}`);

@@ -73,6 +73,26 @@ preset требует свежих измерений, проверяется **
 2. Создать read-only роль каталога (SELECT только на восемь таблиц из
    `apps/control-plane-worker/src/probes/catalog-sync.ts`), без прав на платежи,
    пользователей, gate auth tokens и без прав записи.
+
+   На **новом** core PostgreSQL, после migrations, через `psql` администратором
+   в БД `hyperspace` (существующую роль при миграции повторно не создавать):
+
+   ```sql
+   CREATE ROLE hyperspace_catalog_reader LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE CONNECTION LIMIT 2;
+   ALTER ROLE hyperspace_catalog_reader SET default_transaction_read_only=on;
+   ALTER ROLE hyperspace_catalog_reader SET statement_timeout='2s';
+   GRANT CONNECT ON DATABASE hyperspace TO hyperspace_catalog_reader;
+   GRANT USAGE ON SCHEMA public TO hyperspace_catalog_reader;
+   GRANT SELECT ON gates,gate_status,gate_conditions,gate_leases,
+     trading_probe_nodes,trading_probe_auth_tokens,trading_probe_targets TO hyperspace_catalog_reader;
+   GRANT SELECT(id,gate_id,phase) ON gate_agent_deployments TO hyperspace_catalog_reader;
+   \password hyperspace_catalog_reader
+   ```
+
+   Пароль вводить интерактивно, URL хранить только в защищённом worker env.
+   В pg_hba/firewall разрешить роль и порт 5432 только с control-plane;
+   через внешнюю сеть использовать проверяемый TLS. Для этой роли не требуется
+   `install-probes-instance`: PostgreSQL probes больше не разворачивается.
 3. Настроить Mongo TLS/auth и firewall по [Mongo measurements](mongodb-measurements.md).
 4. API и probes-worker: `PROBES_BACKEND=mongodb`, `MEASUREMENTS_MONGO_URL`,
    для self-hosted также `MEASUREMENTS_MONGO_CA_FILE`. В probes-worker установить
@@ -176,3 +196,47 @@ Mongo store вызывает явный `client.connect()` перед опера
 auto-connect после неудачного первого соединения может оставить closed topology.
 Повторный явный connect восстанавливает его; работающий pool переиспользуется.
 Core startup не ждёт этого подключения. После штатного close reconnect запрещён.
+
+## Production: проверка 16 октября 2026
+
+- Runtime API/probes: commit `46496ca` (основной перенос `2f23b1a`),
+  `/opt/2z-wireguard-vpn-releases/mongo-probes-20261016-46496ca` на `5.199.161.13`.
+- Mongo: существующая VM `88.216.62.149`. Новые VM не создавались.
+- Перенос завершён в 07:57 UTC: 36 активных trading jobs, 34 записи состояния
+  nodes, 1116 scheduler markers, 2 pending journal events; исходный SQL read-only.
+- На `84.32.51.45`: `16/main:5432` online, `16/probes:5433` stopped + masked.
+  Основной PostgreSQL и core worker не перезапускались. Старые файлы/16 GiB
+  filesystem сохранены только для отката, не используются runtime.
+- До/после: 3054 users, 277 sessions, 530 gate assignments — без изменения
+  миграцией. Backup core от 16 октября и restore drill от 11 октября успешны;
+  оба таймера остаются включены.
+- В 08:09 UTC все четыре Enabled gates Ready/Schedulable; их trading nodes fresh.
+  С момента переключения получены новые подтверждённые отчёты:
+
+  | Gate | Benchmark jobs | Trading jobs |
+  |---|---:|---:|
+  | gate-eu-fra-21 | 7 | 329 |
+  | gate-ap-sin-21 | 8 | 315 |
+  | gate-ap-tyo-21 | 7 | 334 |
+  | gate-na-chi-21 | 6 | 336 |
+
+  Это проверка выполнения/приёма заданий, не утверждение, что каждый внешний
+  endpoint ответил успешно. Dead/cancelled/superseded jobs не считаются.
+- В live drill с выключенным PostgreSQL probes и недоступной Mongo API
+  cold-start успешен: core health и gate catalog HTTP 200; measurements 503.
+  После восстановления Mongo очередь/все worker loops/read models восстановились
+  без второго restart. Обнаруженная проблема initial driver auto-connect
+  исправлена и покрыта регрессионным тестом.
+- HTTP через app: `/api/health`, `/benchmarks`, `/trading`,
+  `/api/v1/public/benchmarks/gate-matrix`, `/api/v1/public/trading/latency` — 200.
+  Прямой внешний доступ к public measurement paths на control-plane защищён
+  Caddy и возвращает 403; браузер использует разрешённый app proxy.
+- Обе live Mongo suites прошли, 10/10 каждая (случайные изолированные test
+  collections удалены); основной API/control-plane/worker suite 287 passed,
+  3 external integration cases skipped locally, 0 failed. Полные workspace
+  typecheck/build/test и deployment/backup/rule tests также прошли.
+- Все 9 правил `hyperspace-db-isolation` загружены Prometheus, health=ok,
+  inactive после drill. Новые catalog/queue alerts включены.
+- Первый SQL rollback checkpoint:
+  `/opt/hyperspace-rollbacks/mongo-probes-20261016T075714Z`.
+  Следующий checkpoint `20261016T080701Z` уже Mongo-only, не SQL fallback.
