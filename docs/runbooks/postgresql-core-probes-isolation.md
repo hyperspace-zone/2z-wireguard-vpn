@@ -3,7 +3,10 @@
 > Исторический этап: второй PostgreSQL заменяется MongoDB probes backend.
 > Для новой выкладки не устанавливать `16/probes`; использовать
 > [MongoDB probes](mongodb-probes.md). Операционные backup/restore инструкции
-> ниже остаются действующими. Старый экземпляр сохраняется выключенным для отката.
+> ниже описывают self-hosted этап. Production core также перенесён в
+> [Neon PostgreSQL 18](neon-postgresql.md); оба локальных PostgreSQL остановлены.
+> После первых новых записей в Neon старая БД не является безопасным быстрым
+> rollback target. Бывшая DB VM пока хранит/создаёт NFS-бэкапы как remote client.
 
 ## Цель и границы
 

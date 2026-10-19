@@ -22,6 +22,8 @@ compression_level="${HS_DB_HISTORY_ARCHIVE_ZSTD_LEVEL:-6}"
 max_active_queries="${HS_DB_HISTORY_ARCHIVE_MAX_ACTIVE_QUERIES:-4}"
 minimum_free_bytes="${HS_DB_HISTORY_ARCHIVE_MIN_FREE_BYTES:-10737418240}"
 minimum_free_percent="${HS_DB_HISTORY_ARCHIVE_MIN_FREE_PERCENT:-15}"
+managed="${HS_POSTGRES_MANAGED:-0}"
+[[ "$managed" == 0 || "$managed" == 1 ]] || { echo 'HS_POSTGRES_MANAGED must be 0 or 1' >&2; exit 2; }
 
 for value_name in max_slices pressure_bytes pressure_max_slices delete_batch_size delete_batch_limit export_chunk_seconds compression_level max_active_queries minimum_free_bytes minimum_free_percent; do
   value="${!value_name}"
@@ -185,15 +187,19 @@ archive_query_to_file() {
       "${psql_base[@]}" --quiet --command="$query" 1>&${archive_fd} &
     query_pid=$!
     backend_pid=''
-    for _ in {1..50}; do
-      backend_pid="$(sql_scalar "SELECT pid FROM pg_stat_activity WHERE application_name = 'hyperspace-history-archive-export' ORDER BY backend_start DESC LIMIT 1")"
-      [[ "$backend_pid" =~ ^[0-9]+$ ]] && break
-      kill -0 "$query_pid" 2>/dev/null || break
-      sleep 0.1
-    done
-    if [[ "$backend_pid" =~ ^[0-9]+$ ]]; then
-      renice 15 -p "$backend_pid" >/dev/null 2>&1 || true
-      ionice -c2 -n7 -p "$backend_pid" >/dev/null 2>&1 || true
+    # Remote backend PIDs are not local process IDs. Never renice a local
+    # process based on a PID returned by managed/remote PostgreSQL.
+    if [[ "$managed" == 0 && ( -z "${PGHOST:-}" || "${PGHOST:-}" == /* ) ]]; then
+      for _ in {1..50}; do
+        backend_pid="$(sql_scalar "SELECT pid FROM pg_stat_activity WHERE application_name = 'hyperspace-history-archive-export' ORDER BY backend_start DESC LIMIT 1")"
+        [[ "$backend_pid" =~ ^[0-9]+$ ]] && break
+        kill -0 "$query_pid" 2>/dev/null || break
+        sleep 0.1
+      done
+      if [[ "$backend_pid" =~ ^[0-9]+$ ]]; then
+        renice 15 -p "$backend_pid" >/dev/null 2>&1 || true
+        ionice -c2 -n7 -p "$backend_pid" >/dev/null 2>&1 || true
+      fi
     fi
     if ! wait "$query_pid"; then
       exec {archive_fd}>&-

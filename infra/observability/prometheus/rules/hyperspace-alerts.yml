@@ -198,14 +198,14 @@ groups:
           description: Prometheus cannot scrape the worker observability endpoint for 2 minutes.
 
       - alert: HyperspacePostgreSQLDown
-        expr: up{job="hyperspace-postgresql"} == 0
+        expr: up{job="hyperspace-postgresql"} == 0 or pg_up{job="hyperspace-postgresql"} == 0
         for: 2m
         keep_firing_for: 10m
         labels:
           severity: critical
         annotations:
-          summary: Hyperspace PostgreSQL metrics scrape is down
-          description: Prometheus cannot scrape postgres_exporter on {{ $labels.service_host }} for 2 minutes.
+          summary: Hyperspace PostgreSQL or its metrics exporter is unavailable
+          description: The PostgreSQL exporter is unreachable or cannot authenticate/query PostgreSQL at {{ $labels.service_host }} for 2 minutes.
 
       - alert: HyperspacePostgreSQLConnectionsPressure
         expr: |

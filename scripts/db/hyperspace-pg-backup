@@ -4,6 +4,8 @@ set -euo pipefail
 backup_dir="${HS_DB_BACKUP_DIR:-/var/backups/hyperspace}"
 database="${HS_DB_NAME:-hyperspace}"
 backup_profile="${HS_DB_BACKUP_PROFILE:-combined}"
+managed="${HS_POSTGRES_MANAGED:-0}"
+[[ "$managed" == 0 || "$managed" == 1 ]] || { echo 'HS_POSTGRES_MANAGED must be 0 or 1' >&2; exit 2; }
 keep_last="${HS_DB_BACKUP_KEEP_LAST:-3}"
 free_space_margin_percent="${HS_DB_BACKUP_FREE_SPACE_MARGIN_PERCENT:-25}"
 required_free_override="${HS_DB_BACKUP_REQUIRED_FREE_BYTES:-}"
@@ -179,7 +181,13 @@ ensure_backup_capacity() {
 prune_managed_backups "$keep_last"
 ensure_backup_capacity
 
-pg_dumpall --globals-only --file="$globals_tmp"
+if [[ "$managed" == 1 ]]; then
+  # Managed PostgreSQL cannot expose password hashes. Globals are reference
+  # material only: do not replay provider-owned roles on a restored cluster.
+  pg_dumpall --globals-only --no-role-passwords --database="$database" --file="$globals_tmp"
+else
+  pg_dumpall --globals-only --file="$globals_tmp"
+fi
 dump_exclusions=()
 if [[ "$backup_profile" == "core" ]]; then
   for table in gate_benchmark_results trading_probe_jobs trading_probe_job_attempts trading_latency_latest trading_latency_rollups trading_probe_leases trading_probe_node_status; do

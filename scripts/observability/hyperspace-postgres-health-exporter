@@ -14,8 +14,14 @@ output="${metrics_dir}/hyperspace_postgres_health.prom"
 tmp="$(mktemp "${metrics_dir}/.hyperspace_postgres_health.XXXXXX")"
 trap 'test ! -e "$tmp" || unlink "$tmp"' EXIT
 
-IFS=$'\t' read -r connections max_connections longest_transaction tables_requiring_vacuum oldest_xid_age autovacuum_workers database_size wal_size < <(
-  psql --dbname="$database" --no-psqlrc --tuples-only --no-align --field-separator=$'\t' --command="
+managed="${HS_POSTGRES_MANAGED:-0}"
+[[ "$managed" == 0 || "$managed" == 1 ]] || { echo 'HS_POSTGRES_MANAGED must be 0 or 1' >&2; exit 2; }
+wal_expression='COALESCE((SELECT sum(size) FROM pg_ls_waldir()), 0)'
+[[ "$managed" != 1 ]] || wal_expression='NULL::bigint'
+# Capture the exit code of psql itself. Process substitution can hide an SQL
+# failure and otherwise publish invalid metrics with a fresh success timestamp.
+health_row="$(
+  psql --dbname="$database" --no-psqlrc --set=ON_ERROR_STOP=1 --tuples-only --no-align --field-separator=$'\t' --command="
     SELECT
       count(*) FILTER (WHERE backend_type = 'client backend'),
       current_setting('max_connections')::bigint,
@@ -40,9 +46,13 @@ IFS=$'\t' read -r connections max_connections longest_transaction tables_requiri
         WHERE relkind IN ('r', 'm')), 0)::bigint,
       count(*) FILTER (WHERE backend_type = 'autovacuum worker'),
       pg_database_size(current_database()),
-      COALESCE((SELECT sum(size) FROM pg_ls_waldir()), 0)
+      ${wal_expression}
     FROM pg_stat_activity;"
-)
+)"
+IFS=$'\t' read -r connections max_connections longest_transaction tables_requiring_vacuum oldest_xid_age autovacuum_workers database_size wal_size <<<"$health_row"
+for metric in connections max_connections longest_transaction tables_requiring_vacuum oldest_xid_age autovacuum_workers database_size; do
+  [[ "${!metric}" =~ ^[0-9]+$ ]] || { echo "Invalid PostgreSQL health metric: $metric" >&2; exit 1; }
+done
 
 backup_timestamp=0
 backup_size=0
@@ -113,9 +123,6 @@ hyperspace_postgres_autovacuum_workers ${autovacuum_workers}
 # HELP hyperspace_postgres_database_size_bytes Current application database size.
 # TYPE hyperspace_postgres_database_size_bytes gauge
 hyperspace_postgres_database_size_bytes ${database_size}
-# HELP hyperspace_postgres_wal_size_bytes Current pg_wal directory size.
-# TYPE hyperspace_postgres_wal_size_bytes gauge
-hyperspace_postgres_wal_size_bytes ${wal_size}
 # HELP hyperspace_postgres_backup_last_success_timestamp_seconds Modification timestamp of the newest verified custom-format dump.
 # TYPE hyperspace_postgres_backup_last_success_timestamp_seconds gauge
 hyperspace_postgres_backup_last_success_timestamp_seconds ${backup_timestamp}
@@ -150,5 +157,9 @@ hyperspace_postgres_history_archive_storage_size_bytes ${history_archive_storage
 # TYPE hyperspace_postgres_history_archive_storage_available_bytes gauge
 hyperspace_postgres_history_archive_storage_available_bytes ${history_archive_storage_available}
 EOF
+if [[ "$managed" == 0 ]]; then
+  [[ "$wal_size" =~ ^[0-9]+$ ]] || { echo 'Invalid PostgreSQL WAL metric' >&2; exit 1; }
+  printf '# HELP hyperspace_postgres_wal_size_bytes Current pg_wal directory size.\n# TYPE hyperspace_postgres_wal_size_bytes gauge\nhyperspace_postgres_wal_size_bytes %s\n' "$wal_size" >>"$tmp"
+fi
 chmod 0644 "$tmp"
 mv "$tmp" "$output"

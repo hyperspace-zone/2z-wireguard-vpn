@@ -30,6 +30,7 @@ test -n "$output"
 printf 'verified custom dump\\n' >"$output"
 `,
     pg_dumpall: `#!/bin/sh
+printf '%s\\n' "$@" >"$HS_TEST_GLOBALS_ARGUMENTS"
 for argument in "$@"; do
   case "$argument" in --file=*) output="\${argument#--file=}" ;; esac
 done
@@ -55,7 +56,8 @@ printf '%s\\n' '-- PostgreSQL globals' >"$output"
       HS_DB_BACKUP_DIR: backupDir,
       HS_DB_BACKUP_KEEP_LAST: "3",
       HS_DB_BACKUP_REQUIRED_FREE_BYTES: "1",
-      HS_TEST_AVAILABLE_BYTES: availableBytes
+      HS_TEST_AVAILABLE_BYTES: availableBytes,
+      HS_TEST_GLOBALS_ARGUMENTS: join(root, "globals-arguments")
     }
   };
 }
@@ -67,6 +69,17 @@ async function addManagedBackup(backupDir, stamp) {
 
 test("PostgreSQL backup script is valid Bash", async () => {
   await execFileAsync("bash", ["-n", scriptUrl.pathname]);
+});
+
+test("managed backups avoid password hashes and use the explicit database", async () => {
+  const fixture = await createHarness();
+  try {
+    await execFileAsync(scriptUrl.pathname, [], { env: { ...fixture.env, HS_POSTGRES_MANAGED: "1" } });
+    const args = await readFile(fixture.env.HS_TEST_GLOBALS_ARGUMENTS, "utf8");
+    assert.match(args, /--no-role-passwords/);
+    assert.match(args, /--database=hyperspace/);
+    assert.equal((await readdir(fixture.backupDir)).filter(x => x.endsWith(".dump")).length, 1);
+  } finally { await rm(fixture.root, { recursive: true, force: true }); }
 });
 
 test("PostgreSQL backup runs with bounded CPU and low I/O priority", async () => {

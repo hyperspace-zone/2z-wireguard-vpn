@@ -43,9 +43,24 @@ scrape_configs:
           - 10.179.228.12:9100
         labels:
           cluster: mainnet
-          role: postgresql
+          role: postgresql-backup
           service_host: db.hyperspace.zone
           service_ipv4: 84.32.51.45
+    # SQL health is collected by the backup host but describes managed Neon.
+    # Backup/archive and host metrics retain the actual maintenance host access.
+    metric_relabel_configs:
+      - source_labels: [__name__]
+        regex: 'hyperspace_postgres_(connections|max_connections|longest_transaction_seconds|tables_requiring_vacuum|oldest_xid_age|autovacuum_workers|database_size_bytes)'
+        target_label: service_host
+        replacement: ep-small-resonance-bauifcjf.c-8.eu-central-1.aws.neon.tech
+      - source_labels: [__name__]
+        regex: 'hyperspace_postgres_(connections|max_connections|longest_transaction_seconds|tables_requiring_vacuum|oldest_xid_age|autovacuum_workers|database_size_bytes)'
+        target_label: service_ipv4
+        replacement: ''
+      - source_labels: [__name__]
+        regex: 'hyperspace_postgres_(connections|max_connections|longest_transaction_seconds|tables_requiring_vacuum|oldest_xid_age|autovacuum_workers|database_size_bytes)'
+        target_label: role
+        replacement: postgresql
 
   - job_name: hyperspace-postgresql
     scheme: http
@@ -56,8 +71,7 @@ scrape_configs:
         labels:
           cluster: mainnet
           role: postgresql
-          service_host: db.hyperspace.zone
-          service_ipv4: 84.32.51.45
+          service_host: ep-small-resonance-bauifcjf.c-8.eu-central-1.aws.neon.tech
 
   - job_name: hyperspace-blackbox-http
     metrics_path: /probe
@@ -104,13 +118,12 @@ scrape_configs:
         - tcp_connect
     static_configs:
       - targets:
-          - 10.179.228.12:5432
+          - ep-small-resonance-bauifcjf.c-8.eu-central-1.aws.neon.tech:5432
         labels:
           cluster: mainnet
           role: postgresql
           probe_name: postgresql-tcp
-          service_host: db.hyperspace.zone
-          service_ipv4: 84.32.51.45
+          service_host: ep-small-resonance-bauifcjf.c-8.eu-central-1.aws.neon.tech
     relabel_configs:
       - source_labels: [__address__]
         target_label: __param_target

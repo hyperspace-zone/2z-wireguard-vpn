@@ -10,6 +10,16 @@ the DoubleZero environment before requesting `access-pass` records and use that
 same environment everywhere: DoubleZero CLI, `doublezerod`, gate catalog, and
 control-plane gate metadata.
 
+### Managed production PostgreSQL (2026-10-19)
+
+Hyperspace production core now uses PostgreSQL 18 in Neon AWS Frankfurt;
+measurements and probe jobs use MongoDB Atlas. Follow
+[the Neon migration/backup/recovery runbook](neon-postgresql.md) for current
+connection roles, TLS, restore drills and the retired Cherry PostgreSQL service.
+The self-hosted PostgreSQL sections below remain a deployment option, not an
+instruction to recreate the retired production instance. Existing NFS dumps
+and archives remain on Cherry storage pending their separately planned move.
+
 ## WireGuard Variant Ingress Rollout
 
 Sessions explicitly requested with `clientProtocol: "amneziawg"` use the extended WireGuard variant

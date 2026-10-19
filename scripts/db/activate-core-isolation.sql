@@ -15,6 +15,8 @@ BEGIN
   FOREACH table_name IN ARRAY ARRAY['gate_benchmark_results','trading_probe_jobs','trading_probe_job_attempts',
     'trading_latency_latest','trading_latency_rollups','trading_probe_leases','trading_probe_node_status'] LOOP
     EXECUTE format('DROP TRIGGER IF EXISTS core_no_probe_writes ON %I',table_name);
-    EXECUTE format('CREATE TRIGGER core_no_probe_writes BEFORE INSERT OR UPDATE ON %I FOR EACH STATEMENT EXECUTE FUNCTION reject_core_probe_write()',table_name);
+    -- A statement trigger also rejects zero-row FK SET NULL updates when old
+    -- core jobs are archived. Reject actual probe writes, not empty statements.
+    EXECUTE format('CREATE TRIGGER core_no_probe_writes BEFORE INSERT OR UPDATE ON %I FOR EACH ROW EXECUTE FUNCTION reject_core_probe_write()',table_name);
   END LOOP;
 END $$;

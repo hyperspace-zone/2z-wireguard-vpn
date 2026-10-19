@@ -12,3 +12,7 @@ modules:
   tcp_connect:
     prober: tcp
     timeout: 5s
+    tcp:
+      # The current observability host has IPv4 egress, no routed IPv6. Managed
+      # database hostnames have AAAA records; use the same family as clients.
+      preferred_ip_protocol: ip4

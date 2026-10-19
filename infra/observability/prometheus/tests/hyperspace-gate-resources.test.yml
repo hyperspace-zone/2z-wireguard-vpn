@@ -354,8 +354,30 @@ tests:
               service_ipv4: 84.32.97.140
               instance: 10.179.228.4:9187
             exp_annotations:
-              summary: Hyperspace PostgreSQL metrics scrape is down
-              description: Prometheus cannot scrape postgres_exporter on db.staging.hyperspace.zone for 2 minutes.
+              summary: Hyperspace PostgreSQL or its metrics exporter is unavailable
+              description: The PostgreSQL exporter is unreachable or cannot authenticate/query PostgreSQL at db.staging.hyperspace.zone for 2 minutes.
+
+  - name: managed PostgreSQL authentication outage is critical even if exporter is reachable
+    interval: 15s
+    input_series:
+      - series: 'up{job="hyperspace-postgresql",cluster="mainnet",role="postgresql",service_host="db.example.neon.tech",instance="backup-host:9187"}'
+        values: '1x10'
+      - series: 'pg_up{job="hyperspace-postgresql",cluster="mainnet",role="postgresql",service_host="db.example.neon.tech",instance="backup-host:9187"}'
+        values: '0x10'
+    alert_rule_test:
+      - eval_time: 2m15s
+        alertname: HyperspacePostgreSQLDown
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: hyperspace-postgresql
+              cluster: mainnet
+              role: postgresql
+              service_host: db.example.neon.tech
+              instance: backup-host:9187
+            exp_annotations:
+              summary: Hyperspace PostgreSQL or its metrics exporter is unavailable
+              description: The PostgreSQL exporter is unreachable or cannot authenticate/query PostgreSQL at db.example.neon.tech for 2 minutes.
 
   - name: failed snapshot section keeps worker scrapeable and alerts by section
     interval: 15s

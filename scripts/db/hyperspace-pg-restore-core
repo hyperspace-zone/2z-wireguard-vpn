@@ -4,6 +4,8 @@ set -euo pipefail
 dump="${1:?Usage: hyperspace-pg-restore-core DUMP NEW_DATABASE}"
 target="${2:?A new database name is required}"
 app_owner="${HS_CORE_DATABASE_OWNER:-hyperspace}"
+managed="${HS_POSTGRES_MANAGED:-0}"
+[[ "$managed" == 0 || "$managed" == 1 ]] || { echo 'HS_POSTGRES_MANAGED must be 0 or 1'; exit 2; }
 [[ "$app_owner" =~ ^[a-zA-Z_][a-zA-Z0-9_]*$ ]] || { echo 'Invalid core database owner'; exit 2; }
 [[ "$target" =~ ^[a-zA-Z_][a-zA-Z0-9_]*$ ]] || { echo 'Invalid database name'; exit 2; }
 [[ "$target" != "${HS_DB_NAME:-hyperspace}" && "$target" != hyperspace_probes ]] || { echo 'Refusing an operational/probes destination'; exit 2; }
@@ -12,12 +14,30 @@ expected="$(<"${dump}.sha256")"
 actual="$(sha256sum "$dump" | awk '{print $1}')"
 [[ "$expected" =~ ^[a-f0-9]{64}$ && "$expected" == "$actual" ]] || { echo 'Backup checksum mismatch'; exit 1; }
 pg_restore --list "$dump" >/dev/null
-exists="$(psql -X -At --dbname=postgres -v ON_ERROR_STOP=1 -c "SELECT count(*) FROM pg_database WHERE datname='${target}'")"
+exists="$(psql -X -At --dbname="${HS_DB_MAINTENANCE_DATABASE:-postgres}" -v ON_ERROR_STOP=1 -c "SELECT count(*) FROM pg_database WHERE datname='${target}'")"
 [[ "$exists" == 0 ]] || { echo 'Refusing to overwrite an existing database'; exit 1; }
 # Original object owners must already exist (restore the reviewed globals on a
 # fresh host). Preserve ownership so subsequent application migrations work.
 createdb --template=template0 --owner="$app_owner" "$target"
-pg_restore --exit-on-error --single-transaction --dbname="$target" "$dump"
+restore_options=()
+if [[ "$managed" == 1 ]]; then
+  # All application objects retain the runtime/migrations owner, never a
+  # provider superuser. The read-only catalog/monitor grants are reapplied
+  # explicitly before a restored database is promoted to production.
+  toc="$(mktemp)"
+  filtered_toc="$(mktemp)"
+  trap 'unlink "$toc"; unlink "$filtered_toc"' EXIT
+  pg_restore --list "$dump" >"$toc"
+  # Extensions can require the managed admin role. Install those separately;
+  # restore all application objects as the non-superuser application owner.
+  while IFS= read -r extension; do
+    [[ "$extension" =~ ^[a-zA-Z_][a-zA-Z0-9_]*$ ]] || { echo 'Unsupported extension name'; exit 2; }
+    psql -X -v ON_ERROR_STOP=1 --dbname="$target" -c "CREATE EXTENSION IF NOT EXISTS \"${extension}\";"
+  done < <(awk '$4 == "EXTENSION" && $5 == "-" { print $6 }' "$toc")
+  awk '!/ EXTENSION - / && !/ COMMENT - EXTENSION /' "$toc" >"$filtered_toc"
+  restore_options+=(--no-owner --no-acl --role="$app_owner" --use-list="$filtered_toc")
+fi
+pg_restore --exit-on-error --single-transaction "${restore_options[@]}" --dbname="$target" "$dump"
 psql -X -v ON_ERROR_STOP=1 -v app_owner="$app_owner" --dbname="$target" <<'SQL'
 DO $$ BEGIN
   IF to_regclass('public.balance_ledger_entries') IS NULL OR to_regclass('public.sessions') IS NULL
