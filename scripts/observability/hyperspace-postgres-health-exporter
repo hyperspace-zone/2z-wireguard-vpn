@@ -91,7 +91,7 @@ if [[ "$history_archive_enabled" == "1" ]]; then
       history_archive_last_attempt_success=1
     fi
   fi
-  if findmnt --mountpoint "$history_archive_mountpoint" --types nfs,nfs4 >/dev/null 2>&1; then
+  if [[ "${HS_DB_HISTORY_ARCHIVE_BACKEND:-nfs}" == r2 ]] || findmnt --mountpoint "$history_archive_mountpoint" --types nfs,nfs4 >/dev/null 2>&1; then
     read -r history_archive_storage_size history_archive_storage_available < <(
       df -PB1 "$history_archive_mountpoint" | awk 'NR == 2 { print $2, $4 }'
     )
@@ -138,7 +138,7 @@ hyperspace_postgres_offsite_backup_configured ${offsite_enabled}
 # HELP hyperspace_postgres_offsite_backup_last_success_timestamp_seconds Unix timestamp of the latest successful offsite PostgreSQL backup.
 # TYPE hyperspace_postgres_offsite_backup_last_success_timestamp_seconds gauge
 hyperspace_postgres_offsite_backup_last_success_timestamp_seconds ${offsite_timestamp}
-# HELP hyperspace_postgres_history_archive_configured Whether verified NFS history archival is configured.
+# HELP hyperspace_postgres_history_archive_configured Whether verified offsite history archival is configured.
 # TYPE hyperspace_postgres_history_archive_configured gauge
 hyperspace_postgres_history_archive_configured ${history_archive_enabled}
 # HELP hyperspace_postgres_history_archive_last_success_timestamp_seconds Unix timestamp of the latest successful archive run.
@@ -157,6 +157,11 @@ hyperspace_postgres_history_archive_storage_size_bytes ${history_archive_storage
 # TYPE hyperspace_postgres_history_archive_storage_available_bytes gauge
 hyperspace_postgres_history_archive_storage_available_bytes ${history_archive_storage_available}
 EOF
+if [[ "${HS_DB_HISTORY_ARCHIVE_BACKEND:-nfs}" == r2 ]]; then
+  r2_available=0
+  if timeout 25 "${HS_R2_HELPER:-/usr/local/sbin/hyperspace-r2-objects}" health >/dev/null 2>&1; then r2_available=1; fi
+  printf '# HELP hyperspace_postgres_r2_available Whether the configured private R2 bucket is reachable with the backup credentials.\n# TYPE hyperspace_postgres_r2_available gauge\nhyperspace_postgres_r2_available %s\n' "$r2_available" >>"$tmp"
+fi
 if [[ "$managed" == 0 ]]; then
   [[ "$wal_size" =~ ^[0-9]+$ ]] || { echo 'Invalid PostgreSQL WAL metric' >&2; exit 1; }
   printf '# HELP hyperspace_postgres_wal_size_bytes Current pg_wal directory size.\n# TYPE hyperspace_postgres_wal_size_bytes gauge\nhyperspace_postgres_wal_size_bytes %s\n' "$wal_size" >>"$tmp"

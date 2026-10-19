@@ -1,0 +1,109 @@
+#!/usr/bin/env bash
+set -euo pipefail
+# Install on the existing observability/maintenance host, NOT the API host.
+# Does not install PostgreSQL server, change Neon settings or start timers.
+[[ "$(id -u)" == 0 ]] || { echo 'Run as root'; exit 2; }
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+metrics_dir="${HS_POSTGRES_METRICS_DIR:-/var/lib/hyperspace/postgres-metrics}"
+collector_dir="${HS_POSTGRES_METRICS_COLLECTOR_DIR:-/var/lib/prometheus/node-exporter}"
+[[ "$metrics_dir" == /var/lib/* && "$metrics_dir" != *' '* ]] || { echo 'Invalid textfile collector path'; exit 2; }
+[[ "$collector_dir" == /var/lib/* && "$collector_dir" != *' '* && "$collector_dir" != "$metrics_dir" ]] || { echo 'Invalid/shared collector path'; exit 2; }
+for dependency in /usr/lib/postgresql/18/bin/pg_dump /usr/bin/python3 /usr/bin/zstd; do
+  [[ -x "$dependency" ]] || { echo "Missing $dependency"; exit 2; }
+done
+python3 -c 'import boto3'
+for file in r2-production-backups.env neon-backup.env neon-archive.env neon-monitor.env; do
+  [[ -s "/etc/hyperspace/$file" ]] || { echo "Missing /etc/hyperspace/$file"; exit 2; }
+  chown root:root "/etc/hyperspace/$file"
+  chmod 0600 "/etc/hyperspace/$file"
+done
+id postgres >/dev/null 2>&1 || useradd --system --home-dir /var/lib/postgresql --shell /usr/sbin/nologin postgres
+for directory in /var/backups/hyperspace /var/lib/hyperspace/db-backup /var/lib/hyperspace/db-history-archive /var/lib/hyperspace/db-restore-check /var/lib/hyperspace/db-maintenance /var/cache/hyperspace-restic; do
+  install -d -o postgres -g postgres -m 0700 "$directory"
+done
+# Meta-watch maintains the shared collector directory as mode 0755. Do not
+# depend on group write permissions there: each producer owns its output dir,
+# and node_exporter follows a read-only symlink to the atomically replaced file.
+install -d -o postgres -g postgres -m 0755 "$metrics_dir"
+if [[ ! -d "$collector_dir" ]]; then
+  install -d -o prometheus -g prometheus -m 0755 "$collector_dir"
+fi
+metric_name=hyperspace_postgres_health.prom
+if [[ -f "$collector_dir/$metric_name" && ! -L "$collector_dir/$metric_name" ]]; then
+  mv "$collector_dir/$metric_name" "$metrics_dir/${metric_name}.before-r2"
+fi
+ln -sfn "$metrics_dir/$metric_name" "$collector_dir/$metric_name"
+for script in hyperspace-pg-backup hyperspace-pg-history-archive hyperspace-pg-restore-core hyperspace-pg-restore-check hyperspace-r2-objects; do
+  install -m 0755 "$repo_root/scripts/db/$script" "/usr/local/sbin/$script"
+done
+install -m 0755 "$repo_root/scripts/observability/hyperspace-postgres-health-exporter" /usr/local/sbin/
+if [[ ! -e /etc/hyperspace/r2-maintenance.env ]]; then
+  install -m 0600 /dev/stdin /etc/hyperspace/r2-maintenance.env <<'ENV'
+HS_CLUSTER=mainnet
+HS_DB_NAME=hyperspace
+HS_POSTGRES_DATABASE=hyperspace
+HS_POSTGRES_MANAGED=1
+HS_DB_BACKUP_PROFILE=core
+HS_DB_BACKUP_DIR=/var/backups/hyperspace
+HS_DB_BACKUP_KEEP_LAST=3
+HS_DB_OFFSITE_BACKUP_MODE=r2
+HS_DB_OFFSITE_BACKUP_ENABLED=1
+HS_DB_HISTORY_ARCHIVE_ENABLED=1
+HS_DB_HISTORY_ARCHIVE_BACKEND=r2
+HS_DB_HISTORY_ARCHIVE_PROFILE=core
+HS_DB_HISTORY_ARCHIVE_MOUNTPOINT=/var/backups/hyperspace
+HS_DB_HISTORY_ARCHIVE_ROOT=/var/backups/hyperspace/history-archive
+HS_DB_HISTORY_ARCHIVE_MAX_SLICES_PER_RUN=1
+HS_DB_HISTORY_ARCHIVE_PRESSURE_MAX_SLICES_PER_RUN=1
+HS_DB_HISTORY_ARCHIVE_DELETE_BATCH_SIZE=1000
+HS_DB_HISTORY_ARCHIVE_DELETE_BATCH_LIMIT=100
+HS_DB_HISTORY_ARCHIVE_DELETE_SLEEP_SECONDS=0.5
+HS_DB_HISTORY_ARCHIVE_MAX_ACTIVE_QUERIES=4
+HS_DB_HISTORY_ARCHIVE_MIN_FREE_BYTES=10737418240
+HS_DB_HISTORY_ARCHIVE_MIN_FREE_PERCENT=15
+PGCONNECT_TIMEOUT=10
+PGOPTIONS="-c statement_timeout=30min -c lock_timeout=5s -c work_mem=4MB -c maintenance_work_mem=32MB -c max_parallel_workers_per_gather=0"
+ENV
+fi
+for job in backup history-archive restore-check; do
+  unit="hyperspace-db-${job}"
+  install -m 0644 "$repo_root/infra/systemd/${unit}.service" /etc/systemd/system/
+  install -m 0644 "$repo_root/infra/systemd/${unit}.timer" /etc/systemd/system/
+  install -d -m 0755 "/etc/systemd/system/${unit}.service.d"
+  credential=neon-backup.env
+  [[ "$job" != history-archive ]] || credential=neon-archive.env
+  install -m 0644 /dev/stdin "/etc/systemd/system/${unit}.service.d/r2.conf" <<ENV
+[Service]
+EnvironmentFile=
+EnvironmentFile=/etc/hyperspace/r2-maintenance.env
+EnvironmentFile=/etc/hyperspace/r2-production-backups.env
+EnvironmentFile=/etc/hyperspace/$credential
+Environment=PATH=/usr/lib/postgresql/18/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ExecStart=
+ExecStart=/usr/bin/flock -w 1800 /var/lib/hyperspace/db-maintenance/run.lock /usr/local/sbin/hyperspace-pg-${job}
+ReadWritePaths=/var/lib/hyperspace/db-maintenance /var/lib/hyperspace/db-restore-check /var/backups/hyperspace
+CPUQuota=25%
+MemoryHigh=256M
+MemoryMax=512M
+TimeoutStartSec=2h
+ENV
+done
+unit=hyperspace-postgres-health-exporter
+install -m 0644 "$repo_root/infra/observability/systemd/${unit}.service" /etc/systemd/system/
+install -m 0644 "$repo_root/infra/observability/systemd/${unit}.timer" /etc/systemd/system/
+install -d -m 0755 "/etc/systemd/system/${unit}.service.d"
+install -m 0644 /dev/stdin "/etc/systemd/system/${unit}.service.d/r2.conf" <<ENV
+[Service]
+EnvironmentFile=
+EnvironmentFile=/etc/hyperspace/r2-maintenance.env
+EnvironmentFile=/etc/hyperspace/r2-production-backups.env
+EnvironmentFile=/etc/hyperspace/neon-monitor.env
+Environment=PATH=/usr/lib/postgresql/18/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment="PGOPTIONS=-c statement_timeout=10s"
+Environment=HS_POSTGRES_METRICS_DIR=$metrics_dir
+ReadWritePaths=$metrics_dir
+TimeoutStartSec=45s
+MemoryMax=128M
+ENV
+systemctl daemon-reload
+echo 'Installed. Run backup, full R2 restore drill, archive and health checks manually; only then enable timers and retire the old host.'

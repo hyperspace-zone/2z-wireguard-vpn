@@ -1,5 +1,5 @@
 [Unit]
-Description=Archive Hyperspace PostgreSQL operational history to NFS
+Description=Archive Hyperspace PostgreSQL operational history to verified offsite storage
 After=network-online.target
 Wants=network-online.target
 

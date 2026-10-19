@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readFileSync, mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 
 const scriptUrl = new URL("./hyperspace-pg-history-archive", import.meta.url);
@@ -78,6 +80,29 @@ test("history archive indexes cover time scans and the benchmark job foreign key
     /trading_probe_job_attempts_completed_history_archive_idx[\s\S]*completed_at, id/
   );
   assert.match(directTimeMigration, /gate_assignment_usage_deltas_history_archive_idx[\s\S]*created_at, sample_id/);
+});
+
+test('failed R2 verification prevents any SQL deletion even with a local READY', () => {
+  const root = mkdtempSync(join(tmpdir(), 'archive-r2-'));
+  try {
+    const directory = join(root, 'mainnet/jobs/2026-09-01');
+    mkdirSync(directory, {recursive: true});
+    writeFileSync(join(directory, 'READY'), '1\n');
+    const fn = script.slice(script.indexOf('process_dataset_day() {'), script.indexOf('\nif [[ "$archive_backend" == r2 && -d'));
+    const harness = `set -Eeuo pipefail
+archive_root='${root}'
+cluster=mainnet
+archive_backend=r2
+r2_helper=false
+delete_archived_day() { touch '${root}/deleted'; }
+${fn}
+process_dataset_day jobs 2026-09-01
+`;
+    assert.throws(() => execFileSync('bash', ['-c', harness]));
+    assert.equal(existsSync(join(root, 'deleted')), false);
+    execFileSync('bash', ['-c', harness.replace('r2_helper=false', 'r2_helper=true')]);
+    assert.equal(existsSync(join(root, 'deleted')), true);
+  } finally { rmSync(root, {recursive: true, force: true}); }
 });
 
 test("vacuum backlog follows each table's configured autovacuum trigger", () => {

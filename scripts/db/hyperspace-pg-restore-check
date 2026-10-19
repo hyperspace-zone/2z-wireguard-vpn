@@ -5,7 +5,13 @@ backup_dir="${HS_DB_BACKUP_DIR:-/var/backups/hyperspace}"
 state_dir="${HS_DB_RESTORE_CHECK_STATE_DIR:-/var/lib/hyperspace/db-restore-check}"
 restore_script="${HS_DB_RESTORE_SCRIPT:-/usr/local/sbin/hyperspace-pg-restore-core}"
 [[ "$database" =~ ^[a-zA-Z_][a-zA-Z0-9_]*$ ]] || exit 2
-dump="$(find "$backup_dir" -maxdepth 1 -type f -name "${database}-????????T??????Z.dump" -print | sort | tail -n 1)"
+if [[ "${HS_DB_OFFSITE_BACKUP_MODE:-}" == r2 ]]; then
+  install -d -m 0700 "$state_dir"
+  restore_download="$(mktemp -d "${state_dir}/r2-restore.XXXXXX")"
+  dump="$("${HS_R2_HELPER:-/usr/local/sbin/hyperspace-r2-objects}" latest "$restore_download")"
+else
+  dump="$(find "$backup_dir" -maxdepth 1 -type f -name "${database}-????????T??????Z.dump" -print | sort | tail -n 1)"
+fi
 [[ -n "$dump" ]] || { echo 'No managed backup for restore drill'; exit 1; }
 target="hs_core_restore_check_$(date -u +%Y%m%d%H%M%S)"
 "$restore_script" "$dump" "$target"
@@ -22,6 +28,11 @@ SQL
 # remain available for investigation and never replace the live database.
 [[ "$target" =~ ^hs_core_restore_check_[0-9]{14}$ ]] || exit 2
 dropdb "$target"
+if [[ -n "${restore_download:-}" ]]; then
+  # Exact successful drill files only. Failed drills are retained for diagnosis.
+  find "$restore_download" -mindepth 1 -maxdepth 1 -type f -delete
+  rmdir "$restore_download"
+fi
 install -d -m 0700 "$state_dir"
 printf '%s\n' "$(date +%s)" >"${state_dir}/last-success.tmp"
 mv "${state_dir}/last-success.tmp" "${state_dir}/last-success"

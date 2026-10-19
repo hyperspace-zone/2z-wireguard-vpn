@@ -48,9 +48,9 @@ if [[ -z "$offsite_mode" && -n "${RESTIC_REPOSITORY:-}" ]]; then
   offsite_mode="restic"
 fi
 case "$offsite_mode" in
-  ""|filesystem|restic) ;;
+  ""|filesystem|restic|r2) ;;
   *)
-    echo "HS_DB_OFFSITE_BACKUP_MODE must be filesystem or restic" >&2
+    echo "HS_DB_OFFSITE_BACKUP_MODE must be filesystem, restic or r2" >&2
     exit 2
     ;;
 esac
@@ -228,6 +228,8 @@ elif [[ "$offsite_mode" == "filesystem" ]]; then
   sync -f "$final"
   sync -f "$globals_final"
   sync -f "${final}.sha256"
+elif [[ "$offsite_mode" == "r2" ]]; then
+  "${HS_R2_HELPER:-/usr/local/sbin/hyperspace-r2-objects}" backup "$final" "$keep_last"
 fi
 
 if [[ -n "$offsite_mode" ]]; then

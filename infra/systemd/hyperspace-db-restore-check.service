@@ -2,7 +2,8 @@
 Description=Hyperspace full core backup restore drill (never overwrites production)
 After=network-online.target
 Wants=network-online.target
-RequiresMountsFor=/mnt/hyperspace-backup
+# A remote/R2 maintenance host has no NFS mount. NFS deployments should add
+# RequiresMountsFor for their actual backup path in a site-specific drop-in.
 
 [Service]
 Type=oneshot

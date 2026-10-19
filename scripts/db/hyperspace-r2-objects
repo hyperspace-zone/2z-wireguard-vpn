@@ -1,0 +1,279 @@
+#!/usr/bin/env python3
+"""Private S3/R2 backup bundles. SHA-256 read-back, commit manifest last.
+
+Requires python3-boto3. No credentials, presigned URLs or response bodies are
+logged. All deletes are restricted to verified automatic backup generations;
+legacy migration snapshots and history archives are never pruned.
+"""
+import argparse
+import hashlib
+import json
+import os
+from pathlib import Path, PurePosixPath
+import re
+import socket
+import sys
+
+MANIFEST = "_VERIFIED.json"
+
+
+def digest(path):
+    with path.open("rb") as stream:
+        return hashlib.file_digest(stream, "sha256").hexdigest()
+
+
+def safe_relative(name):
+    parts = PurePosixPath(name)
+    if not name or parts.is_absolute() or ".." in parts.parts or str(parts) != name:
+        raise ValueError("unsafe object path")
+    return name
+
+
+class Store:
+    def __init__(self, client=None, bucket=None):
+        if client is None:
+            import boto3
+            from botocore.config import Config
+            # The production access token is restricted to known IPv4 addresses.
+            import urllib3.util.connection
+            urllib3.util.connection.allowed_gai_family = lambda: socket.AF_INET
+            endpoint = os.environ["HS_R2_ENDPOINT"]
+            if not re.fullmatch(r"https://[a-z0-9.-]+\.r2\.cloudflarestorage\.com", endpoint):
+                raise ValueError("expected an HTTPS Cloudflare R2 endpoint without bucket suffix")
+            client = boto3.client("s3", endpoint_url=endpoint, region_name="auto",
+                aws_access_key_id=os.environ["R2_ACCESS_KEY_ID"],
+                aws_secret_access_key=os.environ["R2_SECRET_ACCESS_KEY"],
+                config=Config(connect_timeout=10, read_timeout=60,
+                              retries={"max_attempts": 3, "mode": "standard"},
+                              s3={"addressing_style": "path"}))
+        self.client = client
+        self.bucket = bucket or os.environ["HS_R2_BUCKET"]
+
+    def head(self, key):
+        try:
+            return self.client.head_object(Bucket=self.bucket, Key=key)
+        except Exception as error:
+            # A forbidden/unreachable bucket must NEVER be treated as empty.
+            if getattr(error, "response", {}).get("Error", {}).get("Code") in ("404", "NoSuchKey", "NotFound"):
+                return None
+            raise
+
+    def verify(self, key, sha, size, destination=None):
+        response = self.client.get_object(Bucket=self.bucket, Key=key)
+        body = response["Body"]
+        checksum = hashlib.sha256()
+        count = 0
+        try:
+            for chunk in iter(lambda: body.read(1024 * 1024), b""):
+                checksum.update(chunk)
+                count += len(chunk)
+                if destination is not None:
+                    destination.write(chunk)
+        finally:
+            body.close()
+        if checksum.hexdigest() != sha or count != size:
+            raise ValueError("remote object checksum/size mismatch: " + key)
+
+    def put_file(self, path, key):
+        sha, size = digest(path), path.stat().st_size
+        previous = self.head(key)
+        if previous:
+            if previous["ContentLength"] != size or previous.get("Metadata", {}).get("sha256") != sha:
+                raise ValueError("refusing to overwrite different immutable object: " + key)
+        else:
+            from boto3.s3.transfer import TransferConfig
+            self.client.upload_file(str(path), self.bucket, key,
+                ExtraArgs={"Metadata": {"sha256": sha}},
+                Config=TransferConfig(multipart_threshold=16 * 1024**2,
+                    multipart_chunksize=16 * 1024**2, max_concurrency=2))
+        self.verify(key, sha, size)
+        if digest(path) != sha:
+            raise ValueError("source changed during upload: " + key)
+        print(json.dumps({"verified": key, "bytes": size, "sha256": sha}), file=sys.stderr, flush=True)
+        return {"sha256": sha, "size": size}
+
+    def manifest(self, prefix):
+        key = safe_relative(prefix) + "/" + MANIFEST
+        if self.head(key) is None:
+            return None
+        response = self.client.get_object(Bucket=self.bucket, Key=key)
+        body = response["Body"]
+        try:
+            raw = body.read(32 * 1024**2 + 1)
+        finally:
+            body.close()
+        if len(raw) > 32 * 1024**2:
+            raise ValueError("oversized inventory")
+        if hashlib.sha256(raw).hexdigest() != response.get("Metadata", {}).get("sha256"):
+            raise ValueError("inventory checksum mismatch")
+        data = json.loads(raw)
+        if data.get("version") != 1 or not data.get("files"):
+            raise ValueError("invalid/empty inventory")
+        for name, record in data["files"].items():
+            safe_relative(name)
+            if name == MANIFEST or not re.fullmatch("[a-f0-9]{64}", record["sha256"]) or not isinstance(record["size"], int) or record["size"] < 0:
+                raise ValueError("invalid inventory record")
+        return data
+
+    def publish(self, root, prefix, files=None):
+        root = Path(root).resolve(strict=True)
+        safe_relative(prefix)
+        if files is None:
+            candidates = sorted(root.rglob("*"))
+            if any(path.is_symlink() for path in candidates):
+                raise ValueError("symlinks are not supported")
+            files = [path for path in candidates if path.is_file() and path.name != MANIFEST]
+        if not files:
+            raise ValueError("refusing to publish an empty bundle")
+        records = {}
+        for path in files:
+            name = safe_relative(path.relative_to(root).as_posix())
+            if path.is_symlink() or path.name.endswith(".tmp"):
+                raise ValueError("unstable source file: " + name)
+            records[name] = self.put_file(path, prefix + "/" + name)
+        previous = self.manifest(prefix)
+        if previous and any(records.get(name) != record for name, record in previous["files"].items()):
+            raise ValueError("refusing to replace/remove a committed bundle member")
+        data = {"version": 1, "files": records}
+        raw = json.dumps(data, sort_keys=True, separators=(",", ":")).encode()
+        sha = hashlib.sha256(raw).hexdigest()
+        key = prefix + "/" + MANIFEST
+        self.client.put_object(Bucket=self.bucket, Key=key, Body=raw,
+            ContentType="application/json", Metadata={"sha256": sha})
+        self.verify(key, sha, len(raw))
+        return data
+
+    def fetch(self, prefix, directory, optional=False):
+        manifest = self.manifest(prefix)
+        if manifest is None:
+            if optional:
+                return None
+            raise ValueError("no committed backup bundle")
+        root = Path(directory)
+        if root.is_symlink():
+            raise ValueError("unsafe restore directory")
+        root.mkdir(mode=0o700, parents=True, exist_ok=True)
+        root = root.resolve()
+        for name, record in manifest["files"].items():
+            path = root / safe_relative(name)
+            if not path.resolve().is_relative_to(root) or path.is_symlink():
+                raise ValueError("unsafe restore path")
+            path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+            # Exclusive temporary creation prevents following existing symlinks.
+            import tempfile
+            with tempfile.NamedTemporaryFile(dir=path.parent, prefix=".r2-", delete=False) as output:
+                temporary = Path(output.name)
+                try:
+                    self.verify(prefix + "/" + name, record["sha256"], record["size"], output)
+                    output.flush()
+                    os.fsync(output.fileno())
+                except BaseException:
+                    temporary.unlink()
+                    raise
+            temporary.replace(path)
+        return manifest
+
+    def backup_generations(self, prefix, database):
+        safe_relative(prefix)
+        matcher = re.compile(re.escape(prefix) + r"/(\d{8}T\d{6}Z)/_VERIFIED\.json$")
+        generations = []
+        for page in self.client.get_paginator("list_objects_v2").paginate(Bucket=self.bucket, Prefix=prefix + "/"):
+            for item in page.get("Contents", []):
+                match = matcher.fullmatch(item["Key"])
+                if match:
+                    stamp = match.group(1)
+                    bundle_prefix = prefix + "/" + stamp
+                    manifest = self.manifest(bundle_prefix)
+                    expected = {f"{database}-{stamp}.dump", f"{database}-{stamp}.dump.sha256", f"{database}-globals-{stamp}.sql"}
+                    if set(manifest["files"]) != expected:
+                        raise ValueError("unexpected files in automatic backup generation")
+                    generations.append((stamp, bundle_prefix, manifest))
+        return sorted(generations)
+
+    def backup(self, dump, keep):
+        if keep < 1:
+            raise ValueError("at least one backup must be retained")
+        dump = Path(dump).resolve(strict=True)
+        match = re.fullmatch(r"([a-zA-Z_][a-zA-Z0-9_]*)-(\d{8}T\d{6}Z)\.dump", dump.name)
+        if not match:
+            raise ValueError("not an automatic backup filename")
+        database, stamp = match.groups()
+        if dump.with_suffix(".dump.sha256").read_text().strip() != digest(dump):
+            raise ValueError("local dump checksum mismatch")
+        prefix = os.environ["HS_R2_BACKUP_PREFIX"].rstrip("/")
+        if not prefix.startswith("backups/"):
+            raise ValueError("automatic retention is restricted to backups/ prefix")
+        files = [dump, Path(str(dump) + ".sha256"), dump.parent / f"{database}-globals-{stamp}.sql"]
+        self.publish(dump.parent, prefix + "/" + stamp, files)
+        # Publish/read-back a fresh generation BEFORE removing older ones.
+        for _, old_prefix, manifest in self.backup_generations(prefix, database)[:-keep]:
+            # Remove commit marker first: interrupted pruning cannot advertise a
+            # partially deleted generation as restorable. Never touch legacy/.
+            self.client.delete_object(Bucket=self.bucket, Key=old_prefix + "/" + MANIFEST)
+            for name in manifest["files"]:
+                self.client.delete_object(Bucket=self.bucket, Key=old_prefix + "/" + name)
+
+    def archive(self, directory, prefix, clean=False):
+        if not re.fullmatch(r"history-archive/[a-zA-Z0-9._-]+/[a-z_]+/\d{4}-\d{2}-\d{2}", prefix):
+            raise ValueError("invalid history archive prefix")
+        root = Path(directory)
+        if root.is_symlink() or not (root / "READY").is_file() or not (root / "MANIFEST").is_file():
+            raise ValueError("archive must be a committed local day")
+        # Existing READY is not sufficient: recheck every compressed file against
+        # its companion SHA before authorizing removal from the operational DB.
+        data_files = list(root.glob("*.jsonl.zst"))
+        if not data_files:
+            raise ValueError("archive has no data files")
+        for path in data_files:
+            if digest(path) != Path(str(path) + ".sha256").read_text().split()[0]:
+                raise ValueError("local history checksum mismatch")
+        manifest = self.publish(root, prefix)
+        if clean:
+            if "COMPLETE" not in manifest["files"]:
+                raise ValueError("cannot evict unfinished archive spool")
+            # Only the exact files just verified in R2; never recursive deletion.
+            for name in manifest["files"]:
+                if "/" in name:
+                    raise ValueError("unexpected nested archive file")
+            for name in manifest["files"]:
+                (root / name).unlink()
+            root.rmdir()
+
+
+def main():
+    os.umask(0o077)
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("command", choices=["health", "upload", "fetch", "fetch-optional", "backup", "latest", "archive", "archive-clean"])
+    parser.add_argument("args", nargs="*")
+    args = parser.parse_args()
+    store = Store()
+    if args.command == "health":
+        store.client.head_bucket(Bucket=store.bucket)
+    elif args.command == "upload":
+        data = store.publish(args.args[0], args.args[1])
+        print(json.dumps({"files": len(data["files"]), "bytes": sum(r["size"] for r in data["files"].values())}))
+    elif args.command in ("fetch", "fetch-optional"):
+        store.fetch(args.args[0], args.args[1], optional=args.command == "fetch-optional")
+    elif args.command == "backup":
+        store.backup(args.args[0], int(args.args[1]))
+    elif args.command in ("archive", "archive-clean"):
+        store.archive(args.args[0], args.args[1], clean=args.command == "archive-clean")
+    elif args.command == "latest":
+        database = os.environ.get("HS_DB_NAME", "hyperspace")
+        versions = store.backup_generations(os.environ["HS_R2_BACKUP_PREFIX"], database)
+        if not versions:
+            raise ValueError("no verified automatic backups")
+        stamp, prefix, _ = versions[-1]
+        store.fetch(prefix, args.args[0])
+        print(str(Path(args.args[0]) / f"{database}-{stamp}.dump"))
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except Exception as error:
+        # SDK errors can contain sensitive endpoint/request details. Keep logs
+        # structural; local validation errors contain only paths and keys.
+        message = str(error) if isinstance(error, ValueError) else type(error).__name__
+        print("R2 operation failed: " + message, file=sys.stderr)
+        sys.exit(1)

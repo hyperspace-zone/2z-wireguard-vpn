@@ -299,7 +299,7 @@ groups:
           severity: critical
         annotations:
           summary: Hyperspace hot PostgreSQL database is approaching its 30GiB ceiling
-          description: PostgreSQL on {{ $labels.service_host }} exceeded 28GiB. Writes remain enabled; urgently inspect hourly NFS archival, retention backlog and reusable table space.
+          description: PostgreSQL on {{ $labels.service_host }} exceeded 28GiB. Writes remain enabled; urgently inspect hourly offsite archival, retention backlog and reusable table space.
 
       - alert: HyperspacePostgreSQLHistoryArchiveNotConfigured
         expr: hyperspace_postgres_history_archive_configured{job="hyperspace-host-node",cluster=~"mainnet|staging"} != 1
@@ -308,7 +308,7 @@ groups:
           severity: critical
         annotations:
           summary: Hyperspace PostgreSQL history archive is not configured
-          description: Verified NFS history archival is not enabled on {{ $labels.service_host }}.
+          description: Verified offsite history archival is not enabled on {{ $labels.service_host }}.
 
       - alert: HyperspacePostgreSQLHistoryArchiveFailed
         expr: |
@@ -320,7 +320,7 @@ groups:
           severity: critical
         annotations:
           summary: Hyperspace PostgreSQL history archive failed
-          description: The latest verified NFS history archive run failed on {{ $labels.service_host }}; no unverified rows are deleted.
+          description: The latest verified offsite history archive run failed on {{ $labels.service_host }}; no unverified rows are deleted.
 
       - alert: HyperspacePostgreSQLHistoryArchiveStale
         expr: |
@@ -336,7 +336,7 @@ groups:
           severity: critical
         annotations:
           summary: Hyperspace PostgreSQL history archive is stale
-          description: No successful verified NFS history archive has completed on {{ $labels.service_host }} within 6 hours.
+          description: No successful verified offsite history archive has completed on {{ $labels.service_host }} within 6 hours.
 
       - alert: HyperspacePostgreSQLHistoryArchiveStorageUnavailable
         expr: |
@@ -348,7 +348,7 @@ groups:
           severity: critical
         annotations:
           summary: Hyperspace PostgreSQL history archive storage is unavailable
-          description: The configured NFS history archive mount is unavailable on {{ $labels.service_host }}; archival fails closed.
+          description: The configured history archive filesystem or local R2 spool is unavailable on {{ $labels.service_host }}; archival fails closed.
 
       - alert: HyperspacePostgreSQLHistoryArchiveStoragePressure
         expr: |
@@ -365,7 +365,7 @@ groups:
           severity: warning
         annotations:
           summary: Hyperspace PostgreSQL history archive storage is under pressure
-          description: The NFS archive volume for {{ $labels.service_host }} has less than 20% or 20GiB available.
+          description: The archive filesystem or local R2 spool for {{ $labels.service_host }} has less than 20% or 20GiB available.
 
       - alert: HyperspacePostgreSQLHistoryArchiveStorageCritical
         expr: |
@@ -382,7 +382,7 @@ groups:
           severity: critical
         annotations:
           summary: Hyperspace PostgreSQL history archive storage is critically low
-          description: The NFS archive volume for {{ $labels.service_host }} has less than 10% or 10GiB available; archival stops before consuming the safety reserve.
+          description: The archive filesystem or local R2 spool for {{ $labels.service_host }} has less than 10% or 10GiB available; archival stops before consuming the safety reserve.
 
       - alert: HyperspacePostgreSQLWalPressure
         expr: hyperspace_postgres_wal_size_bytes{job="hyperspace-host-node"} > 4294967296

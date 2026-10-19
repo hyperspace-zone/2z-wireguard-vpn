@@ -1,0 +1,25 @@
+rule_files:
+  - ../rules/hyperspace-r2-backups.yml
+evaluation_interval: 1m
+tests:
+  - interval: 1m
+    input_series:
+      - series: hyperspace_postgres_r2_available{cluster="mainnet",service_host="observability.hyperspace.zone"}
+        values: '0+0x10 1+0x10'
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: HyperspacePostgreSQLR2Unavailable
+        exp_alerts: []
+      - eval_time: 6m
+        alertname: HyperspacePostgreSQLR2Unavailable
+        exp_alerts:
+          - exp_labels:
+              cluster: mainnet
+              service_host: observability.hyperspace.zone
+              severity: critical
+            exp_annotations:
+              summary: Hyperspace PostgreSQL R2 backup storage is unreachable
+              description: "The private R2 bucket cannot be accessed from observability.hyperspace.zone. Check token validity, bucket scope and source IP allowlist. Archive deletion fails closed; existing remote backups are preserved."
+      - eval_time: 12m
+        alertname: HyperspacePostgreSQLR2Unavailable
+        exp_alerts: []

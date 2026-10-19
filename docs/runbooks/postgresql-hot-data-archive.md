@@ -1,5 +1,10 @@
 # PostgreSQL hot-data and NFS history archive
 
+**Production update, 2026-10-19:** the managed Neon core uses the `r2` backend on
+AWS observability. See [R2 backup/archive operations](postgresql-r2-backups.md).
+The NFS backend below remains the default for older installations. Production
+probes/results are in MongoDB Atlas, not in these PostgreSQL archive datasets.
+
 The control-plane PostgreSQL database is the source of truth for live product
 state. High-volume synthetic measurements and completed queue attempts are not
 kept indefinitely in the hot database. They are first archived to the

@@ -71,6 +71,19 @@ test("PostgreSQL backup script is valid Bash", async () => {
   await execFileAsync("bash", ["-n", scriptUrl.pathname]);
 });
 
+test("R2 failure preserves the local dump but never advances offsite success", async () => {
+  const fixture = await createHarness();
+  try {
+    const helper = join(fixture.root, 'r2-fail');
+    await writeFile(helper, '#!/bin/sh\nexit 1\n', {mode: 0o755});
+    const success = join(fixture.root, 'offsite-success');
+    await assert.rejects(execFileAsync(scriptUrl.pathname, [], {env: {...fixture.env,
+      HS_DB_OFFSITE_BACKUP_MODE: 'r2', HS_R2_HELPER: helper, HS_DB_OFFSITE_SUCCESS_FILE: success}}));
+    assert.equal((await readdir(fixture.backupDir)).filter(x => x.endsWith('.dump')).length, 1);
+    await assert.rejects(readFile(success));
+  } finally { await rm(fixture.root, {recursive: true, force: true}); }
+});
+
 test("managed backups avoid password hashes and use the explicit database", async () => {
   const fixture = await createHarness();
   try {

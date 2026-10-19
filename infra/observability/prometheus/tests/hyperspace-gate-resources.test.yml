@@ -735,7 +735,7 @@ tests:
               service_ipv4: 84.32.51.45
             exp_annotations:
               summary: Hyperspace hot PostgreSQL database is approaching its 30GiB ceiling
-              description: PostgreSQL on db.hyperspace.zone exceeded 28GiB. Writes remain enabled; urgently inspect hourly NFS archival, retention backlog and reusable table space.
+              description: PostgreSQL on db.hyperspace.zone exceeded 28GiB. Writes remain enabled; urgently inspect hourly offsite archival, retention backlog and reusable table space.
 
   - name: failed PostgreSQL history archive is critical
     interval: 1m
@@ -757,7 +757,7 @@ tests:
               service_ipv4: 84.32.97.140
             exp_annotations:
               summary: Hyperspace PostgreSQL history archive failed
-              description: The latest verified NFS history archive run failed on db.staging.hyperspace.zone; no unverified rows are deleted.
+              description: The latest verified offsite history archive run failed on db.staging.hyperspace.zone; no unverified rows are deleted.
 
   - name: PostgreSQL hourly history archive stale for six hours is critical
     interval: 1m
@@ -779,4 +779,4 @@ tests:
               service_ipv4: 84.32.97.140
             exp_annotations:
               summary: Hyperspace PostgreSQL history archive is stale
-              description: No successful verified NFS history archive has completed on db.staging.hyperspace.zone within 6 hours.
+              description: No successful verified offsite history archive has completed on db.staging.hyperspace.zone within 6 hours.

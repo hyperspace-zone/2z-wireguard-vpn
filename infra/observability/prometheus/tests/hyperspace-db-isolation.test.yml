@@ -138,4 +138,4 @@ tests:
               severity: critical
             exp_annotations:
               summary: Core backup has not passed a recent full restore drill
-              description: No successful core restore verification in 9 days. Check hyperspace-db-restore-check.service, latest backup checksum, NFS availability and free core disk space.
+              description: No successful core restore verification in 9 days. Check hyperspace-db-restore-check.service, latest backup checksum, offsite storage access and free restore spool space.

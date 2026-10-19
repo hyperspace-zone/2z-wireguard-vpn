@@ -1,0 +1,11 @@
+groups:
+  - name: hyperspace-r2-backups
+    rules:
+      - alert: HyperspacePostgreSQLR2Unavailable
+        expr: hyperspace_postgres_r2_available{cluster="mainnet"} == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: Hyperspace PostgreSQL R2 backup storage is unreachable
+          description: "The private R2 bucket cannot be accessed from {{ $labels.service_host }}. Check token validity, bucket scope and source IP allowlist. Archive deletion fails closed; existing remote backups are preserved."

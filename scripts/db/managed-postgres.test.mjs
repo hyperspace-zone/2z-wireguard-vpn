@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { readFileSync, writeFileSync, mkdtempSync, mkdirSync, chmodSync, rmSync, statSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdtempSync, mkdirSync, chmodSync, rmSync, statSync, symlinkSync, lstatSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -87,13 +87,33 @@ test('managed health omits unsupported WAL and fails closed on SQL errors', () =
     chmodSync(psql, 0o755);
     const script = new URL('../observability/hyperspace-postgres-health-exporter', import.meta.url).pathname;
     const env = { ...process.env, PATH: `${bin}:${process.env.PATH}`, HS_POSTGRES_MANAGED: '1', HS_POSTGRES_METRICS_DIR: metrics, HS_DB_BACKUP_DIR: backups, HS_TEST_SQL: join(root, 'sql') };
+    const shared = join(root, 'shared-collector');
+    mkdirSync(shared, { mode: 0o755 });
+    const link = join(shared, 'hyperspace_postgres_health.prom');
+    symlinkSync(join(metrics, 'hyperspace_postgres_health.prom'), link);
     execFileSync('bash', [script], { env });
     const output = join(metrics, 'hyperspace_postgres_health.prom');
     const good = readFileSync(output, 'utf8');
     assert.match(good, /hyperspace_postgres_connections 8/);
     assert.doesNotMatch(good, /hyperspace_postgres_wal_size_bytes/);
     assert.doesNotMatch(readFileSync(env.HS_TEST_SQL, 'utf8'), /pg_ls_waldir/);
+    assert.equal(readFileSync(link, 'utf8'), good, 'node exporter follows the producer-owned metric file');
+    chmodSync(shared, 0o755); // meta-watcher resets this directory each cycle.
+    execFileSync('bash', [script], { env });
+    assert.ok(lstatSync(link).isSymbolicLink(), 'atomic publication must not replace the shared collector link');
+    assert.match(readFileSync(link, 'utf8'), /hyperspace_postgres_connections 8/);
+    const latestGood = readFileSync(output, 'utf8');
     assert.throws(() => execFileSync('bash', [script], { env: { ...env, HS_TEST_SQL_FAIL: '1' } }));
-    assert.equal(readFileSync(output, 'utf8'), good, 'last good snapshot must not be overwritten on failure');
+    assert.equal(readFileSync(output, 'utf8'), latestGood, 'last good snapshot must not be overwritten on failure');
   } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('R2 installer separates metric producers and serializes maintenance jobs', () => {
+  const source = read('./install-r2-maintenance');
+  assert.match(source, /HS_POSTGRES_METRICS_DIR:-\/var\/lib\/hyperspace\/postgres-metrics/);
+  assert.match(source, /ln -sfn "\$metrics_dir\/\$metric_name" "\$collector_dir\/\$metric_name"/);
+  assert.match(source, /flock -w 1800 \/var\/lib\/hyperspace\/db-maintenance\/run.lock/);
+  assert.match(source, /MemoryMax=512M/);
+  assert.match(source, /CPUQuota=25%/);
+  execFileSync('bash', ['-n', new URL('./install-r2-maintenance', import.meta.url).pathname]);
 });
