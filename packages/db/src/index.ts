@@ -39,6 +39,14 @@ export function createDatabase(config: DatabaseRuntimeConfig): Database {
   // A disappearing optional database must not crash the API via an unhandled
   // error from an idle pooled connection. Requests still fail normally.
   pool.on("error", () => undefined);
+  // Pool's own error listener covers idle clients only. A managed compute
+  // restart can also disconnect a checked-out client while application code
+  // is between queries. Consume that event without hiding query rejection or
+  // retrying a transaction whose COMMIT outcome may be unknown.
+  const disconnected = new WeakMap<PoolClient, Error>();
+  pool.on("connect", (client) => {
+    client.on("error", (error) => disconnected.set(client, error));
+  });
 
   return {
     pool,
@@ -48,16 +56,22 @@ export function createDatabase(config: DatabaseRuntimeConfig): Database {
     ): Promise<QueryResult<T>> => pool.query<T>(sql, params),
     transaction: async (fn) => {
       const client = await pool.connect();
+      let releaseError: Error | undefined;
       try {
         await client.query("BEGIN");
         const result = await fn(client);
         await client.query("COMMIT");
         return result;
       } catch (error) {
-        await client.query("ROLLBACK");
+        try {
+          await client.query("ROLLBACK");
+        } catch (rollbackError) {
+          // Preserve the original failure and discard the unusable connection.
+          releaseError = rollbackError instanceof Error ? rollbackError : new Error("Rollback failed");
+        }
         throw error;
       } finally {
-        client.release();
+        client.release(disconnected.get(client) ?? releaseError);
       }
     },
     close: () => pool.end()
