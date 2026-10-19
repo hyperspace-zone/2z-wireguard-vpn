@@ -2,6 +2,9 @@
 
 ## Актуальная архитектура
 
+Для managed MongoDB Atlas настройка подключения, перенос всех коллекций и
+вывод self-hosted VM описаны в [Atlas runbook](mongodb-atlas.md).
+
 С `PROBES_BACKEND=mongodb` PostgreSQL `hyperspace_probes:5433` **не используется**.
 Операционная `hyperspace:5432` остаётся источником истины для пользователей,
 авторизации, wallets/payments/ledger, VPN sessions/configs/assignments и

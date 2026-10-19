@@ -47,14 +47,6 @@ scrape_configs:
           service_host: db.hyperspace.zone
           service_ipv4: 84.32.51.45
 
-      - targets:
-          - 88.216.62.149:9100
-        labels:
-          cluster: mainnet
-          role: mongodb
-          service_host: 88.216.62.149
-          service_ipv4: 88.216.62.149
-
   - job_name: hyperspace-postgresql
     scheme: http
     metrics_path: /metrics

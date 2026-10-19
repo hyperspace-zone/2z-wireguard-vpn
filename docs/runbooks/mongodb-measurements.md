@@ -3,6 +3,7 @@
 > Обновление: при `PROBES_BACKEND=mongodb` очередь, leases, scheduler и catalog
 > mirror тоже находятся в MongoDB; PostgreSQL probes останавливается после cutover.
 > Актуальная схема и deployment: [MongoDB probes](mongodb-probes.md).
+> Переезд self-hosted MongoDB в облако: [MongoDB Atlas](mongodb-atlas.md).
 > Ниже описан первоначальный этап миграции measurements и SQL rollback backend.
 
 ## Границы

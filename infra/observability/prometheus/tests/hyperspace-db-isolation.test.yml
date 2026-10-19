@@ -41,11 +41,41 @@ tests:
               cluster: mainnet
               severity: warning
               role: mongodb
-              service_host: 88.216.62.149
-              service_ipv4: 88.216.62.149
+              service_host: hyperspace-probes-fra.ikxoorh.mongodb.net
             exp_annotations:
               summary: MongoDB measurement delivery is unavailable
-              description: MongoDB probes storage or result projection is unavailable. Durable completed jobs will retry projection; agents may retry unacknowledged reports. Check MongoDB TLS/auth/service and network access. Core VPN and billing are independent.
+              description: MongoDB probes storage or result projection is unavailable. Durable completed jobs will retry projection; agents may retry unacknowledged reports. Check Atlas cluster health, TLS/auth, IP access list and network access. Core VPN and billing are independent.
+  - interval: 1m
+    input_series:
+      - series: 'hyperspace_measurements_mongo_data_bytes{cluster="mainnet",job="hyperspace-probes-worker",service_ipv4="5.199.161.13"}'
+        values: '4200000000+0x15'
+      - series: 'hyperspace_measurements_mongo_index_bytes{cluster="mainnet",job="hyperspace-probes-worker",service_ipv4="5.199.161.13"}'
+        values: '400000000+0x15'
+    alert_rule_test:
+      - eval_time: 11m
+        alertname: HyperspaceMeasurementsAtlasStorageHigh
+        exp_alerts:
+          - exp_labels:
+              cluster: mainnet
+              job: hyperspace-probes-worker
+              severity: warning
+              role: mongodb
+              service_host: hyperspace-probes-fra.ikxoorh.mongodb.net
+            exp_annotations:
+              summary: Atlas Flex probes storage is approaching its limit
+              description: Uncompressed MongoDB data plus indexes exceed 4 GB. Atlas Flex has a 5 GB limit; check TTL and index growth before writes are affected.
+      - eval_time: 6m
+        alertname: HyperspaceMeasurementsAtlasStorageCritical
+        exp_alerts:
+          - exp_labels:
+              cluster: mainnet
+              job: hyperspace-probes-worker
+              severity: critical
+              role: mongodb
+              service_host: hyperspace-probes-fra.ikxoorh.mongodb.net
+            exp_annotations:
+              summary: Atlas Flex probes storage is nearly full
+              description: Uncompressed MongoDB data plus indexes exceed 4.5 GB of the 5 GB Flex limit. Check retention immediately or explicitly upgrade the Atlas tier; core financial data must remain in PostgreSQL.
   - interval: 1m
     input_series:
       - series: 'hyperspace_measurements_delivery_oldest_age_seconds{cluster="mainnet"}'

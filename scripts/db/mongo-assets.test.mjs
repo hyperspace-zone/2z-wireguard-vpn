@@ -31,6 +31,34 @@ test('Mongo runtime configuration changes only optional measurement entrypoints 
     }
   }finally{rmSync(root,{recursive:true,force:true});}
 });
+test('Atlas cutover removes self-hosted CA from both services without copying unrelated secrets',()=>{
+  const root=mkdtempSync(join(tmpdir(),'hs-atlas-env-'));
+  try{
+    const core='DATABASE_URL=core-secret\n';
+    writeFileSync(join(root,'control-plane-worker.env'),core);
+    for(const name of ['control-plane-api','probes-worker'])writeFileSync(join(root,name+'.env'),'PROBES_BACKEND=mongodb\nMEASUREMENTS_MONGO_URL=mongodb://old\nMEASUREMENTS_MONGO_CA_FILE=/old/ca\nUNCHANGED=yes\n');
+    writeFileSync(join(root,'measurements-mongo.env'),'MEASUREMENTS_MONGO_URL=mongodb+srv://example.invalid/hyperspace_measurements\nDATABASE_URL=must-not-copy\n');
+    execFileSync(process.execPath,[new URL('./configure-mongo-runtime.mjs',import.meta.url).pathname],{env:{...process.env,HS_RUNTIME_ENV_DIR:root}});
+    assert.equal(readFileSync(join(root,'control-plane-worker.env'),'utf8'),core);
+    for(const name of ['control-plane-api','probes-worker']){
+      const file=join(root,name+'.env');const data=readFileSync(file,'utf8');
+      assert.match(data,/MEASUREMENTS_MONGO_URL=mongodb\+srv:\/\//);
+      assert.doesNotMatch(data,/MEASUREMENTS_MONGO_CA_FILE|must-not-copy|mongodb:\/\/old/);
+      assert.match(data,/UNCHANGED=yes/);assert.equal(statSync(file).mode&0o777,0o600);
+    }
+  }finally{rmSync(root,{recursive:true,force:true});}
+});
+test('Mongo runtime validates both services before changing either configuration',()=>{
+  const root=mkdtempSync(join(tmpdir(),'hs-mongo-invalid-env-'));
+  try{
+    const original='PROBES_BACKEND=mongodb\nUNCHANGED=yes\n';
+    writeFileSync(join(root,'control-plane-api.env'),original);
+    writeFileSync(join(root,'probes-worker.env'),'PROBES_BACKEND=postgresql\n');
+    writeFileSync(join(root,'measurements-mongo.env'),'MEASUREMENTS_MONGO_URL=mongodb+srv://example.invalid/db\n');
+    assert.throws(()=>execFileSync(process.execPath,[new URL('./configure-mongo-runtime.mjs',import.meta.url).pathname],{env:{...process.env,HS_RUNTIME_ENV_DIR:root},stdio:'pipe'}));
+    assert.equal(readFileSync(join(root,'control-plane-api.env'),'utf8'),original);
+  }finally{rmSync(root,{recursive:true,force:true});}
+});
 test('Mongo deployment retains history and does not stop/restart core worker or PostgreSQL',()=>{
   const script=read('./cutover-mongo-runtime');execFileSync('bash',['-n',new URL('./cutover-mongo-runtime',import.meta.url).pathname]);
   assert.doesNotMatch(script,/systemctl (?:stop|restart)[^\n]*(?:control-plane-worker|postgresql)/);
