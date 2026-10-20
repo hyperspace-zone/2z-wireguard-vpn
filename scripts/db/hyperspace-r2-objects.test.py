@@ -112,12 +112,12 @@ class Tests(unittest.TestCase):
     def test_retention_preserves_legacy_and_newest(self):
         self.client.put_object("test", "legacy/manual.dump", b"manual")
         for day in range(1, 5):
-            self.store.backup(self.bundle(f"2026100{day}T010000Z"), 3)
+            self.store.backup(self.bundle(f"2026100{day}T010000Z"), 2)
         versions = self.store.backup_generations("backups/mainnet/hyperspace", "hyperspace")
-        self.assertEqual([v[0] for v in versions], [f"2026100{day}T010000Z" for day in range(2, 5)])
+        self.assertEqual([v[0] for v in versions], [f"2026100{day}T010000Z" for day in range(3, 5)])
         self.assertIn("legacy/manual.dump", self.client.objects)
         first_delete = next(i for i, e in enumerate(self.client.events) if e[0] == "delete")
-        commit = self.client.events.index(("put", "backups/mainnet/hyperspace/20261004T010000Z/_VERIFIED.json"))
+        commit = self.client.events.index(("put", "backups/mainnet/hyperspace/20261003T010000Z/_VERIFIED.json"))
         self.assertGreater(first_delete, commit)
 
     def test_failed_new_backup_does_not_prune(self):

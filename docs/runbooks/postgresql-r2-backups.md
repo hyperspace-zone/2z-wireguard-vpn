@@ -21,7 +21,7 @@ custom domain или CORS. Токен: Object Read & Write **только для
 | `legacy/cherry-20261019/postgresql/` | Все исходные NFS dumps, ручные снимки, SHA-256, globals, зашифрованные recovery-конфиги | Не удаляется автоматически |
 | `legacy/cherry-20261019/migration-inventory/` | Полная опись переноса с размерами и SHA-256 | Не удаляется автоматически |
 | `history-archive/<cluster>/<dataset>/<UTC-day>/` | Старые и новые JSONL.zst-архивы | Не удаляется автоматически |
-| `backups/mainnet/hyperspace/<UTC-timestamp>/` | Новые дампы Neon, globals и SHA-256 | Три последние проверенные генерации |
+| `backups/mainnet/hyperspace/<UTC-timestamp>/` | Новые дампы Neon, globals и SHA-256 | Две последние проверенные генерации |
 
 Каждый bundle получает `_VERIFIED.json` **после** загрузки и полного чтения всех
 его объектов обратно с проверкой SHA-256 и размера. ETag не используется вместо
@@ -31,11 +31,33 @@ SHA-256. При повторе существующий объект с друг
 
 ## Расписание и ограничения
 
-- Ежедневный backup: 02:15 UTC, jitter до 15 минут.
+- Еженедельный backup: воскресенье 02:15 UTC, jitter до 15 минут.
 - Архивация: каждый час, jitter до 10 минут; operational jobs — 30 дней,
   assignment samples/deltas — 90 дней. Ledger, пользователи и VPN state не чистятся.
-- Полный restore drill: воскресенье 04:30 UTC, jitter до 15 минут.
+- Полный restore drill: первое число каждого месяца 04:30 UTC, jitter до 15 минут.
 - SQL/R2 health: каждую минуту.
+
+С 20.10.2026 R2 installer устанавливает timer drop-ins `r2-schedule.conf`:
+они сбрасывают базовый `OnCalendar` перед новым расписанием. Базовые daily/weekly
+timers для иных установок не меняются. `Persistent=true` сохраняется.
+Для существующей установки дополнительно обновить `/etc/hyperspace/r2-maintenance.env`
+(installer не перезаписывает существующий env):
+
+```dotenv
+HS_DB_BACKUP_KEEP_LAST=2
+HS_DB_BACKUP_MAX_AGE_SECONDS=691200
+HS_DB_BACKUP_CRITICAL_MAX_AGE_SECONDS=864000
+HS_DB_OFFSITE_BACKUP_MAX_AGE_SECONDS=691200
+HS_DB_RESTORE_CHECK_MAX_AGE_SECONDS=3024000
+```
+
+Health exporter публикует эти лимиты для Prometheus: warning по локальному
+dump после 8 суток, critical после 10; critical по R2 после 8 суток; critical
+по restore drill после 35 суток. Missing backup/R2 unavailable alerts не
+ослабляются. При отсутствии новых метрик правила используют прежние лимиты
+36/72 часа и 9 суток. После обновления exporter/rules выполнить health collection,
+проверить `promtool`, reload Prometheus и перезапустить только два timer.
+Почасовая архивация и 7-дневный PITR Neon остаются без изменений.
 
 Все три тяжёлые задачи используют общий `flock`, поэтому не выполняются
 одновременно. Лимит клиентского CPU — 25% одного ядра, MemoryHigh 256 MiB,
@@ -44,7 +66,7 @@ MemoryMax 512 MiB, low I/O priority, timeout 2 часа. **CPUQuota не огр�
 одна дневная порция на dataset, ожидание при >4 активных запросах и отсутствие
 parallel restore/export. Диапазон Neon compute эта процедура не меняет.
 
-Локально: `/var/backups/hyperspace` — три последних dump и временный архивный spool.
+Локально: `/var/backups/hyperspace` — два последних dump и временный архивный spool.
 Архиватор удаляет строки из SQL только после проверки локального файла и копии
 в R2. При R2 failure не удаляет SQL-строки. Если удалена только часть дня, следующий
 запуск продолжает по исходному архиву, при необходимости скачивая его из R2.
@@ -97,7 +119,7 @@ Dev-копия ключа вне Git:
 
 ## Восстановление
 
-Weekly drill **скачивает последнюю подтверждённую генерацию из R2**, не берёт
+Monthly drill **скачивает последнюю подтверждённую генерацию из R2**, не берёт
 локальный cached dump. Проверяет SHA-256 и `pg_restore --list`, создаёт новую БД
 `hs_core_restore_check_<UTC>`, восстанавливает её полностью, проверяет обязательные
 таблицы, constraints, ledger aggregation и права runtime role. Production URI не
@@ -130,6 +152,13 @@ infra/observability/prometheus/tests/hyperspace-r2-backups.test.yml` и суще
 DB/resource suites. После unit tests обязателен реальный restore drill.
 
 ## Удаление старой Cherry VM/NFS
+
+20.10.2026 старые Cherry production VM штатно выключены: control-plane/API
+`5.199.161.13`, web `84.32.83.69`, PostgreSQL `84.32.51.45`, observability
+`84.32.83.71`. Старый MongoDB `88.216.62.149` был выключен ранее. Не включать
+на них фоновые jobs, exporters или alert delivery: production и maintenance
+работают на AWS, PostgreSQL — в Neon, MongoDB — в Atlas.
+Power off не удаляет данные и не отменяет заказ VM/Backup Storage.
 
 Не считать один успешный upload достаточным. Нужны: полная сверка migration
 inventory, свежий backup с нового host, полный restore из R2, успешный archive

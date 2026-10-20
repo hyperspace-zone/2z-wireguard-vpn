@@ -514,7 +514,7 @@ tests:
               instance: 81.27.100.29:9100
             exp_annotations:
               summary: Hyperspace offsite PostgreSQL backup is stale
-              description: The latest successful offsite PostgreSQL backup from db.testnet.hyperspace.zone is older than 36 hours.
+              description: The latest successful offsite PostgreSQL backup from db.testnet.hyperspace.zone exceeds its configured maximum age (36 hours by default; 8 days for weekly R2 backups).
 
   - name: public HTTP probe outage is critical
     interval: 15s

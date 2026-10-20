@@ -91,10 +91,15 @@ groups:
           summary: Isolated probes filesystem is nearly full
           description: Less than 15% remains on the bounded probes volume. Check retention; do not delete core/financial data. Core has a separate filesystem budget.
       - alert: HyperspacePostgreSQLRestoreCheckStale
-        expr: time() - hyperspace_postgres_restore_check_last_success_timestamp_seconds > 9 * 86400
+        expr: |
+          time() - hyperspace_postgres_restore_check_last_success_timestamp_seconds >
+          (
+            hyperspace_postgres_restore_check_max_age_seconds
+            or (0 * hyperspace_postgres_restore_check_last_success_timestamp_seconds + 9 * 86400)
+          )
         for: 30m
         labels:
           severity: critical
         annotations:
           summary: Core backup has not passed a recent full restore drill
-          description: No successful core restore verification in 9 days. Check hyperspace-db-restore-check.service, latest backup checksum, offsite storage access and free restore spool space.
+          description: Core restore verification exceeds its configured maximum age (9 days by default; 35 days for monthly drills). Check hyperspace-db-restore-check.service, latest backup checksum, offsite storage access and free restore spool space.

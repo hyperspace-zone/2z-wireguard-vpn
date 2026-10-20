@@ -10,6 +10,13 @@ history_archive_enabled="${HS_DB_HISTORY_ARCHIVE_ENABLED:-0}"
 history_archive_mountpoint="${HS_DB_HISTORY_ARCHIVE_MOUNTPOINT:-/var/backups/hyperspace}"
 history_archive_state_dir="${HS_DB_HISTORY_ARCHIVE_STATE_DIR:-/var/lib/hyperspace/db-history-archive}"
 restore_check_file="${HS_DB_RESTORE_CHECK_STATE_DIR:-/var/lib/hyperspace/db-restore-check}/last-success"
+backup_max_age="${HS_DB_BACKUP_MAX_AGE_SECONDS:-129600}"
+backup_critical_max_age="${HS_DB_BACKUP_CRITICAL_MAX_AGE_SECONDS:-259200}"
+offsite_backup_max_age="${HS_DB_OFFSITE_BACKUP_MAX_AGE_SECONDS:-129600}"
+restore_check_max_age="${HS_DB_RESTORE_CHECK_MAX_AGE_SECONDS:-777600}"
+for setting in backup_max_age backup_critical_max_age offsite_backup_max_age restore_check_max_age; do
+  [[ "${!setting}" =~ ^[1-9][0-9]*$ ]] || { echo "Invalid PostgreSQL freshness limit: $setting" >&2; exit 2; }
+done
 output="${metrics_dir}/hyperspace_postgres_health.prom"
 tmp="$(mktemp "${metrics_dir}/.hyperspace_postgres_health.XXXXXX")"
 trap 'test ! -e "$tmp" || unlink "$tmp"' EXIT
@@ -132,6 +139,18 @@ hyperspace_postgres_backup_last_size_bytes ${backup_size}
 # HELP hyperspace_postgres_restore_check_last_success_timestamp_seconds Unix timestamp of the latest successful full core restore drill.
 # TYPE hyperspace_postgres_restore_check_last_success_timestamp_seconds gauge
 hyperspace_postgres_restore_check_last_success_timestamp_seconds ${restore_check_timestamp}
+# HELP hyperspace_postgres_backup_max_age_seconds Allowed local backup age before a warning.
+# TYPE hyperspace_postgres_backup_max_age_seconds gauge
+hyperspace_postgres_backup_max_age_seconds ${backup_max_age}
+# HELP hyperspace_postgres_backup_critical_max_age_seconds Allowed local backup age before a critical alert.
+# TYPE hyperspace_postgres_backup_critical_max_age_seconds gauge
+hyperspace_postgres_backup_critical_max_age_seconds ${backup_critical_max_age}
+# HELP hyperspace_postgres_offsite_backup_max_age_seconds Allowed verified offsite backup age.
+# TYPE hyperspace_postgres_offsite_backup_max_age_seconds gauge
+hyperspace_postgres_offsite_backup_max_age_seconds ${offsite_backup_max_age}
+# HELP hyperspace_postgres_restore_check_max_age_seconds Allowed age of a successful full restore drill.
+# TYPE hyperspace_postgres_restore_check_max_age_seconds gauge
+hyperspace_postgres_restore_check_max_age_seconds ${restore_check_max_age}
 # HELP hyperspace_postgres_offsite_backup_configured Whether an offsite PostgreSQL backup target is configured.
 # TYPE hyperspace_postgres_offsite_backup_configured gauge
 hyperspace_postgres_offsite_backup_configured ${offsite_enabled}

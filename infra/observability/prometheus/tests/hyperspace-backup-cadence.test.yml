@@ -1,0 +1,83 @@
+rule_files:
+  - ../rules/hyperspace-alerts.yml
+  - ../rules/hyperspace-db-isolation.yml
+evaluation_interval: 1h
+tests:
+  - name: weekly backups use configured limits instead of daily defaults
+    interval: 1h
+    input_series:
+      - series: 'hyperspace_postgres_backup_last_success_timestamp_seconds{job="hyperspace-host-node",service_host="observability.hyperspace.zone"}'
+        values: '1+0x300'
+      - series: 'hyperspace_postgres_offsite_backup_last_success_timestamp_seconds{job="hyperspace-host-node",service_host="observability.hyperspace.zone"}'
+        values: '1+0x300'
+      - series: 'hyperspace_postgres_offsite_backup_configured{job="hyperspace-host-node",service_host="observability.hyperspace.zone"}'
+        values: '1+0x300'
+      - series: 'hyperspace_postgres_backup_max_age_seconds{job="hyperspace-host-node",service_host="observability.hyperspace.zone"}'
+        values: '691200+0x300'
+      - series: 'hyperspace_postgres_backup_critical_max_age_seconds{job="hyperspace-host-node",service_host="observability.hyperspace.zone"}'
+        values: '864000+0x300'
+      - series: 'hyperspace_postgres_offsite_backup_max_age_seconds{job="hyperspace-host-node",service_host="observability.hyperspace.zone"}'
+        values: '691200+0x300'
+    alert_rule_test:
+      - eval_time: 7d
+        alertname: HyperspacePostgreSQLBackupStale
+        exp_alerts: []
+      - eval_time: 7d
+        alertname: HyperspacePostgreSQLBackupCritical
+        exp_alerts: []
+      - eval_time: 7d
+        alertname: HyperspacePostgreSQLOffsiteBackupStale
+        exp_alerts: []
+      - eval_time: 8d2h
+        alertname: HyperspacePostgreSQLBackupStale
+        exp_alerts:
+          - exp_labels:
+              job: hyperspace-host-node
+              service_host: observability.hyperspace.zone
+              severity: warning
+            exp_annotations:
+              summary: Hyperspace PostgreSQL backup is stale
+              description: The newest PostgreSQL dump on observability.hyperspace.zone exceeds its configured maximum age (36 hours by default; 8 days for weekly R2 backups).
+      - eval_time: 8d2h
+        alertname: HyperspacePostgreSQLOffsiteBackupStale
+        exp_alerts:
+          - exp_labels:
+              job: hyperspace-host-node
+              service_host: observability.hyperspace.zone
+              severity: critical
+            exp_annotations:
+              summary: Hyperspace offsite PostgreSQL backup is stale
+              description: The latest successful offsite PostgreSQL backup from observability.hyperspace.zone exceeds its configured maximum age (36 hours by default; 8 days for weekly R2 backups).
+      - eval_time: 8d2h
+        alertname: HyperspacePostgreSQLBackupCritical
+        exp_alerts: []
+      - eval_time: 10d2h
+        alertname: HyperspacePostgreSQLBackupCritical
+        exp_alerts:
+          - exp_labels:
+              job: hyperspace-host-node
+              service_host: observability.hyperspace.zone
+              severity: critical
+            exp_annotations:
+              summary: Hyperspace PostgreSQL backup is critically stale
+              description: The newest PostgreSQL dump on observability.hyperspace.zone exceeds its critical maximum age (72 hours by default; 10 days for weekly R2 backups).
+  - name: monthly restore drill tolerates 31-day calendar months but not a missed month
+    interval: 1h
+    input_series:
+      - series: 'hyperspace_postgres_restore_check_last_success_timestamp_seconds{cluster="mainnet"}'
+        values: '1+0x900'
+      - series: 'hyperspace_postgres_restore_check_max_age_seconds{cluster="mainnet"}'
+        values: '3024000+0x900'
+    alert_rule_test:
+      - eval_time: 32d
+        alertname: HyperspacePostgreSQLRestoreCheckStale
+        exp_alerts: []
+      - eval_time: 36d
+        alertname: HyperspacePostgreSQLRestoreCheckStale
+        exp_alerts:
+          - exp_labels:
+              cluster: mainnet
+              severity: critical
+            exp_annotations:
+              summary: Core backup has not passed a recent full restore drill
+              description: Core restore verification exceeds its configured maximum age (9 days by default; 35 days for monthly drills). Check hyperspace-db-restore-check.service, latest backup checksum, offsite storage access and free restore spool space.

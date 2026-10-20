@@ -201,3 +201,19 @@ test("capacity guard preserves the newest known-good dump", async () => {
     await rm(fixture.root, { recursive: true, force: true });
   }
 });
+
+test("weekly retention keeps two automatic generations without touching manual dumps", async () => {
+  const fixture = await createHarness();
+  try {
+    for (const stamp of ["20261001T021500Z", "20261008T021500Z", "20261015T021500Z"]) {
+      await addManagedBackup(fixture.backupDir, stamp);
+    }
+    const manual = "hyperspace-pre-neon-20261019.dump";
+    await writeFile(join(fixture.backupDir, manual), "manual");
+    await execFileAsync(scriptUrl.pathname, [], { env: { ...fixture.env, HS_DB_BACKUP_KEEP_LAST: "2" } });
+    const files = await readdir(fixture.backupDir);
+    assert.equal(files.filter(name => /^hyperspace-\d{8}T\d{6}Z\.dump$/u.test(name)).length, 2);
+    assert.ok(files.includes("hyperspace-20261015T021500Z.dump"));
+    assert.ok(files.includes(manual));
+  } finally { await rm(fixture.root, { recursive: true, force: true }); }
+});

@@ -406,13 +406,17 @@ groups:
         expr: |
           hyperspace_postgres_backup_last_success_timestamp_seconds{job="hyperspace-host-node"} > 0
           and
-          time() - hyperspace_postgres_backup_last_success_timestamp_seconds{job="hyperspace-host-node"} > 129600
+          time() - hyperspace_postgres_backup_last_success_timestamp_seconds{job="hyperspace-host-node"} >
+          (
+            hyperspace_postgres_backup_max_age_seconds{job="hyperspace-host-node"}
+            or (0 * hyperspace_postgres_backup_last_success_timestamp_seconds{job="hyperspace-host-node"} + 129600)
+          )
         for: 15m
         labels:
           severity: warning
         annotations:
           summary: Hyperspace PostgreSQL backup is stale
-          description: The newest PostgreSQL dump on {{ $labels.service_host }} is older than 36 hours.
+          description: The newest PostgreSQL dump on {{ $labels.service_host }} exceeds its configured maximum age (36 hours by default; 8 days for weekly R2 backups).
 
       - alert: HyperspacePostgreSQLBackupMissing
         expr: hyperspace_postgres_backup_last_success_timestamp_seconds{job="hyperspace-host-node"} == 0
@@ -427,13 +431,17 @@ groups:
         expr: |
           hyperspace_postgres_backup_last_success_timestamp_seconds{job="hyperspace-host-node"} > 0
           and
-          time() - hyperspace_postgres_backup_last_success_timestamp_seconds{job="hyperspace-host-node"} > 259200
+          time() - hyperspace_postgres_backup_last_success_timestamp_seconds{job="hyperspace-host-node"} >
+          (
+            hyperspace_postgres_backup_critical_max_age_seconds{job="hyperspace-host-node"}
+            or (0 * hyperspace_postgres_backup_last_success_timestamp_seconds{job="hyperspace-host-node"} + 259200)
+          )
         for: 15m
         labels:
           severity: critical
         annotations:
           summary: Hyperspace PostgreSQL backup is critically stale
-          description: The newest PostgreSQL dump on {{ $labels.service_host }} is older than 72 hours.
+          description: The newest PostgreSQL dump on {{ $labels.service_host }} exceeds its critical maximum age (72 hours by default; 10 days for weekly R2 backups).
 
       - alert: HyperspaceStagingPostgreSQLBackupStorageUnavailable
         expr: |
@@ -480,13 +488,17 @@ groups:
           and
           hyperspace_postgres_offsite_backup_last_success_timestamp_seconds{job="hyperspace-host-node"} > 0
           and
-          time() - hyperspace_postgres_offsite_backup_last_success_timestamp_seconds{job="hyperspace-host-node"} > 129600
+          time() - hyperspace_postgres_offsite_backup_last_success_timestamp_seconds{job="hyperspace-host-node"} >
+          (
+            hyperspace_postgres_offsite_backup_max_age_seconds{job="hyperspace-host-node"}
+            or (0 * hyperspace_postgres_offsite_backup_last_success_timestamp_seconds{job="hyperspace-host-node"} + 129600)
+          )
         for: 15m
         labels:
           severity: critical
         annotations:
           summary: Hyperspace offsite PostgreSQL backup is stale
-          description: The latest successful offsite PostgreSQL backup from {{ $labels.service_host }} is older than 36 hours.
+          description: The latest successful offsite PostgreSQL backup from {{ $labels.service_host }} exceeds its configured maximum age (36 hours by default; 8 days for weekly R2 backups).
 
       - alert: HyperspacePostgreSQLHealthMetricsStale
         expr: time() - hyperspace_postgres_health_exporter_last_run_timestamp_seconds{job="hyperspace-host-node"} > 300

@@ -95,6 +95,8 @@ test('managed health omits unsupported WAL and fails closed on SQL errors', () =
     const output = join(metrics, 'hyperspace_postgres_health.prom');
     const good = readFileSync(output, 'utf8');
     assert.match(good, /hyperspace_postgres_connections 8/);
+    assert.match(good, /hyperspace_postgres_backup_max_age_seconds 129600/);
+    assert.match(good, /hyperspace_postgres_restore_check_max_age_seconds 777600/);
     assert.doesNotMatch(good, /hyperspace_postgres_wal_size_bytes/);
     assert.doesNotMatch(readFileSync(env.HS_TEST_SQL, 'utf8'), /pg_ls_waldir/);
     assert.equal(readFileSync(link, 'utf8'), good, 'node exporter follows the producer-owned metric file');
@@ -102,7 +104,16 @@ test('managed health omits unsupported WAL and fails closed on SQL errors', () =
     execFileSync('bash', [script], { env });
     assert.ok(lstatSync(link).isSymbolicLink(), 'atomic publication must not replace the shared collector link');
     assert.match(readFileSync(link, 'utf8'), /hyperspace_postgres_connections 8/);
+    execFileSync('bash', [script], { env: { ...env,
+      HS_DB_BACKUP_MAX_AGE_SECONDS: '691200', HS_DB_BACKUP_CRITICAL_MAX_AGE_SECONDS: '864000',
+      HS_DB_OFFSITE_BACKUP_MAX_AGE_SECONDS: '691200', HS_DB_RESTORE_CHECK_MAX_AGE_SECONDS: '3024000' } });
+    assert.match(readFileSync(output, 'utf8'), /hyperspace_postgres_backup_max_age_seconds 691200/);
+    assert.match(readFileSync(output, 'utf8'), /hyperspace_postgres_backup_critical_max_age_seconds 864000/);
+    assert.match(readFileSync(output, 'utf8'), /hyperspace_postgres_offsite_backup_max_age_seconds 691200/);
+    assert.match(readFileSync(output, 'utf8'), /hyperspace_postgres_restore_check_max_age_seconds 3024000/);
     const latestGood = readFileSync(output, 'utf8');
+    assert.throws(() => execFileSync('bash', [script], { env: { ...env, HS_DB_BACKUP_MAX_AGE_SECONDS: '0' } }));
+    assert.throws(() => execFileSync('bash', [script], { env: { ...env, HS_DB_RESTORE_CHECK_MAX_AGE_SECONDS: 'NaN' } }));
     assert.throws(() => execFileSync('bash', [script], { env: { ...env, HS_TEST_SQL_FAIL: '1' } }));
     assert.equal(readFileSync(output, 'utf8'), latestGood, 'last good snapshot must not be overwritten on failure');
   } finally { rmSync(root, { recursive: true, force: true }); }
@@ -115,5 +126,10 @@ test('R2 installer separates metric producers and serializes maintenance jobs', 
   assert.match(source, /flock -w 1800 \/var\/lib\/hyperspace\/db-maintenance\/run.lock/);
   assert.match(source, /MemoryMax=512M/);
   assert.match(source, /CPUQuota=25%/);
+  assert.match(source, /HS_DB_BACKUP_KEEP_LAST=2/);
+  assert.match(source, /HS_DB_RESTORE_CHECK_MAX_AGE_SECONDS=3024000/);
+  assert.match(source, /backup:weekly restore-check:monthly/);
+  assert.match(read('../../infra/systemd/hyperspace-db-backup-weekly.conf'), /OnCalendar=\nOnCalendar=Sun \*-\*-\* 02:15:00 UTC/);
+  assert.match(read('../../infra/systemd/hyperspace-db-restore-check-monthly.conf'), /OnCalendar=\nOnCalendar=\*-\*-01 04:30:00 UTC/);
   execFileSync('bash', ['-n', new URL('./install-r2-maintenance', import.meta.url).pathname]);
 });

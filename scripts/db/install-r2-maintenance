@@ -45,7 +45,11 @@ HS_POSTGRES_DATABASE=hyperspace
 HS_POSTGRES_MANAGED=1
 HS_DB_BACKUP_PROFILE=core
 HS_DB_BACKUP_DIR=/var/backups/hyperspace
-HS_DB_BACKUP_KEEP_LAST=3
+HS_DB_BACKUP_KEEP_LAST=2
+HS_DB_BACKUP_MAX_AGE_SECONDS=691200
+HS_DB_BACKUP_CRITICAL_MAX_AGE_SECONDS=864000
+HS_DB_OFFSITE_BACKUP_MAX_AGE_SECONDS=691200
+HS_DB_RESTORE_CHECK_MAX_AGE_SECONDS=3024000
 HS_DB_OFFSITE_BACKUP_MODE=r2
 HS_DB_OFFSITE_BACKUP_ENABLED=1
 HS_DB_HISTORY_ARCHIVE_ENABLED=1
@@ -87,6 +91,13 @@ MemoryHigh=256M
 MemoryMax=512M
 TimeoutStartSec=2h
 ENV
+done
+for schedule in backup:weekly restore-check:monthly; do
+  job="${schedule%:*}"
+  cadence="${schedule#*:}"
+  install -d -m 0755 "/etc/systemd/system/hyperspace-db-${job}.timer.d"
+  install -m 0644 "$repo_root/infra/systemd/hyperspace-db-${job}-${cadence}.conf" \
+    "/etc/systemd/system/hyperspace-db-${job}.timer.d/r2-schedule.conf"
 done
 unit=hyperspace-postgres-health-exporter
 install -m 0644 "$repo_root/infra/observability/systemd/${unit}.service" /etc/systemd/system/
