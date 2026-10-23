@@ -12,7 +12,7 @@
     {
       "name": "hyperspace-telegram-default",
       "chatId": -5402171626,
-      "severities": ["critical", "warning", "info"],
+      "severities": ["warning", "info"],
       "default": true
     }
   ]

@@ -5,6 +5,7 @@ import { createHealthRegistry, createRuntimeMetrics } from "@hyperspace-zone/sha
 import {
   collectControlPlaneSnapshotMetrics,
   collectBenchmarkMetrics,
+  collectTradingProbeMetrics,
   collectAssignmentUsageMetrics,
   collectJobMetrics,
   collectGateAgentDeploymentMetrics,
@@ -12,6 +13,68 @@ import {
   gateAgentDeploymentFailureClass,
   gateAlertProbeHost
 } from "./control-plane-snapshot.js";
+
+test("trading metric snapshots remove retired nodes and replaced labels without hiding live failures", async () => {
+  let nodes = [
+    { node: "retired-probe", city: "Old city", enabled: true, fresh: false, lastSeenAgeSeconds: 5000 },
+    { node: "live-probe", city: "Previous label", enabled: true, fresh: false, lastSeenAgeSeconds: 1000 }
+  ];
+  let targets = [{ target: "venue", category: "cex", reportingNodes: 1, failedNodes: 1, rateLimitedNodes: 0, latestAgeSeconds: 100 }];
+  const db = { query: async (sql: string) => ({ rows: sql.includes("FROM trading_probe_nodes nodes") ? nodes : targets }) } as unknown as Database;
+  const metrics = createRuntimeMetrics({ service: "trading-snapshot-test", flushIntervalMs: 60_000 });
+  try {
+    await collectTradingProbeMetrics(db, metrics);
+    assert.match(metrics.renderPrometheus(), /node="retired-probe"/);
+    nodes = [{ node: "live-probe", city: "Current label", enabled: true, fresh: false, lastSeenAgeSeconds: 1100 }];
+    targets = [{ ...targets[0]!, category: "perpdex" }];
+    await collectTradingProbeMetrics(db, metrics);
+    const rendered = metrics.renderPrometheus();
+    assert.doesNotMatch(rendered, /retired-probe|Previous label|category="cex"/);
+    assert.match(rendered, /control_plane_trading_probe_node_fresh\{[^}]*enabled="true"[^}]*node="live-probe"[^}]*\} 0/);
+    assert.match(rendered, /control_plane_trading_probe_node_last_seen_age_seconds\{[^}]*node="live-probe"[^}]*\} 1100/);
+    assert.match(rendered, /control_plane_trading_probe_nodes\{[^}]*state="enabled"\} 1/);
+    assert.match(rendered, /control_plane_trading_probe_nodes\{[^}]*state="fresh"\} 0/);
+    nodes = [];
+    targets = [];
+    await collectTradingProbeMetrics(db, metrics);
+    const empty = metrics.renderPrometheus();
+    assert.doesNotMatch(empty, /node="|target="/);
+    assert.match(empty, /control_plane_trading_probe_nodes\{[^}]*state="enabled"\} 0/);
+  } finally { metrics.stop(); }
+});
+
+test("trading node metric read failure retains previous alerting series", async () => {
+  let fail = false;
+  const db = { query: async (sql: string) => {
+    if (fail) throw new Error("database unavailable");
+    return { rows: sql.includes("FROM trading_probe_nodes nodes")
+      ? [{ node: "live-probe", city: "City", enabled: true, fresh: false, lastSeenAgeSeconds: 1000 }]
+      : [] };
+  } } as unknown as Database;
+  const metrics = createRuntimeMetrics({ service: "trading-error-test", flushIntervalMs: 60_000 });
+  try {
+    await collectTradingProbeMetrics(db, metrics);
+    fail = true;
+    await assert.rejects(collectTradingProbeMetrics(db, metrics), /database unavailable/);
+    assert.match(metrics.renderPrometheus(), /control_plane_trading_probe_node_fresh\{[^}]*node="live-probe"[^}]*\} 0/);
+  } finally { metrics.stop(); }
+});
+
+test("trading target read failure does not erase its preceding metrics", async () => {
+  let fail = false;
+  const db = { query: async (sql: string) => {
+    if (sql.includes("FROM trading_probe_nodes nodes")) return { rows: [] };
+    if (fail) throw new Error("target database unavailable");
+    return { rows: [{ target: "venue", category: "cex", reportingNodes: 0, failedNodes: 1, rateLimitedNodes: 0, latestAgeSeconds: 5000 }] };
+  } } as unknown as Database;
+  const metrics = createRuntimeMetrics({ service: "trading-target-error-test", flushIntervalMs: 60_000 });
+  try {
+    await collectTradingProbeMetrics(db, metrics);
+    fail = true;
+    await assert.rejects(collectTradingProbeMetrics(db, metrics), /target database unavailable/);
+    assert.match(metrics.renderPrometheus(), /control_plane_trading_target_failed_nodes\{[^}]*target="venue"\} 1/);
+  } finally { metrics.stop(); }
+});
 
 test("job metrics exclude successful history but preserve exact operational and dead counts", async () => {
   const statements: string[] = [];

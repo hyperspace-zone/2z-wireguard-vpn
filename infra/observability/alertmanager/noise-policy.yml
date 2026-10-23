@@ -1,0 +1,22 @@
+# Suppress only dependent symptoms; root failures and unrelated hosts stay visible.
+inhibit_rules:
+  - source_matchers:
+      - alertname="HyperspacePostgreSQLHistoryArchiveFailed"
+      - cluster!=""
+      - service_host!=""
+    target_matchers:
+      - alertname="HyperspacePostgreSQLHistoryArchiveStale"
+    equal: [cluster, service_host]
+  - source_matchers:
+      - alertname="HyperspaceHeliusUsageDataStale"
+      - cluster!=""
+      - instance!=""
+    target_matchers:
+      - alertname="HyperspaceHeliusUsagePollFailed"
+    equal: [cluster, instance]
+  - source_matchers:
+      - alertname="HyperspaceMeasurementsMongoUnavailable"
+      - cluster!=""
+    target_matchers:
+      - alertname=~"HyperspaceTradingTargetDataStale|HyperspaceBenchmarkRouteDataStale|HyperspacePublicMeasurementSnapshotStale"
+    equal: [cluster]

@@ -117,8 +117,14 @@ export async function collectTradingProbeMetrics(db: Database, metrics: RuntimeM
     LEFT JOIN trading_probe_node_status status ON status.probe_node_id = nodes.id
     WHERE nodes.desired_state <> 'Disabled'
   `);
-  if (mongo) resetGauges(metrics, ["control_plane_trading_probe_node_fresh",
-    "control_plane_trading_probe_node_last_seen_age_seconds", "control_plane_trading_probe_nodes"]);
+  // Replace the successful catalog snapshot, rather than retaining series for
+  // disabled/deleted nodes or their previous labels forever. Preserve the old
+  // snapshot if its query fails, so a database outage cannot hide live faults.
+  resetGauges(metrics, [
+    "control_plane_trading_probe_node_fresh",
+    "control_plane_trading_probe_node_last_seen_age_seconds",
+    "control_plane_trading_probe_nodes"
+  ]);
   let enabled = 0;
   let fresh = 0;
   for (const row of nodes.rows) {
@@ -160,8 +166,12 @@ export async function collectTradingProbeMetrics(db: Database, metrics: RuntimeM
     WHERE targets.enabled = true
     GROUP BY targets.id, targets.target_key, targets.category
   `);
-  if (mongo) resetGauges(metrics, ["control_plane_trading_target_reporting_nodes", "control_plane_trading_target_failed_nodes",
-    "control_plane_trading_target_rate_limited_nodes", "control_plane_trading_target_latest_age_seconds"]);
+  resetGauges(metrics, [
+    "control_plane_trading_target_reporting_nodes",
+    "control_plane_trading_target_failed_nodes",
+    "control_plane_trading_target_rate_limited_nodes",
+    "control_plane_trading_target_latest_age_seconds"
+  ]);
   for (const row of targets.rows) {
     const labels = { target: row.target, category: row.category };
     metrics.gauge("control_plane_trading_target_reporting_nodes", row.reportingNodes, {

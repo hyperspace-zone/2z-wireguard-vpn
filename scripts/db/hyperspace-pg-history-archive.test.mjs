@@ -33,7 +33,7 @@ test("history archive shell is syntactically valid and fail-closed", () => {
   assert.ok(script.indexOf('>"${output_dir}\/READY"') < script.indexOf("delete_archived_day"));
   assert.match(script, /LIMIT \$\{delete_batch_size\} FOR UPDATE SKIP LOCKED/);
   assert.equal((script.match(/SELECT (?:[a-z]+\.)?ctid AS row_ctid/g) ?? []).length, 8);
-  assert.equal((script.match(/rows\.ctid=victims\.row_ctid/g) ?? []).length, 8);
+  assert.equal((script.match(/rows\.ctid=victims\.row_ctid/g) ?? []).length, 9);
   assert.match(script, /archive_day_has_rows/);
   assert.match(script, /still has referenced or locked rows/);
   assert.ok(script.indexOf('remaining == 0') < script.indexOf('>"${output_dir}\/COMPLETE"'));
@@ -67,6 +67,17 @@ test("history archive shell is syntactically valid and fail-closed", () => {
   assert.match(timer, /RandomizedDelaySec=10m/);
   assert.match(installer, /HS_DB_HISTORY_ARCHIVE_PRESSURE_BYTES=21474836480/);
   assert.match(installer, /HS_DB_HISTORY_ARCHIVE_PRESSURE_MAX_SLICES_PER_RUN=4/);
+});
+
+test('core archive separates 30-day operational rows from immutable legacy mixed days', () => {
+  const definitions = script.slice(script.indexOf('dataset_condition() {'), script.indexOf('oldest_eligible_day() {'));
+  const output = execFileSync('bash', ['-c', `set -eu\n${definitions}\ndataset_condition core_job_attempts\nprintf '\\n'\ndataset_condition core_jobs`], {encoding: 'utf8'});
+  assert.equal((output.match(/interval '30 days'/g) ?? []).length, 2);
+  assert.doesNotMatch(output, /interval '1 day'/);
+  assert.match(output, /parent.type <> 'probe'/);
+  assert.match(script, /datasets=\(core_job_attempts core_jobs assignment_deltas assignment_samples\)/);
+  assert.match(script, /JOIN archive_row_guard archived ON/);
+  assert.match(script, /to_jsonb\(\$\{table\}\)=archived.payload/);
 });
 
 test("history archive indexes cover time scans and the benchmark job foreign key", () => {

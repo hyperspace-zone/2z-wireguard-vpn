@@ -137,3 +137,59 @@ Render `/etc/prometheus/alertmanager.yml` with
 Telegram notifications include the Alertmanager `started UTC` timestamp for
 every alert and an additional `resolved UTC` timestamp after recovery. These
 timestamps come from the alert payload rather than the Telegram delivery time.
+
+### Retired gates and probe alerts
+
+Gate alerts use `gate` labels, but `HyperspaceTradingProbeNodeStale` uses `node`.
+After retiring a gate, verify both labels in Prometheus and Alertmanager. Disable
+the gate and linked probe nodes in the authoritative catalog, revoke their
+credentials, and remove retired entries from deployment seeds and file discovery.
+Revoke related VPN sessions and wait for cleanup acknowledgements from surviving
+peers before releasing client addresses and hiding configs. Offline assignments
+may be closed administratively with an audit record; never claim a host cleanup
+report that was not received. Preserve payment and usage history.
+Include hidden failed creates in the audit: normal revocation deliberately skips
+hidden sessions. Normalize their lifecycle administratively only after proving
+they have no host assignments or available artifacts; do not unhide them.
+
+The probes worker replaces dynamic node/target gauge families after each
+successful read. Removed nodes and changed labels must disappear without a
+restart; a failed read retains the preceding snapshot and exposes the collector
+failure. Restart only the optional probes worker when deploying this collector
+fix; core API, core worker and gates do not need a restart. Verify retired alerts
+are absent, not silenced. An existing Telegram group may send one final RESOLVED
+notification because `send_resolved` is enabled.
+# Уведомления после исправления 23.10.2026
+
+Production `alertmanager_telegram_receivers.json` направляет `critical` только
+в `hyperspace-telegram-critical`, а `warning`/`info` — в основной чат. Используйте
+`scripts/render-alertmanager-telegram-config` вместе с
+`infra/observability/alertmanager/noise-policy.yml`; оба файла входят в deployment.
+Renderer сохраняет первое уведомление и `send_resolved`, но задаёт repeat 12h
+только для archive failed/stale и Helius usage failed/stale. Обычный repeat 4h
+для API/gate outages не меняется.
+
+Inhibition ограничен подтверждёнными зависимостями:
+
+- `ArchiveFailed` подавляет `ArchiveStale` только того же cluster/service_host.
+- `HeliusUsageDataStale` подавляет `HeliusUsagePollFailed` того же cluster/instance.
+- `MeasurementsMongoUnavailable` подавляет stale trading targets, benchmark
+  routes и public measurement snapshots только того же cluster.
+
+После устранения причины оставшийся зависимый алерт снова виден. Правила не
+подавляют потерю gate heartbeat, API down, проблемы другого host/cluster или
+quota-exhausted. Alertmanager reload сохраняет состояние уведомлений;
+Prometheus и VPN gates перезапускать не требуется.
+
+Проверка: `node --test scripts/observability/alertmanager-noise.test.mjs`.
+Тест поднимает изолированный Alertmanager **без внешних получателей**, проверяет
+маршрутизацию, inhibition, отсутствие подавления API/gate outages и снятие
+inhibition после восстановления источника. Не отправляйте тестовые инциденты
+в production для проверки маршрутов: используйте `amtool config routes test`.
+
+Helius usage polling ограничен 15 секундами, ошибки содержат HTTP status,
+категорию и безопасный request ID без response body/URL/key. Метрики:
+`helius_usage_last_http_status`, `helius_usage_consecutive_failures` и
+`helius_usage_poll_errors_total{reason=...}`. При 401/403 проверить соответствие
+project/key, права Admin API и provider access policy. Последние достоверные
+credits сохраняются, freshness продолжает сигнализировать о сбое опроса.

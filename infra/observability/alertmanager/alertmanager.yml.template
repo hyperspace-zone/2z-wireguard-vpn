@@ -15,6 +15,17 @@ route:
     - receiver: hyperspace-telegram-critical
       matchers:
         - severity="critical"
+      routes:
+        - matchers:
+            - alertname=~"HyperspacePostgreSQLHistoryArchive(Failed|Stale)|HyperspaceHeliusUsage(PollFailed|DataStale)"
+          repeat_interval: 12h
+    - receiver: hyperspace-telegram-default
+      matchers:
+        - alertname="HyperspaceHeliusUsagePollFailed"
+      repeat_interval: 12h
+
+# For production use scripts/render-alertmanager-telegram-config, which also
+# includes the scoped inhibition rules in noise-policy.yml.
 
 receivers:
   - name: hyperspace-telegram-critical

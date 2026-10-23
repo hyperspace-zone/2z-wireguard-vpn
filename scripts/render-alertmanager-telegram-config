@@ -5,6 +5,7 @@ receivers_path="/etc/prometheus/alertmanager_telegram_receivers.json"
 output_path="-"
 bot_token_file="/etc/prometheus/telegram_bot_token"
 template_glob="/etc/prometheus/alertmanager_templates/*.tmpl"
+noise_policy="${HS_ALERTMANAGER_NOISE_POLICY:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/infra/observability/alertmanager/noise-policy.yml}"
 
 usage() {
   cat <<'EOF'
@@ -121,6 +122,12 @@ trap 'rm -f "$tmp_output"' EXIT
         printf '      matchers:\n'
         printf '        - severity=%s\n' "$(json_string "$severity")"
         printf '      continue: true\n'
+        # Operational maintenance keeps its first/recovery notifications, but
+        # repeats less often. API/gate outage routing retains the normal cadence.
+        printf '      routes:\n'
+        printf '        - matchers:\n'
+        printf '            - alertname=~"HyperspacePostgreSQLHistoryArchive(Failed|Stale)|HyperspaceHeliusUsage(PollFailed|DataStale)"\n'
+        printf '          repeat_interval: 12h\n'
       done
   fi
 
@@ -139,7 +146,8 @@ trap 'rm -f "$tmp_output"' EXIT
       printf "        message: '{{ template \"telegram.hyperspace.message\" . }}'\n\n"
     done
 
-  printf 'templates:\n'
+  cat "$noise_policy"
+  printf '\ntemplates:\n'
   printf '  - %s\n' "$template_glob"
 } >"$tmp_output"
 

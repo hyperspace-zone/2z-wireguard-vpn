@@ -62,3 +62,54 @@ test("Helius key extraction accepts only Helius RPC URLs", () => {
   assert.equal(readHeliusApiKey("https://example.com/?api-key=test-key"), null);
   assert.equal(readHeliusApiKey("not-a-url"), null);
 });
+
+test("Helius timeout bounds the request and preserves the last successful credit snapshot", async () => {
+  const metrics = createRuntimeMetrics({service: "helius-timeout-test"});
+  metrics.gauge("helius_credits_remaining", 12345, {labels: {provider: "helius"}});
+  const loop = createHeliusUsageLoop(loadConfig(baseEnv), metrics, {
+    timeoutMs: 20,
+    fetchImpl: async (_url, init) => new Promise((_resolve, reject) => {
+      init?.signal?.addEventListener("abort", () => reject(new Error("secret URL " + baseEnv.SOLANA_HISTORY_RPC_URL)), {once: true});
+    })
+  });
+  try {
+    await assert.rejects(loop.runOnce(), /timed out after 20ms/);
+    const output = metrics.renderPrometheus();
+    assert.match(output, /helius_credits_remaining.* 12345/);
+    assert.match(output, /helius_usage_consecutive_failures.* 1/);
+    assert.match(output, /reason="timeout"/);
+    assert.doesNotMatch(output, /test-key/);
+  } finally { metrics.stop(); }
+});
+
+test("Helius denial exposes a bounded request ID, never the response body, and recovery clears failures", async () => {
+  const metrics = createRuntimeMetrics({service: "helius-denial-test"});
+  let denied = true;
+  const loop = createHeliusUsageLoop(loadConfig(baseEnv), metrics, {
+    fetchImpl: async () => denied
+      ? new Response('secret response test-key', {status: 403, headers: {'x-request-id': 'provider-request-123'}})
+      : new Response(JSON.stringify({creditsRemaining: 123, creditsUsed: 1,
+        subscriptionDetails: {creditsLimit: 1000, billingCycle: {end: '2026-12-01'}}}))
+  });
+  try {
+    await assert.rejects(loop.runOnce(), error => {
+      assert.match(String(error), /HTTP 403; reason=access_denied; request_id=provider-request-123/);
+      assert.doesNotMatch(String(error), /test-key|secret response/); return true;
+    });
+    assert.match(metrics.renderPrometheus(), /helius_usage_last_http_status.* 403/);
+    denied = false; await loop.runOnce();
+    assert.match(metrics.renderPrometheus(), /helius_usage_consecutive_failures.* 0/);
+    assert.match(metrics.renderPrometheus(), /helius_usage_poll_ready.* 1/);
+  } finally { metrics.stop(); }
+});
+
+test("Helius transport errors cannot leak credentials through exception text", async () => {
+  const metrics = createRuntimeMetrics({service: "helius-network-test"});
+  try {
+    const loop = createHeliusUsageLoop(loadConfig(baseEnv), metrics, {fetchImpl: async () => { throw new Error(baseEnv.SOLANA_HISTORY_RPC_URL); }});
+    await assert.rejects(loop.runOnce(), error => {
+      assert.match(String(error), /failed before completion/);
+      assert.doesNotMatch(String(error), /test-key|https:/); return true;
+    });
+  } finally { metrics.stop(); }
+});

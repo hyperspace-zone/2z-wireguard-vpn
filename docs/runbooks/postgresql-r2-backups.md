@@ -59,6 +59,34 @@ dump после 8 суток, critical после 10; critical по R2 посл�
 проверить `promtool`, reload Prometheus и перезапустить только два timer.
 Почасовая архивация и 7-дневный PITR Neon остаются без изменений.
 
+### Исправление архиватора 23.10.2026
+
+Production profile `core` использует отдельные dataset names
+`core_job_attempts` и `core_jobs` с единой retention 30 дней. Legacy
+`job_attempts`/`jobs` смешивали однодневные probes и 30-дневные control jobs:
+`COMPLETE` мог появиться до того, как control-записи того же дня достигали
+retention. В частности, legacy архив 21 сентября содержал 87 849 attempts,
+но не две записи `deploy_agent`, которые стали eligible 22 октября.
+
+Старые R2 bundles и их `COMPLETE` не переписываются. Оставшиеся control-записи
+получают отдельный verified bundle в новом namespace. Удаление core jobs и
+attempts сверяет ID **и полный JSON записи** с экспортированным содержимым;
+изменённые или отсутствующие в архиве строки сохраняются. FK-зависимости,
+batch limits, R2 read-back verification и резерв места остаются обязательными.
+Текущие synthetic очереди находятся в Atlas; новые архивы core их не включают.
+
+Проверка SQL-защиты использует только session-local TEMP tables, с
+`search_path=pg_temp`, без чтения/изменения production rows:
+
+```bash
+node scripts/db/history-archive-core-guard.integration.mjs
+```
+
+Запускать с защищёнными PG connection settings и подходящим `PGDATABASE`;
+не печатать env. После выкладки проверить успешный ручной запуск, следующий
+штатный hourly запуск и `hyperspace_postgres_history_archive_last_attempt_success`.
+Расписания полного backup/PITR/restore drill этим исправлением не меняются.
+
 Все три тяжёлые задачи используют общий `flock`, поэтому не выполняются
 одновременно. Лимит клиентского CPU — 25% одного ядра, MemoryHigh 256 MiB,
 MemoryMax 512 MiB, low I/O priority, timeout 2 часа. **CPUQuota не ограничивает
